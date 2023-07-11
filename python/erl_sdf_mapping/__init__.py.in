@@ -1,0 +1,23 @@
+from @PY_PACKAGE_NAME@.@PYBIND_MODULE_NAME@.gp_sdf import (
+    GpisData2D,
+    GpisNode2D,
+    GpisNodeContainer2D,
+    GpisMapBase2D,
+    GpisMap2D,
+    LogGpisMap2D,
+    GpisData3D,
+    GpisNode3D,
+    GpisNodeContainer3D,
+)
+
+__all__ = [
+    "GpisData2D",
+    "GpisNode2D",
+    "GpisNodeContainer2D",
+    "GpisMapBase2D",
+    "GpisMap2D",
+    "LogGpisMap2D",
+    "GpisData3D",
+    "GpisNode3D",
+    "GpisNodeContainer3D",
+]

@@ -1,0 +1,1 @@
+erl_gp_sdf=@PY_PACKAGE_NAME@.gp_sdf.main_gp_sdf:main

@@ -1,0 +1,21 @@
+<?xml version="1.0"?>
+<package format="2">
+    <name>erl_sdf_mapping</name>
+    <version>0.1.0</version>
+    <description>erl_sdf_mapping is a C++ library for SDF estimation.</description>
+    <author email="daizhirui@hotmail.com">Zhirui Dai</author>
+    <maintainer email="daizhirui@hotmail.com">Zhirui Dai</maintainer>
+    <license>MIT</license>
+    <url type="repository">https://github.com/ExistentialRobotics/erl_sdf_mapping.git</url>
+
+    <buildtool_depend>catkin</buildtool_depend>
+
+    <build_depend>erl_common</build_depend>
+    <build_depend>erl_gaussian_process</build_depend>
+    <build_depend>erl_geometry</build_depend>
+
+    <build_export_depend>erl_common</build_export_depend>
+    <build_export_depend>erl_gaussian_process</build_export_depend>
+    <build_export_depend>erl_geometry</build_export_depend>
+
+</package>
