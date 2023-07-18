@@ -20,7 +20,7 @@ namespace erl::sdf_mapping {
             };
 
             unsigned int num_threads = 64;
-            double update_hz = 50;
+            double update_hz = 20;
             double gp_sdf_area_scale = 4;            // ratio between GP area and Quadtree cluster area
             double offset_distance = 0.02;
             double zero_gradient_threshold = 1.e-6;  // gradient below this threshold is considered zero.
@@ -44,13 +44,16 @@ namespace erl::sdf_mapping {
 
     private:
         std::shared_ptr<Setting> m_setting_ = std::make_shared<Setting>();
-        std::shared_ptr<AbstractSurfaceMapping2D> m_surface_mapping_ = nullptr;
-        std::vector<geometry::QuadtreeKey> m_clusters_to_update_ = {};
-        QuadtreeKeyGpMap m_gp_map_ = {};
-        std::vector<std::vector<std::pair<double, std::shared_ptr<GP>>>> m_query_to_gps_ = {};
-        std::vector<std::shared_ptr<GP>> m_gps_to_train_ = {};
-        bool m_might_need_training_ = false;
-        double m_train_gp_time_ = 10;  // us
+        std::mutex m_mutex_;
+        std::shared_ptr<AbstractSurfaceMapping2D> m_surface_mapping_ = nullptr;                 // for getting surface points, racing condition.
+        std::vector<geometry::QuadtreeKey> m_clusters_to_update_ = {};                          // stores clusters that are to be updated by UpdateGpThread().
+        std::vector<std::vector<geometry::QuadtreeKey>> m_clusters_not_updated_ = {};           // stores clusters that are not updated by UpdateGpThread().
+        QuadtreeKeyGpMap m_gp_map_ = {};                                                        // for getting GP from Quadtree key, racing condition.
+        std::vector<std::vector<std::pair<double, std::shared_ptr<GP>>>> m_query_to_gps_ = {};  // for testing, racing condition when Update() is called.
+        std::vector<std::vector<std::pair<double, std::shared_ptr<GpSdf>>>> m_query_to_test_gps_ = {};  // for testing, safe when Update() is called.
+        std::vector<std::shared_ptr<GP>> m_gps_to_train_ = {};  // for training SDF GPs, racing condition when Update() and Test() are called.
+        bool m_might_need_training_ = false;                    // flag indicating whether m_gps_to_train_ might need training.
+        double m_train_gp_time_ = 10;                           // us
 
         // for testing
         struct TestBuffer {
@@ -105,8 +108,10 @@ namespace erl::sdf_mapping {
         TestBuffer m_test_buffer_ = {};
 
     public:
-        explicit GpSdfMapping2D(std::shared_ptr<AbstractSurfaceMapping2D> surface_mapping)
-            : m_surface_mapping_(std::move(surface_mapping)) {
+        explicit GpSdfMapping2D(std::shared_ptr<AbstractSurfaceMapping2D> surface_mapping, std::shared_ptr<Setting> setting = nullptr)
+            : m_setting_(std::move(setting)),
+              m_surface_mapping_(std::move(surface_mapping)) {
+            if (m_setting_ == nullptr) { m_setting_ = std::make_shared<Setting>(); }
             ERL_ASSERTM(m_surface_mapping_ != nullptr, "surface_mapping is nullptr.");
         }
 
@@ -134,18 +139,26 @@ namespace erl::sdf_mapping {
             const Eigen::Ref<const Eigen::Matrix23d>& pose) {
 
             double time_budget = 1e6 / m_setting_->update_hz;  // us
-            auto t0 = std::chrono::high_resolution_clock::now();
-            bool success = m_surface_mapping_->Update(angles, distances, pose);
-            auto t1 = std::chrono::high_resolution_clock::now();
-            auto dt = std::chrono::duration_cast<std::chrono::microseconds>(t1 - t0).count();
-            ERL_INFO("Surface mapping update time: %ld us.\n", dt);
-            time_budget -= dt;
+            bool success;
+            std::chrono::high_resolution_clock::time_point t0, t1;
+            long dt;
+            {
+                std::lock_guard<std::mutex> lock(m_mutex_);
+                t0 = std::chrono::high_resolution_clock::now();
+                success = m_surface_mapping_->Update(angles, distances, pose);
+                t1 = std::chrono::high_resolution_clock::now();
+                dt = std::chrono::duration_cast<std::chrono::microseconds>(t1 - t0).count();
+                ERL_INFO("Surface mapping update time: %ld us.", dt);
+            }
+            time_budget -= double(dt);
+
             if (success) {
+                std::lock_guard<std::mutex> lock(m_mutex_);
                 t0 = std::chrono::high_resolution_clock::now();
                 UpdateGps(time_budget);
                 t1 = std::chrono::high_resolution_clock::now();
                 dt = std::chrono::duration_cast<std::chrono::milliseconds>(t1 - t0).count();
-                ERL_INFO("GP update time: %ld ms.\n", dt);
+                ERL_INFO("GP update time: %ld ms.", dt);
                 return true;
             }
             return false;
@@ -168,7 +181,7 @@ namespace erl::sdf_mapping {
 
         void
         TrainGps() {
-            ERL_INFO("Training %zu GPs ...\n", m_gps_to_train_.size());
+            ERL_INFO("Training %zu GPs ...", m_gps_to_train_.size());
             auto t0 = std::chrono::high_resolution_clock::now();
             unsigned int n = m_gps_to_train_.size();
             if (n == 0) return;
@@ -190,7 +203,7 @@ namespace erl::sdf_mapping {
             auto t1 = std::chrono::high_resolution_clock::now();
             double time = double(std::chrono::duration_cast<std::chrono::microseconds>(t1 - t0).count()) / double(n);
             m_train_gp_time_ = m_train_gp_time_ * 0.4 + time * 0.6;
-            ERL_INFO("Per GP training time: %f us.\n", m_train_gp_time_);
+            ERL_INFO("Per GP training time: %f us.", m_train_gp_time_);
         }
 
         void

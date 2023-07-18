@@ -51,8 +51,7 @@ main(int argc, char *argv[]) {
         po::variables_map vm;
         po::store(po::command_line_parser(argc, argv).options(desc).run(), vm);
         if (vm.count("help")) {
-            std::cout << "Usage: " << argv[0] << " [options]\n";
-            std::cout << desc << std::endl;
+            std::cout << "Usage: " << argv[0] << " [options]" << std::endl << desc << std::endl;
             return 0;
         }
         po::notify(vm);

@@ -1,7 +1,7 @@
 #pragma once
 
-#include "erl_common/eigen.hpp"
 #include "erl_geometry/node.hpp"
+#include "erl_common/eigen.hpp"
 
 namespace erl::sdf_mapping::gpis {
 

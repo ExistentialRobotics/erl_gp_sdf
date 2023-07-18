@@ -1,4 +1,6 @@
 #include "erl_sdf_mapping/gp_sdf_mapping_2d.hpp"
+#include <vector>
+#include <thread>
 #include <algorithm>
 
 namespace erl::sdf_mapping {
@@ -22,46 +24,60 @@ namespace erl::sdf_mapping {
             std::size_t leftover = n - batch_size * num_threads;
             std::size_t start_idx, end_idx;
 
-            // Search GPs for each query position
-            auto t0 = std::chrono::high_resolution_clock::now();
-            m_query_to_gps_.clear();
-            m_query_to_gps_.resize(n);
+            std::chrono::high_resolution_clock::time_point t0, t1;
+            long dt;
             {
-                double x, y;
-                m_surface_mapping_->GetQuadtree()->GetMetricMin(x, y);  // trigger the quadtree to update its metric min/max
-            }
-            if (n == 1) {
-                SearchGpThread(0, 0, 1);  // save time on thread creation
-            } else {
-                start_idx = 0;
-                for (unsigned int thread_idx = 0; thread_idx < num_threads; thread_idx++) {
-                    end_idx = start_idx + batch_size;
-                    if (thread_idx < leftover) { end_idx++; }
-                    threads.emplace_back(&GpSdfMapping2D::SearchGpThread, this, thread_idx, start_idx, end_idx);
-                    start_idx = end_idx;
-                }
-                for (auto &thread: threads) { thread.join(); }
-                threads.clear();
-            }
-            auto t1 = std::chrono::high_resolution_clock::now();
-            long dt = std::chrono::duration_cast<std::chrono::microseconds>(t1 - t0).count();
-            ERL_INFO("Search GPs: %ld us\n", dt);
-
-            // Train any new needed GPs
-            if (m_might_need_training_) {
+                std::lock_guard<std::mutex> lock(m_mutex_);
+                // Search GPs for each query position
                 t0 = std::chrono::high_resolution_clock::now();
-                std::unordered_set<std::shared_ptr<GP>> new_gps;
-                for (auto &gps: m_query_to_gps_) {
-                    for (auto &[distance, gp]: gps) {
-                        if (gp->gp == nullptr) { new_gps.insert(gp); }
-                    }
+                m_query_to_gps_.clear();
+                m_query_to_gps_.resize(n);
+                {
+                    double x, y;
+                    m_surface_mapping_->GetQuadtree()->GetMetricMin(x, y);  // trigger the quadtree to update its metric min/max
                 }
-                m_gps_to_train_.clear();
-                m_gps_to_train_.insert(m_gps_to_train_.end(), new_gps.begin(), new_gps.end());
-                TrainGps();
+                if (n == 1) {
+                    SearchGpThread(0, 0, 1);  // save time on thread creation
+                } else {
+                    start_idx = 0;
+                    for (unsigned int thread_idx = 0; thread_idx < num_threads; thread_idx++) {
+                        end_idx = start_idx + batch_size;
+                        if (thread_idx < leftover) { end_idx++; }
+                        threads.emplace_back(&GpSdfMapping2D::SearchGpThread, this, thread_idx, start_idx, end_idx);
+                        start_idx = end_idx;
+                    }
+                    for (auto &thread: threads) { thread.join(); }
+                    threads.clear();
+                }
                 t1 = std::chrono::high_resolution_clock::now();
                 dt = std::chrono::duration_cast<std::chrono::microseconds>(t1 - t0).count();
-                ERL_INFO("Train GPs: %ld us\n", dt);
+                ERL_INFO("Search GPs: %ld us", dt);
+
+                // Train any new needed GPs
+                if (m_might_need_training_) {
+                    t0 = std::chrono::high_resolution_clock::now();
+                    std::unordered_set<std::shared_ptr<GP>> new_gps;
+                    for (auto &gps: m_query_to_gps_) {
+                        for (auto &[distance, gp]: gps) {
+                            if (gp->gp == nullptr) { new_gps.insert(gp); }
+                        }
+                    }
+                    m_gps_to_train_.clear();
+                    m_gps_to_train_.insert(m_gps_to_train_.end(), new_gps.begin(), new_gps.end());
+                    TrainGps();
+                    t1 = std::chrono::high_resolution_clock::now();
+                    dt = std::chrono::duration_cast<std::chrono::microseconds>(t1 - t0).count();
+                    ERL_INFO("Train GPs: %ld us", dt);
+                }
+
+                // move gps from m_query_to_gps_ to m_query_to_test_gps_
+                m_query_to_test_gps_.clear();
+                m_query_to_test_gps_.resize(n);
+                for (unsigned int i = 0; i < n; i++) {
+                    for (auto &[distance, gp]: m_query_to_gps_[i]) {
+                        if (gp->gp != nullptr) { m_query_to_test_gps_[i].emplace_back(distance, gp->gp); }
+                    }
+                }
             }
 
             // Compute the inference result for each query position
@@ -81,7 +97,7 @@ namespace erl::sdf_mapping {
             }
             t1 = std::chrono::high_resolution_clock::now();
             dt = std::chrono::duration_cast<std::chrono::microseconds>(t1 - t0).count();
-            ERL_INFO("Test GPs: %ld us\n", dt);
+            ERL_INFO("Test GPs: %ld us", dt);
 
             m_test_buffer_.DisconnectBuffers();
             return true;
@@ -116,7 +132,9 @@ namespace erl::sdf_mapping {
         threads.reserve(num_threads);
         m_clusters_to_update_.clear();
         m_clusters_to_update_.insert(m_clusters_to_update_.end(), affected_clusters.begin(), affected_clusters.end());
-        for (auto &cluster_key: m_clusters_to_update_) { m_gp_map_.insert({cluster_key, std::make_shared<GP>()}); }  // add new GPs if necessary
+        for (auto &cluster_key: m_clusters_to_update_) { m_gp_map_.try_emplace(cluster_key, std::make_shared<GP>()); }
+        m_clusters_not_updated_.clear();
+        m_clusters_not_updated_.resize(num_threads);
         std::size_t batch_size = m_clusters_to_update_.size() / num_threads;
         std::size_t left_over = m_clusters_to_update_.size() - batch_size * num_threads;
         std::size_t start_idx = 0;
@@ -129,10 +147,14 @@ namespace erl::sdf_mapping {
         }
         for (unsigned int thread_idx = 0; thread_idx < num_threads; ++thread_idx) { threads[thread_idx].join(); }
 
+        for (auto &cluster_keys: m_clusters_not_updated_) {
+            for (auto &cluster_key: cluster_keys) { m_gp_map_.erase(cluster_key); }
+        }
+
         if (m_setting_->train_gp_immediately) {  // new GPs are already trained in UpdateGpThread
             auto t1 = std::chrono::high_resolution_clock::now();
             auto dt = double(std::chrono::duration_cast<std::chrono::microseconds>(t1 - t0).count());
-            ERL_INFO("Update GPs' training data: %f us.\n", dt);
+            ERL_INFO("Update GPs' training data: %f us.", dt);
             return;
         }
 
@@ -146,7 +168,7 @@ namespace erl::sdf_mapping {
         m_gps_to_train_.insert(m_gps_to_train_.end(), new_gps.begin(), new_gps.end());
         auto t1 = std::chrono::high_resolution_clock::now();
         auto dt = double(std::chrono::duration_cast<std::chrono::microseconds>(t1 - t0).count());
-        ERL_INFO("Update GPs' training data: %f us.\n", dt);
+        ERL_INFO("Update GPs' training data: %f us.", dt);
         time_budget -= dt;
 
         // train as many new GPs as possible within the time limit
@@ -177,8 +199,8 @@ namespace erl::sdf_mapping {
         for (unsigned int i = start_idx; i < end_idx; ++i) {
             auto &cluster_key = m_clusters_to_update_[i];
             // get the GP of the cluster
-            std::shared_ptr<GP> gp = m_gp_map_[cluster_key];
-            ERL_ASSERTM(gp != nullptr, "GP must exist\n");
+            std::shared_ptr<GP> gp = m_gp_map_.at(cluster_key);
+            ERL_ASSERTM(gp != nullptr, "GP must exist");
 
             // collect surface data in the area
             double x, y;
@@ -199,8 +221,7 @@ namespace erl::sdf_mapping {
             }
 
             if (count == 0) {
-                m_gp_map_.erase(cluster_key);
-                // ERL_WARNING("[Thread %d]: No surface data for cluster key (%d, %d).\n", thread_idx, cluster_key[0], cluster_key[1]);
+                m_clusters_not_updated_[thread_idx].push_back(cluster_key);
                 continue;
             }
 
@@ -226,7 +247,7 @@ namespace erl::sdf_mapping {
                 gp->vec_grad_flag[count++] = true;
                 mat_valid_grad.col(valid_grad_count++) = surface_data->normal;
             }
-            ERL_ASSERTM(count == gp->mat_x.cols(), "count: %d, gp.mat_x.cols(): %ld\n", count, gp->mat_x.cols());
+            // ERL_ASSERTM(count == gp->mat_x.cols(), "count: %d, gp.mat_x.cols(): %ld", count, gp->mat_x.cols());
             gp->vec_y.resize(count + 2 * valid_grad_count);
             gp->vec_y.head(count).array() = m_setting_->offset_distance;
             mat_valid_grad.conservativeResize(2, valid_grad_count);
@@ -319,7 +340,7 @@ namespace erl::sdf_mapping {
             gradient_out.setZero();
             gradient_variance_out.setConstant(1e6);
 
-            auto &gps = m_query_to_gps_[i];
+            auto &gps = m_query_to_test_gps_[i];
             if (gps.empty()) { continue; }
 
             const auto &kPosition = m_test_buffer_.positions->col(i);
@@ -336,7 +357,7 @@ namespace erl::sdf_mapping {
                 // call selected GPs for inference
                 Eigen::Ref<Eigen::Vector3d> f = fs.col(cnt);      // distance, gradient_x, gradient_y
                 Eigen::Ref<Eigen::Vector3d> var = vars.col(cnt);  // var_distance, var_gradient_x, var_gradient_y
-                gps[j].second->gp->Test(kPosition, f, var);
+                gps[j].second->Test(kPosition, f, var);
                 tested_idx.push_back(cnt++);
                 if (m_setting_->test_query->use_nearest_only) { break; }
                 if ((!need_weighted_sum) && (idx.size() > 1) && (var[0] > m_setting_->test_query->max_test_valid_distance_var)) { need_weighted_sum = true; }
@@ -384,4 +405,4 @@ namespace erl::sdf_mapping {
         }
     }
 
-}  // namespace erl::mapping
+}  // namespace erl::sdf_mapping

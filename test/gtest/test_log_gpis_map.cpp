@@ -1,13 +1,13 @@
 #include "erl_common/test_helper.hpp"
-#include "erl_sdf_mapping/gpis/log_gpis_map_2d.hpp"
 #include "erl_geometry/gazebo_room.hpp"
-#include <gtest/gtest.h>
+#include "erl_sdf_mapping/gpis/log_gpis_map_2d.hpp"
 #include <filesystem>
+#include <gtest/gtest.h>
 
 using namespace erl::common;
 using namespace erl::sdf_mapping::gpis;
 
-TEST(GPISMapping, LogGpisMap2D) {
+TEST(ERL_SDF_MAPPING, LogGpisMap2D) {
     std::filesystem::path file_path = __FILE__;
     std::filesystem::path dir_path = file_path.parent_path();
 
@@ -41,7 +41,8 @@ TEST(GPISMapping, LogGpisMap2D) {
     auto df = erl::geometry::GazeboRoom::TestDataFrame((dir_path / test_dat_file).c_str());
     Eigen::VectorXd distance_ans, distance_variance_ans;
     Eigen::Matrix2Xd gradient_ans, gradient_variance_ans;
-    // std::vector<double> distance_ans, gradient_ans, distance_variance_ans, gradient_variance_ans;
+    // std::vector<double> distance_ans, gradient_ans, distance_variance_ans,
+    // gradient_variance_ans;
     long t_test_ans = ReportTime<std::chrono::milliseconds>("LogGpisMap2D-test", 10, false, [&]() {
         log_gpis_map.Test(df.positions, distance_ans, gradient_ans, distance_variance_ans, gradient_variance_ans);
     });
@@ -53,3 +54,11 @@ TEST(GPISMapping, LogGpisMap2D) {
     std::cout << PrintInfo("Average testing time:") << std::endl;
     std::cout << "LogGpisMap2D: " << t_test_ans << " ms for " << df.positions.cols() << " points, " << t_per_point << " us per point" << std::endl;
 }
+
+#if defined(ERL_ROS_VERSION_1)
+int
+main(int argc, char **argv) {
+    ::testing::InitGoogleTest(&argc, argv);
+    return RUN_ALL_TESTS();
+}
+#endif

@@ -39,7 +39,7 @@ namespace erl::sdf_mapping::gpis {
         [[nodiscard]] inline std::string
         GetNodeTypeName(int type) const override {
             static const char *names[] = {ERL_AS_STRING(kSurface)};
-            ERL_DEBUG_ASSERT(type >= 0 && type < 1, "Invalid node type.\n");
+            ERL_DEBUG_ASSERT(type >= 0 && type < 1, "Invalid node type.");
             return names[type];
         }
 
@@ -51,7 +51,7 @@ namespace erl::sdf_mapping::gpis {
         [[nodiscard]] inline std::size_t
         Capacity(int type) const override {
             (void) type;
-            ERL_DEBUG_ASSERT(type == int(GpisNodeType::kSurface), "Invalid node type.\n");
+            ERL_DEBUG_ASSERT(type == int(GpisNodeType::kSurface), "Invalid node type.");
             return m_setting_->capacity;
         }
 
@@ -63,7 +63,7 @@ namespace erl::sdf_mapping::gpis {
         [[nodiscard]] inline std::size_t
         Size(int type) const override {
             (void) type;
-            ERL_DEBUG_ASSERT(type == int(GpisNodeType::kSurface), "Invalid node type.\n");
+            ERL_DEBUG_ASSERT(type == int(GpisNodeType::kSurface), "Invalid node type.");
             return m_nodes_.size();
         }
 

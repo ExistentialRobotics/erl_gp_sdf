@@ -641,7 +641,7 @@ GPisMap::TestKernel(int thread_idx, int start_idx, int end_idx, double *x, doubl
 
         if (quads.empty()) {
             static int i = 0;
-            ERL_WARNING("[%d] Thread %d: no cluster found for position (%f, %f)\n", i, thread_idx, xt(0), xt(1));
+            ERL_WARN("[%d] Thread %d: no cluster found for position (%f, %f)\n", i, thread_idx, xt(0), xt(1));
             i++;
         }
 

@@ -1,67 +1,32 @@
-#include "erl_env/house_expo.hpp"
+#include "erl_geometry/house_expo.hpp"
 #include "erl_geometry/lidar_2d.hpp"
-#include "erl_mapping/gp_occ_surface_mapping_2d.hpp"
+#include "erl_sdf_mapping/gp_occ_surface_mapping_2d.hpp"
 #include "erl_geometry/occupancy_quadtree_drawer.hpp"
-#include "erl_mapping/gp_sdf_mapping_2d.hpp"
+#include "erl_sdf_mapping/gp_sdf_mapping_2d.hpp"
 #include "erl_common/csv.hpp"
-#include "erl_env/gazebo_room.hpp"
+#include "erl_geometry/gazebo_room.hpp"
 #include "erl_common/random.hpp"
 #include <boost/program_options.hpp>
+#include <gtest/gtest.h>
+#include <filesystem>
+
+static std::filesystem::path g_file_path = __FILE__;
+static std::filesystem::path g_dir_path = g_file_path.parent_path();
+static std::string g_window_name = "ERL_SDF_MAPPING";
 
 struct Options {
-    std::string gazebo_train_file = "train.dat";
-    std::string gazebo_test_file = "test.dat";
-    std::string house_expo_map_file = "house_expo_room_1451.json";
-    std::string house_expo_traj_file = "house_expo_room_1451.csv";
+    std::string gazebo_train_file = (g_dir_path / "train.dat").string();
+    std::string gazebo_test_file = (g_dir_path / "test.dat").string();
+    std::string house_expo_map_file = (g_dir_path / "house_expo_room_1451.json").string();
+    std::string house_expo_traj_file = (g_dir_path / "house_expo_room_1451.csv").string();
     bool use_gazebo_data = false;
     bool visualize = false;
     bool hold = false;
 };
 
-int
-main(int argc, char *argv[]) {
-    Options options;
-    try {
-        namespace po = boost::program_options;
-        po::options_description desc;
-        // clang-format off
-        desc.add_options()
-            ("help", "produce help message")
-            ("use-gazebo-data", po::bool_switch(&options.use_gazebo_data)->default_value(options.use_gazebo_data), "Use Gazebo data instead of HouseExpo data")
-            ("visualize", po::bool_switch(&options.visualize)->default_value(options.visualize), "Visualize the mapping")
-            ("hold", po::bool_switch(&options.hold)->default_value(options.hold), "Hold the test until a key is pressed")
-            (
-                "house-expo-map-file",
-                po::value<std::string>(&options.house_expo_map_file)->default_value(options.house_expo_map_file)->value_name("file"),
-                "HouseExpo map file"
-            )
-            (
-                "house-expo-traj-file",
-                po::value<std::string>(&options.house_expo_traj_file)->default_value(options.house_expo_traj_file)->value_name("file"),
-                "HouseExpo trajectory file"
-            )(
-                "gazebo-train-file",
-                po::value<std::string>(&options.gazebo_train_file)->default_value(options.gazebo_train_file)->value_name("file"),
-                "Gazebo train data file"
-            )(
-                "gazebo-test-file",
-                po::value<std::string>(&options.gazebo_test_file)->default_value(options.gazebo_test_file)->value_name("file"),
-                "Gazebo test data file");
-        // clang-format on
+static Options g_options;
 
-        po::variables_map vm;
-        po::store(po::command_line_parser(argc, argv).options(desc).run(), vm);
-        if (vm.count("help")) {
-            std::cout << "Usage: " << argv[0] << " [options]\n";
-            std::cout << desc << std::endl;
-            return 0;
-        }
-        po::notify(vm);
-    } catch (std::exception &e) {
-        std::cerr << e.what() << "\n";
-        return 1;
-    }
-
+TEST(ERL_SDF_MAPPING, GpSdfMapping2D) {
     long max_update_cnt;
     std::vector<Eigen::VectorXd> train_angles;
     std::vector<Eigen::VectorXd> train_ranges;
@@ -72,8 +37,8 @@ main(int argc, char *argv[]) {
     Eigen::Vector2i map_padding(100, 100);
     Eigen::Matrix2Xd cur_traj;
 
-    if (options.use_gazebo_data) {
-        auto train_data_loader = erl::env::GazeboRoom::TrainDataLoader(options.gazebo_train_file.c_str());
+    if (g_options.use_gazebo_data) {
+        auto train_data_loader = erl::geometry::GazeboRoom::TrainDataLoader(g_options.gazebo_train_file.c_str());
         max_update_cnt = long(train_data_loader.size());
         train_angles.reserve(max_update_cnt);
         train_ranges.reserve(max_update_cnt);
@@ -100,7 +65,7 @@ main(int argc, char *argv[]) {
             i++;
         }
     } else {
-        erl::env::HouseExpoMap house_expo_map(options.house_expo_map_file.c_str(), 0.2);
+        erl::geometry::HouseExpoMap house_expo_map(g_options.house_expo_map_file.c_str(), 0.2);
         map_min = house_expo_map.GetMeterSpace()->GetSurface()->vertices.rowwise().minCoeff();
         map_max = house_expo_map.GetMeterSpace()->GetSurface()->vertices.rowwise().maxCoeff();
         erl::geometry::Lidar2D lidar(house_expo_map.GetMeterSpace());
@@ -110,7 +75,7 @@ main(int argc, char *argv[]) {
         bool scan_in_parallel = true;
         lidar.SetNumLines(int((angle_max - angle_min) / res));
         auto trajectory =
-            erl::common::LoadAndCastCsvFile<double>(options.house_expo_traj_file.c_str(), [](const std::string &str) -> double { return std::stod(str); });
+            erl::common::LoadAndCastCsvFile<double>(g_options.house_expo_traj_file.c_str(), [](const std::string &str) -> double { return std::stod(str); });
         max_update_cnt = long(trajectory.size());
         train_angles.reserve(max_update_cnt);
         train_ranges.reserve(max_update_cnt);
@@ -129,11 +94,11 @@ main(int argc, char *argv[]) {
         }
     }
 
-    auto surface_mapping = std::make_shared<erl::mapping::GpOccSurfaceMapping2D>();
-    erl::mapping::GpSdfMapping2D sdf_mapping(surface_mapping);
+    auto surface_mapping = std::make_shared<erl::sdf_mapping::GpOccSurfaceMapping2D>();
+    erl::sdf_mapping::GpSdfMapping2D sdf_mapping(surface_mapping);
     std::cout << surface_mapping->GetSetting()->AsYamlString() << std::endl;
     std::cout << sdf_mapping.GetSetting()->AsYamlString() << std::endl;
-    using OccupancyQuadtreeDrawer = erl::geometry::OccupancyQuadtreeDrawer<erl::mapping::SurfaceMappingQuadtree>;
+    using OccupancyQuadtreeDrawer = erl::geometry::OccupancyQuadtreeDrawer<erl::sdf_mapping::SurfaceMappingQuadtree>;
     auto drawer_setting = std::make_shared<OccupancyQuadtreeDrawer::Setting>();
     drawer_setting->area_min = map_min;
     drawer_setting->area_max = map_max;
@@ -141,10 +106,10 @@ main(int argc, char *argv[]) {
     drawer_setting->padding = map_padding[0];
     drawer_setting->border_color = cv::Scalar(255, 0, 0, 255);
     auto drawer = std::make_shared<OccupancyQuadtreeDrawer>(drawer_setting);
-    auto grid_map_info = drawer->GetGridMapInfo();
     std::vector<std::pair<cv::Point, cv::Point>> arrowed_lines;
-    drawer->SetDrawTreeCallback([&](cv::Mat &img, erl::mapping::SurfaceMappingQuadtree::TreeIterator &it) {
+    drawer->SetDrawTreeCallback([&](const OccupancyQuadtreeDrawer *self, cv::Mat &img, erl::sdf_mapping::SurfaceMappingQuadtree::TreeIterator &it) {
         unsigned int cluster_depth = surface_mapping->GetQuadtree()->GetTreeDepth() - surface_mapping->GetClusterLevel();
+        auto grid_map_info = self->GetGridMapInfo();
         if (it.GetDepth() == cluster_depth) {
             Eigen::Vector2i position_px = grid_map_info->MeterToPixelForPoints(Eigen::Vector2d(it.GetX(), it.GetY()));
             cv::Point position_px_cv(position_px[0], position_px[1]);
@@ -159,8 +124,9 @@ main(int argc, char *argv[]) {
         cv::Point arrow_end_px(position_px[0] + normal_px[0], position_px[1] + normal_px[1]);
         arrowed_lines.emplace_back(position_px_cv, arrow_end_px);
     });
-    drawer->SetDrawLeafCallback([&](cv::Mat &img, erl::mapping::SurfaceMappingQuadtree::LeafIterator &it) {
+    drawer->SetDrawLeafCallback([&](const OccupancyQuadtreeDrawer *self, cv::Mat &img, erl::sdf_mapping::SurfaceMappingQuadtree::LeafIterator &it) {
         if (it->GetSurfaceData() == nullptr) { return; }
+        auto grid_map_info = self->GetGridMapInfo();
         Eigen::Vector2i position_px = grid_map_info->MeterToPixelForPoints(it->GetSurfaceData()->position);
         cv::Point position_px_cv(position_px[0], position_px[1]);
         cv::circle(img, position_px_cv, 1, cv::Scalar(0, 0, 255, 255), -1);  // draw surface point
@@ -172,23 +138,23 @@ main(int argc, char *argv[]) {
     bool pixel_based = true;
     cv::Scalar trajectory_color(0, 0, 255, 255);
     cv::Mat img;
-    char *window_name = argv[0];
     bool drawer_connected = false;
     bool update_occupancy = surface_mapping->GetSetting()->update_occupancy;
-    if (options.visualize) {
+    if (g_options.visualize) {
         if (update_occupancy) {
             drawer->DrawLeaves(img);
         } else {
             drawer->DrawTree(img);
         }
-        cv::imshow(window_name, img);
+        cv::imshow(g_window_name, img);
         cv::waitKey(10);
     }
-    if (options.hold) {
-        if (!options.visualize) { cv::namedWindow(window_name, cv::WINDOW_AUTOSIZE); }
+    if (g_options.hold) {
+        if (!g_options.visualize) { cv::namedWindow(g_window_name, cv::WINDOW_AUTOSIZE); }
         std::cout << "Press any key to start" << std::endl;
         cv::waitKey(0);
     }
+    auto grid_map_info = drawer->GetGridMapInfo();
 
     long t = 0;
     for (long i = 0; i < max_update_cnt; i++) {
@@ -198,10 +164,10 @@ main(int argc, char *argv[]) {
         sdf_mapping.Update(train_angles[i], train_ranges[i], train_poses[i]);
         auto t1 = std::chrono::high_resolution_clock::now();
         auto dt = std::chrono::duration_cast<std::chrono::milliseconds>(t1 - t0).count();
-        ERL_INFO("Update time: %ld ms.\n", dt);
+        ERL_INFO("Update time: %ld ms.", dt);
         t += dt;
 
-        if (options.visualize) {
+        if (g_options.visualize) {
             if (!drawer_connected) {
                 drawer->SetQuadtree(surface_mapping->GetQuadtree());
                 drawer_connected = true;
@@ -217,12 +183,12 @@ main(int argc, char *argv[]) {
                 cv::arrowedLine(img, position_px_cv, arrow_end_px, cv::Scalar(0, 0, 255, 255), 1, 8, 0, 0.1);
             }
             erl::common::DrawTrajectoryInplace(img, cur_traj.block(0, 0, 2, i), grid_map_info, trajectory_color, 2, pixel_based);
-            cv::imshow(window_name, img);
+            cv::imshow(g_window_name, img);
             cv::waitKey(10);
         }
         std::cout << "=====================================" << std::endl;
     }
-    ERL_INFO("Average update time: %ld ms.\n", t / max_update_cnt);
+    ERL_INFO("Average update time: %ld ms.", t / max_update_cnt);
 
     // Test SDF Estimation
     bool c_stride = true;
@@ -234,39 +200,88 @@ main(int argc, char *argv[]) {
     auto t1 = std::chrono::high_resolution_clock::now();
     auto dt = std::chrono::duration_cast<std::chrono::milliseconds>(t1 - t0).count();
     double t_per_point = double(dt) / (double) positions_in.cols() * 1000;  // us
-    ERL_INFO("Test time: %ld ms for %ld points, %f us per point.\n", dt, positions_in.cols(), t_per_point);
+    ERL_INFO("Test time: %ld ms for %ld points, %f us per point.", dt, positions_in.cols(), t_per_point);
 
-    Eigen::MatrixXd distances_out_mat = distances_out.reshaped(grid_map_info->Height(), grid_map_info->Width());
-    double min_distance = distances_out.minCoeff();
-    double max_distance = distances_out.maxCoeff();
-    Eigen::MatrixX8U distances_out_mat_normalized = ((distances_out_mat.array() - min_distance) / (max_distance - min_distance) * 255).cast<uint8_t>();
-    cv::Mat src, dst;
-    cv::eigen2cv(distances_out_mat_normalized, src);
-    cv::flip(src, src, 0);  // flip along y axis
-    cv::applyColorMap(src, dst, cv::COLORMAP_JET);
-    cv::cvtColor(dst, dst, cv::COLOR_BGR2BGRA);
-    cv::addWeighted(dst, 0.5, img, 0.5, 0.0, dst);
-    cv::imshow("distances_out", dst);
-    cv::waitKey(100);
+    if (g_options.visualize) {
+        Eigen::MatrixXd distances_out_mat = distances_out.reshaped(grid_map_info->Height(), grid_map_info->Width());
+        double min_distance = distances_out.minCoeff();
+        double max_distance = distances_out.maxCoeff();
+        Eigen::MatrixX8U distances_out_mat_normalized = ((distances_out_mat.array() - min_distance) / (max_distance - min_distance) * 255).cast<uint8_t>();
+        cv::Mat src, dst;
+        cv::eigen2cv(distances_out_mat_normalized, src);
+        cv::flip(src, src, 0);  // flip along y axis
+        cv::applyColorMap(src, dst, cv::COLORMAP_JET);
+        cv::cvtColor(dst, dst, cv::COLOR_BGR2BGRA);
+        cv::addWeighted(dst, 0.5, img, 0.5, 0.0, dst);
+        cv::imshow("distances_out", dst);
+        cv::waitKey(100);
 
-    Eigen::MatrixXd variances_out_mat = distance_variances_out.reshaped(grid_map_info->Height(), grid_map_info->Width());
-    double min_variance = variances_out_mat.minCoeff();
-    double max_variance = variances_out_mat.maxCoeff();
-    Eigen::MatrixX8U variances_out_mat_normalized = ((variances_out_mat.array() - min_variance) / (max_variance - min_variance) * 255).cast<uint8_t>();
-    cv::eigen2cv(variances_out_mat_normalized, src);
-    cv::flip(src, src, 0);  // flip along y axis
-    cv::applyColorMap(src, dst, cv::COLORMAP_JET);
-    cv::cvtColor(dst, dst, cv::COLOR_BGR2BGRA);
-    cv::addWeighted(dst, 0.5, img, 0.5, 0.0, dst);
-    cv::imshow("distance_variances_out", dst);
-    cv::waitKey(100);
+        Eigen::MatrixXd variances_out_mat = distance_variances_out.reshaped(grid_map_info->Height(), grid_map_info->Width());
+        double min_variance = variances_out_mat.minCoeff();
+        double max_variance = variances_out_mat.maxCoeff();
+        Eigen::MatrixX8U variances_out_mat_normalized = ((variances_out_mat.array() - min_variance) / (max_variance - min_variance) * 255).cast<uint8_t>();
+        cv::eigen2cv(variances_out_mat_normalized, src);
+        cv::flip(src, src, 0);  // flip along y axis
+        cv::applyColorMap(src, dst, cv::COLORMAP_JET);
+        cv::cvtColor(dst, dst, cv::COLOR_BGR2BGRA);
+        cv::addWeighted(dst, 0.5, img, 0.5, 0.0, dst);
+        cv::imshow("distance_variances_out", dst);
+        cv::waitKey(100);
+    }
 
     surface_mapping->GetQuadtree()->WriteBinary("tree.bt");
     ERL_ASSERT(surface_mapping->GetQuadtree()->Write("tree.ot"));
-    if (options.hold) {
+    if (g_options.hold) {
         std::cout << "Press any key to exit." << std::endl;
-        cv::waitKey(0);  // 10 seconds
+        cv::waitKey(0);
+        cv::destroyAllWindows();
+    } else {
+        cv::waitKey(10000);  // 10 seconds
         cv::destroyAllWindows();
     }
-    return 0;
+}
+
+int
+main(int argc, char *argv[]) {
+    ::testing::InitGoogleTest(&argc, argv);
+    try {
+        namespace po = boost::program_options;
+        po::options_description desc;
+        // clang-format off
+        desc.add_options()
+            ("help", "produce help message")
+            ("use-gazebo-data", po::bool_switch(&g_options.use_gazebo_data)->default_value(g_options.use_gazebo_data), "Use Gazebo data instead of HouseExpo data")
+            ("visualize", po::bool_switch(&g_options.visualize)->default_value(g_options.visualize), "Visualize the mapping")
+            ("hold", po::bool_switch(&g_options.hold)->default_value(g_options.hold), "Hold the test until a key is pressed")
+            (
+                "house-expo-map-file",
+                po::value<std::string>(&g_options.house_expo_map_file)->default_value(g_options.house_expo_map_file)->value_name("file"),
+                "HouseExpo map file"
+            )(
+                "house-expo-traj-file",
+                po::value<std::string>(&g_options.house_expo_traj_file)->default_value(g_options.house_expo_traj_file)->value_name("file"),
+                "HouseExpo trajectory file"
+            )(
+                "gazebo-train-file",
+                po::value<std::string>(&g_options.gazebo_train_file)->default_value(g_options.gazebo_train_file)->value_name("file"),
+                "Gazebo train data file"
+            )(
+                "gazebo-test-file",
+                po::value<std::string>(&g_options.gazebo_test_file)->default_value(g_options.gazebo_test_file)->value_name("file"),
+                "Gazebo test data file");
+        // clang-format on
+
+        po::variables_map vm;
+        po::store(po::command_line_parser(argc, argv).options(desc).run(), vm);
+        if (vm.count("help")) {
+            std::cout << "Usage: " << argv[0] << " [options]" << std::endl << desc << std::endl;
+            return 0;
+        }
+        po::notify(vm);
+    } catch (std::exception &e) {
+        std::cerr << e.what() << "\n";
+        return 1;
+    }
+    g_window_name = argv[0];
+    return RUN_ALL_TESTS();
 }

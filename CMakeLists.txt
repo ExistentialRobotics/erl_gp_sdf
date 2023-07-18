@@ -9,13 +9,20 @@ message(STATUS "Configuring ${PROJECT_NAME} ${PROJECT_VERSION}")
 if (NOT COMMAND erl_project_setup)
     find_package(erl_common REQUIRED)
 endif ()
-set(${PROJECT_NAME}_CATKIN_COMPONENTS erl_common erl_gaussian_process erl_geometry)
+set(${PROJECT_NAME}_CATKIN_COMPONENTS roscpp std_msgs sensor_msgs tf2_ros tf2_eigen erl_common erl_gaussian_process
+        erl_geometry cv_bridge message_generation)
+set(${PROJECT_NAME}_CATKIN_DEPENDS roscpp std_msgs sensor_msgs tf2_ros tf2_eigen erl_common erl_gaussian_process
+        erl_geometry cv_bridge message_runtime)
 erl_project_setup()
-erl_setup_ros()
+erl_setup_ros(
+        CATKIN_COMPONENTS ${${PROJECT_NAME}_CATKIN_COMPONENTS}
+        SRV_FILES PredictSdf.srv
+        MSG_DEPENDENCIES std_msgs
+)
 erl_catkin_package(
         INCLUDE_DIRS include
         LIBRARIES ${PROJECT_NAME} py${PROJECT_NAME}
-        CATKIN_DEPENDS ${${PROJECT_NAME}_CATKIN_COMPONENTS}
+        CATKIN_DEPENDS ${${PROJECT_NAME}_CATKIN_DEPENDS}
         DEPENDS ${${PROJECT_NAME}_DEPENDS})   # dependencies are collected via erl_find_package
 
 #######################################################################################################################
@@ -25,7 +32,7 @@ erl_catkin_package(
 ########################
 # define the libraries #
 ########################
-file(GLOB_RECURSE SRC_FILES src/*.cpp src/gpis/*.cpp)
+file(GLOB SRC_FILES src/*.cpp src/gpis/*.cpp)
 add_library(${PROJECT_NAME} ${SRC_FILES})
 add_library(${PROJECT_NAME}::${PROJECT_NAME} ALIAS ${PROJECT_NAME})
 target_include_directories(${PROJECT_NAME}
@@ -34,6 +41,11 @@ target_include_directories(${PROJECT_NAME}
         $<INSTALL_INTERFACE:${${PROJECT_NAME}_INSTALL_INCLUDE_DIR}>)
 target_include_directories(${PROJECT_NAME} SYSTEM PUBLIC ${catkin_INCLUDE_DIRS})
 target_link_libraries(${PROJECT_NAME} PUBLIC erl_common erl_gaussian_process erl_geometry ${catkin_LIBRARIES})
+
+if (ROS_ACTIVATED)
+    add_executable(erl_sdf_mapping_node src/ros/erl_sdf_mapping_node.cpp)
+    target_link_libraries(erl_sdf_mapping_node PUBLIC ${PROJECT_NAME})
+endif ()
 
 ###################
 # Python bindings #
@@ -53,7 +65,9 @@ erl_install(
 #######################################################################################################################
 # TEST
 #######################################################################################################################
-erl_add_tests()
+erl_add_tests(
+        LIBRARIES ${PROJECT_NAME}
+)
 
 #######################################################################################################################
 # export variables

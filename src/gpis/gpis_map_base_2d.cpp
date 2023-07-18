@@ -440,7 +440,7 @@ namespace erl::sdf_mapping::gpis {
 
         for (int i = start_idx; i < end_idx; ++i) {
             if (m_clusters_to_update_[i] == nullptr) {
-                ERL_WARNING("Thread %d: empty shared pointer at index %d of m_clusters_to_update_.\n", thread_idx, i);
+                ERL_WARN("Thread %d: empty shared pointer at index %d of m_clusters_to_update_.", thread_idx, i);
                 continue;
             }
 
@@ -558,7 +558,7 @@ namespace erl::sdf_mapping::gpis {
         double max_distance,
         int max_marching_steps) {
 
-        ERL_ASSERTM(threshold > 0, "threshold must be positive.\n");
+        ERL_ASSERTM(threshold > 0, "threshold must be positive.");
 
         long num_rays = positions.cols();
         Eigen::VectorXd sddf_values = Eigen::VectorXd::Zero(num_rays);
@@ -659,7 +659,7 @@ namespace erl::sdf_mapping::gpis {
 
             if (clusters.empty()) {
                 static int warn_cnt = 0;
-                ERL_WARNING("[%d] Thread %d: no cluster found for position (%f, %f)\n", warn_cnt, thread_idx, kPosition.x(), kPosition.y());
+                ERL_WARN("[%d] Thread %d: no cluster found for position (%f, %f)", warn_cnt, thread_idx, kPosition.x(), kPosition.y());
                 warn_cnt++;
                 continue;
             }  // no qualified cluster

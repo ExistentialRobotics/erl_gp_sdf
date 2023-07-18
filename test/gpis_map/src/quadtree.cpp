@@ -202,7 +202,7 @@ QuadTree::Insert(std::shared_ptr<Node> n) {
     if (!m_boundary_.ContainsPoint(n->GetPos())) {
         if (GetParent() == nullptr) {
             if (m_root_limit_reached_) {
-                ERL_WARNING("Root Limit Reached!\n");
+                ERL_WARN("Root Limit Reached!");
                 return false;
             } else
                 return InsertToParent(n);
@@ -277,7 +277,7 @@ QuadTree::Insert(std::shared_ptr<Node> n, std::unordered_set<QuadTree *> &quads)
         if (GetParent() == nullptr) {
             // FIXME: when InsertToParent is called, if inserting the node successfully, quads is not updated
             if (m_root_limit_reached_) {
-                ERL_WARNING("Root Limit Reached!\n");
+                ERL_WARN("Root Limit Reached!");
                 return false;
             } else
                 return InsertToParent(n, quads);  // FIXED

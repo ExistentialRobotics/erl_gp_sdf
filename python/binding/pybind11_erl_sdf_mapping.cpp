@@ -174,6 +174,10 @@ BindGpSdf3D(py::module &m) {
         .def("__len__", py::overload_cast<>(&GpisNodeContainer3D::Size, py::const_));
 }
 
+static void BindGpSdfMapping2D(py::module &m) {
+
+}
+
 PYBIND11_MODULE(PYBIND_MODULE_NAME, m) {
     m.doc() = "Python 3 Interface of erl_gp_sdf";
 
