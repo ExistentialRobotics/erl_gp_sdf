@@ -205,7 +205,7 @@ private:
             return;
         }
         // FIXME: racing condition between SubCallbackLidarScan and SrvCallbackPredictSdf
-        if (m_params_.visualize_quadtree && m_visualize_counter_ == 0) {
+        if (m_params_.visualize_quadtree && m_visualize_counter_ == 0 && m_surface_mapping_->GetQuadtree()) {
             if (!m_drawer_connected_) {
                 m_quadtree_drawer_->SetQuadtree(m_surface_mapping_->GetQuadtree());
                 m_drawer_connected_ = true;
