@@ -159,12 +159,12 @@ private:
         LOAD_PARAMETER(lidar_data_topic_path);
         LOAD_PARAMETER(world_frame_name);
         LOAD_PARAMETER(lidar_frame_name);
-        LOAD_REQUIRED_PARAMETER(surface_mapping_config_path);
-        LOAD_REQUIRED_PARAMETER(sdf_mapping_config_path);
+        LOAD_PARAMETER(surface_mapping_config_path);
+        LOAD_PARAMETER(sdf_mapping_config_path);
         m_surface_mapping_setting_ = std::make_shared<erl::sdf_mapping::GpOccSurfaceMapping2D::Setting>();
-        m_surface_mapping_setting_->FromYamlFile(m_params_.surface_mapping_config_path);
+        if (!m_params_.surface_mapping_config_path.empty()) { m_surface_mapping_setting_->FromYamlFile(m_params_.surface_mapping_config_path); }
         m_sdf_mapping_setting_ = std::make_shared<erl::sdf_mapping::GpSdfMapping2D::Setting>();
-        m_sdf_mapping_setting_->FromYamlFile(m_params_.sdf_mapping_config_path);
+        if (!m_params_.sdf_mapping_config_path.empty()) { m_sdf_mapping_setting_->FromYamlFile(m_params_.sdf_mapping_config_path); }
         LOAD_PARAMETER(visualize_quadtree);
         if (m_params_.visualize_quadtree) {
             LOAD_PARAMETER(visualize_frequency_divider);
