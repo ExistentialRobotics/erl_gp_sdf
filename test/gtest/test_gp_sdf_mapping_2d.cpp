@@ -96,8 +96,9 @@ TEST(ERL_SDF_MAPPING, GpSdfMapping2D) {
 
     auto surface_mapping = std::make_shared<erl::sdf_mapping::GpOccSurfaceMapping2D>();
     erl::sdf_mapping::GpSdfMapping2D sdf_mapping(surface_mapping);
-    std::cout << surface_mapping->GetSetting()->AsYamlString() << std::endl;
-    std::cout << sdf_mapping.GetSetting()->AsYamlString() << std::endl;
+    std::cout << "Surface Mapping Setting:" << std::endl
+              << surface_mapping->GetSetting()->AsYamlString() << std::endl
+              << "Sdf Mapping Setting:" << sdf_mapping.GetSetting()->AsYamlString() << std::endl;
     using OccupancyQuadtreeDrawer = erl::geometry::OccupancyQuadtreeDrawer<erl::sdf_mapping::SurfaceMappingQuadtree>;
     auto drawer_setting = std::make_shared<OccupancyQuadtreeDrawer::Setting>();
     drawer_setting->area_min = map_min;
