@@ -17,9 +17,13 @@
 #include <cv_bridge/cv_bridge.h>
 #include <tf2_ros/transform_listener.h>
 #include <tf2_eigen/tf2_eigen.h>
+#include <tf2/convert.h>
+#include <tf2/LinearMath/Matrix3x3.h>
+#include <tf2_geometry_msgs/tf2_geometry_msgs.h>
 #include <filesystem>
 #include <erl_sdf_mapping/PredictSdf.h>
 #include <mutex>
+#include <cmath>
 
 static const std::string kRosNodeName = "erl_sdf_mapping_node";
 static const std::filesystem::path kRosNodeParamRoot = "/erl_sdf_mapping_node";
@@ -80,6 +84,11 @@ public:
         m_surface_mapping_ = std::make_shared<erl::sdf_mapping::GpOccSurfaceMapping2D>(m_surface_mapping_setting_);
         m_sdf_mapping_ = std::make_shared<erl::sdf_mapping::GpSdfMapping2D>(m_surface_mapping_, m_sdf_mapping_setting_);
         if (m_params_.visualize_quadtree) {
+
+
+
+
+
             m_quadtree_drawer_ = std::make_shared<OccupancyQuadtreeDrawer>(m_quadtree_drawer_setting_);
             m_quadtree_drawer_->SetDrawTreeCallback(
                 [&](const OccupancyQuadtreeDrawer *self, cv::Mat &img, erl::sdf_mapping::SurfaceMappingQuadtree::TreeIterator &it) {
@@ -190,7 +199,9 @@ private:
                 continue;
             }
         }
-        return tf2::transformToEigen(transform_stamped).matrix().block<2, 3>(0, 0);
+        Eigen::Matrix4d eigen_transform_matrix = tf2::transformToEigen(transform_stamped).matrix();
+        Eigen::Matrix23d pose = eigen_transform_matrix({0, 1}, {0, 1, 3});
+        return pose;
     }
 
     void
@@ -199,6 +210,7 @@ private:
         Eigen::VectorXd angles = Eigen::VectorXd::LinSpaced(num_lines, laser_scan->angle_min, laser_scan->angle_max);
         Eigen::VectorXd ranges = Eigen::Map<const Eigen::VectorXd>((const double *) (laser_scan->ranges.data()), num_lines);
         auto lidar_pose = GetLidarPose();
+        ROS_WARN("Lidar Pose: \n%s", erl::common::EigenToNumPyFmtString(lidar_pose).c_str());
         bool success = m_sdf_mapping_->Update(angles, ranges, lidar_pose);
         if (!success) {
             ROS_WARN("SDF mapping update failed");
@@ -220,6 +232,9 @@ private:
             for (auto &[position_px_cv, arrow_end_px]: m_arrowed_lines_) {
                 cv::arrowedLine(m_cv_image_, position_px_cv, arrow_end_px, cv::Scalar(0, 0, 255, 255), 1, 8, 0, 0.1);
             }
+//            cv::imshow("quadtree", m_cv_image_);
+//            cv::waitKey(1);
+            cv::imwrite("/home/yiyz/cbf_sdf_ws/quadtree.png", m_cv_image_);
             cv_bridge::CvImage out_msg(laser_scan->header, sensor_msgs::image_encodings::BGRA8, m_cv_image_);
             m_quadtree_viz_pub_->publish(out_msg.toImageMsg());
             m_visualize_counter_ = (m_visualize_counter_ + 1) % m_params_.visualize_frequency_divider;
