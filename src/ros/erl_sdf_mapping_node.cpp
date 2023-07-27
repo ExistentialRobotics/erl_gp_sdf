@@ -127,6 +127,7 @@ public:
     void
     Run() const {
         ros::Rate loop_rate(m_params_.frequency);
+        ros::Duration(5.0).sleep();
         while (ros::ok()) {
             ros::spinOnce();
             loop_rate.sleep();
@@ -187,11 +188,11 @@ private:
 #undef LOAD_PARAMETER
 
     Eigen::Matrix23d
-    GetLidarPose() {
+    GetLidarPose(const ros::Time &target_time) {
         geometry_msgs::TransformStamped transform_stamped;
         while (true) {
             try {
-                transform_stamped = m_tf_buffer_.lookupTransform(m_params_.world_frame_name, m_params_.lidar_frame_name, ros::Time(0));
+                transform_stamped = m_tf_buffer_.lookupTransform(m_params_.world_frame_name, m_params_.lidar_frame_name, target_time, ros::Duration(5.0));
                 break;
             } catch (tf2::TransformException &ex) {
                 ROS_WARN("%s", ex.what());
@@ -208,10 +209,11 @@ private:
     SubCallbackLidarScan(const sensor_msgs::LaserScanConstPtr &laser_scan) {
         auto num_lines = long(laser_scan->ranges.size());
         Eigen::VectorXd angles = Eigen::VectorXd::LinSpaced(num_lines, laser_scan->angle_min, laser_scan->angle_max);
-        Eigen::VectorXd ranges = Eigen::Map<const Eigen::VectorXd>((const double *) (laser_scan->ranges.data()), num_lines);
-        auto lidar_pose = GetLidarPose();
-        ROS_WARN("Lidar Pose: \n%s", erl::common::EigenToNumPyFmtString(lidar_pose).c_str());
+        Eigen::VectorXd ranges = Eigen::Map<const Eigen::VectorXf>((const float *) (laser_scan->ranges.data()), num_lines).cast<double>();
+        auto lidar_pose = GetLidarPose(laser_scan->header.stamp);
+//        ROS_WARN("Lidar Pose: \n%s", erl::common::EigenToNumPyFmtString(lidar_pose).c_str());
         bool success = m_sdf_mapping_->Update(angles, ranges, lidar_pose);
+//        ROS_WARN("Lidar Pose: \n%s", erl::common::EigenToNumPyFmtString(ranges).c_str());
         if (!success) {
             ROS_WARN("SDF mapping update failed");
             return;

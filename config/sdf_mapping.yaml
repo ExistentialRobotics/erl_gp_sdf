@@ -1,5 +1,5 @@
 num_threads: 64
-update_hz: 20
+update_hz: 10
 gp_sdf_area_scale: 4
 offset_distance: 0.02
 zero_gradient_threshold: 9.9999999999999995e-07
