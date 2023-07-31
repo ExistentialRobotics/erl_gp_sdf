@@ -1,6 +1,6 @@
 num_threads: 64
-update_hz: 10
-gp_sdf_area_scale: 4
+update_hz: 50
+gp_sdf_area_scale: 2
 offset_distance: 0.02
 zero_gradient_threshold: 9.9999999999999995e-07
 max_valid_gradient_var: 0.10000000000000001
@@ -17,5 +17,5 @@ gp_sdf:
   log_lambda: 10
 test_query:
   max_test_valid_distance_var: 0.40000000000000002
-  search_area_half_size: 4.7999999999999998
+  search_area_half_size: 2
   use_nearest_only: false
