@@ -31,7 +31,7 @@ compute_variance:
   position_var_alpha: 0.01
   min_gradient_var: 0.01
   max_gradient_var: 1
-quadtree_resolution: 0.2
+quadtree_resolution: 0.1
 cluster_level: 3
 perturb_delta: 0.01
 update_occupancy: false
