@@ -10,13 +10,13 @@ from matplotlib import cm
 from matplotlib.backend_bases import MouseEvent
 from tqdm import tqdm
 
-from erl_gp_sdf.common.storage import GridMapInfo2D
-from erl_gp_sdf.env.data.gazebo.sequence import GazeboSequence
-from erl_gp_sdf.env.data.house_expo.list_data import get_map_and_traj_files
-from erl_gp_sdf.env.data.house_expo.sequence import HouseExpoSequence
-from erl_gp_sdf.geometry import Space2D
-from erl_gp_sdf.gp_sdf import GpisMap2D
-from erl_gp_sdf.gp_sdf import LogGpisMap2D
+from erl_common.storage import GridMapInfo2D
+from erl_geometry.gazebo.sequence import GazeboSequence
+from erl_geometry.house_expo.list_data import get_map_and_traj_files
+from erl_geometry.house_expo.sequence import HouseExpoSequence
+from erl_geometry import Space2D
+from erl_sdf_mapping.gpis import GpisMap2D
+from erl_sdf_mapping.gpis import LogGpisMap2D
 
 # import cv2
 

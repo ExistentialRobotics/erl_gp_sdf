@@ -179,9 +179,9 @@ static void BindGpSdfMapping2D(py::module &m) {
 }
 
 PYBIND11_MODULE(PYBIND_MODULE_NAME, m) {
-    m.doc() = "Python 3 Interface of erl_gp_sdf";
+    m.doc() = "Python 3 Interface of erl_sdf_mapping";
 
-    auto gpis = m.def_submodule("gpis", "Interface of erl_gp_sdf");
+    auto gpis = m.def_submodule("gpis", "Interface of erl_sdf_mapping");
     BindGpSdf2D(gpis);
     BindGpSdf3D(gpis);
 
