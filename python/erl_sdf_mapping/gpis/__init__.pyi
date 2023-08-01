@@ -5,14 +5,14 @@ from typing import overload
 import numpy as np
 import numpy.typing as npt
 
-from @PY_PACKAGE_NAME@.common.yaml import YamlableBase
-from @PY_PACKAGE_NAME@.gaussian_process import LidarGaussianProcess1D
-from @PY_PACKAGE_NAME@.gaussian_process import LogNoisyInputGaussianProcess
-from @PY_PACKAGE_NAME@.gaussian_process import NoisyInputGaussianProcess
-from @PY_PACKAGE_NAME@.geometry import NodeData
-from @PY_PACKAGE_NAME@.geometry import IncrementalQuadtree
-from @PY_PACKAGE_NAME@.geometry import Node
-from @PY_PACKAGE_NAME@.geometry import NodeContainer
+from erl_common.yaml import YamlableBase
+from erl_gaussian_process import LidarGaussianProcess1D
+from erl_gaussian_process import LogNoisyInputGaussianProcess
+from erl_gaussian_process import NoisyInputGaussianProcess
+from erl_geometry import NodeData
+from erl_geometry import IncrementalQuadtree
+from erl_geometry import Node
+from erl_geometry import NodeContainer
 
 __all__ = [
     "GpisData2D",

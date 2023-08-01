@@ -1,4 +1,4 @@
-from @PY_PACKAGE_NAME@.@PYBIND_MODULE_NAME@.gp_sdf import (
+from erl_sdf_mapping.pyerl_sdf_mapping.gpis import (
     GpisData2D,
     GpisNode2D,
     GpisNodeContainer2D,
