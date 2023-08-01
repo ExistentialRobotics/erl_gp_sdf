@@ -56,12 +56,7 @@ namespace erl::sdf_mapping {
             : m_setting_(setting),
               m_gp_theta_(gaussian_process::LidarGaussianProcess1D::Create(m_setting_->gp_theta)) {}
 
-        std::shared_ptr<Setting>
-        GetSetting() {
-            return m_setting_;
-        }
-
-        [[nodiscard]] std::shared_ptr<const Setting>
+        [[nodiscard]] std::shared_ptr<Setting>
         GetSetting() const {
             return m_setting_;
         }

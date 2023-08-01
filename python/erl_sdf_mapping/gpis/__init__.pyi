@@ -87,7 +87,7 @@ class GpisMapBase2D:
         init_tree_half_size: float
         perturb_delta: float
         compute_variance: ComputeVariance
-        update_map_points: UpdateSurfacePoints
+        update_map_points: UpdateMapPoints
         update_gp_sdf: UpdateGpSdf
         gp_theta: LidarGaussianProcess1D.Setting
         gp_sdf: NoisyInputGaussianProcess.Setting

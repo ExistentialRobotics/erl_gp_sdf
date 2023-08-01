@@ -17,6 +17,9 @@ from erl_geometry.house_expo.sequence import HouseExpoSequence
 from erl_geometry import Space2D
 from erl_sdf_mapping.gpis import GpisMap2D
 from erl_sdf_mapping.gpis import LogGpisMap2D
+from erl_sdf_mapping import AbstractSurfaceMapping2D
+from erl_sdf_mapping import GpOccSurfaceMapping2D
+from erl_sdf_mapping import GpSdfMapping2D
 
 # import cv2
 
@@ -25,6 +28,7 @@ def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument("--house-expo-index", type=int)
     parser.add_argument("--use-log", action="store_true")
+    parser.add_argument("--use-log-v2", action="store_true")
     parser.add_argument("--skip", default=50, type=int)
     parser.add_argument("--add-offset-points", action="store_true")
     parser.add_argument("--map-resolution", default=0.05, type=float)
@@ -63,6 +67,8 @@ def main() -> None:
 
     if args.use_log:
         setting = LogGpisMap2D.Setting()
+    elif args.use_log_v2:
+        setting = GpSdfMapping2D.Setting()
     else:
         setting = GpisMap2D.Setting()
     print(setting.as_yaml_string())
@@ -71,21 +77,27 @@ def main() -> None:
         init_frame = 100  # first 100 frames are almost static
         sequence = GazeboSequence()
     else:
-        # the wall thickness in HouseExpoMap is typically 10cm
-        setting.quadtree.min_half_area_size = 0.1
-        setting.node_container.min_squared_distance = 0.01
-        setting.update_gp_sdf.search_area_scale = 4  # smaller -> faster, lower accuracy
-        setting.gp_theta.train_buffer.valid_angle_min = -np.pi
-        setting.gp_theta.train_buffer.valid_angle_max = np.pi
-        setting.gp_theta.train_buffer.valid_range_min = 0.0
-        setting.gp_theta.train_buffer.valid_range_max = np.inf
-        setting.test_query.search_area_half_size = 4.8  # smaller -> faster
+        if args.use_log_v2:
+            pass
+        else:
+            # the wall thickness in HouseExpoMap is typically 10cm
+            setting.quadtree.min_half_area_size = 0.1
+            setting.node_container.min_squared_distance = 0.01
+            setting.update_gp_sdf.search_area_scale = 4  # smaller -> faster, lower accuracy
+            setting.gp_theta.train_buffer.valid_angle_min = -np.pi
+            setting.gp_theta.train_buffer.valid_angle_max = np.pi
+            setting.gp_theta.train_buffer.valid_range_min = 0.0
+            setting.gp_theta.train_buffer.valid_range_max = np.inf
+            setting.test_query.search_area_half_size = 4.8  # smaller -> faster
 
         if args.use_log:
             setting.update_gp_sdf.add_offset_points = False
             if args.add_offset_points:
                 tqdm.write("--add-offset-points is ignored when --use-log is used.")
             setting.update_gp_sdf.offset_distance = 0.0
+            setting.gp_sdf.log_lambda = 40.0
+        elif args.use_log_v2:
+            setting.offset_distance = 0.0
             setting.gp_sdf.log_lambda = 40.0
         else:
             setting.update_gp_sdf.add_offset_points = args.add_offset_points
@@ -96,6 +108,9 @@ def main() -> None:
 
     if args.use_log:
         gpis_map = LogGpisMap2D(setting)
+    elif args.use_log_v2:
+        surface_mapping = GpOccSurfaceMapping2D()
+        gpis_map = GpSdfMapping2D(surface_mapping, setting)
     else:
         gpis_map = GpisMap2D(setting)
 
@@ -304,6 +319,7 @@ def main() -> None:
             plt.plot(xs, ys, "r-")
             plt.scatter(xs, ys, c="k", s=2)
 
+        quiver_data = None
         if args.draw_normal:
             s = 2
             normals = gradients[:, vs[::s], us[::s]]
@@ -317,6 +333,9 @@ def main() -> None:
                 scale=args.normal_scale,
                 scale_units="xy",
                 color="magenta",
+            )
+            quiver_data = plt.quiver(
+                xs[0], ys[0], nx[0], ny[0], scale=args.normal_scale, scale_units="xy", color="magenta"
             )
 
         # save data to list
@@ -384,6 +403,10 @@ def main() -> None:
             u = min(max(u, 0), distances.shape[1] - 1)  # type: ignore
 
             t = 0
+            if args.draw_normal:
+                quiver_data.set_offsets([xdata, ydata])
+                quiver_data.set_UVC(gradients[0, v, u], gradients[1, v, u])
+
             if args.draw_sddf_v2:
                 positions = np.array([xdata, ydata]).reshape(2, 1)
                 positions = np.tile(positions, (1, angles.shape[0]))

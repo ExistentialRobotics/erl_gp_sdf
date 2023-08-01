@@ -22,7 +22,7 @@ namespace erl::sdf_mapping {
             unsigned int num_threads = 64;
             double update_hz = 20;
             double gp_sdf_area_scale = 4;            // ratio between GP area and Quadtree cluster area
-            double offset_distance = 0.02;
+            double offset_distance = 0.0;
             double zero_gradient_threshold = 1.e-6;  // gradient below this threshold is considered zero.
             double max_valid_gradient_var = 0.1;     // maximum gradient variance qualified for training.
             double invalid_position_var = 2.;        // position variance of points whose gradient is labeled invalid, i.e. > max_valid_gradient_var.
