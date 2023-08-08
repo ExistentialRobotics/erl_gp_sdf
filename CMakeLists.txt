@@ -9,20 +9,11 @@ message(STATUS "Configuring ${PROJECT_NAME} ${PROJECT_VERSION}")
 if (NOT COMMAND erl_project_setup)
     find_package(erl_common REQUIRED)
 endif ()
-set(${PROJECT_NAME}_ERL_PACKAGES erl_common erl_gaussian_process erl_geometry)
-foreach (erl_package IN LISTS ${PROJECT_NAME}_ERL_PACKAGES)
-    if (NOT TARGET ${erl_package})
-        erl_find_package(
-                PACKAGE ${erl_package}
-                REQUIRED
-                COMMANDS GENERAL "build and install ${erl_package} at first")
-    endif ()
-endforeach ()
-set(${PROJECT_NAME}_CATKIN_COMPONENTS roscpp std_msgs sensor_msgs tf2_ros tf2_eigen cv_bridge message_generation
-        ${${PROJECT_NAME}_ERL_PACKAGES})
-set(${PROJECT_NAME}_CATKIN_DEPENDS roscpp std_msgs sensor_msgs tf2_ros tf2_eigen cv_bridge message_runtime
-        ${${PROJECT_NAME}_ERL_PACKAGES})
-erl_project_setup()
+erl_project_setup(
+        ERL_PACKAGES erl_common erl_gaussian_process erl_geometry
+        CATKIN_COMPONENTS roscpp std_msgs sensor_msgs tf2_ros tf2_eigen cv_bridge message_generation
+        CATKIN_DEPENDS roscpp std_msgs sensor_msgs tf2_ros tf2_eigen cv_bridge message_runtime
+)
 erl_setup_ros(
         CATKIN_COMPONENTS ${${PROJECT_NAME}_CATKIN_COMPONENTS}
         SRV_FILES PredictSdf.srv
@@ -32,7 +23,7 @@ erl_catkin_package(
         INCLUDE_DIRS include
         LIBRARIES ${PROJECT_NAME} py${PROJECT_NAME}
         CATKIN_DEPENDS ${${PROJECT_NAME}_CATKIN_DEPENDS}
-        DEPENDS ${${PROJECT_NAME}_DEPENDS})   # dependencies are collected via erl_find_package
+        DEPENDS ${${PROJECT_NAME}_DEPENDS})   # non-catkin dependencies are collected via erl_find_package
 
 #######################################################################################################################
 # BUILD

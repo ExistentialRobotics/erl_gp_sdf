@@ -171,16 +171,15 @@ namespace YAML {
 
     inline Emitter &
     operator<<(Emitter &out, const GpOccSurfaceMapping2D::Setting::ComputeVariance &rhs) {
-        out << YAML::Flow;
-        out << YAML::BeginMap;
-        out << YAML::Key << "zero_gradient_position_var" << YAML::Value << rhs.zero_gradient_position_var;
-        out << YAML::Key << "zero_gradient_gradient_var" << YAML::Value << rhs.zero_gradient_gradient_var;
-        out << YAML::Key << "min_distance_var" << YAML::Value << rhs.min_distance_var;
-        out << YAML::Key << "max_distance_var" << YAML::Value << rhs.max_distance_var;
-        out << YAML::Key << "position_var_alpha" << YAML::Value << rhs.position_var_alpha;
-        out << YAML::Key << "min_gradient_var" << YAML::Value << rhs.min_gradient_var;
-        out << YAML::Key << "max_gradient_var" << YAML::Value << rhs.max_gradient_var;
-        out << YAML::EndMap;
+        out << BeginMap;
+        out << Key << "zero_gradient_position_var" << Value << rhs.zero_gradient_position_var;
+        out << Key << "zero_gradient_gradient_var" << Value << rhs.zero_gradient_gradient_var;
+        out << Key << "min_distance_var" << Value << rhs.min_distance_var;
+        out << Key << "max_distance_var" << Value << rhs.max_distance_var;
+        out << Key << "position_var_alpha" << Value << rhs.position_var_alpha;
+        out << Key << "min_gradient_var" << Value << rhs.min_gradient_var;
+        out << Key << "max_gradient_var" << Value << rhs.max_gradient_var;
+        out << EndMap;
         return out;
     }
 
@@ -214,14 +213,14 @@ namespace YAML {
 
     inline Emitter &
     operator<<(Emitter &out, const GpOccSurfaceMapping2D::Setting::UpdateMapPoints &rhs) {
-        out << YAML::BeginMap;
-        out << YAML::Key << "min_observable_occ" << YAML::Value << rhs.min_observable_occ;
-        out << YAML::Key << "max_surface_abs_occ" << YAML::Value << rhs.max_surface_abs_occ;
-        out << YAML::Key << "max_valid_gradient_var" << YAML::Value << rhs.max_valid_gradient_var;
-        out << YAML::Key << "max_adjust_tries" << YAML::Value << rhs.max_adjust_tries;
-        out << YAML::Key << "max_bayes_position_var" << YAML::Value << rhs.max_bayes_position_var;
-        out << YAML::Key << "max_bayes_gradient_var" << YAML::Value << rhs.max_bayes_gradient_var;
-        out << YAML::EndMap;
+        out << BeginMap;
+        out << Key << "min_observable_occ" << Value << rhs.min_observable_occ;
+        out << Key << "max_surface_abs_occ" << Value << rhs.max_surface_abs_occ;
+        out << Key << "max_valid_gradient_var" << Value << rhs.max_valid_gradient_var;
+        out << Key << "max_adjust_tries" << Value << rhs.max_adjust_tries;
+        out << Key << "max_bayes_position_var" << Value << rhs.max_bayes_position_var;
+        out << Key << "max_bayes_gradient_var" << Value << rhs.max_bayes_gradient_var;
+        out << EndMap;
         return out;
     }
 

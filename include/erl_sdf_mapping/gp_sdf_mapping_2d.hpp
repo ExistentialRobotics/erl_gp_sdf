@@ -248,11 +248,11 @@ namespace YAML {
 
     inline Emitter&
     operator<<(Emitter& out, const GpSdfMapping2D::Setting::TestQuery& rhs) {
-        out << YAML::BeginMap;
-        out << YAML::Key << "max_test_valid_distance_var" << YAML::Value << rhs.max_test_valid_distance_var;
-        out << YAML::Key << "search_area_half_size" << YAML::Value << rhs.search_area_half_size;
-        out << YAML::Key << "use_nearest_only" << YAML::Value << rhs.use_nearest_only;
-        out << YAML::EndMap;
+        out << BeginMap;
+        out << Key << "max_test_valid_distance_var" << Value << rhs.max_test_valid_distance_var;
+        out << Key << "search_area_half_size" << Value << rhs.search_area_half_size;
+        out << Key << "use_nearest_only" << Value << rhs.use_nearest_only;
+        out << EndMap;
         return out;
     }
 
@@ -293,18 +293,18 @@ namespace YAML {
 
     inline Emitter&
     operator<<(Emitter& out, const GpSdfMapping2D::Setting& setting) {
-        out << YAML::BeginMap;
-        out << YAML::Key << "num_threads" << YAML::Value << setting.num_threads;
-        out << YAML::Key << "update_hz" << YAML::Value << setting.update_hz;
-        out << YAML::Key << "gp_sdf_area_scale" << YAML::Value << setting.gp_sdf_area_scale;
-        out << YAML::Key << "offset_distance" << YAML::Value << setting.offset_distance;
-        out << YAML::Key << "zero_gradient_threshold" << YAML::Value << setting.zero_gradient_threshold;
-        out << YAML::Key << "max_valid_gradient_var" << YAML::Value << setting.max_valid_gradient_var;
-        out << YAML::Key << "invalid_position_var" << YAML::Value << setting.invalid_position_var;
-        out << YAML::Key << "train_gp_immediately" << YAML::Value << setting.train_gp_immediately;
-        out << YAML::Key << "gp_sdf" << YAML::Value << setting.gp_sdf;
-        out << YAML::Key << "test_query" << YAML::Value << setting.test_query;
-        out << YAML::EndMap;
+        out << BeginMap;
+        out << Key << "num_threads" << Value << setting.num_threads;
+        out << Key << "update_hz" << Value << setting.update_hz;
+        out << Key << "gp_sdf_area_scale" << Value << setting.gp_sdf_area_scale;
+        out << Key << "offset_distance" << Value << setting.offset_distance;
+        out << Key << "zero_gradient_threshold" << Value << setting.zero_gradient_threshold;
+        out << Key << "max_valid_gradient_var" << Value << setting.max_valid_gradient_var;
+        out << Key << "invalid_position_var" << Value << setting.invalid_position_var;
+        out << Key << "train_gp_immediately" << Value << setting.train_gp_immediately;
+        out << Key << "gp_sdf" << Value << setting.gp_sdf;
+        out << Key << "test_query" << Value << setting.test_query;
+        out << EndMap;
         return out;
     }
 

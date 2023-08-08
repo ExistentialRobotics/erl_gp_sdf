@@ -240,16 +240,15 @@ namespace YAML {
 
     inline Emitter &
     operator<<(Emitter &out, const GpisMapBase2D::Setting::ComputeVariance &rhs) {
-        out << YAML::Flow;
-        out << YAML::BeginMap;
-        out << YAML::Key << "zero_gradient_position_var" << YAML::Value << rhs.zero_gradient_position_var;
-        out << YAML::Key << "zero_gradient_gradient_var" << YAML::Value << rhs.zero_gradient_gradient_var;
-        out << YAML::Key << "min_distance_var" << YAML::Value << rhs.min_distance_var;
-        out << YAML::Key << "max_distance_var" << YAML::Value << rhs.max_distance_var;
-        out << YAML::Key << "position_var_alpha" << YAML::Value << rhs.position_var_alpha;
-        out << YAML::Key << "min_gradient_var" << YAML::Value << rhs.min_gradient_var;
-        out << YAML::Key << "max_gradient_var" << YAML::Value << rhs.max_gradient_var;
-        out << YAML::EndMap;
+        out << BeginMap;
+        out << Key << "zero_gradient_position_var" << Value << rhs.zero_gradient_position_var;
+        out << Key << "zero_gradient_gradient_var" << Value << rhs.zero_gradient_gradient_var;
+        out << Key << "min_distance_var" << Value << rhs.min_distance_var;
+        out << Key << "max_distance_var" << Value << rhs.max_distance_var;
+        out << Key << "position_var_alpha" << Value << rhs.position_var_alpha;
+        out << Key << "min_gradient_var" << Value << rhs.min_gradient_var;
+        out << Key << "max_gradient_var" << Value << rhs.max_gradient_var;
+        out << EndMap;
         return out;
     }
 
@@ -283,14 +282,14 @@ namespace YAML {
 
     inline Emitter &
     operator<<(Emitter &out, const GpisMapBase2D::Setting::UpdateMapPoints &rhs) {
-        out << YAML::BeginMap;
-        out << YAML::Key << "min_observable_occ" << YAML::Value << rhs.min_observable_occ;
-        out << YAML::Key << "max_surface_abs_occ" << YAML::Value << rhs.max_surface_abs_occ;
-        out << YAML::Key << "max_valid_gradient_var" << YAML::Value << rhs.max_valid_gradient_var;
-        out << YAML::Key << "max_adjust_tries" << YAML::Value << rhs.max_adjust_tries;
-        out << YAML::Key << "max_bayes_position_var" << YAML::Value << rhs.max_bayes_position_var;
-        out << YAML::Key << "max_bayes_gradient_var" << YAML::Value << rhs.max_bayes_gradient_var;
-        out << YAML::EndMap;
+        out << BeginMap;
+        out << Key << "min_observable_occ" << Value << rhs.min_observable_occ;
+        out << Key << "max_surface_abs_occ" << Value << rhs.max_surface_abs_occ;
+        out << Key << "max_valid_gradient_var" << Value << rhs.max_valid_gradient_var;
+        out << Key << "max_adjust_tries" << Value << rhs.max_adjust_tries;
+        out << Key << "max_bayes_position_var" << Value << rhs.max_bayes_position_var;
+        out << Key << "max_bayes_gradient_var" << Value << rhs.max_bayes_gradient_var;
+        out << EndMap;
         return out;
     }
 
@@ -324,14 +323,14 @@ namespace YAML {
 
     inline Emitter &
     operator<<(Emitter &out, const GpisMapBase2D::Setting::UpdateGpSdf &rhs) {
-        out << YAML::BeginMap;
-        out << YAML::Key << "add_offset_points" << YAML::Value << rhs.add_offset_points;
-        out << YAML::Key << "offset_distance" << YAML::Value << rhs.offset_distance;
-        out << YAML::Key << "search_area_scale" << YAML::Value << rhs.search_area_scale;
-        out << YAML::Key << "zero_gradient_threshold" << YAML::Value << rhs.zero_gradient_threshold;
-        out << YAML::Key << "max_valid_gradient_var" << YAML::Value << rhs.max_valid_gradient_var;
-        out << YAML::Key << "invalid_position_var" << YAML::Value << rhs.invalid_position_var;
-        out << YAML::EndMap;
+        out << BeginMap;
+        out << Key << "add_offset_points" << Value << rhs.add_offset_points;
+        out << Key << "offset_distance" << Value << rhs.offset_distance;
+        out << Key << "search_area_scale" << Value << rhs.search_area_scale;
+        out << Key << "zero_gradient_threshold" << Value << rhs.zero_gradient_threshold;
+        out << Key << "max_valid_gradient_var" << Value << rhs.max_valid_gradient_var;
+        out << Key << "invalid_position_var" << Value << rhs.invalid_position_var;
+        out << EndMap;
         return out;
     }
 
@@ -359,11 +358,11 @@ namespace YAML {
 
     inline Emitter &
     operator<<(Emitter &out, const GpisMapBase2D::Setting::TestQuery &rhs) {
-        out << YAML::BeginMap;
-        out << YAML::Key << "max_test_valid_distance_var" << YAML::Value << rhs.max_test_valid_distance_var;
-        out << YAML::Key << "search_area_half_size" << YAML::Value << rhs.search_area_half_size;
-        out << YAML::Key << "use_nearest_only" << YAML::Value << rhs.use_nearest_only;
-        out << YAML::EndMap;
+        out << BeginMap;
+        out << Key << "max_test_valid_distance_var" << Value << rhs.max_test_valid_distance_var;
+        out << Key << "search_area_half_size" << Value << rhs.search_area_half_size;
+        out << Key << "use_nearest_only" << Value << rhs.use_nearest_only;
+        out << EndMap;
         return out;
     }
 
