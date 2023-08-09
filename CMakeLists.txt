@@ -10,6 +10,7 @@ if (NOT COMMAND erl_project_setup)
     find_package(erl_common REQUIRED)
 endif ()
 erl_project_setup(
+        ${PROJECT_NAME}
         ERL_PACKAGES erl_common erl_gaussian_process erl_geometry
         CATKIN_COMPONENTS roscpp std_msgs sensor_msgs tf2_ros tf2_eigen cv_bridge message_generation
         CATKIN_DEPENDS roscpp std_msgs sensor_msgs tf2_ros tf2_eigen cv_bridge message_runtime
@@ -72,4 +73,4 @@ erl_add_tests(
 #######################################################################################################################
 # export variables
 #######################################################################################################################
-erl_mark_project_found()
+erl_mark_project_found(${PROJECT_NAME})
