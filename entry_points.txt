@@ -1,1 +1,1 @@
-erl_sdf_mapping_demo=erl_sdf_mapping.main_gp_sdf:main
+erl-sdf-mapping-demo=erl_sdf_mapping.main_gp_sdf:main

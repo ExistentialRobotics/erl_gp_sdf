@@ -17,7 +17,7 @@ TEST(ERL_SDF_MAPPING, LogGpisMap2D) {
     setting->node_container->min_squared_distance = 0.025 * 0.025;
     LogGpisMap2D log_gpis_map(setting);
 
-    std::cout << log_gpis_map.GetSetting()->AsYamlString() << std::endl;
+    std::cout << *log_gpis_map.GetSetting() << std::endl;
 
     std::cout.precision(5);
     std::cout << std::scientific;

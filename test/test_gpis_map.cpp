@@ -39,7 +39,7 @@ main() {
     GPisMap gpm;
     erl::gp_sdf::GpisMap2D gpis_map;
     gpis_map.m_setting_->update_gp_sdf->offset_distance = GPISMAP_FBIAS;
-    std::cout << gpis_map.GetSetting()->AsYamlString() << std::endl;
+    std::cout << *gpis_map.GetSetting() << std::endl;
 
     std::cout.precision(5);
     std::cout << std::scientific;
