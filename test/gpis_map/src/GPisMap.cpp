@@ -24,7 +24,6 @@
 #include <numeric>
 #include <thread>
 #include <fstream>
-#include "erl_common/assert.hpp"
 #include "params.h"
 
 TreeParam QuadTree::m_param_ =
@@ -639,11 +638,7 @@ GPisMap::TestKernel(int thread_idx, int start_idx, int end_idx, double *x, doubl
             search_bb_half_size *= double(2.0);
         }
 
-        if (quads.empty()) {
-            static int i = 0;
-            ERL_WARN("[%d] Thread %d: no cluster found for position (%f, %f)\n", i, thread_idx, xt(0), xt(1));
-            i++;
-        }
+        if (quads.empty()) { continue; }
 
         res[k_6] = 0.;
         res[k_6 + 3] = 1. + m_setting_.map_noise_param;  // variance of sdf value

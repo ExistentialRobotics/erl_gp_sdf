@@ -4,13 +4,38 @@ from typing import Optional
 import numpy as np
 import numpy.typing as npt
 from erl_common.yaml import YamlableBase
-from erl_gaussian_process import LogNoisyInputGaussianProcess
+from erl_gaussian_process import NoisyInputGaussianProcess
 from . import gpis
 
 __all__ = [
+    "LogSdfGaussianProcess",
+    "AbstractSurfaceMapping2D",
     "GpOccSurfaceMapping2D",
     "GpSdfMapping2D",
 ]
+
+
+class LogSdfGaussianProcess(NoisyInputGaussianProcess):
+    class Setting(NoisyInputGaussianProcess.Setting):
+        log_lambda: float
+
+        def __init__(self: LogSdfGaussianProcess.Setting): ...
+
+    def __init__(self: LogSdfGaussianProcess, setting: Setting): ...
+    def reset(self: LogSdfGaussianProcess) -> None: ...
+    def train(
+            self: LogSdfGaussianProcess,
+            mat_x_train: npt.NDArray[np.float64],
+            vec_grad_flag: npt.NDArray[np.bool_],
+            vec_y: npt.NDArray[np.float64],
+            vec_sigma_x: npt.NDArray[np.float64],
+            vec_sigma_y: npt.NDArray[np.float64],
+            vec_sigma_grad: npt.NDArray[np.float64],
+    ) -> None: ...
+    def test(
+            self: LogSdfGaussianProcess, mat_x_test: npt.NDArray[np.float64]
+    ) -> Tuple[npt.NDArray[np.float64], npt.NDArray[np.float64]]: ...
+
 
 class AbstractSurfaceMapping2D: ...
 
@@ -32,7 +57,7 @@ class GpOccSurfaceMapping2D(AbstractSurfaceMapping2D):
             max_adjust_tries: int
             max_bayes_position_var: float
             max_bayes_gradient_var: float
-        gp_theta: LogNoisyInputGaussianProcess.Setting
+        gp_theta: LogSdfGaussianProcess.Setting
         compute_variance: ComputeVariance
         update_map_points: UpdateMapPoints
         quadtree_resolution: float
@@ -76,8 +101,8 @@ class GpSdfMapping2D:
     def test(
         self: GpSdfMapping2D, xy: npt.NDArray[np.float64]
     ) -> Tuple[
-        Optional[npt.NDArray[np.float64]],
-        Optional[npt.NDArray[np.float64]],
-        Optional[npt.NDArray[np.float64]],
-        Optional[npt.NDArray[np.float64]],
+        Optional[npt.NDArray[np.float64]],  # sdf
+        Optional[npt.NDArray[np.float64]],  # sdf gradient
+        Optional[npt.NDArray[np.float64]],  # variance
+        Optional[npt.NDArray[np.float64]],  # covariance
     ]: ...

@@ -5,6 +5,7 @@
 #include "erl_sdf_mapping/gpis/node_container.hpp"
 #include "erl_sdf_mapping/gp_occ_surface_mapping_2d.hpp"
 #include "erl_sdf_mapping/gp_sdf_mapping_2d.hpp"
+#include "erl_sdf_mapping/log_sdf_gp.hpp"
 
 static void
 BindGpSdf2D(py::module &m) {
@@ -179,6 +180,63 @@ BindGpSdf3D(py::module &m) {
         .def("__len__", py::overload_cast<>(&GpisNodeContainer3D::Size, py::const_));
 }
 
+void
+BindLogSdfGaussianProcess(py::module &m) {
+
+    using ParentT = erl::gaussian_process::NoisyInputGaussianProcess;
+    using T = erl::sdf_mapping::LogSdfGaussianProcess;
+
+    auto py_log_noisy_input_gp = py::class_<T, ParentT, std::shared_ptr<T>>(m, ERL_AS_STRING(LogSdfGaussianProcess));
+
+    py::class_<T::Setting, ParentT::Setting, std::shared_ptr<T::Setting>>(py_log_noisy_input_gp, "Setting")
+        .def(py::init<>())
+        .def_readwrite("log_lambda", &T::Setting::log_lambda);
+
+    py_log_noisy_input_gp.def(py::init<>([]() { return std::make_shared<T>(); }))
+        .def(py::init<>([](std::shared_ptr<T::Setting> setting) { return std::make_shared<T>(std::move(setting)); }), py::arg("setting").none(false))
+        .def_property_readonly("setting", &T::GetSetting)
+        .def("reset", &T::Reset)
+        .def(
+            "train",
+            [](T &self,
+               const Eigen::Ref<const Eigen::MatrixXd> &mat_x_train,
+               const Eigen::Ref<const Eigen::VectorXb> &vec_grad_flag,
+               const Eigen::Ref<const Eigen::VectorXd> &vec_y,
+               const Eigen::Ref<const Eigen::VectorXd> &vec_var_x,
+               const Eigen::Ref<const Eigen::VectorXd> &vec_var_y,
+               const Eigen::Ref<const Eigen::VectorXd> &vec_var_grad) {
+                long num_train_samples = mat_x_train.cols();
+                long x_dim = mat_x_train.rows();
+                self.Reset(num_train_samples, x_dim);
+                self.GetTrainInputSamplesBuffer().topLeftCorner(x_dim, num_train_samples) = mat_x_train;
+                self.GetTrainGradientFlagsBuffer().head(num_train_samples) = vec_grad_flag;
+                self.GetTrainOutputValueSamplesVarianceBuffer().head(vec_y.size()) = vec_y;
+                self.GetTrainInputSamplesVarianceBuffer().head(num_train_samples) = vec_var_x;
+                self.GetTrainOutputValueSamplesVarianceBuffer().head(num_train_samples) = vec_var_y;
+                self.GetTrainOutputGradientSamplesVarianceBuffer().head(num_train_samples) = vec_var_grad;
+                self.Train(num_train_samples, vec_grad_flag.head(num_train_samples).cast<long>().sum());
+            },
+            py::arg("mat_x_train"),
+            py::arg("vec_grad_flag"),
+            py::arg("vec_y"),
+            py::arg("vec_var_x"),
+            py::arg("vec_var_y"),
+            py::arg("vec_var_grad"))
+        .def(
+            "test",
+            [](const T &self, const Eigen::Ref<const Eigen::MatrixXd> &mat_x_test) {
+                Eigen::MatrixXd mat_f_out, mat_var_out, mat_cov_out;
+                long dim = mat_x_test.rows();
+                long n = mat_x_test.cols();
+                mat_f_out.resize(dim + 1, n);
+                mat_var_out.resize(dim + 1, n);
+                mat_cov_out.resize(dim * (dim + 1) / 2, n);
+                self.Test(mat_x_test, mat_f_out, mat_var_out, mat_cov_out);
+                return py::make_tuple(mat_f_out, mat_var_out, mat_cov_out);
+            },
+            py::arg("mat_x_test"));
+}
+
 static void
 BindGpOccSurfaceMapping2D(py::module &m) {
     using namespace erl::common;
@@ -260,11 +318,11 @@ BindGpSdfMapping2D(py::module &m) {
             [](GpSdfMapping2D &self, const Eigen::Ref<const Eigen::Matrix2Xd> &xy) {
                 Eigen::VectorXd distances;
                 Eigen::Matrix2Xd gradients;
-                Eigen::VectorXd distance_variances;
-                Eigen::Matrix2Xd gradient_variances;
+                Eigen::Matrix3Xd variances_out;
+                Eigen::Matrix3Xd covariances_out;
 
-                if (self.Test(xy, distances, gradients, distance_variances, gradient_variances)) {
-                    return py::make_tuple(distances, gradients, distance_variances, gradient_variances);
+                if (self.Test(xy, distances, gradients, variances_out, covariances_out)) {
+                    return py::make_tuple(distances, gradients, variances_out, covariances_out);
                 } else {
                     return py::make_tuple(py::none(), py::none(), py::none(), py::none());
                 }
@@ -279,6 +337,7 @@ PYBIND11_MODULE(PYBIND_MODULE_NAME, m) {
     BindGpSdf2D(gpis);
     BindGpSdf3D(gpis);
 
+    BindLogSdfGaussianProcess(m);
     BindGpOccSurfaceMapping2D(m);
     BindGpSdfMapping2D(m);
     // TODO: bind other modules

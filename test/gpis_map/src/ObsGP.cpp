@@ -38,7 +38,7 @@ GPou::train(const EMatrixX &xt, const EVectorX &f) {
 
     if (n > 0) {
         x = xt;
-        EMatrixX K = OrnsteinUhlenbeck(xt, scale, noise);
+        K = OrnsteinUhlenbeck(xt, scale, noise);
         // GPIS paper: eq(10)
         L = K.llt().matrixL();
         alpha = f;

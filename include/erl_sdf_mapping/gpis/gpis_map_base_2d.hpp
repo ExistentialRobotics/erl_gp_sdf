@@ -407,17 +407,17 @@ namespace YAML {
     inline Emitter &
     operator<<(Emitter &out, const GpisMapBase2D::Setting &setting) {
         out << BeginMap;
-        out << setting.num_threads;
-        out << setting.init_tree_half_size;
-        out << setting.perturb_delta;
-        out << *setting.compute_variance;
-        out << *setting.update_map_points;
-        out << *setting.update_gp_sdf;
-        out << *setting.gp_theta;
-        out << *setting.gp_sdf;
-        out << *setting.node_container;
-        out << *setting.quadtree;
-        out << *setting.test_query;
+        out << Key << "num_threads" << Value << setting.num_threads;
+        out << Key << "init_tree_half_size" << Value << setting.init_tree_half_size;
+        out << Key << "perturb_delta" << Value << setting.perturb_delta;
+        out << Key << "compute_variance" << Value << *setting.compute_variance;
+        out << Key << "update_map_points" << Value << *setting.update_map_points;
+        out << Key << "update_gp_sdf" << Value << *setting.update_gp_sdf;
+        out << Key << "gp_theta" << Value << *setting.gp_theta;
+        out << Key << "gp_sdf" << Value << *setting.gp_sdf;
+        out << Key << "node_container" << Value << *setting.node_container;
+        out << Key << "quadtree" << Value << *setting.quadtree;
+        out << Key << "test_query" << Value << *setting.test_query;
         out << EndMap;
         return out;
     }

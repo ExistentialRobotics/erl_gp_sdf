@@ -6,7 +6,7 @@ file(GLOB_RECURSE SRC_REF_GPIS_MAP gpis_map/src/*.cpp)
 add_library(ref_gpis_map ${SRC_REF_GPIS_MAP})
 target_include_directories(ref_gpis_map PUBLIC gpis_map/include)
 
-add_executable(test_gpis_map test_gpis_map.cpp)
+add_executable(test_gpis_map gtest/test_gpis_map.cpp)
 target_link_libraries(test_gpis_map PRIVATE ref_gpis_map)
 add_custom_command(TARGET test_gpis_map
         POST_BUILD
@@ -15,7 +15,7 @@ add_custom_command(TARGET test_gpis_map
 add_test(NAME test_gpis_map
         COMMAND test_gpis_map)
 
-add_executable(test_log_gpis_map gtest/test_log_gpis_map.cpp)
+add_executable(test_log_gpis_map gtest/test_log_gpis_map_2d.cpp)
 add_custom_command(TARGET test_log_gpis_map
         POST_BUILD
         COMMAND ${CMAKE_COMMAND} -E copy_directory ${CMAKE_CURRENT_LIST_DIR}/double ${CMAKE_CURRENT_BINARY_DIR}/double

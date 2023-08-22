@@ -18,10 +18,9 @@
  */
 
 #include "quadtree.h"
-#include "erl_common/assert.hpp"
 #include <cmath>
 
-#define EPS double(1e-12)
+constexpr double EPS = 1e-12;
 
 double
 sqdist(const Point<double> &pt1, const Point<double> &pt2) {
@@ -202,7 +201,6 @@ QuadTree::Insert(std::shared_ptr<Node> n) {
     if (!m_boundary_.ContainsPoint(n->GetPos())) {
         if (GetParent() == nullptr) {
             if (m_root_limit_reached_) {
-                ERL_WARN("Root Limit Reached!");
                 return false;
             } else
                 return InsertToParent(n);
@@ -277,7 +275,6 @@ QuadTree::Insert(std::shared_ptr<Node> n, std::unordered_set<QuadTree *> &quads)
         if (GetParent() == nullptr) {
             // FIXME: when InsertToParent is called, if inserting the node successfully, quads is not updated
             if (m_root_limit_reached_) {
-                ERL_WARN("Root Limit Reached!");
                 return false;
             } else
                 return InsertToParent(n, quads);  // FIXED
@@ -660,9 +657,6 @@ QuadTree::QueryNonEmptyLevelC(Aabb range, std::vector<QuadTree *> &quads) {
             quads.push_back(this);
         }
     }
-
-    // std::unordered_set<QuadTree*> quads_set(quads.begin(), quads.end());
-    // ERL_ASSERTM(quads_set.size() == quads.size(), "repeated quad in quads!");
 }
 
 void

@@ -6,6 +6,7 @@
 #include "erl_common/csv.hpp"
 #include "erl_geometry/gazebo_room.hpp"
 #include "erl_common/random.hpp"
+#include "erl_common/progress_bar.hpp"
 #include <boost/program_options.hpp>
 #include <gtest/gtest.h>
 #include <filesystem>
@@ -22,6 +23,7 @@ struct Options {
     bool use_gazebo_data = false;
     bool visualize = false;
     bool hold = false;
+    int stride = 1;
 };
 
 static Options g_options;
@@ -33,8 +35,8 @@ TEST(ERL_SDF_MAPPING, GpSdfMapping2D) {
     std::vector<Eigen::Matrix23d> train_poses;
     Eigen::Vector2d map_min(0, 0);
     Eigen::Vector2d map_max(0, 0);
-    Eigen::Vector2d map_resolution(0.01, 0.01);
-    Eigen::Vector2i map_padding(100, 100);
+    Eigen::Vector2d map_resolution(0.02, 0.02);
+    Eigen::Vector2i map_padding(10, 10);
     Eigen::Matrix2Xd cur_traj;
 
     if (g_options.use_gazebo_data) {
@@ -45,6 +47,7 @@ TEST(ERL_SDF_MAPPING, GpSdfMapping2D) {
         train_poses.reserve(max_update_cnt);
         cur_traj.resize(2, max_update_cnt);
         int i = 0;
+        erl::common::ProgressBar bar(int(train_data_loader.size()), true, std::cout);
         for (auto &df: train_data_loader) {
             train_angles.push_back(df.angles);
             train_ranges.push_back(df.distances);
@@ -63,6 +66,7 @@ TEST(ERL_SDF_MAPPING, GpSdfMapping2D) {
             map_resolution.array() = 0.02;
             map_padding.setZero();
             i++;
+            bar.Update();
         }
     } else {
         erl::geometry::HouseExpoMap house_expo_map(g_options.house_expo_map_file.c_str(), 0.2);
@@ -76,29 +80,33 @@ TEST(ERL_SDF_MAPPING, GpSdfMapping2D) {
         lidar.SetNumLines(int((angle_max - angle_min) / res));
         auto trajectory =
             erl::common::LoadAndCastCsvFile<double>(g_options.house_expo_traj_file.c_str(), [](const std::string &str) -> double { return std::stod(str); });
-        max_update_cnt = long(trajectory.size());
+        max_update_cnt = long(trajectory.size()) / g_options.stride + 1;
         train_angles.reserve(max_update_cnt);
         train_ranges.reserve(max_update_cnt);
         train_poses.reserve(max_update_cnt);
         cur_traj.resize(2, max_update_cnt);
-        for (long i = 0; i < max_update_cnt; i++) {
+        erl::common::ProgressBar bar(int(max_update_cnt), true, std::cout);
+        for (std::size_t i = 0, j = 0; i < trajectory.size(); i += g_options.stride, j++) {
             std::vector<double> &waypoint = trajectory[i];
-            cur_traj.col(i) << waypoint[0], waypoint[1];
-            lidar.SetTranslation(cur_traj.col(i));
+            cur_traj.col(j) << waypoint[0], waypoint[1];
+            lidar.SetTranslation(cur_traj.col(j));
             lidar.SetRotation(waypoint[2]);
             auto lidar_ranges = lidar.Scan(scan_in_parallel);
             lidar_ranges += erl::common::GenerateGaussianNoise(lidar_ranges.size(), 0.0, 0.01);
             train_angles.push_back(lidar.GetAngles());
             train_ranges.push_back(lidar_ranges);
             train_poses.emplace_back(lidar.GetPose().topRows<2>());
+            bar.Update();
         }
     }
 
     auto surface_mapping = std::make_shared<erl::sdf_mapping::GpOccSurfaceMapping2D>();
     erl::sdf_mapping::GpSdfMapping2D sdf_mapping(surface_mapping);
+    sdf_mapping.GetSetting()->test_query->compute_covariance = true;
     std::cout << "Surface Mapping Setting:" << std::endl
               << *surface_mapping->GetSetting() << std::endl
-              << "Sdf Mapping Setting:" << std::endl << *sdf_mapping.GetSetting() << std::endl;
+              << "Sdf Mapping Setting:" << std::endl
+              << *sdf_mapping.GetSetting() << std::endl;
     using OccupancyQuadtreeDrawer = erl::geometry::OccupancyQuadtreeDrawer<erl::sdf_mapping::SurfaceMappingQuadtree>;
     auto drawer_setting = std::make_shared<OccupancyQuadtreeDrawer::Setting>();
     drawer_setting->area_min = map_min;
@@ -106,8 +114,7 @@ TEST(ERL_SDF_MAPPING, GpSdfMapping2D) {
     drawer_setting->resolution = map_resolution[0];
     drawer_setting->padding = map_padding[0];
     drawer_setting->border_color = cv::Scalar(255, 0, 0, 255);
-    std::cout << "Quadtree Drawer Setting:" << std::endl
-              << *drawer_setting << std::endl;
+    std::cout << "Quadtree Drawer Setting:" << std::endl << *drawer_setting << std::endl;
     auto drawer = std::make_shared<OccupancyQuadtreeDrawer>(drawer_setting);
     std::vector<std::pair<cv::Point, cv::Point>> arrowed_lines;
     drawer->SetDrawTreeCallback([&](const OccupancyQuadtreeDrawer *self, cv::Mat &img, erl::sdf_mapping::SurfaceMappingQuadtree::TreeIterator &it) {
@@ -196,10 +203,12 @@ TEST(ERL_SDF_MAPPING, GpSdfMapping2D) {
     // Test SDF Estimation
     bool c_stride = true;
     Eigen::Matrix2Xd positions_in = grid_map_info->GenerateMeterCoordinates(c_stride);
-    Eigen::VectorXd distances_out, distance_variances_out;
-    Eigen::Matrix2Xd gradients_out, gradient_variances_out;
+    Eigen::VectorXd distances_out;
+    Eigen::Matrix2Xd gradients_out;
+    Eigen::Matrix3Xd variances_out;
+    Eigen::Matrix3Xd covariances_out;
     auto t0 = std::chrono::high_resolution_clock::now();
-    sdf_mapping.Test(positions_in, distances_out, gradients_out, distance_variances_out, gradient_variances_out);
+    sdf_mapping.Test(positions_in, distances_out, gradients_out, variances_out, covariances_out);
     auto t1 = std::chrono::high_resolution_clock::now();
     auto dt = std::chrono::duration_cast<std::chrono::milliseconds>(t1 - t0).count();
     double t_per_point = double(dt) / (double) positions_in.cols() * 1000;  // us
@@ -219,10 +228,10 @@ TEST(ERL_SDF_MAPPING, GpSdfMapping2D) {
         cv::imshow("distances_out", dst);
         cv::waitKey(100);
 
-        Eigen::MatrixXd variances_out_mat = distance_variances_out.reshaped(grid_map_info->Height(), grid_map_info->Width());
-        double min_variance = variances_out_mat.minCoeff();
-        double max_variance = variances_out_mat.maxCoeff();
-        Eigen::MatrixX8U variances_out_mat_normalized = ((variances_out_mat.array() - min_variance) / (max_variance - min_variance) * 255).cast<uint8_t>();
+        Eigen::MatrixXd sdf_variances_mat = variances_out.row(0).reshaped(grid_map_info->Height(), grid_map_info->Width());
+        double min_variance = sdf_variances_mat.minCoeff();
+        double max_variance = sdf_variances_mat.maxCoeff();
+        Eigen::MatrixX8U variances_out_mat_normalized = ((sdf_variances_mat.array() - min_variance) / (max_variance - min_variance) * 255).cast<uint8_t>();
         cv::eigen2cv(variances_out_mat_normalized, src);
         cv::flip(src, src, 0);  // flip along y axis
         cv::applyColorMap(src, dst, cv::COLORMAP_JET);
@@ -254,6 +263,7 @@ main(int argc, char *argv[]) {
         desc.add_options()
             ("help", "produce help message")
             ("use-gazebo-data", po::bool_switch(&g_options.use_gazebo_data)->default_value(g_options.use_gazebo_data), "Use Gazebo data instead of HouseExpo data")
+            ("stride", po::value<int>(&g_options.stride)->default_value(g_options.stride), "stride for running the sequence")
             ("visualize", po::bool_switch(&g_options.visualize)->default_value(g_options.visualize), "Visualize the mapping")
             ("hold", po::bool_switch(&g_options.hold)->default_value(g_options.hold), "Hold the test until a key is pressed")
             (

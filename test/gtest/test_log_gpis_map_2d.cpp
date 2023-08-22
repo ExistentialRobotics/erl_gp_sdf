@@ -1,8 +1,8 @@
+#include <gtest/gtest.h>
+#include <filesystem>
 #include "erl_common/test_helper.hpp"
 #include "erl_geometry/gazebo_room.hpp"
 #include "erl_sdf_mapping/gpis/log_gpis_map_2d.hpp"
-#include <filesystem>
-#include <gtest/gtest.h>
 
 using namespace erl::common;
 using namespace erl::sdf_mapping::gpis;

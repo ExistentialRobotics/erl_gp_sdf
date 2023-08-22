@@ -2,7 +2,7 @@
 
 #include <fstream>
 
-#include "erl_gaussian_process/log_noisy_input_gp.hpp"
+#include "erl_sdf_mapping/log_sdf_gp.hpp"
 #include "gpis_map_base_2d.hpp"
 
 namespace erl::sdf_mapping::gpis {
@@ -11,12 +11,11 @@ namespace erl::sdf_mapping::gpis {
 
     public:
         struct Setting : public GpisMapBase2D::Setting {
-            std::shared_ptr<gaussian_process::LogNoisyInputGaussianProcess::Setting> gp_sdf =
-                std::make_shared<gaussian_process::LogNoisyInputGaussianProcess::Setting>();
+            std::shared_ptr<LogSdfGaussianProcess::Setting> gp_sdf = std::make_shared<LogSdfGaussianProcess::Setting>();
         };
 
     private:
-        std::shared_ptr<Setting> m_setting_;
+        std::shared_ptr<Setting> m_setting_ = {};
 
     public:
         explicit LogGpisMap2D()
@@ -41,8 +40,15 @@ namespace erl::sdf_mapping::gpis {
             const Eigen::Ref<const Eigen::VectorXd> &vec_sigma_y,
             const Eigen::Ref<const Eigen::VectorXd> &vec_sigma_grad) final {
 
-            auto gp = gaussian_process::LogNoisyInputGaussianProcess::Create(m_setting_->gp_sdf);
-            gp->Train(mat_x_train, vec_grad_flag, vec_y, vec_sigma_x, vec_sigma_y, vec_sigma_grad);
+            auto gp = std::make_shared<LogSdfGaussianProcess>(m_setting_->gp_sdf);
+            gp->Reset(mat_x_train.cols(), 2);
+            gp->GetTrainInputSamplesBuffer() = mat_x_train;
+            gp->GetTrainInputSamplesVarianceBuffer() = vec_sigma_x;
+            gp->GetTrainOutputSamplesBuffer() = vec_y;
+            gp->GetTrainOutputValueSamplesVarianceBuffer() = vec_sigma_y;
+            gp->GetTrainOutputGradientSamplesVarianceBuffer() = vec_sigma_grad;
+            gp->GetTrainGradientFlagsBuffer() = vec_grad_flag;
+            gp->Train(mat_x_train.cols(), vec_grad_flag.cast<long>().sum());
             return gp;
         }
 
@@ -53,8 +59,9 @@ namespace erl::sdf_mapping::gpis {
             Eigen::Ref<Eigen::Vector3d> vec_f_out,
             Eigen::Ref<Eigen::Vector3d> vec_var_out) const final {
 
-            auto gp = std::static_pointer_cast<const gaussian_process::LogNoisyInputGaussianProcess>(gp_ptr);
-            gp->Test(mat_x_test, vec_f_out, vec_var_out);
+            auto gp = std::static_pointer_cast<const LogSdfGaussianProcess>(gp_ptr);
+            Eigen::Matrix3Xd mat_cov_out;
+            gp->Test(mat_x_test, vec_f_out, vec_var_out, mat_cov_out);
         }
     };
 

@@ -39,6 +39,7 @@ class GPou {
     public:
 #endif
     EMatrixX x;
+    EMatrixX K;
     EMatrixX L;
     EVectorX alpha;  // inv(m_k_+Kx) * y
 

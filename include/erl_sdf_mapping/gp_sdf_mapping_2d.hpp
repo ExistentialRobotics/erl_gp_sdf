@@ -1,43 +1,47 @@
 #pragma once
 
 #include <memory>
+#include <queue>
 #include "erl_common/yaml.hpp"
 #include "abstract_surface_mapping_2d.hpp"
-#include "erl_gaussian_process/log_noisy_input_gp.hpp"
+#include "log_sdf_gp.hpp"
 
 namespace erl::sdf_mapping {
 
     class GpSdfMapping2D {
 
     public:
-        using GpSdf = gaussian_process::LogNoisyInputGaussianProcess;
-
         struct Setting : public common::Yamlable<Setting> {
             struct TestQuery : public common::Yamlable<TestQuery> {
                 double max_test_valid_distance_var = 0.4;  // maximum distance variance of prediction.
                 double search_area_half_size = 4.8;
-                bool use_nearest_only = false;             // if true, only the nearest point will be used for prediction.
+                bool use_nearest_only = false;  // if true, only the nearest point will be used for prediction.
+                bool compute_covariance = false;
             };
 
             unsigned int num_threads = 64;
-            double update_hz = 20;
+            double update_hz = 20;                   // frequency that Update() is called.
             double gp_sdf_area_scale = 4;            // ratio between GP area and Quadtree cluster area
-            double offset_distance = 0.0;
+            double offset_distance = 0.0;            // offset distance for surface points
             double zero_gradient_threshold = 1.e-6;  // gradient below this threshold is considered zero.
             double max_valid_gradient_var = 0.1;     // maximum gradient variance qualified for training.
             double invalid_position_var = 2.;        // position variance of points whose gradient is labeled invalid, i.e. > max_valid_gradient_var.
             bool train_gp_immediately = false;
-            std::shared_ptr<GpSdf::Setting> gp_sdf = std::make_shared<GpSdf::Setting>();
+            std::shared_ptr<LogSdfGaussianProcess::Setting> gp_sdf = std::make_shared<LogSdfGaussianProcess::Setting>();
             std::shared_ptr<TestQuery> test_query = std::make_shared<TestQuery>();  // parameters used by Test.
         };
 
         struct GP {
-            Eigen::Matrix2Xd mat_x = {};
-            Eigen::VectorXd vec_y = {};
-            Eigen::VectorXd vec_sigma_x = {};
-            Eigen::VectorXd vec_sigma_grad = {};
-            Eigen::VectorXb vec_grad_flag = {};
-            std::shared_ptr<GpSdf> gp = {};
+            bool active = false;
+            std::atomic_bool locked_for_test = false;
+            long num_train_samples = 0;
+            long num_train_samples_with_grad = 0;
+            std::shared_ptr<LogSdfGaussianProcess> gp = {};
+
+            inline void
+            Train() {
+                gp->Train(num_train_samples, num_train_samples_with_grad);
+            }
         };
 
         using QuadtreeKeyGpMap = std::unordered_map<geometry::QuadtreeKey, std::shared_ptr<GP>, geometry::QuadtreeKey::KeyHash>;
@@ -45,23 +49,22 @@ namespace erl::sdf_mapping {
     private:
         std::shared_ptr<Setting> m_setting_ = std::make_shared<Setting>();
         std::mutex m_mutex_;
-        std::shared_ptr<AbstractSurfaceMapping2D> m_surface_mapping_ = nullptr;                 // for getting surface points, racing condition.
-        std::vector<geometry::QuadtreeKey> m_clusters_to_update_ = {};                          // stores clusters that are to be updated by UpdateGpThread().
-        std::vector<std::vector<geometry::QuadtreeKey>> m_clusters_not_updated_ = {};           // stores clusters that are not updated by UpdateGpThread().
+        std::shared_ptr<AbstractSurfaceMapping2D> m_surface_mapping_ = nullptr;  // for getting surface points, racing condition.
+        std::vector<geometry::QuadtreeKey> m_clusters_to_update_ = {};           // stores clusters that are to be updated by UpdateGpThread().
+        // std::vector<std::vector<geometry::QuadtreeKey>> m_clusters_not_updated_ = {};  // stores clusters that are not updated by UpdateGpThread().
         QuadtreeKeyGpMap m_gp_map_ = {};                                                        // for getting GP from Quadtree key, racing condition.
-        std::vector<std::vector<std::pair<double, std::shared_ptr<GP>>>> m_query_to_gps_ = {};  // for testing, racing condition when Update() is called.
-        std::vector<std::vector<std::pair<double, std::shared_ptr<GpSdf>>>> m_query_to_test_gps_ = {};  // for testing, safe when Update() is called.
-        std::vector<std::shared_ptr<GP>> m_gps_to_train_ = {};  // for training SDF GPs, racing condition when Update() and Test() are called.
-        bool m_might_need_training_ = false;                    // flag indicating whether m_gps_to_train_ might need training.
-        double m_train_gp_time_ = 10;                           // us
+        std::vector<std::vector<std::pair<double, std::shared_ptr<GP>>>> m_query_to_gps_ = {};  // for testing, racing condition
+        std::queue<std::shared_ptr<GP>> m_new_gps_ = {};        // caching new GPs to be moved into m_gps_to_train_
+        std::vector<std::shared_ptr<GP>> m_gps_to_train_ = {};  // for training SDF GPs, racing condition in Update() and Test()
+        double m_train_gp_time_ = 10;  // us
 
         // for testing
         struct TestBuffer {
             std::unique_ptr<Eigen::Ref<const Eigen::Matrix2Xd>> positions = nullptr;
             std::unique_ptr<Eigen::Ref<Eigen::VectorXd>> distances = nullptr;
             std::unique_ptr<Eigen::Ref<Eigen::Matrix2Xd>> gradients = nullptr;
-            std::unique_ptr<Eigen::Ref<Eigen::VectorXd>> distance_variances = nullptr;
-            std::unique_ptr<Eigen::Ref<Eigen::Matrix2Xd>> gradient_variances = nullptr;
+            std::unique_ptr<Eigen::Ref<Eigen::Matrix3Xd>> variances = nullptr;
+            std::unique_ptr<Eigen::Ref<Eigen::Matrix3Xd>> covariances = nullptr;
 
             [[nodiscard]] inline std::size_t
             Size() const {
@@ -74,24 +77,25 @@ namespace erl::sdf_mapping {
                 const Eigen::Ref<const Eigen::Matrix2Xd>& positions_in,
                 Eigen::VectorXd& distances_out,
                 Eigen::Matrix2Xd& gradients_out,
-                Eigen::VectorXd& distance_variances_out,
-                Eigen::Matrix2Xd& gradient_variances_out) {
+                Eigen::Matrix3Xd& variances_out,
+                Eigen::Matrix3Xd& covariances_out,
+                bool compute_covariance) {
                 positions = nullptr;
                 distances = nullptr;
                 gradients = nullptr;
-                distance_variances = nullptr;
-                gradient_variances = nullptr;
+                variances = nullptr;
+                covariances = nullptr;
                 long n = positions_in.cols();
                 if (n == 0) return false;
                 distances_out.resize(n);
                 gradients_out.resize(2, n);
-                distance_variances_out.resize(n);
-                gradient_variances_out.resize(2, n);
+                variances_out.resize(3, n);
+                if (compute_covariance) { covariances_out.resize(3, n); }
                 this->positions = std::make_unique<Eigen::Ref<const Eigen::Matrix2Xd>>(positions_in);
                 this->distances = std::make_unique<Eigen::Ref<Eigen::VectorXd>>(distances_out);
                 this->gradients = std::make_unique<Eigen::Ref<Eigen::Matrix2Xd>>(gradients_out);
-                this->distance_variances = std::make_unique<Eigen::Ref<Eigen::VectorXd>>(distance_variances_out);
-                this->gradient_variances = std::make_unique<Eigen::Ref<Eigen::Matrix2Xd>>(gradient_variances_out);
+                this->variances = std::make_unique<Eigen::Ref<Eigen::Matrix3Xd>>(variances_out);
+                this->covariances = std::make_unique<Eigen::Ref<Eigen::Matrix3Xd>>(covariances_out);
                 return true;
             }
 
@@ -100,8 +104,8 @@ namespace erl::sdf_mapping {
                 positions = nullptr;
                 distances = nullptr;
                 gradients = nullptr;
-                distance_variances = nullptr;
-                gradient_variances = nullptr;
+                variances = nullptr;
+                covariances = nullptr;
             }
         };
 
@@ -123,13 +127,6 @@ namespace erl::sdf_mapping {
         [[nodiscard]] std::shared_ptr<AbstractSurfaceMapping2D>
         GetSurfaceMapping() const {
             return m_surface_mapping_;
-        }
-
-        std::shared_ptr<GP>
-        GetGp(const geometry::QuadtreeKey& key) {
-            auto it = m_gp_map_.find(key);
-            if (it == m_gp_map_.end()) return nullptr;
-            return it->second;
         }
 
         bool
@@ -169,8 +166,8 @@ namespace erl::sdf_mapping {
             const Eigen::Ref<const Eigen::Matrix2Xd>& positions_in,
             Eigen::VectorXd& distances_out,
             Eigen::Matrix2Xd& gradients_out,
-            Eigen::VectorXd& distance_variances_out,
-            Eigen::Matrix2Xd& gradient_variances_out);
+            Eigen::Matrix3Xd& variances_out,
+            Eigen::Matrix3Xd& covariances_out);
 
     private:
         void
@@ -207,9 +204,6 @@ namespace erl::sdf_mapping {
         }
 
         void
-        TrainGp(const std::shared_ptr<GP>& gp);
-
-        void
         TrainGpThread(unsigned int thread_idx, std::size_t start_idx, std::size_t end_idx);
 
         void
@@ -233,6 +227,7 @@ namespace YAML {
             node["max_test_valid_distance_var"] = rhs.max_test_valid_distance_var;
             node["search_area_half_size"] = rhs.search_area_half_size;
             node["use_nearest_only"] = rhs.use_nearest_only;
+            node["compute_covariance"] = rhs.compute_covariance;
             return node;
         }
 
@@ -242,6 +237,7 @@ namespace YAML {
             rhs.max_test_valid_distance_var = node["max_test_valid_distance_var"].as<double>();
             rhs.search_area_half_size = node["search_area_half_size"].as<double>();
             rhs.use_nearest_only = node["use_nearest_only"].as<bool>();
+            rhs.compute_covariance = node["compute_covariance"].as<bool>();
             return true;
         }
     };
@@ -252,6 +248,7 @@ namespace YAML {
         out << Key << "max_test_valid_distance_var" << Value << rhs.max_test_valid_distance_var;
         out << Key << "search_area_half_size" << Value << rhs.search_area_half_size;
         out << Key << "use_nearest_only" << Value << rhs.use_nearest_only;
+        out << Key << "compute_covariance" << Value << rhs.compute_covariance;
         out << EndMap;
         return out;
     }

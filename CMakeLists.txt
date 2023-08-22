@@ -66,6 +66,19 @@ erl_install(
 #######################################################################################################################
 # TEST
 #######################################################################################################################
+add_library(
+        gpis STATIC
+        test/gpis_map/src/covFnc.cpp
+        test/gpis_map/src/GPisMap.cpp
+        test/gpis_map/src/ObsGP.cpp
+        test/gpis_map/src/OnGpis.cpp
+        test/gpis_map/src/quadtree.cpp
+        test/gpis_map/src/strct.cpp
+)
+target_include_directories(gpis PUBLIC test/gpis_map/include)
+target_link_libraries(gpis Eigen3::Eigen)
+link_libraries(gpis)
+erl_set_gtest_args(test_gp_sdf_mapping_2d --visualize)
 erl_add_tests(
         LIBRARIES ${PROJECT_NAME}
 )

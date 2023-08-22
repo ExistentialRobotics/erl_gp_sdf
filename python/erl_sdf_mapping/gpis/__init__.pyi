@@ -7,7 +7,7 @@ import numpy.typing as npt
 
 from erl_common.yaml import YamlableBase
 from erl_gaussian_process import LidarGaussianProcess1D
-from erl_gaussian_process import LogNoisyInputGaussianProcess
+from erl_sdf_mapping import LogSdfGaussianProcess
 from erl_gaussian_process import NoisyInputGaussianProcess
 from erl_geometry import NodeData
 from erl_geometry import IncrementalQuadtree
@@ -135,7 +135,7 @@ class GpisMap2D(GpisMapBase2D):
 
 class LogGpisMap2D(GpisMapBase2D):
     class Setting(GpisMapBase2D.Setting):
-        gp_sdf: LogNoisyInputGaussianProcess.Setting
+        gp_sdf: LogSdfGaussianProcess.Setting
 
         def __init__(self: LogGpisMap2D.Setting): ...
 
