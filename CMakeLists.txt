@@ -75,8 +75,8 @@ add_library(
         test/gpis_map/src/quadtree.cpp
         test/gpis_map/src/strct.cpp
 )
-target_include_directories(gpis PUBLIC test/gpis_map/include)
-target_link_libraries(gpis Eigen3::Eigen)
+target_include_directories(gpis PUBLIC SYSTEM test/gpis_map/include ${catkin_INCLUDE_DIRS})
+target_link_libraries(gpis PUBLIC ${${PROJECT_NAME}_ERL_PACKAGES} ${catkin_LIBRARIES})
 link_libraries(gpis)
 erl_set_gtest_args(test_gp_sdf_mapping_2d --visualize)
 erl_add_tests(
