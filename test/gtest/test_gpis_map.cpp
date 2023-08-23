@@ -79,63 +79,64 @@ TEST(ERL_SDF_MAPPING, GpisMap2D) {
     fs.close();
 
     // Check m_train_buffer_
-    ASSERT_EIGEN_VECTOR_EQUAL("m_gp_theta_->m_train_buffer_.vec_angles", gpis_map.m_gp_theta_->m_train_buffer_.vec_angles, gpm.m_obs_theta_);
-    ASSERT_EIGEN_VECTOR_EQUAL("m_gp_theta_->m_train_buffer_.vec_ranges", gpis_map.m_gp_theta_->m_train_buffer_.vec_ranges, gpm.m_obs_range_);
-    ASSERT_EIGEN_VECTOR_EQUAL("m_gp_theta_->m_train_buffer_.vec_mapped_distances", gpis_map.m_gp_theta_->m_train_buffer_.vec_mapped_distances, gpm.m_obs_f_);
+    auto &train_buffer = gpis_map.m_gp_theta_->GetTrainBuffer();
+    ASSERT_EIGEN_VECTOR_EQUAL("m_gp_theta_->m_train_buffer_.vec_angles", train_buffer.vec_angles, gpm.m_obs_theta_);
+    ASSERT_EIGEN_VECTOR_EQUAL("m_gp_theta_->m_train_buffer_.vec_ranges", train_buffer.vec_ranges, gpm.m_obs_range_);
+    ASSERT_EIGEN_VECTOR_EQUAL("m_gp_theta_->m_train_buffer_.vec_mapped_distances", train_buffer.vec_mapped_distances, gpm.m_obs_f_);
 
-    EXPECT_EQ(gpis_map.m_gp_theta_->m_train_buffer_.position.x(), gpm.m_pose_tr_[0]) << "m_gp_theta_->m_train_buffer_.position.x()";
-    EXPECT_EQ(gpis_map.m_gp_theta_->m_train_buffer_.position.y(), gpm.m_pose_tr_[1]) << "m_gp_theta_->m_train_buffer_.position.y()";
-    EXPECT_EQ(gpis_map.m_gp_theta_->m_train_buffer_.rotation(0, 0), gpm.m_pose_r_[0]) << "m_gp_theta_->m_train_buffer_.rotation(0, 0)";
-    EXPECT_EQ(gpis_map.m_gp_theta_->m_train_buffer_.rotation(1, 0), gpm.m_pose_r_[1]) << "m_gp_theta_->m_train_buffer_.rotation(1, 0)";
-    EXPECT_EQ(gpis_map.m_gp_theta_->m_train_buffer_.rotation(0, 1), gpm.m_pose_r_[2]) << "m_gp_theta_->m_train_buffer_.rotation(0, 1)";
-    EXPECT_EQ(gpis_map.m_gp_theta_->m_train_buffer_.rotation(1, 1), gpm.m_pose_r_[3]) << "m_gp_theta_->m_train_buffer_.rotation(1, 1)";
-    EXPECT_EQ(gpis_map.m_gp_theta_->m_train_buffer_.max_distance, gpm.m_range_obs_max_) << "m_gp_theta_->m_train_buffer_.max_distance";
+    EXPECT_EQ(train_buffer.position.x(), gpm.m_pose_tr_[0]) << "m_gp_theta_->m_train_buffer_.position.x()";
+    EXPECT_EQ(train_buffer.position.y(), gpm.m_pose_tr_[1]) << "m_gp_theta_->m_train_buffer_.position.y()";
+    EXPECT_EQ(train_buffer.rotation(0, 0), gpm.m_pose_r_[0]) << "m_gp_theta_->m_train_buffer_.rotation(0, 0)";
+    EXPECT_EQ(train_buffer.rotation(1, 0), gpm.m_pose_r_[1]) << "m_gp_theta_->m_train_buffer_.rotation(1, 0)";
+    EXPECT_EQ(train_buffer.rotation(0, 1), gpm.m_pose_r_[2]) << "m_gp_theta_->m_train_buffer_.rotation(0, 1)";
+    EXPECT_EQ(train_buffer.rotation(1, 1), gpm.m_pose_r_[3]) << "m_gp_theta_->m_train_buffer_.rotation(1, 1)";
+    EXPECT_EQ(train_buffer.max_distance, gpm.m_range_obs_max_) << "m_gp_theta_->m_train_buffer_.max_distance";
 
-    Eigen::MatrixXd mat_xy_local_ans = gpis_map.m_gp_theta_->m_train_buffer_.mat_xy_local;
-    Eigen::MatrixXd mat_xy_local_gt = Eigen::Map<Eigen::MatrixXd>(gpm.m_obs_xy_local_.data(), 2, gpm.m_obs_xy_local_.size() / 2);
+    Eigen::MatrixXd mat_xy_local_ans = train_buffer.mat_xy_local;
+    Eigen::MatrixXd mat_xy_local_gt = Eigen::Map<Eigen::MatrixXd>(gpm.m_obs_xy_local_.data(), 2, long(gpm.m_obs_xy_local_.size()) / 2);
     ASSERT_EIGEN_MATRIX_EQUAL("m_gp_theta_->m_train_buffer_.mat_xy_local", mat_xy_local_ans, mat_xy_local_gt);
 
-    Eigen::MatrixXd mat_xy_global_ans = gpis_map.m_gp_theta_->m_train_buffer_.mat_xy_global;
-    Eigen::MatrixXd mat_xy_global_gt = Eigen::Map<Eigen::MatrixXd>(gpm.m_obs_xy_global_.data(), 2, gpm.m_obs_xy_global_.size() / 2);
+    Eigen::MatrixXd mat_xy_global_ans = train_buffer.mat_xy_global;
+    Eigen::MatrixXd mat_xy_global_gt = Eigen::Map<Eigen::MatrixXd>(gpm.m_obs_xy_global_.data(), 2, long(gpm.m_obs_xy_global_.size()) / 2);
     ASSERT_EIGEN_MATRIX_EQUAL("m_gp_theta_->m_train_buffer_.mat_xy_global", mat_xy_global_ans, mat_xy_global_gt);
 
     // Check regress observation
-    EXPECT_EQ(gpis_map.m_gp_theta_->m_setting_->overlap_size, gpm.m_gpo_->param.overlap) << "m_gp_theta_->m_setting_->overlap_size";
-    EXPECT_EQ(gpis_map.m_gp_theta_->m_setting_->group_size - gpis_map.m_gp_theta_->m_setting_->overlap_size, gpm.m_gpo_->param.group_size)
-        << "m_gp_theta_->m_setting_->group_size";
-    EXPECT_EQ(gpis_map.m_gp_theta_->m_setting_->boundary_margin, gpm.m_gpo_->param.margin) << "m_gp_theta_->m_setting_->boundary_margin";
-    EXPECT_EQ(gpis_map.m_gp_theta_->m_setting_->gp->kernel->scale, gpm.m_gpo_->param.scale) << "m_gp_theta_->m_setting_->gp->kernel->scale";
-    EXPECT_EQ(gpis_map.m_setting_->gp_theta->sensor_range_var, gpm.m_gpo_->param.noise) << "m_setting_->gp_theta->sensor_range_var";
-    ASSERT_STD_VECTOR_EQUAL("m_gp_theta_.m_partitions_", gpis_map.m_gp_theta_->m_partitions_, gpm.m_gpo_->range);
+    EXPECT_EQ(gpis_map.m_gp_theta_->GetSetting()->overlap_size, gpm.m_gpo_->param.overlap) << "overlap_size";
+    EXPECT_EQ(gpis_map.m_gp_theta_->GetSetting()->group_size - gpis_map.m_gp_theta_->GetSetting()->overlap_size, gpm.m_gpo_->param.group_size) << "group_size";
+    EXPECT_EQ(gpis_map.m_gp_theta_->GetSetting()->boundary_margin, gpm.m_gpo_->param.margin) << "boundary_margin";
+    EXPECT_EQ(gpis_map.m_gp_theta_->GetSetting()->gp->kernel->scale, gpm.m_gpo_->param.scale) << "gp->kernel->scale";
+    EXPECT_EQ(gpis_map.m_setting_->gp_theta->sensor_range_var, gpm.m_gpo_->param.noise) << "gp_theta->sensor_range_var";
+    ASSERT_STD_VECTOR_EQUAL("gpm.m_gpo_->range", gpis_map.m_gp_theta_->GetPartitions(), gpm.m_gpo_->range);
 
-    for (size_t i = 0; i < gpis_map.m_gp_theta_->m_gps_.size(); ++i) {
+    auto gps = gpis_map.m_gp_theta_->GetGps();
+    for (size_t i = 0; i < gps.size(); ++i) {
         ss.str(std::string());
         ss << "gpm.m_gpo_->gps[" << i << "]->x";
         long n = gpm.m_gpo_->gps[i]->x.cols();
-        Eigen::MatrixXd mat_x = gpis_map.m_gp_theta_->m_gps_[i]->GetTrainInputSamplesBuffer().leftCols(n);
+        Eigen::MatrixXd mat_x = gps[i]->GetTrainInputSamplesBuffer().leftCols(n);
         ASSERT_EIGEN_MATRIX_EQUAL(ss.str(), mat_x, gpm.m_gpo_->gps[i]->x);
     }
 
-    for (size_t i = 0; i < gpis_map.m_gp_theta_->m_gps_.size(); ++i) {
+    for (size_t i = 0; i < gps.size(); ++i) {
         ss.str(std::string());
         ss << "gpm.m_gpo_->gps[" << i << "]->K";
         long n = gpm.m_gpo_->gps[i]->L.rows();
-        Eigen::MatrixXd mat_k = gpis_map.m_gp_theta_->m_gps_[i]->GetKtrain().topLeftCorner(n, n);
+        Eigen::MatrixXd mat_k = gps[i]->GetKtrain().topLeftCorner(n, n);
         ASSERT_EIGEN_MATRIX_EQUAL(ss.str(), mat_k, gpm.m_gpo_->gps[i]->K);
     }
 
-    for (size_t i = 0; i < gpis_map.m_gp_theta_->m_gps_.size(); ++i) {
+    for (size_t i = 0; i < gps.size(); ++i) {
         ss.str(std::string());
         ss << "gpm.m_gpo_->gps[" << i << "]->L";
         long n = gpm.m_gpo_->gps[i]->L.rows();
-        Eigen::MatrixXd mat_l = gpis_map.m_gp_theta_->m_gps_[i]->GetCholeskyDecomposition().topLeftCorner(n, n);
+        Eigen::MatrixXd mat_l = gps[i]->GetCholeskyDecomposition().topLeftCorner(n, n);
         ASSERT_EIGEN_MATRIX_EQUAL(ss.str(), mat_l, gpm.m_gpo_->gps[i]->L);
     }
 
-    for (size_t i = 0; i < gpis_map.m_gp_theta_->m_gps_.size(); ++i) {
+    for (size_t i = 0; i < gps.size(); ++i) {
         ss.str(std::string());
         ss << "gpm.m_gpo_->gps[" << i << "]->alpha";
-        Eigen::VectorXd alpha = gpis_map.m_gp_theta_->m_gps_[i]->GetTrainOutputSamplesBuffer().head(gpm.m_gpo_->gps[i]->alpha.size());
+        Eigen::VectorXd alpha = gps[i]->GetTrainOutputSamplesBuffer().head(gpm.m_gpo_->gps[i]->alpha.size());
         ASSERT_EIGEN_VECTOR_EQUAL(ss.str(), alpha, gpm.m_gpo_->gps[i]->alpha);
     }
 
