@@ -22,3 +22,4 @@ test_query:
   max_test_valid_distance_var: 0.40000000000000002
   search_area_half_size: 2
   use_nearest_only: false
+  compute_covariance: false  # whether to compute covariance
