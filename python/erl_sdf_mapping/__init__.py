@@ -1,5 +1,6 @@
 # import pybind dependencies
 from erl_geometry import NodeData
+from erl_gaussian_process import NoisyInputGaussianProcess
 
 # import package modules
 from . import gpis
