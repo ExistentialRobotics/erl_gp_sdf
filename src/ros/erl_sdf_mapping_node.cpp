@@ -18,8 +18,6 @@
 #include <tf2_ros/transform_listener.h>
 #include <tf2_eigen/tf2_eigen.h>
 #include <tf2/convert.h>
-#include <tf2/LinearMath/Matrix3x3.h>
-#include <tf2_geometry_msgs/tf2_geometry_msgs.h>
 #include <filesystem>
 #include <erl_sdf_mapping/PredictSdf.h>
 #include <mutex>
@@ -211,14 +209,12 @@ private:
         Eigen::VectorXd angles = Eigen::VectorXd::LinSpaced(num_lines, laser_scan->angle_min, laser_scan->angle_max);
         Eigen::VectorXd ranges = Eigen::Map<const Eigen::VectorXf>((const float *) (laser_scan->ranges.data()), num_lines).cast<double>();
         auto lidar_pose = GetLidarPose(laser_scan->header.stamp);
-//        ROS_WARN("Lidar Pose: \n%s", erl::common::EigenToNumPyFmtString(lidar_pose).c_str());
         bool success = m_sdf_mapping_->Update(angles, ranges, lidar_pose);
-//        ROS_WARN("Lidar Pose: \n%s", erl::common::EigenToNumPyFmtString(ranges).c_str());
         if (!success) {
             ROS_WARN("SDF mapping update failed");
             return;
         }
-        // FIXME: racing condition between SubCallbackLidarScan and SrvCallbackPredictSdf
+
         if (m_params_.visualize_quadtree && m_visualize_counter_ == 0 && m_surface_mapping_->GetQuadtree()) {
             if (!m_drawer_connected_) {
                 m_quadtree_drawer_->SetQuadtree(m_surface_mapping_->GetQuadtree());
@@ -234,9 +230,6 @@ private:
             for (auto &[position_px_cv, arrow_end_px]: m_arrowed_lines_) {
                 cv::arrowedLine(m_cv_image_, position_px_cv, arrow_end_px, cv::Scalar(0, 0, 255, 255), 1, 8, 0, 0.1);
             }
-//            cv::imshow("quadtree", m_cv_image_);
-//            cv::waitKey(1);
-            cv::imwrite("/home/yiyz/cbf_sdf_ws/quadtree.png", m_cv_image_);
             cv_bridge::CvImage out_msg(laser_scan->header, sensor_msgs::image_encodings::BGRA8, m_cv_image_);
             m_quadtree_viz_pub_->publish(out_msg.toImageMsg());
             m_visualize_counter_ = (m_visualize_counter_ + 1) % m_params_.visualize_frequency_divider;
@@ -248,23 +241,34 @@ private:
         auto num_queries = long(request.x.size());
         Eigen::Matrix2Xd positions_in(2, num_queries);
         for (long i = 0; i < num_queries; ++i) { positions_in.col(i) << request.x[i], request.y[i]; }
-        Eigen::VectorXd sdf_out, var_sdf_out;
-        Eigen::Matrix2Xd gradient_out, var_gradient_out;
-        bool success = m_sdf_mapping_->Test(positions_in, sdf_out, gradient_out, var_sdf_out, var_gradient_out);
+        Eigen::VectorXd sdf_out;
+        Eigen::Matrix2Xd gradient_out;
+        Eigen::Matrix3Xd variance_out, covariance_out;
+        bool success = m_sdf_mapping_->Test(positions_in, sdf_out, gradient_out, variance_out, covariance_out);
         if (!success) { return false; }
         response.sdf.resize(num_queries);
-        response.var_sdf.resize(num_queries);
         response.gradient_x.resize(num_queries);
         response.gradient_y.resize(num_queries);
+        response.var_sdf.resize(num_queries);
         response.var_gradient_x.resize(num_queries);
         response.var_gradient_y.resize(num_queries);
+        if (covariance_out.cols() > 0) {
+            response.cov_sdf_gradient_x.resize(num_queries);
+            response.cov_sdf_gradient_y.resize(num_queries);
+            response.cov_gradient_x_gradient_y.resize(num_queries);
+        }
         for (long i = 0; i < num_queries; ++i) {
             response.sdf[i] = sdf_out[i];
-            response.var_sdf[i] = var_sdf_out[i];
             response.gradient_x[i] = gradient_out(0, i);
             response.gradient_y[i] = gradient_out(1, i);
-            response.var_gradient_x[i] = var_gradient_out(0, i);
-            response.var_gradient_y[i] = var_gradient_out(1, i);
+            response.var_sdf[i] = variance_out(0, i);
+            response.var_gradient_x[i] = variance_out(1, i);
+            response.var_gradient_y[i] = variance_out(2, i);
+            if (covariance_out.cols() > 0) {
+                response.cov_sdf_gradient_x[i] = covariance_out(0, i);
+                response.cov_sdf_gradient_y[i] = covariance_out(1, i);
+                response.cov_gradient_x_gradient_y[i] = covariance_out(2, i);
+            }
         }
         return true;
     }
@@ -273,23 +277,7 @@ private:
 int
 main(int argc, char *argv[]) {
     ros::init(argc, argv, kRosNodeName);
-
     RosNode node;
     node.Run();
-
-    // ros::Publisher chatter_pub = n.advertise<std_msgs::String>("chatter", 1000);
-    // ros::Rate loop_rate(10);
-    // int count = 0;
-    // while (ros::ok()) {
-    //     std_msgs::String msg;
-    //     std::stringstream ss;
-    //     ss << "hello world " << count;
-    //     msg.data = ss.str();
-    //     ROS_INFO("%s", msg.data.c_str());
-    //     chatter_pub.publish(msg);
-    //     ros::spinOnce();
-    //     loop_rate.sleep();
-    //     ++count;
-    // }
     return 0;
 }
