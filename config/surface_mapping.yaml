@@ -17,6 +17,7 @@ gp_theta:
   gp:
     kernel:
       type: kOrnsteinUhlenbeck
+      x_dim: 2
       alpha: 1
       scale: 0.5
       scale_mix: 1
