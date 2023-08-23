@@ -82,11 +82,6 @@ public:
         m_surface_mapping_ = std::make_shared<erl::sdf_mapping::GpOccSurfaceMapping2D>(m_surface_mapping_setting_);
         m_sdf_mapping_ = std::make_shared<erl::sdf_mapping::GpSdfMapping2D>(m_surface_mapping_, m_sdf_mapping_setting_);
         if (m_params_.visualize_quadtree) {
-
-
-
-
-
             m_quadtree_drawer_ = std::make_shared<OccupancyQuadtreeDrawer>(m_quadtree_drawer_setting_);
             m_quadtree_drawer_->SetDrawTreeCallback(
                 [&](const OccupancyQuadtreeDrawer *self, cv::Mat &img, erl::sdf_mapping::SurfaceMappingQuadtree::TreeIterator &it) {
