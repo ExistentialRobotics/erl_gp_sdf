@@ -40,6 +40,7 @@ namespace erl::sdf_mapping {
 
             inline void
             Train() {
+                gp->Reset(num_train_samples, 2);
                 gp->Train(num_train_samples, num_train_samples_with_grad);
             }
         };
@@ -51,7 +52,6 @@ namespace erl::sdf_mapping {
         std::mutex m_mutex_;
         std::shared_ptr<AbstractSurfaceMapping2D> m_surface_mapping_ = nullptr;  // for getting surface points, racing condition.
         std::vector<geometry::QuadtreeKey> m_clusters_to_update_ = {};           // stores clusters that are to be updated by UpdateGpThread().
-        // std::vector<std::vector<geometry::QuadtreeKey>> m_clusters_not_updated_ = {};  // stores clusters that are not updated by UpdateGpThread().
         QuadtreeKeyGpMap m_gp_map_ = {};                                                        // for getting GP from Quadtree key, racing condition.
         std::vector<std::vector<std::pair<double, std::shared_ptr<GP>>>> m_query_to_gps_ = {};  // for testing, racing condition
         std::queue<std::shared_ptr<GP>> m_new_gps_ = {};        // caching new GPs to be moved into m_gps_to_train_
