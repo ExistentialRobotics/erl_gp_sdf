@@ -1,0 +1,10 @@
+Header  header
+float64 sdf
+float64 gradient_x
+float64 gradient_y
+float64 var_sdf
+float64 var_gradient_x
+float64 var_gradient_y
+float64 cov_sdf_gradient_x
+float64 cov_sdf_gradient_y
+float64 cov_gradient_x_gradient_y

@@ -18,6 +18,7 @@
 #include <tf2_ros/transform_listener.h>
 #include <tf2_eigen/tf2_eigen.h>
 #include <tf2/convert.h>
+#include <erl_sdf_mapping/SdfPredict2D.h>
 #include <filesystem>
 #include <erl_sdf_mapping/PredictSdf.h>
 #include <mutex>
@@ -33,6 +34,7 @@ class RosNode {
         int lidar_data_queue_size = 10;
         std::string lidar_data_topic_path = "/front/scan";
         std::string world_frame_name = "map";
+        std::string robot_frame_name = "base_link";
         std::string lidar_frame_name = "front_laser";
         std::string surface_mapping_config_path;
         std::string sdf_mapping_config_path;
@@ -46,6 +48,7 @@ class RosNode {
     std::shared_ptr<ros::Subscriber> m_lidar_scan_sub_ = nullptr;
     std::shared_ptr<ros::ServiceServer> m_predict_sdf_server_ = nullptr;
     std::shared_ptr<ros::Publisher> m_quadtree_viz_pub_ = nullptr;
+    std::shared_ptr<ros::Publisher> m_sdf_prediction_pub_ = nullptr;
     tf2_ros::Buffer m_tf_buffer_;
     tf2_ros::TransformListener m_tf_listener_{m_tf_buffer_};
 
@@ -78,6 +81,8 @@ public:
         (void) m_predict_sdf_server_;
 
         m_quadtree_viz_pub_ = std::make_shared<ros::Publisher>(m_node_handle_->advertise<sensor_msgs::Image>("quadtree_viz", 1));
+
+        m_sdf_prediction_pub_ = std::make_shared<ros::Publisher>(m_node_handle_->advertise<erl_sdf_mapping::SdfPredict2D>("sdf_values", 1));
 
         m_surface_mapping_ = std::make_shared<erl::sdf_mapping::GpOccSurfaceMapping2D>(m_surface_mapping_setting_);
         m_sdf_mapping_ = std::make_shared<erl::sdf_mapping::GpSdfMapping2D>(m_surface_mapping_, m_sdf_mapping_setting_);
@@ -122,6 +127,7 @@ public:
         ros::Rate loop_rate(m_params_.frequency);
         ros::Duration(5.0).sleep();
         while (ros::ok()) {
+            PublishPredictSdf();
             ros::spinOnce();
             loop_rate.sleep();
         }
@@ -161,6 +167,7 @@ private:
         LOAD_PARAMETER(lidar_data_queue_size);
         LOAD_PARAMETER(lidar_data_topic_path);
         LOAD_PARAMETER(world_frame_name);
+        LOAD_PARAMETER(robot_frame_name);
         LOAD_PARAMETER(lidar_frame_name);
         LOAD_PARAMETER(surface_mapping_config_path);
         LOAD_PARAMETER(sdf_mapping_config_path);
@@ -198,6 +205,23 @@ private:
         return pose;
     }
 
+    Eigen::Vector2d
+    GetRobotPose() const {
+        geometry_msgs::TransformStamped transform_stamped;
+        while (true) {
+            try {
+                transform_stamped = m_tf_buffer_.lookupTransform(m_params_.world_frame_name, m_params_.robot_frame_name, ros::Time(0));
+                break;
+            } catch (tf2::TransformException &ex) {
+                ROS_WARN("%s", ex.what());
+                ros::Duration(1.0).sleep();
+                continue;
+            }
+        }
+        Eigen::Vector2d pose = Eigen::Vector2d(transform_stamped.transform.translation.x, transform_stamped.transform.translation.y);
+        return pose;
+    }
+
     void
     SubCallbackLidarScan(const sensor_msgs::LaserScanConstPtr &laser_scan) {
         auto num_lines = long(laser_scan->ranges.size());
@@ -229,6 +253,35 @@ private:
             m_quadtree_viz_pub_->publish(out_msg.toImageMsg());
             m_visualize_counter_ = (m_visualize_counter_ + 1) % m_params_.visualize_frequency_divider;
         }
+    }
+
+    void
+    PublishPredictSdf() const {
+        Eigen::Vector2d robot_pose = GetRobotPose();
+
+        auto num_queries = long(robot_pose.size());
+        Eigen::Matrix2Xd positions_in(2, num_queries);
+        for (long i = 0; i < num_queries; ++i) { positions_in.col(i) << robot_pose(0), robot_pose(1); }
+
+        Eigen::VectorXd sdf_out;
+        Eigen::Matrix2Xd gradient_out;
+        Eigen::Matrix3Xd variance_out, covariance_out;
+        bool success = m_sdf_mapping_->Test(positions_in, sdf_out, gradient_out, variance_out, covariance_out);
+        if (!success) { return; }
+        erl_sdf_mapping::SdfPredict2D response;
+        response.sdf = sdf_out(0);
+        response.gradient_x = gradient_out(0, 0);
+        response.gradient_y = gradient_out(1, 0);
+        response.var_sdf    = variance_out(0, 0);
+        response.var_gradient_x = variance_out(1, 0);
+        response.var_gradient_y = variance_out(2, 0);
+        if (covariance_out.cols() > 0) {
+            response.cov_sdf_gradient_x = covariance_out(0, 0);
+            response.cov_sdf_gradient_y = covariance_out(1, 0);
+            response.cov_gradient_x_gradient_y = covariance_out(2, 0);
+        }
+
+        m_sdf_prediction_pub_->publish(response);
     }
 
     bool

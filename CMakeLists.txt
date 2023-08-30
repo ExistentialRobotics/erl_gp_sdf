@@ -17,6 +17,7 @@ erl_project_setup(
 )
 erl_setup_ros(
         CATKIN_COMPONENTS ${${PROJECT_NAME}_CATKIN_COMPONENTS}
+        MSG_FILES SdfPredict2D.msg
         SRV_FILES PredictSdf.srv
         MSG_DEPENDENCIES std_msgs
 )
