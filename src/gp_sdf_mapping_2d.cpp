@@ -61,7 +61,7 @@ namespace erl::sdf_mapping {
                 threads.clear();
             }
             t1 = std::chrono::high_resolution_clock::now();
-            dt = std::chrono::duration_cast<std::chrono::microseconds>(t1 - t0).count();
+            dt = std::chrono::duration<double, std::micro>(t1 - t0).count();
             ERL_INFO("Search GPs: %ld us", dt);
 
             // Train any updated GPs
@@ -77,7 +77,7 @@ namespace erl::sdf_mapping {
                 m_gps_to_train_.insert(m_gps_to_train_.end(), new_gps.begin(), new_gps.end());
                 TrainGps();
                 t1 = std::chrono::high_resolution_clock::now();
-                dt = std::chrono::duration_cast<std::chrono::microseconds>(t1 - t0).count();
+                dt = std::chrono::duration<double, std::micro>(t1 - t0).count();
                 ERL_INFO("Train GPs: %ld us", dt);
             }
         }
@@ -98,7 +98,7 @@ namespace erl::sdf_mapping {
             threads.clear();
         }
         t1 = std::chrono::high_resolution_clock::now();
-        dt = std::chrono::duration_cast<std::chrono::microseconds>(t1 - t0).count();
+        dt = std::chrono::duration<double, std::micro>(t1 - t0).count();
         ERL_INFO("Test GPs: %ld us", dt);
 
         m_test_buffer_.DisconnectBuffers();
@@ -152,7 +152,7 @@ namespace erl::sdf_mapping {
 
         if (m_setting_->train_gp_immediately) {  // new GPs are already trained in UpdateGpThread
             auto t1 = std::chrono::high_resolution_clock::now();
-            auto dt = double(std::chrono::duration_cast<std::chrono::microseconds>(t1 - t0).count());
+            auto dt = double(std::chrono::duration<double, std::micro>(t1 - t0).count());
             ERL_INFO("Update GPs' training data: %f us.", dt);
             return;
         }
@@ -163,7 +163,7 @@ namespace erl::sdf_mapping {
             if (!it->second->gp->IsTrained()) { m_new_gps_.push(it->second); }
         }
         auto t1 = std::chrono::high_resolution_clock::now();
-        auto dt = double(std::chrono::duration_cast<std::chrono::microseconds>(t1 - t0).count());
+        auto dt = double(std::chrono::duration<double, std::micro>(t1 - t0).count());
         ERL_INFO("Update GPs' training data: %f us.", dt);
         time_budget -= dt;
 

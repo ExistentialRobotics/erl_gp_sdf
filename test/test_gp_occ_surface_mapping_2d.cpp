@@ -184,7 +184,7 @@ main(int argc, char *argv[]) {
         auto t0 = std::chrono::high_resolution_clock::now();
         mapping.Update(train_angles[i], train_ranges[i], train_poses[i]);
         auto t1 = std::chrono::high_resolution_clock::now();
-        std::cout << "update time: " << std::chrono::duration_cast<std::chrono::milliseconds>(t1 - t0).count() << " ms" << std::endl;
+        std::cout << "update time: " << std::chrono::duration<double, std::milli>(t1 - t0).count() << " ms" << std::endl;
 
         if (options.visualize) {
             if (!drawer_connected) {

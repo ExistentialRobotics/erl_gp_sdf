@@ -173,7 +173,7 @@ TEST(ERL_SDF_MAPPING, GpSdfMapping2D) {
         auto t0 = std::chrono::high_resolution_clock::now();
         sdf_mapping.Update(train_angles[i], train_ranges[i], train_poses[i]);
         auto t1 = std::chrono::high_resolution_clock::now();
-        auto dt = std::chrono::duration_cast<std::chrono::milliseconds>(t1 - t0).count();
+        auto dt = std::chrono::duration<double, std::milli>(t1 - t0).count();
         ERL_INFO("Update time: %ld ms.", dt);
         t += dt;
 
@@ -210,7 +210,7 @@ TEST(ERL_SDF_MAPPING, GpSdfMapping2D) {
     auto t0 = std::chrono::high_resolution_clock::now();
     sdf_mapping.Test(positions_in, distances_out, gradients_out, variances_out, covariances_out);
     auto t1 = std::chrono::high_resolution_clock::now();
-    auto dt = std::chrono::duration_cast<std::chrono::milliseconds>(t1 - t0).count();
+    auto dt = std::chrono::duration<double, std::milli>(t1 - t0).count();
     double t_per_point = double(dt) / (double) positions_in.cols() * 1000;  // us
     ERL_INFO("Test time: %ld ms for %ld points, %f us per point.", dt, positions_in.cols(), t_per_point);
 

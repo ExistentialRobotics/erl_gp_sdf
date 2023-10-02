@@ -43,7 +43,13 @@ for dependency in erl_dependencies:
     build_dir = os.path.join(temp_build_dir, dependency)
     os.makedirs(build_dir, exist_ok=True)
     subprocess.check_call(
-        ["cmake", src_dir, "-DCMAKE_BUILD_TYPE=" + args.build_type, "-DCMAKE_INSTALL_PREFIX=" + temp_install_dir],
+        [
+            "cmake",
+            src_dir,
+            "-DCMAKE_BUILD_TYPE=" + args.build_type,
+            "-DCMAKE_INSTALL_PREFIX=" + temp_install_dir,
+            f"-DCMAKE_VERBOSE_MAKEFILE:BOOL=ON",
+        ],
         cwd=build_dir,
     )
     subprocess.check_call(
@@ -78,8 +84,12 @@ class CMakeBuild(build_ext):
             os.remove(original_full_path)
 
         # ext_dir equals to build/lib.linux-$(architecture)-cpython-${python_version}
-        ext_dir: str = os.path.abspath(os.path.dirname(original_full_path))
-        ext_dir: str = os.path.join(ext_dir, self.distribution.get_name())
+        editable = os.path.dirname(original_full_path) == project_dir  # editable install
+        if editable:
+            ext_dir: str = src_python_dir
+        else:
+            ext_dir: str = os.path.abspath(os.path.dirname(original_full_path))
+            ext_dir: str = os.path.join(ext_dir, self.distribution.get_name())
         old_ext_path = os.path.join(ext_dir, os.path.basename(original_full_path))
         if os.path.exists(old_ext_path):
             os.remove(old_ext_path)

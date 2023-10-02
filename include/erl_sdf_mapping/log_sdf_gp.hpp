@@ -10,7 +10,7 @@ namespace erl::sdf_mapping {
     class LogSdfGaussianProcess : public gaussian_process::NoisyInputGaussianProcess {
 
     public:
-        struct Setting : public NoisyInputGaussianProcess::Setting {
+        struct Setting : public common::OverrideYamlable<NoisyInputGaussianProcess::Setting, Setting> {
             double log_lambda = 40.0;
             double edf_threshold = 0.1;
         };

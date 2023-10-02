@@ -19,7 +19,7 @@ namespace erl::sdf_mapping {
         auto t0 = std::chrono::high_resolution_clock::now();
         m_gp_theta_->Train(angles, distances, pose);
         auto t1 = std::chrono::high_resolution_clock::now();
-        auto dt = std::chrono::duration_cast<std::chrono::milliseconds>(t1 - t0).count();
+        auto dt = std::chrono::duration<double, std::milli>(t1 - t0).count();
         ERL_INFO("GP theta training time: %ld ms.", dt);
         if (m_gp_theta_->IsTrained()) {
 
@@ -32,21 +32,21 @@ namespace erl::sdf_mapping {
             t0 = std::chrono::high_resolution_clock::now();
             UpdateMapPoints();
             t1 = std::chrono::high_resolution_clock::now();
-            dt = std::chrono::duration_cast<std::chrono::milliseconds>(t1 - t0).count();
+            dt = std::chrono::duration<double, std::milli>(t1 - t0).count();
             ERL_INFO("Update map points time: %ld ms.", dt);
 
             if (m_setting_->update_occupancy) {
                 t0 = std::chrono::high_resolution_clock::now();
                 UpdateOccupancy(angles, distances, pose);
                 t1 = std::chrono::high_resolution_clock::now();
-                dt = std::chrono::duration_cast<std::chrono::milliseconds>(t1 - t0).count();
+                dt = std::chrono::duration<double, std::milli>(t1 - t0).count();
                 ERL_INFO("Update occupancy time: %ld ms.", dt);
             }
 
             t0 = std::chrono::high_resolution_clock::now();
             AddNewMeasurement();
             t1 = std::chrono::high_resolution_clock::now();
-            dt = std::chrono::duration_cast<std::chrono::microseconds>(t1 - t0).count();
+            dt = std::chrono::duration<double, std::micro>(t1 - t0).count();
             ERL_INFO("Add new measurement time: %ld us.", dt);
 
             return true;
