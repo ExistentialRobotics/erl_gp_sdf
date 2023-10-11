@@ -35,7 +35,7 @@ typedef Eigen::RowVectorX<double> ERowVectorX;
 // This class builds a GP regressor using the Ornstein-Uuhlenbeck covariance function.
 // NOTE: See covFnc.h)
 class GPou {
-#if defined(BUILD_TEST)
+#if defined(ERL_BUILD_TEST)
     public:
 #endif
     EMatrixX x;
@@ -71,7 +71,7 @@ public:
 
 // This is a base class to build a partitioned GP regressor, holding multiple local GPs using GPou.
 class ObsGP {
-#if defined(BUILD_TEST)
+#if defined(ERL_BUILD_TEST)
     public:
 #else
 protected:
@@ -100,7 +100,7 @@ public:
 
 // This class implements ObsGP for 1D input.
 class ObsGP1D : public ObsGP {
-#if defined(BUILD_TEST)
+#if defined(ERL_BUILD_TEST)
     public:
 #endif
     int nGroup{};         // number of local GPs

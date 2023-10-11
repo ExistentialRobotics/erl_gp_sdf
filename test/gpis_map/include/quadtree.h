@@ -148,7 +148,7 @@ public:
 };
 
 class QuadTree {
-#if defined(BUILD_TEST)
+#if defined(ERL_BUILD_TEST)
 public:
 #endif
     // Arbitrary constant to indicate how many elements can be stored in this quad tree node
@@ -208,7 +208,7 @@ public:
         m_tree_ = p;
     }
 
-#if defined(BUILD_TEST)
+#if defined(ERL_BUILD_TEST)
 public:
 #else
 protected:

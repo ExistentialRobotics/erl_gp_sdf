@@ -11,15 +11,15 @@ from matplotlib.backend_bases import MouseEvent
 from tqdm import tqdm
 
 from erl_common.storage import GridMapInfo2D
+from erl_geometry import Space2D
 from erl_geometry.gazebo.sequence import GazeboSequence
 from erl_geometry.house_expo.list_data import get_map_and_traj_files
 from erl_geometry.house_expo.sequence import HouseExpoSequence
-from erl_geometry import Space2D
-from erl_sdf_mapping.gpis import GpisMap2D
-from erl_sdf_mapping.gpis import LogGpisMap2D
-from erl_sdf_mapping import AbstractSurfaceMapping2D
 from erl_sdf_mapping import GpOccSurfaceMapping2D
 from erl_sdf_mapping import GpSdfMapping2D
+from erl_sdf_mapping.gpis import GpisMap2D
+from erl_sdf_mapping.gpis import LogGpisMap2D
+
 
 # import cv2
 
@@ -47,6 +47,7 @@ def main() -> None:
     parser.add_argument("--draw-quadtree", action="store_true")
     parser.add_argument("--draw-abs-err", action="store_true")
     parser.add_argument("--draw-sddf-v2", action="store_true")
+    parser.add_argument("--draw-sdf-variance", action="store_true")
     parser.add_argument("--dump-quadtree-structure", action="store_true")
     args = parser.parse_args()
 
@@ -151,9 +152,10 @@ def main() -> None:
     # TRAINING #
     ############
     cnt = 0
+    path = []
+    fig = None
     if args.save_video:
         fig = plt.figure(figsize=(15, 10))
-        path = []
         os.makedirs("images", exist_ok=True)
     for frame in tqdm(
         sequence[init_frame :: args.skip],
@@ -161,7 +163,7 @@ def main() -> None:
         desc=os.path.splitext(os.path.basename(__file__))[0],
     ):
         t0 = time.time()
-        gpis_map.update(frame.angles, frame.ranges, frame.pose[:2])
+        gpis_map.update(frame.angles_in_frame, frame.ranges, frame.pose_matrix[:2])
         t_update = time.time()
         tqdm.write(f"[{cnt}] time(sec): {t_update - t0:.6e}")
         cnt += 1
@@ -173,7 +175,7 @@ def main() -> None:
                 grid_map_info, node_types=[0], node_type_colors={0: np.array([0, 255, 0])}, node_type_radius={0: 3}
             )
             plt.clf()
-            path.append(np.array([frame.x, frame.y]))
+            path.append(frame.translation_vector)
             plt.imshow(quadtree_image, extent=extent)
             plt.pcolormesh(xg, yg, distance_image, edgecolors="none", alpha=0.9)
             plt.colorbar()
@@ -182,13 +184,10 @@ def main() -> None:
             plt.plot(path_np[0], path_np[1], "r-")
             plt.tight_layout()
             fig.canvas.draw()
-            image = np.frombuffer(fig.canvas.tostring_rgb(), dtype=np.uint8)
-            image = image.reshape(fig.canvas.get_width_height()[::-1] + (3,))
+            image = np.frombuffer(fig.canvas.renderer.buffer_rgba(), dtype=np.uint8)
+            image = image.reshape(fig.canvas.get_width_height()[::-1] + (4,))
             plt.imsave(f"images/frame_{cnt:04d}.png", image)
             plt.pause(0.001)
-            # image = cv2.cvtColor(image, cv2.COLOR_RGB2BGR)
-            # cv2.imshow(f"video: {'log-gpis' if args.use_log else 'gpis'}", image)
-            # cv2.waitKey(1)
 
     if args.save_video:
         import ffmpeg
@@ -212,7 +211,13 @@ def main() -> None:
     # TEST #
     ########
     t0 = time.time()
-    distances, gradients, distance_variances, gradient_variances = gpis_map.test(xy_coords)
+    if args.use_log_v2:
+        pass
+        distances, gradients, variances, covariances = gpis_map.test(xy_coords)
+        distance_variances = variances[0]
+        gradient_variances = variances[1:]
+    else:
+        distances, gradients, distance_variances, gradient_variances = gpis_map.test(xy_coords)
     assert distances is not None, "gpis_map.test failed."
 
     t_test = time.time()
@@ -239,7 +244,7 @@ def main() -> None:
             edgecolors="none",
         )
         plt.colorbar()
-        plt.clim([np.min(sdf_gt), np.max(sdf_gt)])
+        plt.clim(np.min(sdf_gt), np.max(sdf_gt))
         plt.title("HouseExpo Ground Truth Map")
         plt.tight_layout()
 
@@ -260,19 +265,15 @@ def main() -> None:
 
     head = 0.5 * np.array([[0, 1, 0, 0], [0.25, 0, -0.25, 0.25]])
     last_frame = sequence[-1]
-    sensor_pose = last_frame.pose
+    sensor_pose = last_frame.pose_matrix
     head = sensor_pose[:2, :2] @ head + sensor_pose[:2, [2]]
     # x down, y right, along y first (row major) <--> y down, x right, along y first (column major)
     distances = distances.reshape([height, width], order="F")[::-1]  # x down, y right -> x right, y up
     # (2, height x width) -> (2, height, width)
     # reshape will flatten the array by the specified order, then reshape it by the same order
     gradients = gradients.reshape([2, height, width], order="F")[:, ::-1]  # x down, y right -> x right, y up
-    distance_variances = distance_variances.reshape([height, width], order="F")[
-        ::-1
-    ]  # x down, y right -> x right, y up
-    gradient_variances = gradient_variances.reshape([2, height, width], order="F")[
-        :, ::-1
-    ]  # x down, y right -> x right, y up
+    distance_variances = distance_variances.reshape([height, width], order="F")[::-1]
+    gradient_variances = gradient_variances.reshape([2, height, width], order="F")[:, ::-1]
 
     plt.figure(figsize=(11, 8))
 
@@ -280,7 +281,7 @@ def main() -> None:
     mask: npt.NDArray[np.float64] = distance_variances
     var_min = np.min(mask)
     var_max = np.max(mask)
-    mask = 1 - (mask - var_min) / (var_max - var_min)
+    mask: float = 1 - (mask - var_min) / (var_max - var_min)
     # distance variance as the alpha channel
     # alpha: higher value -> higher transparency
     if args.draw_var_mask:
@@ -298,10 +299,12 @@ def main() -> None:
     plt.clim(np.min(distances), np.max(distances))
 
     # extract the zero-set, i.e. surface
-    # Space2D(map_image=distances, grid_map_info=grid_map_info, free_threshold=0.0, delta=0.01, parallel=True)
-    # space2d_pixels = Space2D(distances, boundary_sdf=0.0)
     space2d_meters = Space2D(
-        map_image=distances, grid_map_info=grid_map_info, free_threshold=0, delta=0.01, parallel=True
+        map_image=distances,
+        grid_map_info=grid_map_info,
+        free_threshold=0,
+        delta=0.01,
+        parallel=True,
     )
     surf_pts = []
     surf_normals = []
@@ -311,7 +314,6 @@ def main() -> None:
         obj_metric_vertices = space2d_meters.surface.get_object_vertices(obj_idx)
         xs = obj_metric_vertices[0].copy()
         ys = obj_metric_vertices[1].copy()
-
         us = grid_map_info.meter_to_grid_for_values(xs, 0)
         vs = height - grid_map_info.meter_to_grid_for_values(ys, 1)
 
@@ -363,14 +365,12 @@ def main() -> None:
     if args.draw_rays:
         # draw the rays at the last frame
         mask = (last_frame.ranges < 3e1) & (last_frame.ranges > 0.2)  # type: ignore
-        valid_ranges = last_frame.ranges[mask]
-        valid_angles = last_frame.angles[mask]
-        xy = np.array([np.cos(valid_angles) * valid_ranges, np.sin(valid_angles) * valid_ranges])
-        xy = (sensor_pose[:2, :2] @ xy + sensor_pose[:2, [2]]).T
-        rays = np.empty((xy.shape[0] * 2, 2))
-        rays[1::2, :] = xy
-        rays[::2, :] = sensor_pose[:2, 2]
-        plt.plot(rays[:, 0], rays[:, 1], color=[0.0, 1.0, 0.0], linewidth=0.5)
+        mask_sum = np.sum(mask)
+        if mask_sum > 0:
+            rays = np.empty((mask_sum * 2, 2))
+            rays[1::2, :] = last_frame.end_points_in_world[:, mask]
+            rays[::2, :] = sensor_pose[:2, 2]
+            plt.plot(rays[:, 0], rays[:, 1], color=[0.0, 1.0, 0.0], linewidth=0.5)
 
     if args.draw_traj:
         # draw the robot's trajectory
@@ -457,6 +457,19 @@ def main() -> None:
         trust = mae <= 3 * distance_variances  # type: ignore
 
         plt.title(f"MAE = {mae:.3e} +- {mae_std:.3e}, trust: {np.sum(trust) / trust.size * 100.:.2f} %")
+        plt.tight_layout()
+
+    if args.draw_sdf_variance:
+        fig = plt.figure(figsize=(11, 8))
+        ax = fig.subplots(1, 1)
+        surf = ax.pcolormesh(
+            xg,
+            yg,
+            distance_variances,
+            edgecolors="none",
+        )
+        fig.colorbar(surf)
+        plt.title("SDF Variance")
         plt.tight_layout()
 
     plt.show()

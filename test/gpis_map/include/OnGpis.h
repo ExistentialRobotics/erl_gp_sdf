@@ -37,7 +37,7 @@ typedef std::vector<std::shared_ptr<Node>> VecNode;
 typedef std::vector<std::shared_ptr<Node3>> VecNode3;
 
 class OnGpis {
-#if defined(BUILD_TEST)
+#if defined(ERL_BUILD_TEST)
 public:
     EVectorX m_y_;
     EMatrixX m_k_;

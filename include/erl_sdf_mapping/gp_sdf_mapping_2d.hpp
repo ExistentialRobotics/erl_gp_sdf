@@ -17,6 +17,8 @@ namespace erl::sdf_mapping {
                 double search_area_half_size = 4.8;
                 bool use_nearest_only = false;  // if true, only the nearest point will be used for prediction.
                 bool compute_covariance = false;
+                bool use_surface_variance = true;  // if true, use surface variance as distance variance.
+                double softmax_temperature = 10.;
             };
 
             unsigned int num_threads = 64;
@@ -40,7 +42,6 @@ namespace erl::sdf_mapping {
 
             inline void
             Train() {
-                gp->Reset(num_train_samples, 2);
                 gp->Train(num_train_samples, num_train_samples_with_grad);
             }
         };
@@ -50,13 +51,13 @@ namespace erl::sdf_mapping {
     private:
         std::shared_ptr<Setting> m_setting_ = std::make_shared<Setting>();
         std::mutex m_mutex_;
-        std::shared_ptr<AbstractSurfaceMapping2D> m_surface_mapping_ = nullptr;  // for getting surface points, racing condition.
-        std::vector<geometry::QuadtreeKey> m_clusters_to_update_ = {};           // stores clusters that are to be updated by UpdateGpThread().
+        std::shared_ptr<AbstractSurfaceMapping2D> m_surface_mapping_ = nullptr;                 // for getting surface points, racing condition.
+        std::vector<geometry::QuadtreeKey> m_clusters_to_update_ = {};                          // stores clusters that are to be updated by UpdateGpThread().
         QuadtreeKeyGpMap m_gp_map_ = {};                                                        // for getting GP from Quadtree key, racing condition.
         std::vector<std::vector<std::pair<double, std::shared_ptr<GP>>>> m_query_to_gps_ = {};  // for testing, racing condition
-        std::queue<std::shared_ptr<GP>> m_new_gps_ = {};        // caching new GPs to be moved into m_gps_to_train_
-        std::vector<std::shared_ptr<GP>> m_gps_to_train_ = {};  // for training SDF GPs, racing condition in Update() and Test()
-        double m_train_gp_time_ = 10;  // us
+        std::queue<std::shared_ptr<GP>> m_new_gps_ = {};                                        // caching new GPs to be moved into m_gps_to_train_
+        std::vector<std::shared_ptr<GP>> m_gps_to_train_ = {};                                  // for training SDF GPs, racing condition in Update() and Test()
+        double m_train_gp_time_ = 10;                                                           // us
 
         // for testing
         struct TestBuffer {
@@ -138,14 +139,14 @@ namespace erl::sdf_mapping {
             double time_budget = 1e6 / m_setting_->update_hz;  // us
             bool success;
             std::chrono::high_resolution_clock::time_point t0, t1;
-            long dt;
+            double dt;
             {
                 std::lock_guard<std::mutex> lock(m_mutex_);
                 t0 = std::chrono::high_resolution_clock::now();
                 success = m_surface_mapping_->Update(angles, distances, pose);
                 t1 = std::chrono::high_resolution_clock::now();
                 dt = std::chrono::duration<double, std::micro>(t1 - t0).count();
-                ERL_INFO("Surface mapping update time: %ld us.", dt);
+                ERL_INFO("Surface mapping update time: %f us.", dt);
             }
             time_budget -= double(dt);
 
@@ -155,7 +156,7 @@ namespace erl::sdf_mapping {
                 UpdateGps(time_budget);
                 t1 = std::chrono::high_resolution_clock::now();
                 dt = std::chrono::duration<double, std::milli>(t1 - t0).count();
-                ERL_INFO("GP update time: %ld ms.", dt);
+                ERL_INFO("GP update time: %f ms.", dt);
                 return true;
             }
             return false;
@@ -177,31 +178,7 @@ namespace erl::sdf_mapping {
         UpdateGpThread(unsigned int thread_idx, std::size_t start_idx, std::size_t end_idx);
 
         void
-        TrainGps() {
-            ERL_INFO("Training %zu GPs ...", m_gps_to_train_.size());
-            auto t0 = std::chrono::high_resolution_clock::now();
-            unsigned int n = m_gps_to_train_.size();
-            if (n == 0) return;
-            unsigned int num_threads = std::min(n, std::thread::hardware_concurrency());
-            num_threads = std::min(num_threads, m_setting_->num_threads);
-            std::vector<std::thread> threads;
-            threads.reserve(num_threads);
-            std::size_t batch_size = n / num_threads;
-            std::size_t leftover = n - batch_size * num_threads;
-            std::size_t start_idx = 0, end_idx;
-            for (unsigned int thread_idx = 0; thread_idx < num_threads; thread_idx++) {
-                end_idx = start_idx + batch_size;
-                if (thread_idx < leftover) { end_idx++; }
-                threads.emplace_back(&GpSdfMapping2D::TrainGpThread, this, thread_idx, start_idx, end_idx);
-                start_idx = end_idx;
-            }
-            for (auto& thread: threads) { thread.join(); }
-            m_gps_to_train_.clear();
-            auto t1 = std::chrono::high_resolution_clock::now();
-            double time = double(std::chrono::duration<double, std::micro>(t1 - t0).count()) / double(n);
-            m_train_gp_time_ = m_train_gp_time_ * 0.4 + time * 0.6;
-            ERL_INFO("Per GP training time: %f us.", m_train_gp_time_);
-        }
+        TrainGps();
 
         void
         TrainGpThread(unsigned int thread_idx, std::size_t start_idx, std::size_t end_idx);
@@ -228,6 +205,8 @@ namespace YAML {
             node["search_area_half_size"] = rhs.search_area_half_size;
             node["use_nearest_only"] = rhs.use_nearest_only;
             node["compute_covariance"] = rhs.compute_covariance;
+            node["use_surface_variance"] = rhs.use_surface_variance;
+            node["softmax_temperature"] = rhs.softmax_temperature;
             return node;
         }
 
@@ -238,6 +217,8 @@ namespace YAML {
             rhs.search_area_half_size = node["search_area_half_size"].as<double>();
             rhs.use_nearest_only = node["use_nearest_only"].as<bool>();
             rhs.compute_covariance = node["compute_covariance"].as<bool>();
+            rhs.use_surface_variance = node["use_surface_variance"].as<bool>();
+            rhs.softmax_temperature = node["softmax_temperature"].as<double>();
             return true;
         }
     };
@@ -249,6 +230,8 @@ namespace YAML {
         out << Key << "search_area_half_size" << Value << rhs.search_area_half_size;
         out << Key << "use_nearest_only" << Value << rhs.use_nearest_only;
         out << Key << "compute_covariance" << Value << rhs.compute_covariance;
+        out << Key << "use_surface_variance" << Value << rhs.use_surface_variance;
+        out << Key << "softmax_temperature" << Value << rhs.softmax_temperature;
         out << EndMap;
         return out;
     }

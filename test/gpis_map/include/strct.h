@@ -54,7 +54,7 @@ struct Point3 {
 };
 
 class Node {
-#if defined(BUILD_TEST)
+#if defined(ERL_BUILD_TEST)
 public:
 #endif
     Point<double> m_pos_;

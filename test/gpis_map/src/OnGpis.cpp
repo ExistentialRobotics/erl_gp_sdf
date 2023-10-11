@@ -45,7 +45,7 @@ OnGpis::Train(const VecNode &samples) {
         EMatrixX grad = EMatrixX::Zero(dim, n);
         EVectorX f = EVectorX::Zero(n);
 
-#if defined(BUILD_TEST)
+#if defined(ERL_BUILD_TEST)
         m_sigx_ = EVectorX::Zero(n);
         m_siggrad_ = EVectorX::Zero(n);
 #else
@@ -81,7 +81,7 @@ OnGpis::Train(const VecNode &samples) {
         }
         grad_valid.conservativeResize(count, 2);
 
-#if defined(BUILD_TEST)
+#if defined(ERL_BUILD_TEST)
         m_y_.resize(n + 2 * count);
         m_y_ << f, grad_valid.col(0), grad_valid.col(1);  // the observation is distance and gradient
         m_k_ = Matern32SparseDeriv1(m_x_, m_gradflag_, m_param_.scale, m_sigx_, m_param_.noise, m_siggrad_);
@@ -165,7 +165,7 @@ OnGpis::TestSinglePoint(const EVectorX &xt, double &val, double grad[], double v
 
     if (m_x_.rows() != xt.size()) return;
 
-#if defined(BUILD_TEST)
+#if defined(ERL_BUILD_TEST)
     m_k_ = Matern32SparseDeriv1(m_x_, m_gradflag_, xt, m_param_.scale);
 #else
     EMatrixX m_k_ = Matern32SparseDeriv1(m_x_, m_gradflag_, xt, m_param_.scale);

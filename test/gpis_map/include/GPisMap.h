@@ -66,7 +66,7 @@ typedef struct GPisMapParam_ {
 } GPisMapParam;
 
 class GPisMap {
-#if defined(BUILD_TEST)
+#if defined(ERL_BUILD_TEST)
 public:
 #else
 protected:

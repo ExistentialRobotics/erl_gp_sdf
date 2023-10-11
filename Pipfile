@@ -1,0 +1,22 @@
+[[source]]
+url = "https://pypi.org/simple"
+verify_ssl = true
+name = "pypi"
+
+[packages]
+tqdm = "*"
+python-ffmpeg = "*"
+matplotlib = "*"
+vedo = "*"
+numpy = "*"
+dash = "*"
+plotly = "*"
+opencv-python = "*"
+pyyaml = "*"
+screeninfo = "*"
+scipy = "*"
+
+[dev-packages]
+
+[requires]
+python_version = "3.11"

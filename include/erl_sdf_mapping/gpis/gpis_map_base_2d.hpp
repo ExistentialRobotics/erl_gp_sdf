@@ -69,7 +69,7 @@ namespace erl::sdf_mapping::gpis {
             std::shared_ptr<TestQuery> test_query = std::make_shared<TestQuery>();  // parameters used by GpisMap2D::Test.
         };
 
-#if defined(BUILD_TEST)
+#if defined(ERL_BUILD_TEST)
     public:
 #else
     protected:
