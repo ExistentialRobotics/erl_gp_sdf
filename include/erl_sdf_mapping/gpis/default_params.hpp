@@ -29,6 +29,7 @@ namespace erl::sdf_mapping::gpis {
                 inline static const double kValidRangeMax = 30;
                 inline static const double kValidAngleMin = -135. / 180. * M_PI;
                 inline static const double kValidAngleMax = 135. / 180. * M_PI;
+
                 struct Mapping {
                     inline static const gaussian_process::Mapping::Type kType = gaussian_process::Mapping::Type::kExp;
                     inline static const double scale = 1.0;
@@ -84,4 +85,4 @@ namespace erl::sdf_mapping::gpis {
         inline static const double kInitTreeHalfSize = 12.8;
         inline static const double kPerturbDelta = 0.01;
     };
-}  // namespace erl::gp_sdf
+}  // namespace erl::sdf_mapping::gpis

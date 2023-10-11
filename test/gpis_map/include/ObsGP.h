@@ -36,43 +36,47 @@ typedef Eigen::RowVectorX<double> ERowVectorX;
 // NOTE: See covFnc.h)
 class GPou {
 #if defined(ERL_BUILD_TEST)
-    public:
+public:
 #endif
     EMatrixX x;
     EMatrixX K;
     EMatrixX L;
     EVectorX alpha;  // inv(m_k_+Kx) * y
 
-    int dim; // need this?
+    int dim;  // need this?
     const double scale = DEFAULT_OBSGP_SCALE_PARAM;
     const double noise = DEFAULT_OBSGP_NOISE_PARAM;
     bool trained = false;
 
 public:
-
     GPou() = default;
 
     void
-    reset() { trained = false; }
+    reset() {
+        trained = false;
+    }
 
     [[nodiscard]] bool
-    isTrained() const { return trained; }
+    isTrained() const {
+        return trained;
+    }
 
     int
-    getNumSamples() { return x.cols(); }
+    getNumSamples() {
+        return x.cols();
+    }
 
     void
     train(const EMatrixX &xt, const EVectorX &f);
 
     void
     test(const EMatrixX &xt, EVectorX &f, EVectorX &var);
-
 };
 
 // This is a base class to build a partitioned GP regressor, holding multiple local GPs using GPou.
 class ObsGP {
 #if defined(ERL_BUILD_TEST)
-    public:
+public:
 #else
 protected:
 #endif
@@ -86,7 +90,9 @@ public:
     virtual ~ObsGP() = default;
 
     [[nodiscard]] bool
-    isTrained() const { return trained; }
+    isTrained() const {
+        return trained;
+    }
 
     virtual void
     Reset();
@@ -101,21 +107,18 @@ public:
 // This class implements ObsGP for 1D input.
 class ObsGP1D : public ObsGP {
 #if defined(ERL_BUILD_TEST)
-    public:
+public:
 #endif
-    int nGroup{};         // number of local GPs
-    int nSamples;       // number of total input points.
+    int nGroup{};  // number of local GPs
+    int nSamples;  // number of total input points.
 
-    std::vector<double> range;   // partitioned range for test
+    std::vector<double> range;  // partitioned range for test
 
-    const ObsGpParam param = {DEFAULT_OBSGP_SCALE_PARAM,
-                              DEFAULT_OBSGP_NOISE_PARAM,
-                              DEFAULT_OBSGP_MARGIN,
-                              DEFAULT_OBSGP_OVERLAP_SZ,
-                              DEFAULT_OBSGP_GROUP_SZ};
+    const ObsGpParam param = {DEFAULT_OBSGP_SCALE_PARAM, DEFAULT_OBSGP_NOISE_PARAM, DEFAULT_OBSGP_MARGIN, DEFAULT_OBSGP_OVERLAP_SZ, DEFAULT_OBSGP_GROUP_SZ};
 
 public:
-    ObsGP1D() : nSamples(0) {}
+    ObsGP1D()
+        : nSamples(0) {}
 
     void
     Reset() override;
@@ -126,13 +129,12 @@ public:
 
     void
     test(const EMatrixX &xt, EVectorX &val, EVectorX &var) override;
-
 };
 
 // This class implements ObsGP for regular 2D input.
 class ObsGP2D : public ObsGP {
-    int nGroup[2];       // dimension of local GPs
-    int szSamples[2];    // dimension of input data
+    int nGroup[2];     // dimension of local GPs
+    int szSamples[2];  // dimension of input data
     bool repartition;
 
     // pre-computed partition indices
@@ -154,13 +156,9 @@ class ObsGP2D : public ObsGP {
     void
     TrainValidPoints(double xt[], double f[]);
 
-    const ObsGpParam param = {DEFAULT_OBSGP_SCALE_PARAM,
-                              DEFAULT_OBSGP_NOISE_PARAM,
-                              DEFAULT_OBSGP_MARGIN2,
-                              DEFAULT_OBSGP_OVERLAP_SZ2,
-                              DEFAULT_OBSGP_GROUP_SZ2};
-public:
+    const ObsGpParam param = {DEFAULT_OBSGP_SCALE_PARAM, DEFAULT_OBSGP_NOISE_PARAM, DEFAULT_OBSGP_MARGIN2, DEFAULT_OBSGP_OVERLAP_SZ2, DEFAULT_OBSGP_GROUP_SZ2};
 
+public:
     void
     Reset() override;
 
@@ -180,10 +178,5 @@ public:
 
 private:
     void
-    TestKernel(int thread_idx,
-                int start_idx,
-                int end_idx,
-                const EMatrixX &xt,
-                EVectorX &val,
-                EVectorX &var);
+    TestKernel(int thread_idx, int start_idx, int end_idx, const EMatrixX &xt, EVectorX &val, EVectorX &var);
 };

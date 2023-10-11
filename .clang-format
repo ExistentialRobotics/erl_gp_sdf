@@ -66,8 +66,8 @@ SpacesBeforeTrailingComments: 2
 SpacesInAngles: false
 SpacesInCStyleCastParentheses: false
 SpacesInLineCommentPrefix:
-    Minimum: 1
-    Maximum: 1
+  Minimum: 1
+  Maximum: 1
 SpacesInContainerLiterals: false
 SpacesInParentheses: false
 SpacesInSquareBrackets: false

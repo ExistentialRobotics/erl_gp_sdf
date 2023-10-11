@@ -14,7 +14,6 @@ __all__ = [
     "GpSdfMapping2D",
 ]
 
-
 class LogSdfGaussianProcess(NoisyInputGaussianProcess):
     class Setting(NoisyInputGaussianProcess.Setting):
         log_lambda: float
@@ -24,18 +23,17 @@ class LogSdfGaussianProcess(NoisyInputGaussianProcess):
     def __init__(self: LogSdfGaussianProcess, setting: Setting): ...
     def reset(self: LogSdfGaussianProcess) -> None: ...
     def train(
-            self: LogSdfGaussianProcess,
-            mat_x_train: npt.NDArray[np.float64],
-            vec_grad_flag: npt.NDArray[np.bool_],
-            vec_y: npt.NDArray[np.float64],
-            vec_sigma_x: npt.NDArray[np.float64],
-            vec_sigma_y: npt.NDArray[np.float64],
-            vec_sigma_grad: npt.NDArray[np.float64],
+        self: LogSdfGaussianProcess,
+        mat_x_train: npt.NDArray[np.float64],
+        vec_grad_flag: npt.NDArray[np.bool_],
+        vec_y: npt.NDArray[np.float64],
+        vec_sigma_x: npt.NDArray[np.float64],
+        vec_sigma_y: npt.NDArray[np.float64],
+        vec_sigma_grad: npt.NDArray[np.float64],
     ) -> None: ...
     def test(
-            self: LogSdfGaussianProcess, mat_x_test: npt.NDArray[np.float64]
+        self: LogSdfGaussianProcess, mat_x_test: npt.NDArray[np.float64]
     ) -> Tuple[npt.NDArray[np.float64], npt.NDArray[np.float64]]: ...
-
 
 class AbstractSurfaceMapping2D: ...
 

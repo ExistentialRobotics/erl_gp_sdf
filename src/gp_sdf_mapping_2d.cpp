@@ -168,7 +168,7 @@ namespace erl::sdf_mapping {
         time_budget -= dt;
 
         // train as many new GPs as possible within the time limit
-        if (time_budget <= m_train_gp_time_) {// no time left for training
+        if (time_budget <= m_train_gp_time_) {  // no time left for training
             ERL_INFO("%zu GP(s) not trained yet due to time limit.", m_new_gps_.size());
             return;
         }
@@ -178,9 +178,7 @@ namespace erl::sdf_mapping {
         std::unordered_set<std::shared_ptr<GP>> gps_to_train;
         while (!m_new_gps_.empty() && gps_to_train.size() < max_num_gps_to_train) {
             auto maybe_new_gp = m_new_gps_.front();
-            if (maybe_new_gp->active && maybe_new_gp->gp != nullptr && !maybe_new_gp->gp->IsTrained()) {
-                gps_to_train.insert(maybe_new_gp);
-            }
+            if (maybe_new_gp->active && maybe_new_gp->gp != nullptr && !maybe_new_gp->gp->IsTrained()) { gps_to_train.insert(maybe_new_gp); }
             m_new_gps_.pop();
         }
         m_gps_to_train_.clear();
@@ -282,31 +280,32 @@ namespace erl::sdf_mapping {
         }
     }
 
-    void GpSdfMapping2D::TrainGps() {
-            ERL_INFO("Training %zu GPs ...", m_gps_to_train_.size());
-            auto t0 = std::chrono::high_resolution_clock::now();
-            unsigned int n = m_gps_to_train_.size();
-            if (n == 0) return;
-            unsigned int num_threads = std::min(n, std::thread::hardware_concurrency());
-            num_threads = std::min(num_threads, m_setting_->num_threads);
-            std::vector<std::thread> threads;
-            threads.reserve(num_threads);
-            std::size_t batch_size = n / num_threads;
-            std::size_t leftover = n - batch_size * num_threads;
-            std::size_t start_idx = 0, end_idx;
-            for (unsigned int thread_idx = 0; thread_idx < num_threads; thread_idx++) {
-                end_idx = start_idx + batch_size;
-                if (thread_idx < leftover) { end_idx++; }
-                threads.emplace_back(&GpSdfMapping2D::TrainGpThread, this, thread_idx, start_idx, end_idx);
-                start_idx = end_idx;
-            }
-            for (auto& thread: threads) { thread.join(); }
-            m_gps_to_train_.clear();
-            auto t1 = std::chrono::high_resolution_clock::now();
-            double time = double(std::chrono::duration<double, std::micro>(t1 - t0).count()) / double(n);
-            m_train_gp_time_ = m_train_gp_time_ * 0.4 + time * 0.6;
-            ERL_INFO("Per GP training time: %f us.", m_train_gp_time_);
+    void
+    GpSdfMapping2D::TrainGps() {
+        ERL_INFO("Training %zu GPs ...", m_gps_to_train_.size());
+        auto t0 = std::chrono::high_resolution_clock::now();
+        unsigned int n = m_gps_to_train_.size();
+        if (n == 0) return;
+        unsigned int num_threads = std::min(n, std::thread::hardware_concurrency());
+        num_threads = std::min(num_threads, m_setting_->num_threads);
+        std::vector<std::thread> threads;
+        threads.reserve(num_threads);
+        std::size_t batch_size = n / num_threads;
+        std::size_t leftover = n - batch_size * num_threads;
+        std::size_t start_idx = 0, end_idx;
+        for (unsigned int thread_idx = 0; thread_idx < num_threads; thread_idx++) {
+            end_idx = start_idx + batch_size;
+            if (thread_idx < leftover) { end_idx++; }
+            threads.emplace_back(&GpSdfMapping2D::TrainGpThread, this, thread_idx, start_idx, end_idx);
+            start_idx = end_idx;
         }
+        for (auto &thread: threads) { thread.join(); }
+        m_gps_to_train_.clear();
+        auto t1 = std::chrono::high_resolution_clock::now();
+        double time = double(std::chrono::duration<double, std::micro>(t1 - t0).count()) / double(n);
+        m_train_gp_time_ = m_train_gp_time_ * 0.4 + time * 0.6;
+        ERL_INFO("Per GP training time: %f us.", m_train_gp_time_);
+    }
 
     void
     GpSdfMapping2D::TrainGpThread(unsigned int thread_idx, std::size_t start_idx, std::size_t end_idx) {

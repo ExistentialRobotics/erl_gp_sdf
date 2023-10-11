@@ -22,7 +22,7 @@ gp_theta:
       scale: 0.5
       scale_mix: 1
       weights:
-        []
+        [ ]
     auto_normalize: false
 compute_variance:
   zero_gradient_position_var: 1

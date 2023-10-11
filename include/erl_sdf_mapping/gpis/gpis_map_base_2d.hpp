@@ -52,7 +52,7 @@ namespace erl::sdf_mapping::gpis {
             struct TestQuery : public common::Yamlable<TestQuery> {
                 double max_test_valid_distance_var = 0.4;  // maximum distance variance of prediction.
                 double search_area_half_size = 4.8;
-                bool use_nearest_only = false;             // if true, only the nearest point will be used for prediction.
+                bool use_nearest_only = false;  // if true, only the nearest point will be used for prediction.
             };
 
             unsigned int num_threads = -1;      // max number of threads used for parallel computation.

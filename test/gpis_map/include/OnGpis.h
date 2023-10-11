@@ -87,8 +87,8 @@ public:
     void
     Train(const VecNode3 &samples);
 
-    //    void
-    //    test(const EMatrixX &xt, EVectorX &val, EMatrixX &gradval, EVectorX &var);
+    // void
+    // test(const EMatrixX &xt, EVectorX &val, EMatrixX &gradval, EVectorX &var);
 
     void  // used in 3D
     TestSinglePoint(const EVectorX &xt, double &val, double grad[], double var[]);

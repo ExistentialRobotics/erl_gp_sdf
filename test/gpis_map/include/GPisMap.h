@@ -1,7 +1,7 @@
 /*
  * GPisMap - Online Continuous Mapping using Gaussian Process Implicit Surfaces
  * https://github.com/leebhoram/GPisMap
- * 
+ *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License v3 as published by
  * the Free Software Foundation.
@@ -31,7 +31,7 @@ typedef struct GPisMapParam_ {
     double sensor_offset[2] = {0, 0};
     double angle_obs_limit[2] = {0, 0};
     double obs_var_thre;  // threshold for variance of ObsGP
-    //  - If var(prediction) > v_thre, then don't rely on the prediction.
+    // - If var(prediction) > v_thre, then don't rely on the prediction.
     double min_position_noise;
     double min_grad_noise;
 

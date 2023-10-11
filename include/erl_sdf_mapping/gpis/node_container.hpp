@@ -185,7 +185,7 @@ namespace erl::sdf_mapping::gpis {
 }  // namespace erl::sdf_mapping::gpis
 
 namespace YAML {
-    
+
     using namespace erl::sdf_mapping::gpis;
 
     template<int Dim>

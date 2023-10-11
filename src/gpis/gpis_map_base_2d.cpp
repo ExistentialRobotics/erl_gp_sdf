@@ -778,4 +778,4 @@ namespace erl::sdf_mapping::gpis {
             normals_variance[i] = gpis_data->var_gradient;
         }
     }
-}  // namespace erl::sdf_mapping
+}  // namespace erl::sdf_mapping::gpis

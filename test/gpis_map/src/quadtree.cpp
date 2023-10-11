@@ -231,7 +231,7 @@ QuadTree::Insert(std::shared_ptr<Node> n) {
             }
 
             // Otherwise, subdivide and then add the point to whichever node will accept it
-            //numNodes = 0;
+            // numNodes = 0;
             if (sqdist(m_node_->GetPos(), n->GetPos()) < QuadTree::m_param_.min_halfleng_sqr) { return false; }
 
             Subdivide();

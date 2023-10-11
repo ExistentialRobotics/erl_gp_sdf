@@ -83,4 +83,4 @@ namespace erl::sdf_mapping::gpis {
     typedef GpisNode<2> GpisNode2D;
     typedef GpisNode<3> GpisNode3D;
 
-}  // namespace erl::gp_sdf
+}  // namespace erl::sdf_mapping::gpis

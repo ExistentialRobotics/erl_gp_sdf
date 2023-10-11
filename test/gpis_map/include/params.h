@@ -50,7 +50,7 @@
  *-----------------------------------------------------------------------------*/
 
 /* Mapping GP */
-#define DEFAULT_MAP_SCALE_PARAM 1.  //0.5
+#define DEFAULT_MAP_SCALE_PARAM 1.  // 0.5
 #define DEFAULT_MAP_NOISE_PARAM double(1e-2)
 
 /* GPisMap */
@@ -61,12 +61,12 @@
  *                - If var(prediction) > v_thre, then don't rely on the prediction.
  * obs_skip: use every 'skip'-th pixel
  */
-#define GPISMAP_DELX              double(1e-2)
-#define GPISMAP_FBIAS             0.02
-#define GPISMAP_OBS_VAR_THRE      double(0.1)
-//#define GPISMAP_SENSOR_OFFSET_0   double(0.08)  // the hokuyo sensor mPosition (0.08, 0) on a turtlebot for simulation
-#define GPISMAP_SENSOR_OFFSET_0   double(0.0)   // Zhirui Dai: this is done externally
-#define GPISMAP_SENSOR_OFFSET_1   double(0.0)   //
+#define GPISMAP_DELX         double(1e-2)
+#define GPISMAP_FBIAS        0.02
+#define GPISMAP_OBS_VAR_THRE double(0.1)
+// #define GPISMAP_SENSOR_OFFSET_0   double(0.08)  // the hokuyo sensor mPosition (0.08, 0) on a turtlebot for simulation
+#define GPISMAP_SENSOR_OFFSET_0   double(0.0)  // Zhirui Dai: this is done externally
+#define GPISMAP_SENSOR_OFFSET_1   double(0.0)  //
 #define GPISMAP_ANGLE_OBS_LIMIT_0 (double(-135.0) * M_PI / double(180.0))
 #define GPISMAP_ANGLE_OBS_LIMIT_1 (135. * M_PI / double(180.0))
 #define GPISMAP_MIN_POS_NOISE     double(1e-2)

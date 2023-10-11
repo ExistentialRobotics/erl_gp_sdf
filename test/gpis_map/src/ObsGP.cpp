@@ -33,7 +33,7 @@ using namespace Eigen;
 
 void
 GPou::train(const EMatrixX &xt, const EVectorX &f) {
-    //    int dim = xt.rows();
+    // int dim = xt.rows();
     int n = xt.cols();
 
     if (n > 0) {
