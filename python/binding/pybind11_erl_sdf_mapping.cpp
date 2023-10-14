@@ -295,7 +295,10 @@ BindGpSdfMapping2D(py::module &m) {
     py::class_<GpSdfMapping2D::Setting::TestQuery, YamlableBase, std::shared_ptr<GpSdfMapping2D::Setting::TestQuery>>(sdf_mapping_setting, "TestQuery")
         .def_readwrite("max_test_valid_distance_var", &GpSdfMapping2D::Setting::TestQuery::max_test_valid_distance_var)
         .def_readwrite("search_area_half_size", &GpSdfMapping2D::Setting::TestQuery::search_area_half_size)
-        .def_readwrite("use_nearest_only", &GpSdfMapping2D::Setting::TestQuery::use_nearest_only);
+        .def_readwrite("use_nearest_only", &GpSdfMapping2D::Setting::TestQuery::use_nearest_only)
+        .def_readwrite("compute_covariance", &GpSdfMapping2D::Setting::TestQuery::compute_covariance)
+        .def_readwrite("recompute_variance", &GpSdfMapping2D::Setting::TestQuery::recompute_variance)
+        .def_readwrite("softmax_temperature", &GpSdfMapping2D::Setting::TestQuery::softmax_temperature);
     sdf_mapping_setting.def(py::init<>([]() { return std::make_shared<GpSdfMapping2D::Setting>(); }))
         .def_readwrite("num_threads", &GpSdfMapping2D::Setting::num_threads)
         .def_readwrite("update_hz", &GpSdfMapping2D::Setting::update_hz)

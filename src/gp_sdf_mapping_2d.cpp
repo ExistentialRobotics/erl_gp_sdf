@@ -375,6 +375,7 @@ namespace erl::sdf_mapping {
         Eigen::Matrix3Xd fs(3, kMaxTries);          // f, fGrad1, fGrad2
         Eigen::Matrix3Xd variances(3, kMaxTries);   // variances of f, fGrad1, fGrad2
         Eigen::Matrix3Xd covariance(3, kMaxTries);  // covariances of (fGrad1,f), (fGrad2,f), (fGrad2, fGrad1)
+        Eigen::MatrixXd no_variance;
         Eigen::MatrixXd no_covariance;
         std::vector<long> tested_idx;
         tested_idx.reserve(kMaxTries);
@@ -408,32 +409,68 @@ namespace erl::sdf_mapping {
                 Eigen::Ref<Eigen::Vector3d> f = fs.col(cnt);           // distance, gradient_x, gradient_y
                 Eigen::Ref<Eigen::VectorXd> var = variances.col(cnt);  // var_distance, var_gradient_x, var_gradient_y
                 auto &gp = gps[j].second->gp;
-                if (m_setting_->test_query->compute_covariance) {
-                    gp->Test(kPosition, f, var, covariance.col(cnt));
-                } else {
-                    gp->Test(kPosition, f, var, no_covariance);
-                }
-                tested_idx.push_back(cnt++);
-                if (m_setting_->test_query->use_nearest_only) { break; }
-                if (m_setting_->test_query->use_surface_variance) {
+
+                if (m_setting_->test_query->recompute_variance) {
+                    if (m_setting_->test_query->compute_covariance) {
+                        gp->Test(kPosition, f, no_variance, covariance.col(cnt));
+                    } else {
+                        gp->Test(kPosition, f, no_variance, no_covariance);
+                    }
+                    Eigen::Vector2d grad(f[1], f[2]);
+                    double grad_norm = grad.norm();
+                    if (grad_norm < 1.e-15) { continue; }  // invalid gradient, skip this GP
+                    grad.normalize();
+
                     auto &mat_x = gp->GetTrainInputSamplesBuffer();
                     auto &vec_x_var = gp->GetTrainInputSamplesVarianceBuffer();
-                    Eigen::Vector2d pos(kPosition[0] - f[1] * f[0], kPosition[1] - f[2] * f[0]);
+                    Eigen::Vector2d pos(kPosition.x() - grad.x() * f[0], kPosition.y() - grad.y() * f[0]);
                     long num_samples = gp->GetNumTrainSamples();
                     Eigen::VectorXd weight(num_samples);
                     double weight_sum = 0;
                     double &var_sdf = var[0];
+                    double &var_grad_x = var[1];
+                    double &var_grad_y = var[2];
                     var_sdf = 0;
+                    var_grad_x = 0;
+                    var_grad_y = 0;
+                    double var_theta = 0;
                     for (long k = 0; k < num_samples; ++k) {
                         double dx = mat_x(0, k) - pos.x();
                         double dy = mat_x(1, k) - pos.y();
                         double d = std::sqrt(dx * dx + dy * dy);
                         weight[k] = std::max(1.e-6, std::exp(-d * m_setting_->test_query->softmax_temperature));
                         weight_sum += weight[k];
+
                         var_sdf += weight[k] * vec_x_var[k];
+
+                        Eigen::Vector2d v(kPosition.x() - mat_x(0, k), kPosition.y() - mat_x(1, k));
+                        v.normalize();                                       // warning: unchanged if v's norm is very small
+                        if (std::abs(v.norm() - 1.0) > 1.e-3) { continue; }  // invalid gradient, skip this sample
+                        double angle_dist = std::atan2(
+                            grad.x() * v.y() - grad.y() * v.x(),   // cross product
+                            grad.x() * v.x() + grad.y() * v.y());  // dot product
+                        var_theta += weight[k] * angle_dist * angle_dist;
                     }
                     var_sdf /= weight_sum;
+                    var_theta /= weight_sum;
+                    double theta0 = std::atan2(grad.y(), grad.x());
+                    double sin_theta0 = std::sin(theta0);
+                    double cos_theta0 = std::cos(theta0);
+                    var_grad_x = var_theta * sin_theta0 * sin_theta0;
+                    var_grad_y = var_theta * cos_theta0 * cos_theta0;
+                } else {
+                    if (m_setting_->test_query->compute_covariance) {
+                        gp->Test(kPosition, f, var, covariance.col(cnt));
+                    } else {
+                        gp->Test(kPosition, f, var, no_covariance);
+                    }
+                    Eigen::Vector2d grad(f[1], f[2]);
+                    double grad_norm = grad.norm();
+                    if (grad_norm < 1.e-15) { continue; }  // invalid gradient, skip this GP
                 }
+
+                tested_idx.push_back(cnt++);
+                if (m_setting_->test_query->use_nearest_only) { break; }
                 if ((!need_weighted_sum) && (idx.size() > 1) && (var[0] > m_setting_->test_query->max_test_valid_distance_var)) { need_weighted_sum = true; }
                 if ((!need_weighted_sum) || (cnt >= kMaxTries)) { break; }
             }

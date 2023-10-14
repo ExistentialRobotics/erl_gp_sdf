@@ -75,6 +75,9 @@ class GpSdfMapping2D:
             max_test_valid_distance_var: float
             search_area_half_size: float
             use_nearest_only: bool
+            compute_covariance: bool
+            recompute_variance: bool
+            softmax_temperature: float
         num_threads: int
         update_hz: float
         gp_sdf_area_scale: float

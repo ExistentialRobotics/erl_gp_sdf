@@ -23,5 +23,5 @@ test_query:
   search_area_half_size: 2
   use_nearest_only: false
   compute_covariance: false  # whether to compute covariance
-  use_surface_variance: true
+  recompute_variance: true
   softmax_temperature: 10

@@ -48,6 +48,8 @@ def main() -> None:
     parser.add_argument("--draw-abs-err", action="store_true")
     parser.add_argument("--draw-sddf-v2", action="store_true")
     parser.add_argument("--draw-sdf-variance", action="store_true")
+    parser.add_argument("--draw-gradx-variance", action="store_true")
+    parser.add_argument("--draw-grady-variance", action="store_true")
     parser.add_argument("--dump-quadtree-structure", action="store_true")
     args = parser.parse_args()
 
@@ -100,6 +102,7 @@ def main() -> None:
         elif args.use_log_v2:
             setting.offset_distance = 0.0
             setting.gp_sdf.log_lambda = 40.0
+            setting.test_query.softmax_temperature = 1.0
         else:
             setting.update_gp_sdf.add_offset_points = args.add_offset_points
 
@@ -470,6 +473,32 @@ def main() -> None:
         )
         fig.colorbar(surf)
         plt.title("SDF Variance")
+        plt.tight_layout()
+
+    if args.draw_gradx_variance:
+        fig = plt.figure(figsize=(11, 8))
+        ax = fig.subplots(1, 1)
+        surf = ax.pcolormesh(
+            xg,
+            yg,
+            gradient_variances[0],
+            edgecolors="none",
+        )
+        fig.colorbar(surf)
+        plt.title("Gradient X Variance")
+        plt.tight_layout()
+
+    if args.draw_grady_variance:
+        fig = plt.figure(figsize=(11, 8))
+        ax = fig.subplots(1, 1)
+        surf = ax.pcolormesh(
+            xg,
+            yg,
+            gradient_variances[1],
+            edgecolors="none",
+        )
+        fig.colorbar(surf)
+        plt.title("Gradient Y Variance")
         plt.tight_layout()
 
     plt.show()

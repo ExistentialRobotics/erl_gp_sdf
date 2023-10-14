@@ -121,27 +121,27 @@ namespace erl::sdf_mapping {
                     grad = ktest.col(jj).dot(vec_alpha);
                     norm += grad * grad;
                 }
-            } else {                                                     // use log-gpis
-                double d = -sign / m_setting_->log_lambda * f_log_gpis;  // d = -ln(f)/lambda, grad_d = -1/(lambda*f)*grad_f
-                for (long j = 1, jj = i + n; j <= dim; ++j, jj += n) {   // gradient
+            } else {                                                       // use log-gpis
+                double d = -sign / (m_setting_->log_lambda * f_log_gpis);  // d = -ln(f)/lambda, grad_d = -1/(lambda*f)*grad_f
+                for (long j = 1, jj = i + n; j <= dim; ++j, jj += n) {     // gradient
                     double &grad = mat_f_out(j, i);
                     grad = log_ktest.col(jj).dot(vec_log_alpha) * d;
                     norm += grad * grad;
                 }
             }
             norm = std::sqrt(norm);
-            if (norm > 1.e-6) {                                               // avoid zero division
+            if (norm > 1.e-15) {                                              // avoid zero division
                 for (long j = 1; j <= dim; ++j) { mat_f_out(j, i) /= norm; }  // gradient norm is always 1. https://en.wikipedia.org/wiki/Eikonal_equation
             }
         }
-        if (mat_var_out.size() == 0) { return; }
+        if (mat_var_out.size() == 0 && mat_cov_out.size() == 0) { return; }
 
         // compute (co)variance of the test queries: use gpis, log-gpis has numerical issue!!!
         // solve Lx = ktest -> x = m_mat_l_.m_inv_() * ktest
         m_mat_l_.topLeftCorner(output_size1.first, output_size1.first).triangularView<Eigen::Lower>().solveInPlace(ktest);
         ERL_ASSERTM(mat_var_out.rows() >= dim + 1, "mat_var_out.rows() = %ld, it should be >= Dim + 1 = %ld for variance.", mat_var_out.rows(), dim + 1);
         ERL_ASSERTM(mat_var_out.cols() >= n, "mat_var_out.cols() = %ld, not enough for %ld test queries.", mat_var_out.cols(), n);
-        if (mat_cov_out.size() == 0) {  // compute variance
+        if (mat_cov_out.size() == 0 && mat_var_out.size() > 0) {  // compute variance
             // column-wise square sum of ktest = var([h(x1),...,h(xn),dh(x1)/dx_1,...,dh(xn)/dx_1,...,dh(x1)/dx_dim,...,dh(xn)/dx_dim])
             for (long i = 0; i < n; ++i) {
                 mat_var_out(0, i) = m_setting_->kernel->alpha - ktest.col(i).squaredNorm();  // variance of h(x)
@@ -155,7 +155,7 @@ namespace erl::sdf_mapping {
             ERL_ASSERTM(mat_cov_out.cols() >= n, "mat_cov_out.cols() = %ld, not enough for %ld test queries.", mat_cov_out.cols(), n);
             // each column of mat_cov_out is the lower triangular part of the covariance matrix of the corresponding test query
             for (long i = 0; i < n; ++i) {
-                mat_var_out(0, i) = m_setting_->kernel->alpha - ktest.col(i).squaredNorm();  // var(h(x))
+                if (mat_var_out.size() > 0) { mat_var_out(0, i) = m_setting_->kernel->alpha - ktest.col(i).squaredNorm(); }  // var(h(x))
                 long index = 0;
                 for (long j = 1, jj = i + n; j <= dim; ++j, jj += n) {
                     const auto &col_jj = ktest.col(jj);

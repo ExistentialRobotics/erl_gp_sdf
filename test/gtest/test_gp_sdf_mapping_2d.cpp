@@ -166,7 +166,7 @@ TEST(ERL_SDF_MAPPING, GpSdfMapping2D) {
     }
     auto grid_map_info = drawer->GetGridMapInfo();
 
-    long t = 0;
+    double t = 0;
     for (long i = 0; i < max_update_cnt; i++) {
         Eigen::VectorXd noise = erl::common::GenerateGaussianNoise(train_ranges[i].size(), 0.0, 0.01);
 
@@ -174,7 +174,7 @@ TEST(ERL_SDF_MAPPING, GpSdfMapping2D) {
         sdf_mapping.Update(train_angles[i], train_ranges[i], train_poses[i]);
         auto t1 = std::chrono::high_resolution_clock::now();
         auto dt = std::chrono::duration<double, std::milli>(t1 - t0).count();
-        ERL_INFO("Update time: %ld ms.", dt);
+        ERL_INFO("Update time: %f ms.", dt);
         t += dt;
 
         if (g_options.visualize) {
@@ -198,7 +198,7 @@ TEST(ERL_SDF_MAPPING, GpSdfMapping2D) {
         }
         std::cout << "=====================================" << std::endl;
     }
-    ERL_INFO("Average update time: %ld ms.", t / max_update_cnt);
+    ERL_INFO("Average update time: %f ms.", t / double(max_update_cnt));
 
     // Test SDF Estimation
     bool c_stride = true;
@@ -212,7 +212,7 @@ TEST(ERL_SDF_MAPPING, GpSdfMapping2D) {
     auto t1 = std::chrono::high_resolution_clock::now();
     auto dt = std::chrono::duration<double, std::milli>(t1 - t0).count();
     double t_per_point = double(dt) / (double) positions_in.cols() * 1000;  // us
-    ERL_INFO("Test time: %ld ms for %ld points, %f us per point.", dt, positions_in.cols(), t_per_point);
+    ERL_INFO("Test time: %f ms for %ld points, %f us per point.", dt, positions_in.cols(), t_per_point);
 
     if (g_options.visualize) {
         Eigen::MatrixXd distances_out_mat = distances_out.reshaped(grid_map_info->Height(), grid_map_info->Width());
