@@ -139,9 +139,12 @@ namespace erl::sdf_mapping {
         // compute (co)variance of the test queries: use gpis, log-gpis has numerical issue!!!
         // solve Lx = ktest -> x = m_mat_l_.m_inv_() * ktest
         m_mat_l_.topLeftCorner(output_size1.first, output_size1.first).triangularView<Eigen::Lower>().solveInPlace(ktest);
-        ERL_ASSERTM(mat_var_out.rows() >= dim + 1, "mat_var_out.rows() = %ld, it should be >= Dim + 1 = %ld for variance.", mat_var_out.rows(), dim + 1);
-        ERL_ASSERTM(mat_var_out.cols() >= n, "mat_var_out.cols() = %ld, not enough for %ld test queries.", mat_var_out.cols(), n);
-        if (mat_cov_out.size() == 0 && mat_var_out.size() > 0) {  // compute variance
+        bool compute_var = mat_var_out.size() > 0;
+        if (compute_var) {
+            ERL_ASSERTM(mat_var_out.rows() >= dim + 1, "mat_var_out.rows() = %ld, it should be >= Dim + 1 = %ld for variance.", mat_var_out.rows(), dim + 1);
+            ERL_ASSERTM(mat_var_out.cols() >= n, "mat_var_out.cols() = %ld, not enough for %ld test queries.", mat_var_out.cols(), n);
+        }
+        if (mat_cov_out.size() == 0 && compute_var) {  // compute variance
             // column-wise square sum of ktest = var([h(x1),...,h(xn),dh(x1)/dx_1,...,dh(xn)/dx_1,...,dh(x1)/dx_dim,...,dh(xn)/dx_dim])
             for (long i = 0; i < n; ++i) {
                 mat_var_out(0, i) = m_setting_->kernel->alpha - ktest.col(i).squaredNorm();  // variance of h(x)
@@ -155,13 +158,13 @@ namespace erl::sdf_mapping {
             ERL_ASSERTM(mat_cov_out.cols() >= n, "mat_cov_out.cols() = %ld, not enough for %ld test queries.", mat_cov_out.cols(), n);
             // each column of mat_cov_out is the lower triangular part of the covariance matrix of the corresponding test query
             for (long i = 0; i < n; ++i) {
-                if (mat_var_out.size() > 0) { mat_var_out(0, i) = m_setting_->kernel->alpha - ktest.col(i).squaredNorm(); }  // var(h(x))
+                if (compute_var) { mat_var_out(0, i) = m_setting_->kernel->alpha - ktest.col(i).squaredNorm(); }  // var(h(x))
                 long index = 0;
                 for (long j = 1, jj = i + n; j <= dim; ++j, jj += n) {
                     const auto &col_jj = ktest.col(jj);
                     mat_cov_out(index++, i) = -col_jj.dot(ktest.col(i));                                                         // cov(dh(x)/dx_j, h(x))
                     for (long k = 1, kk = i + n; k < j; ++k, kk += n) { mat_cov_out(index++, i) = -col_jj.dot(ktest.col(kk)); }  // cov(dh(x)/dx_j, dh(x)/dx_k)
-                    mat_var_out(j, i) = m_three_over_scale_square_ - col_jj.squaredNorm();                                       // var(dh(x)/dx_j)
+                    if (compute_var) { mat_var_out(j, i) = m_three_over_scale_square_ - col_jj.squaredNorm(); }                  // var(dh(x)/dx_j)
                 }
             }
         }

@@ -2,8 +2,8 @@ num_threads: 64
 update_hz: 50
 gp_sdf_area_scale: 2
 offset_distance: 0.0
-zero_gradient_threshold: 9.9999999999999995e-07
-max_valid_gradient_var: 0.10000000000000001
+zero_gradient_threshold: 1.0e-6
+max_valid_gradient_var: 0.1
 invalid_position_var: 2
 train_gp_immediately: false
 gp_sdf:
@@ -19,7 +19,7 @@ gp_sdf:
   edf_threshold: 0.1
   max_num_samples: 256   # max dataset size
 test_query:
-  max_test_valid_distance_var: 0.40000000000000002
+  max_test_valid_distance_var: 0.4
   search_area_half_size: 2
   use_nearest_only: false
   compute_covariance: false  # whether to compute covariance

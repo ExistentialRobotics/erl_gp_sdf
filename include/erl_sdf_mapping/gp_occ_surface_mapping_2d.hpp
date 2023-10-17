@@ -35,8 +35,9 @@ namespace erl::sdf_mapping {
             std::shared_ptr<gaussian_process::LidarGaussianProcess1D::Setting> gp_theta = std::make_shared<gaussian_process::LidarGaussianProcess1D::Setting>();
             std::shared_ptr<ComputeVariance> compute_variance = std::make_shared<ComputeVariance>();   // parameters used by ComputeVariance.
             std::shared_ptr<UpdateMapPoints> update_map_points = std::make_shared<UpdateMapPoints>();  // parameters used by UpdateMapPoints.
-            double quadtree_resolution = 0.05;                                                         // resolution of quadtree.
-            unsigned int cluster_level = 2;                                                            // 2^2 times of the quadtree resolution.
+            std::shared_ptr<SurfaceMappingQuadtree::Setting> quadtree = std::make_shared<SurfaceMappingQuadtree::Setting>();  // parameters used by quadtree.
+            // double quadtree_resolution = 0.05;                                                                                // resolution of quadtree.
+            unsigned int cluster_level = 2;  // 2^2 times of the quadtree resolution.
             double perturb_delta = 0.01;
             bool update_occupancy = true;
         };
@@ -73,11 +74,6 @@ namespace erl::sdf_mapping {
 
         std::shared_ptr<SurfaceMappingQuadtree>
         GetQuadtree() override {
-            return m_quadtree_;
-        }
-
-        [[nodiscard]] std::shared_ptr<const SurfaceMappingQuadtree>
-        GetQuadtree() const override {
             return m_quadtree_;
         }
 
@@ -231,7 +227,9 @@ namespace YAML {
             Node node;
             node["gp_theta"] = setting.gp_theta;
             node["compute_variance"] = setting.compute_variance;
-            node["quadtree_resolution"] = setting.quadtree_resolution;
+            node["update_map_points"] = setting.update_map_points;
+            node["quadtree"] = setting.quadtree;
+            // node["quadtree_resolution"] = setting.quadtree_resolution;
             node["cluster_level"] = setting.cluster_level;
             node["perturb_delta"] = setting.perturb_delta;
             node["update_occupancy"] = setting.update_occupancy;
@@ -243,7 +241,9 @@ namespace YAML {
             if (!node.IsMap()) { return false; }
             setting.gp_theta = node["gp_theta"].as<decltype(setting.gp_theta)>();
             setting.compute_variance = node["compute_variance"].as<decltype(setting.compute_variance)>();
-            setting.quadtree_resolution = node["quadtree_resolution"].as<double>();
+            setting.update_map_points = node["update_map_points"].as<decltype(setting.update_map_points)>();
+            setting.quadtree = node["quadtree"].as<decltype(setting.quadtree)>();
+            // setting.quadtree_resolution = node["quadtree_resolution"].as<double>();
             setting.cluster_level = node["cluster_level"].as<unsigned int>();
             setting.perturb_delta = node["perturb_delta"].as<double>();
             setting.update_occupancy = node["update_occupancy"].as<bool>();
@@ -256,7 +256,9 @@ namespace YAML {
         out << BeginMap;
         out << Key << "gp_theta" << Value << setting.gp_theta;
         out << Key << "compute_variance" << Value << setting.compute_variance;
-        out << Key << "quadtree_resolution" << Value << setting.quadtree_resolution;
+        out << Key << "update_map_points" << Value << setting.update_map_points;
+        out << Key << "quadtree" << Value << setting.quadtree;
+        // out << Key << "quadtree_resolution" << Value << setting.quadtree_resolution;
         out << Key << "cluster_level" << Value << setting.cluster_level;
         out << Key << "perturb_delta" << Value << setting.perturb_delta;
         out << Key << "update_occupancy" << Value << setting.update_occupancy;

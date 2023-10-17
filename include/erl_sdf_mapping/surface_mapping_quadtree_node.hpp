@@ -57,12 +57,12 @@ namespace erl::sdf_mapping {
         SurfaceMappingQuadtreeNode()
             : OccupancyQuadtreeNode() {}
 
-        void
+        inline void
         SetSurfaceData(Eigen::Vector2d position, Eigen::Vector2d normal, double var_position, double var_normal) {
             m_data_ = std::make_shared<SurfaceData>(std::move(position), std::move(normal), var_position, var_normal);
         }
 
-        void
+        inline void
         SetSurfaceData(
             Eigen::Vector2d position,
             Eigen::Vector2d normal,
@@ -72,27 +72,27 @@ namespace erl::sdf_mapping {
             m_data_ = std::make_shared<SurfaceData>(std::move(position), std::move(normal), var_position, var_normal, hit_ray_start_point);
         }
 
-        void
+        inline void
         SetSurfaceData(const std::shared_ptr<SurfaceData> &data) {
             m_data_ = data;
         }
 
-        std::shared_ptr<SurfaceData>
+        inline std::shared_ptr<SurfaceData>
         GetSurfaceData() {
             return m_data_;
         }
 
-        [[nodiscard]] std::shared_ptr<const SurfaceData>
+        [[nodiscard]] inline std::shared_ptr<const SurfaceData>
         GetSurfaceData() const {
             return m_data_;
         }
 
-        void
+        inline void
         ResetSurfaceData() {
             m_data_.reset();
         }
 
-        [[nodiscard]] bool
+        [[nodiscard]] inline bool
         AllowUpdateLogOdds(double delta) const override {
             return delta > 0 || m_data_ == nullptr;
         }

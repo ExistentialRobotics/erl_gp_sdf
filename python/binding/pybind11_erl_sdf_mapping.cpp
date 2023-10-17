@@ -6,6 +6,7 @@
 #include "erl_sdf_mapping/gp_occ_surface_mapping_2d.hpp"
 #include "erl_sdf_mapping/gp_sdf_mapping_2d.hpp"
 #include "erl_sdf_mapping/log_sdf_gp.hpp"
+#include "erl_geometry/pybind11_occupancy_quadtree_base.hpp"
 
 static void
 BindGpSdf2D(py::module &m) {
@@ -240,16 +241,21 @@ BindLogSdfGaussianProcess(py::module &m) {
 static void
 BindGpOccSurfaceMapping2D(py::module &m) {
     using namespace erl::common;
+    using namespace erl::geometry;
     using namespace erl::sdf_mapping;
 
-    // TODO: bind AbstractSurfaceMapping2D
-    py::class_<AbstractSurfaceMapping2D, std::shared_ptr<AbstractSurfaceMapping2D>> abstract_surface_mapping(m, ERL_AS_STRING(AbstractSurfaceMapping2D));
+    // TODO: bind SurfaceMappingQuadtreeNode
+    py::class_<SurfaceMappingQuadtreeNode, OccupancyQuadtreeNode, std::shared_ptr<SurfaceMappingQuadtreeNode>>(m, "SurfaceMappingQuadtreeNode")
+        .def("allow_update_log_odds", &SurfaceMappingQuadtreeNode::AllowUpdateLogOdds, py::arg("delta"));
 
-    // TODO: bind SurfaceMappingQuadtree
+    BindOccupancyQuadtree<SurfaceMappingQuadtree, SurfaceMappingQuadtreeNode>(m, "SurfaceMappingQuadtree");
 
-    py::class_<GpOccSurfaceMapping2D, AbstractSurfaceMapping2D, std::shared_ptr<GpOccSurfaceMapping2D>> surface_mapping(
-        m,
-        ERL_AS_STRING(GpOccSurfaceMapping2D));
+    py::class_<AbstractSurfaceMapping2D, std::shared_ptr<AbstractSurfaceMapping2D>>(m, "AbstractSurfaceMapping2D")
+        .def_property_readonly("quadtree", &AbstractSurfaceMapping2D::GetQuadtree)
+        .def_property_readonly("sensor_noise", &AbstractSurfaceMapping2D::GetSensorNoise)
+        .def("update", &AbstractSurfaceMapping2D::Update, py::arg("angles"), py::arg("distances"), py::arg("pose"));
+
+    py::class_<GpOccSurfaceMapping2D, AbstractSurfaceMapping2D, std::shared_ptr<GpOccSurfaceMapping2D>> surface_mapping(m, "GpOccSurfaceMapping2D");
     py::class_<GpOccSurfaceMapping2D::Setting, std::shared_ptr<GpOccSurfaceMapping2D::Setting>> surface_mapping_setting(surface_mapping, "Setting");
     py::class_<GpOccSurfaceMapping2D::Setting::ComputeVariance, YamlableBase, std::shared_ptr<GpOccSurfaceMapping2D::Setting::ComputeVariance>>(
         surface_mapping_setting,

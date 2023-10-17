@@ -35,7 +35,9 @@ class LogSdfGaussianProcess(NoisyInputGaussianProcess):
         self: LogSdfGaussianProcess, mat_x_test: npt.NDArray[np.float64]
     ) -> Tuple[npt.NDArray[np.float64], npt.NDArray[np.float64]]: ...
 
-class AbstractSurfaceMapping2D: ...
+class AbstractSurfaceMapping2D:
+    @property
+    def quadtree(self) -> SurfaceMappingQuadtree: ...
 
 class GpOccSurfaceMapping2D(AbstractSurfaceMapping2D):
     class Setting(YamlableBase):

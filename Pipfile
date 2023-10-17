@@ -15,6 +15,7 @@ opencv-python = "*"
 pyyaml = "*"
 screeninfo = "*"
 scipy = "*"
+pycryptodomex = "*"
 
 [dev-packages]
 

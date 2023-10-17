@@ -205,7 +205,7 @@ namespace YAML {
             node["search_area_half_size"] = rhs.search_area_half_size;
             node["use_nearest_only"] = rhs.use_nearest_only;
             node["compute_covariance"] = rhs.compute_covariance;
-            node["use_surface_variance"] = rhs.recompute_variance;
+            node["recompute_variance"] = rhs.recompute_variance;
             node["softmax_temperature"] = rhs.softmax_temperature;
             return node;
         }
@@ -217,7 +217,7 @@ namespace YAML {
             rhs.search_area_half_size = node["search_area_half_size"].as<double>();
             rhs.use_nearest_only = node["use_nearest_only"].as<bool>();
             rhs.compute_covariance = node["compute_covariance"].as<bool>();
-            rhs.recompute_variance = node["use_surface_variance"].as<bool>();
+            rhs.recompute_variance = node["recompute_variance"].as<bool>();
             rhs.softmax_temperature = node["softmax_temperature"].as<double>();
             return true;
         }
@@ -230,7 +230,7 @@ namespace YAML {
         out << Key << "search_area_half_size" << Value << rhs.search_area_half_size;
         out << Key << "use_nearest_only" << Value << rhs.use_nearest_only;
         out << Key << "compute_covariance" << Value << rhs.compute_covariance;
-        out << Key << "use_surface_variance" << Value << rhs.recompute_variance;
+        out << Key << "recompute_variance" << Value << rhs.recompute_variance;
         out << Key << "softmax_temperature" << Value << rhs.softmax_temperature;
         out << EndMap;
         return out;

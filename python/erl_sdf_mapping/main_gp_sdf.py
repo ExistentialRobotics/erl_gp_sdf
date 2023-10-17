@@ -136,12 +136,12 @@ def main() -> None:
         resolution=np.array([args.map_resolution, args.map_resolution]),
         padding=np.array([args.padding, args.padding]),
     )
-    extent = [
+    extent = (
         grid_map_info.min_at(0),
         grid_map_info.max_at(0),
         grid_map_info.min_at(1),
         grid_map_info.max_at(1),
-    ]
+    )
     xy_coords = grid_map_info.generate_meter_coordinates(c_stride=True)
     # x down, y right -> x right, y up
     xg = xy_coords[0].reshape(grid_map_info.shape).T[::-1]

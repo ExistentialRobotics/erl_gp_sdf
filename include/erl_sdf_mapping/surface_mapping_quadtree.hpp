@@ -1,6 +1,7 @@
 #pragma once
 
 #include "erl_geometry/occupancy_quadtree_base.hpp"
+#include "erl_geometry/occupancy_quadtree_drawer.hpp"
 #include "surface_mapping_quadtree_node.hpp"
 
 namespace erl::sdf_mapping {
@@ -28,22 +29,29 @@ namespace erl::sdf_mapping {
             return ERL_AS_STRING(SurfaceMappingQuadtree);
         }
 
-        bool
-        IsNodeCollapsible(const std::shared_ptr<SurfaceMappingQuadtreeNode> &node) const override {
-            // all children must exist
-            if (node->GetNumChildren() != 4) { return false; }
+        /**
+         * If no surface data is present, and all children are leaves and equal, then the node is collapsible.
+         * @param node
+         * @return
+         */
+//        bool
+//        IsNodeCollapsible(const std::shared_ptr<SurfaceMappingQuadtreeNode> &node) const override {
+//            // all children must exist
+//            if (node->GetNumChildren() != 4) { return false; }
+//
+//            auto first_child = this->GetNodeChild(node, 0);
+//            if (first_child->GetSurfaceData() != nullptr || first_child->HasAnyChild()) { return false; }
+//
+//            for (unsigned int i = 1; i < 4; ++i) {
+//                auto child = this->GetNodeChild(node, i);
+//                // child should be a leaf node
+//                if (child->GetSurfaceData() != nullptr || child->HasAnyChild() || *child != *first_child) { return false; }
+//            }
+//
+//            return true;
+//        }
 
-            auto first_child = this->GetNodeChild(node, 0);
-            if (first_child->GetSurfaceData() != nullptr || first_child->HasAnyChild()) { return false; }
-
-            for (unsigned int i = 1; i < 4; ++i) {
-                auto child = this->GetNodeChild(node, i);
-                // child should be a leaf node
-                if (child->GetSurfaceData() != nullptr || child->HasAnyChild() || *child != *first_child) { return false; }
-            }
-
-            return true;
-        }
+        typedef geometry::OccupancyQuadtreeDrawer<SurfaceMappingQuadtree> Drawer;
 
     protected:
         /**
@@ -74,3 +82,23 @@ namespace erl::sdf_mapping {
     };
 
 }  // namespace erl::sdf_mapping
+
+namespace YAML {
+    template<>
+    struct convert<erl::sdf_mapping::SurfaceMappingQuadtree::Setting>
+        : public ConvertOccupancyQuadtreeBaseSetting<erl::sdf_mapping::SurfaceMappingQuadtree::Setting> {};
+
+    inline Emitter &
+    operator<<(Emitter &out, const erl::sdf_mapping::SurfaceMappingQuadtree::Setting &rhs) {
+        return PrintOccupancyQuadtreeBaseSetting(out, rhs);
+    }
+
+    template<>
+    struct convert<erl::sdf_mapping::SurfaceMappingQuadtree::Drawer::Setting>
+        : public ConvertOccupancyQuadtreeDrawerSetting<erl::sdf_mapping::SurfaceMappingQuadtree::Drawer::Setting> {};
+
+    inline Emitter &
+    operator<<(Emitter &out, const erl::sdf_mapping::SurfaceMappingQuadtree::Drawer::Setting &rhs) {
+        return PrintOccupancyQuadtreeDrawerSetting(out, rhs);
+    }
+}  // namespace YAML

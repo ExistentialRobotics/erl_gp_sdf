@@ -28,20 +28,21 @@ namespace erl::sdf_mapping {
                              0., 0., m_setting_->perturb_delta, -m_setting_->perturb_delta;
             // clang-format on
 
+            if (m_setting_->update_occupancy) {
+                t0 = std::chrono::high_resolution_clock::now();
+                auto train_buffer = m_gp_theta_->GetTrainBuffer();
+                UpdateOccupancy(train_buffer.vec_angles, train_buffer.vec_ranges, pose);
+                t1 = std::chrono::high_resolution_clock::now();
+                dt = std::chrono::duration<double, std::milli>(t1 - t0).count();
+                ERL_INFO("Update occupancy time: %f ms.", dt);
+            }
+
             // perform surface mapping
             t0 = std::chrono::high_resolution_clock::now();
             UpdateMapPoints();
             t1 = std::chrono::high_resolution_clock::now();
             dt = std::chrono::duration<double, std::milli>(t1 - t0).count();
             ERL_INFO("Update map points time: %f ms.", dt);
-
-            if (m_setting_->update_occupancy) {
-                t0 = std::chrono::high_resolution_clock::now();
-                UpdateOccupancy(angles, distances, pose);
-                t1 = std::chrono::high_resolution_clock::now();
-                dt = std::chrono::duration<double, std::milli>(t1 - t0).count();
-                ERL_INFO("Update occupancy time: %f ms.", dt);
-            }
 
             t0 = std::chrono::high_resolution_clock::now();
             AddNewMeasurement();
@@ -68,7 +69,7 @@ namespace erl::sdf_mapping {
         auto end = m_quadtree_->EndLeafInAabb();
         double sensor_x = kTrainBuffer.position.x();
         double sensor_y = kTrainBuffer.position.y();
-        double cluster_half_size = m_setting_->quadtree_resolution * std::pow(2, m_setting_->cluster_level - 1);
+        double cluster_half_size = m_setting_->quadtree->resolution * std::pow(2, m_setting_->cluster_level - 1);
         double squared_dist_max = kTrainBuffer.max_distance * kTrainBuffer.max_distance + cluster_half_size * cluster_half_size * 2;
         for (; it != end; ++it) {
             double cluster_x, cluster_y;
@@ -196,15 +197,16 @@ namespace erl::sdf_mapping {
                 RecordChangedKey(it.GetKey());
                 std::shared_ptr<SurfaceMappingQuadtreeNode> new_node;
                 // move the surface data to the new node before updating it
-                if (m_setting_->update_occupancy) {
-                    // get new node via occupancy update
-                    constexpr bool kOccupied = true;
-                    constexpr bool kLazyEval = true;
-                    new_node = std::static_pointer_cast<SurfaceMappingQuadtreeNode>(m_quadtree_->UpdateNode(new_key, kOccupied, kLazyEval));
-                } else {
-                    // get new node via insert
-                    new_node = std::static_pointer_cast<SurfaceMappingQuadtreeNode>(m_quadtree_->InsertNode(new_key));
-                }
+//                if (m_setting_->update_occupancy) {
+//                    // get new node via occupancy update
+//                    constexpr bool kOccupied = true;
+//                    constexpr bool kLazyEval = false;
+//                    new_node = std::static_pointer_cast<SurfaceMappingQuadtreeNode>(m_quadtree_->UpdateNode(new_key, kOccupied, kLazyEval));
+//                } else {
+//                    // get new node via insert
+//                    new_node = std::static_pointer_cast<SurfaceMappingQuadtreeNode>(m_quadtree_->InsertNode(new_key));
+//                }
+                new_node = std::static_pointer_cast<SurfaceMappingQuadtreeNode>(m_quadtree_->InsertNode(new_key));
                 ERL_ASSERTM(new_node != nullptr, "Failed to get the node");
                 if (new_node->GetSurfaceData() != nullptr) { continue; }  // the new node is already occupied
                 new_node->SetSurfaceData(surface_data);
@@ -223,7 +225,10 @@ namespace erl::sdf_mapping {
         const Eigen::Ref<const Eigen::VectorXd> &distances,
         const Eigen::Ref<const Eigen::Matrix23d> &pose) {
 
-        if (m_quadtree_ == nullptr) { m_quadtree_ = std::make_shared<SurfaceMappingQuadtree>(m_setting_->quadtree_resolution); }
+        if (m_quadtree_ == nullptr) {
+            m_quadtree_ = std::make_shared<SurfaceMappingQuadtree>(m_setting_->quadtree->resolution);
+            m_quadtree_->SetSetting(*m_setting_->quadtree);
+        }
 
         auto n = angles.size();
         auto rotation = pose.topLeftCorner<2, 2>();
@@ -235,8 +240,8 @@ namespace erl::sdf_mapping {
             points(0, i) = rotation(0, 0) * x + rotation(0, 1) * y + translation[0];
             points(1, i) = rotation(1, 0) * x + rotation(1, 1) * y + translation[1];
         }
-        constexpr bool kParallel = false;
-        constexpr bool kLazyEval = false;
+        constexpr bool kParallel = false;  // no improvement
+        constexpr bool kLazyEval = false;  // no improvement
         constexpr bool kDiscrete = false;
         m_quadtree_->InsertPointCloud(points, translation, m_setting_->gp_theta->train_buffer->valid_range_max, kParallel, kLazyEval, kDiscrete);
     }
@@ -244,7 +249,10 @@ namespace erl::sdf_mapping {
     void
     GpOccSurfaceMapping2D::AddNewMeasurement() {
 
-        if (m_quadtree_ == nullptr) { m_quadtree_ = std::make_shared<SurfaceMappingQuadtree>(m_setting_->quadtree_resolution); }
+        if (m_quadtree_ == nullptr) {
+            m_quadtree_ = std::make_shared<SurfaceMappingQuadtree>(m_setting_->quadtree->resolution);
+            m_quadtree_->SetSetting(*m_setting_->quadtree);
+        }
 
         auto &kTrainBuffer = m_gp_theta_->GetTrainBuffer();
 
@@ -263,6 +271,7 @@ namespace erl::sdf_mapping {
             if (m_setting_->update_occupancy) {
                 // get the leaf node via occupancy update
                 leaf = std::static_pointer_cast<SurfaceMappingQuadtreeNode>(m_quadtree_->UpdateNode(key, kOccupied, kLazyEval));
+                if (!m_quadtree_->IsNodeOccupied(leaf)) { continue; }  // the leaf is not marked as occupied, skip it
             } else {
                 // get the leaf node via insert
                 leaf = std::static_pointer_cast<SurfaceMappingQuadtreeNode>(m_quadtree_->InsertNode(key));
@@ -273,13 +282,16 @@ namespace erl::sdf_mapping {
             double occ_mean;
             Eigen::Vector2d grad_local;
             if (!ComputeGradient2(kTrainBuffer.mat_xy_local.col(i), grad_local, occ_mean)) {
-                if (m_setting_->update_occupancy) {
-                    // undo the occupancy update
-                    m_quadtree_->UpdateNode(key, !kOccupied, !kLazyEval);
-                } else {
-                    // undo the insert
-                    m_quadtree_->DeleteNode(key);
-                }
+//                if (m_setting_->update_occupancy) {
+//                    // undo the occupancy update
+//                    m_quadtree_->UpdateNode(key, false, false);
+//                } else {
+//                    // undo the insert
+//                    m_quadtree_->DeleteNode(key);
+//                }
+
+                if (!m_setting_->update_occupancy) { m_quadtree_->DeleteNode(key); }  // undo the insert
+
                 continue;
             }
 

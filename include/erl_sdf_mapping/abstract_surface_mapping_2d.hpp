@@ -18,9 +18,6 @@ namespace erl::sdf_mapping {
         virtual std::shared_ptr<SurfaceMappingQuadtree>
         GetQuadtree() = 0;
 
-        [[nodiscard]] virtual std::shared_ptr<const SurfaceMappingQuadtree>
-        GetQuadtree() const = 0;
-
         [[nodiscard]] virtual double
         GetSensorNoise() const = 0;
 
