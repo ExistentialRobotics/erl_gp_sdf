@@ -14,6 +14,9 @@ namespace erl::sdf_mapping {
             s_init_.EnsureLinking();
         }
 
+        explicit SurfaceMappingQuadtree(const std::shared_ptr<Setting> &setting)
+            : OccupancyQuadtreeBase<SurfaceMappingQuadtreeNode>(setting) {}
+
         explicit SurfaceMappingQuadtree(const std::string &filename)
             : OccupancyQuadtreeBase<SurfaceMappingQuadtreeNode>(0.1) {  // resolution will be set by readBinary
             this->ReadBinary(filename);
@@ -34,22 +37,22 @@ namespace erl::sdf_mapping {
          * @param node
          * @return
          */
-//        bool
-//        IsNodeCollapsible(const std::shared_ptr<SurfaceMappingQuadtreeNode> &node) const override {
-//            // all children must exist
-//            if (node->GetNumChildren() != 4) { return false; }
-//
-//            auto first_child = this->GetNodeChild(node, 0);
-//            if (first_child->GetSurfaceData() != nullptr || first_child->HasAnyChild()) { return false; }
-//
-//            for (unsigned int i = 1; i < 4; ++i) {
-//                auto child = this->GetNodeChild(node, i);
-//                // child should be a leaf node
-//                if (child->GetSurfaceData() != nullptr || child->HasAnyChild() || *child != *first_child) { return false; }
-//            }
-//
-//            return true;
-//        }
+        // bool
+        // IsNodeCollapsible(const std::shared_ptr<SurfaceMappingQuadtreeNode> &node) const override {
+        //     // all children must exist
+        //     if (node->GetNumChildren() != 4) { return false; }
+        //
+        //     auto first_child = this->GetNodeChild(node, 0);
+        //     if (first_child->GetSurfaceData() != nullptr || first_child->HasAnyChild()) { return false; }
+        //
+        //     for (unsigned int i = 1; i < 4; ++i) {
+        //         auto child = this->GetNodeChild(node, i);
+        //         // child should be a leaf node
+        //         if (child->GetSurfaceData() != nullptr || child->HasAnyChild() || *child != *first_child) { return false; }
+        //     }
+        //
+        //     return true;
+        // }
 
         typedef geometry::OccupancyQuadtreeDrawer<SurfaceMappingQuadtree> Drawer;
 

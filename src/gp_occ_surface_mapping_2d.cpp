@@ -227,7 +227,7 @@ namespace erl::sdf_mapping {
 
         if (m_quadtree_ == nullptr) {
             m_quadtree_ = std::make_shared<SurfaceMappingQuadtree>(m_setting_->quadtree->resolution);
-            m_quadtree_->SetSetting(*m_setting_->quadtree);
+            m_quadtree_->SetSetting(m_setting_->quadtree);
         }
 
         auto n = angles.size();
@@ -251,7 +251,7 @@ namespace erl::sdf_mapping {
 
         if (m_quadtree_ == nullptr) {
             m_quadtree_ = std::make_shared<SurfaceMappingQuadtree>(m_setting_->quadtree->resolution);
-            m_quadtree_->SetSetting(*m_setting_->quadtree);
+            m_quadtree_->SetSetting(m_setting_->quadtree);
         }
 
         auto &kTrainBuffer = m_gp_theta_->GetTrainBuffer();
