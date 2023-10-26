@@ -279,7 +279,7 @@ BindGpOccSurfaceMapping2D(py::module &m) {
     surface_mapping_setting.def_readwrite("gp_theta", &GpOccSurfaceMapping2D::Setting::gp_theta)
         .def_readwrite("compute_variance", &GpOccSurfaceMapping2D::Setting::compute_variance)
         .def_readwrite("update_map_points", &GpOccSurfaceMapping2D::Setting::update_map_points)
-        .def_readwrite("quadtree_resolution", &GpOccSurfaceMapping2D::Setting::quadtree_resolution)
+        .def_readwrite("quadtree", &GpOccSurfaceMapping2D::Setting::quadtree)
         .def_readwrite("cluster_level", &GpOccSurfaceMapping2D::Setting::cluster_level)
         .def_readwrite("perturb_delta", &GpOccSurfaceMapping2D::Setting::perturb_delta)
         .def_readwrite("update_occupancy", &GpOccSurfaceMapping2D::Setting::update_occupancy);
