@@ -23,7 +23,7 @@ struct Options {
     std::string gazebo_test_file = (g_dir_path / "gazebo_test.dat").string();
     std::string house_expo_map_file = (g_dir_path / "house_expo_room_1451.json").string();
     std::string house_expo_traj_file = (g_dir_path / "house_expo_room_1451.csv").string();
-    std::string ros_bag_dat_file = (g_dir_path / "ros_bag.csv").string();
+    std::string ros_bag_dat_file = (g_dir_path / "ros_bag.dat").string();
     std::string surface_mapping_config_file = (g_config_dir_path / "surface_mapping.yaml").string();
     std::string sdf_mapping_config_file = (g_config_dir_path / "sdf_mapping.yaml").string();
     std::string output_dir = (g_dir_path / "results").string();
@@ -40,6 +40,32 @@ struct Options {
 
 static Options g_options;
 
+void
+DrawGp(
+    cv::Mat &img,
+    const std::shared_ptr<erl::sdf_mapping::GpSdfMapping2D::GP> &gp1,
+    const std::shared_ptr<erl::common::GridMapInfo2D> &grid_map_info,
+    const cv::Scalar &data_color = {0, 255, 125, 255},
+    const cv::Scalar &pos_color = {125, 255, 0, 255},
+    const cv::Scalar &rect_color = {125, 255, 0, 255}) {
+
+    if (gp1 == nullptr) { return; }
+
+    Eigen::Vector2i gp1_position_px = grid_map_info->MeterToPixelForPoints(gp1->position);
+    cv::drawMarker(img, cv::Point(gp1_position_px[0], gp1_position_px[1]), pos_color, cv::MARKER_STAR, 10, 1);
+    Eigen::Vector2d gp1_area_min = gp1->position.array() - gp1->half_size;
+    Eigen::Vector2d gp1_area_max = gp1->position.array() + gp1->half_size;
+    Eigen::Vector2i gp1_area_min_px = grid_map_info->MeterToPixelForPoints(gp1_area_min);
+    Eigen::Vector2i gp1_area_max_px = grid_map_info->MeterToPixelForPoints(gp1_area_max);
+    cv::rectangle(img, cv::Point(gp1_area_min_px[0], gp1_area_min_px[1]), cv::Point(gp1_area_max_px[0], gp1_area_max_px[1]), rect_color, 1);
+
+    Eigen::Matrix2Xd used_surface_points = gp1->gp->GetTrainInputSamplesBuffer().block(0, 0, 2, gp1->gp->GetNumTrainSamples());
+    Eigen::Matrix2Xi used_surface_points_px = grid_map_info->MeterToPixelForPoints(used_surface_points);
+    for (long j = 0; j < used_surface_points.cols(); j++) {
+        cv::circle(img, cv::Point(used_surface_points_px(0, j), used_surface_points_px(1, j)), 3, data_color, -1);
+    }
+}
+
 TEST(ERL_SDF_MAPPING, GpSdfMapping2D) {
     long max_update_cnt;
     std::vector<Eigen::VectorXd> train_angles;
@@ -50,7 +76,7 @@ TEST(ERL_SDF_MAPPING, GpSdfMapping2D) {
     Eigen::Vector2d map_resolution(g_options.map_resolution, g_options.map_resolution);
     Eigen::Vector2i map_padding(10, 10);
     Eigen::Matrix2Xd cur_traj;
-    float tic = 0.05;
+    double tic = 0.05;
 
     if (g_options.use_gazebo_data) {
         auto train_data_loader = erl::geometry::GazeboRoom::TrainDataLoader(g_options.gazebo_train_file.c_str());
@@ -112,31 +138,26 @@ TEST(ERL_SDF_MAPPING, GpSdfMapping2D) {
             bar.Update();
         }
     } else if (g_options.use_ros_bag_data) {
-        std::vector<std::vector<double>> ros_bag_data =
-            erl::common::LoadAndCastCsvFile<double>(g_options.ros_bag_dat_file.c_str(), [](const std::string &str) -> double { return std::stod(str); });
-        tic = ros_bag_data[1][0] - ros_bag_data[0][0];
-        max_update_cnt = long(ros_bag_data.size()) / g_options.stride + 1;
+        Eigen::MatrixXd ros_bag_data = erl::common::LoadEigenMatrixFromBinaryFile<double, Eigen::Dynamic, Eigen::Dynamic>(g_options.ros_bag_dat_file);
+        tic = ros_bag_data(1, 0) - ros_bag_data(0, 0);
+        // prepare buffer
+        max_update_cnt = long(ros_bag_data.rows()) / g_options.stride + 1;
         train_angles.reserve(max_update_cnt);
         train_ranges.reserve(max_update_cnt);
         train_poses.reserve(max_update_cnt);
         cur_traj.resize(2, max_update_cnt);
+        // load data into buffer
+        long num_rays = (ros_bag_data.cols() - 7) / 2;
         erl::common::ProgressBar bar(int(max_update_cnt), true, std::cout);
-        for (std::size_t i = 0, j = 0; i < ros_bag_data.size(); i += g_options.stride, j++) {
-            std::vector<double> &record = ros_bag_data[i];
-            cur_traj.col(long(j)) << record[3], record[6];
-            auto n = long((record.size() - 7) / 2);
-            train_angles.emplace_back(Eigen::Map<Eigen::VectorXd>(record.data() + 7, n));
-            train_ranges.emplace_back(Eigen::Map<Eigen::VectorXd>(record.data() + 7 + n, n));
-            Eigen::Matrix23d cur_pose;
-            // clang-format off
-            cur_pose << record[1], record[2], record[3],
-                        record[4], record[5], record[6];
-            // clang-format on
-            train_poses.push_back(std::move(cur_pose));
+        for (long i = 0, j = 0; i < ros_bag_data.rows(); i += g_options.stride, j++) {
+            Eigen::Matrix23d pose = ros_bag_data.row(i).segment(1, 6).reshaped(3, 2).transpose();
+            cur_traj.col(j) << pose(0, 2), pose(1, 2);
+            train_angles.emplace_back(ros_bag_data.row(i).segment(7, num_rays));
+            train_ranges.emplace_back(ros_bag_data.row(i).segment(7 + num_rays, num_rays));
+            train_poses.push_back(pose);
             Eigen::VectorXd &angles = train_angles.back();
             Eigen::VectorXd &ranges = train_ranges.back();
-            Eigen::Matrix23d &pose = train_poses.back();
-            for (long k = 0; k < n; k++) {
+            for (long k = 0; k < num_rays; k++) {
                 if (std::isnan(ranges[k]) || std::isinf(ranges[k])) { continue; }
                 double angle = angles[k];
                 double range = ranges[k];
@@ -203,7 +224,7 @@ TEST(ERL_SDF_MAPPING, GpSdfMapping2D) {
     });
 
     bool pixel_based = true;
-    cv::Scalar trajectory_color(0, 0, 255, 255);
+    cv::Scalar trajectory_color(0, 125, 125, 255);
     cv::Mat img;
     bool drawer_connected = false;
     bool update_occupancy = surface_mapping->GetSetting()->update_occupancy;
@@ -224,21 +245,32 @@ TEST(ERL_SDF_MAPPING, GpSdfMapping2D) {
     auto grid_map_info = drawer->GetGridMapInfo();
 
     // pangolin
-    pangolin::CreateWindowAndBind("pangolin-" + g_window_name, 1280, 960);
-    pangolin::DataLog pangolin_log;
-    std::vector<std::string> pangolin_labels = {"SDF", "var(SDF)", "var(gradX)", "var(gradY)"};
-    pangolin_log.SetLabels(pangolin_labels);
-    float pangolin_bound_left = 0.0f;
-    float pangolin_bound_right = 600.0f;
-    float pangolin_bound_bottom = -1.0f;
-    float pangolin_bound_top = 3.0f;
-    pangolin::Plotter pangolin_plotter(&pangolin_log, pangolin_bound_left, pangolin_bound_right, pangolin_bound_bottom, pangolin_bound_top, tic, 0.05f);
-    pangolin_plotter.SetBounds(0.0, 1.0, 0.0, 1.0);
-    pangolin_plotter.Track("$i");
-    // pangolin_plotter.AddMarker(pangolin::Marker::Vertical, -1000, pangolin::Marker::LessThan, pangolin::Colour::Blue().WithAlpha(0.2f));
-    // pangolin_plotter.AddMarker(pangolin::Marker::Horizontal, 100, pangolin::Marker::GreaterThan, pangolin::Colour::Red().WithAlpha(0.2f));
-    // pangolin_plotter.AddMarker(pangolin::Marker::Horizontal, 10, pangolin::Marker::Equal, pangolin::Colour::Green().WithAlpha(0.2f));
-    pangolin::DisplayBase().AddDisplay(pangolin_plotter);
+    std::shared_ptr<pangolin::DataLog> pangolin_log = nullptr;
+    std::shared_ptr<pangolin::Plotter> pangolin_plotter;
+    if (g_options.visualize) {
+        pangolin::CreateWindowAndBind("pangolin-" + g_window_name, 1280, 960);
+        pangolin_log = std::make_shared<pangolin::DataLog>();
+        std::vector<std::string> pangolin_labels = {"SDF", "EDF", "var(SDF)", "var(gradX)", "var(gradY)"};
+        pangolin_log->SetLabels(pangolin_labels);
+        float pangolin_bound_left = 0.0f;
+        float pangolin_bound_right = 600.0f;
+        float pangolin_bound_bottom = -1.0f;
+        float pangolin_bound_top = 3.0f;
+        pangolin_plotter = std::make_shared<pangolin::Plotter>(
+            pangolin_log.get(),
+            pangolin_bound_left,
+            pangolin_bound_right,
+            pangolin_bound_bottom,
+            pangolin_bound_top,
+            float(tic),
+            0.05f);
+        pangolin_plotter->SetBounds(0.0, 1.0, 0.0, 1.0);
+        pangolin_plotter->Track("$i");
+        // pangolin_plotter->AddMarker(pangolin::Marker::Vertical, -1000, pangolin::Marker::LessThan, pangolin::Colour::Blue().WithAlpha(0.2f));
+        // pangolin_plotter->AddMarker(pangolin::Marker::Horizontal, 100, pangolin::Marker::GreaterThan, pangolin::Colour::Red().WithAlpha(0.2f));
+        // pangolin_plotter->AddMarker(pangolin::Marker::Horizontal, 10, pangolin::Marker::Equal, pangolin::Colour::Green().WithAlpha(0.2f));
+        pangolin::DisplayBase().AddDisplay(*pangolin_plotter);
+    }
 
     // save video
     std::shared_ptr<cv::VideoWriter> surf_mapping_video_writer = nullptr;
@@ -274,9 +306,9 @@ TEST(ERL_SDF_MAPPING, GpSdfMapping2D) {
             } else {
                 drawer->DrawTree(img);
             }
-            for (auto &[position_px_cv, arrow_end_px]: arrowed_lines) {
-                cv::arrowedLine(img, position_px_cv, arrow_end_px, cv::Scalar(0, 0, 255, 255), 1, 8, 0, 0.1);
-            }
+            // for (auto &[position_px_cv, arrow_end_px]: arrowed_lines) {
+            //     cv::arrowedLine(img, position_px_cv, arrow_end_px, cv::Scalar(0, 0, 255, 255), 1, 8, 0, 0.1);
+            // }
 
             // Test SDF Estimation
             Eigen::Vector2d position = cur_traj.col(i);
@@ -290,14 +322,25 @@ TEST(ERL_SDF_MAPPING, GpSdfMapping2D) {
             cv::Point position_px(
                 grid_map_info->MeterToGridForValue(cur_traj(0, i), 0),
                 grid_map_info->Shape(1) - grid_map_info->MeterToGridForValue(cur_traj(1, i), 1));
-            int radius = std::abs(distance[0]) / grid_map_info->Resolution(0);
-            cv::circle(img, position_px, radius, cv::Scalar(0, 255, 0, 125), cv::FILLED);
+            auto radius = int(std::abs(distance[0]) / grid_map_info->Resolution(0));
+            cv::Mat circle_layer(img.rows, img.cols, CV_8UC4, cv::Scalar(0));
+            cv::Mat circle_mask(img.rows, img.cols, CV_8UC1, cv::Scalar(0));
+            cv::circle(circle_mask, position_px, radius, cv::Scalar(255), cv::FILLED);
+            cv::circle(circle_layer, position_px, radius, cv::Scalar(0, 255, 0, 25), cv::FILLED);
+            cv::add(img * 0.5, circle_layer * 0.5, img, circle_mask);
             glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
-            pangolin_log.Log(distance[0], variances(0, 0), variances(1, 0), variances(2, 0));
-            pangolin::FinishFrame();
+            pangolin_log->Log(float(std::abs(distance[0])));
+            // pangolin_log->Log(float(distance[0]), float(std::abs(distance[0])), float(variances(0, 0)), float(variances(1, 0)), float(variances(2, 0)));
+
+            // draw used surface points
+            auto &[gp1, gp2] = sdf_mapping.GetUsedGps()[0];
+            DrawGp(img, gp1, grid_map_info, {0, 255, 125, 255}, {125, 255, 0, 255}, {125, 0, 255, 255});
+            DrawGp(img, gp2, grid_map_info, {125, 255, 125, 255}, {125, 255, 125, 255}, {125, 125, 255, 255});
+            ERL_INFO("GP1 at [%f, %f] has %ld data points.", gp1->position.x(), gp1->position.y(), gp1->gp->GetNumTrainSamples());
+            if (gp2 != nullptr) { ERL_INFO("GP2 has %ld data points.", gp2->gp->GetNumTrainSamples()); }
 
             // draw trajectory
-            erl::common::DrawTrajectoryInplace(img, cur_traj.block(0, 0, 2, i), grid_map_info, trajectory_color, 2, pixel_based);
+            erl::common::DrawTrajectoryInplace(img, cur_traj.block(0, 0, 2, i), grid_map_info, trajectory_color, 1, pixel_based);
 
             if (g_options.save_video) {
                 cv::Mat frame;
@@ -305,6 +348,7 @@ TEST(ERL_SDF_MAPPING, GpSdfMapping2D) {
                 surf_mapping_video_writer->write(frame);
             }
 
+            pangolin::FinishFrame();
             cv::imshow(g_window_name, img);
             cv::waitKey(10);
         }

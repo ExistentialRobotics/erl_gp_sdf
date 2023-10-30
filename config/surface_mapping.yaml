@@ -4,7 +4,7 @@ gp_theta:
   boundary_margin: 0.017500000000000002
   init_variance: 1000000
   sensor_range_var: 0.01
-  max_valid_distance_var: 0.1  # drop the point if its distance variance is larger than this
+  max_valid_range_var: 0.1  # drop the point if its distance variance is larger than this
   occ_test_temperature: 30
   train_buffer:
     valid_range_min: 0.2
@@ -55,6 +55,6 @@ quadtree:
     half_sizes:
       - 0
       - 0
-cluster_level: 3
-perturb_delta: 0.01
+cluster_level: 5
+perturb_delta: 0.005  # this makes the SDF prediction more smooth over time
 update_occupancy: true

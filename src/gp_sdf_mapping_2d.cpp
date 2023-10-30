@@ -26,13 +26,13 @@ namespace erl::sdf_mapping {
             return false;
         }
 
-        unsigned int n = positions_in.cols();
+        unsigned int num_queries = positions_in.cols();
         unsigned int num_threads = std::min(m_setting_->num_threads, std::thread::hardware_concurrency());
-        num_threads = std::min(num_threads, n);
+        num_threads = std::min(num_threads, num_queries);
         std::vector<std::thread> threads;
         threads.reserve(num_threads);
-        std::size_t batch_size = n / num_threads;
-        std::size_t leftover = n - batch_size * num_threads;
+        std::size_t batch_size = num_queries / num_threads;
+        std::size_t leftover = num_queries - batch_size * num_threads;
         std::size_t start_idx, end_idx;
 
         std::chrono::high_resolution_clock::time_point t0, t1;
@@ -42,12 +42,12 @@ namespace erl::sdf_mapping {
             // Search GPs for each query position
             t0 = std::chrono::high_resolution_clock::now();
             m_query_to_gps_.clear();
-            m_query_to_gps_.resize(n);  // allocate memory for n threads, collected GPs will be locked for testing
+            m_query_to_gps_.resize(num_queries);  // allocate memory for n threads, collected GPs will be locked for testing
             {
                 double x, y;
                 m_surface_mapping_->GetQuadtree()->GetMetricMin(x, y);  // trigger the quadtree to update its metric min/max
             }
-            if (n == 1) {
+            if (num_queries == 1) {
                 SearchGpThread(0, 0, 1);  // save time on thread creation
             } else {
                 start_idx = 0;
@@ -83,8 +83,9 @@ namespace erl::sdf_mapping {
         }
 
         // Compute the inference result for each query position
+        m_query_used_gps_.resize(num_queries);
         t0 = std::chrono::high_resolution_clock::now();
-        if (n == 1) {
+        if (num_queries == 1) {
             TestGpThread(0, 0, 1);  // save time on thread creation
         } else {
             start_idx = 0;
@@ -137,7 +138,11 @@ namespace erl::sdf_mapping {
         threads.reserve(num_threads);
         m_clusters_to_update_.clear();
         m_clusters_to_update_.insert(m_clusters_to_update_.end(), affected_clusters.begin(), affected_clusters.end());
-        for (auto &cluster_key: m_clusters_to_update_) { m_gp_map_.try_emplace(cluster_key, std::make_shared<GP>()); }
+        for (auto &cluster_key: m_clusters_to_update_) {
+            auto [it, inserted] = m_gp_map_.try_emplace(cluster_key, std::make_shared<GP>());
+            quadtree->KeyToCoord(cluster_key, cluster_depth, it->second->position.x(), it->second->position.y());
+            it->second->half_size = area_half_size;
+        }
         std::size_t batch_size = m_clusters_to_update_.size() / num_threads;
         std::size_t left_over = m_clusters_to_update_.size() - batch_size * num_threads;
         std::size_t start_idx = 0;
@@ -204,8 +209,13 @@ namespace erl::sdf_mapping {
             // get the GP of the cluster
             std::shared_ptr<GP> &gp = m_gp_map_.at(cluster_key);
             // testing thread may unlock the GP, but it is impossible to lock it here due to the mutex
-            if (gp->locked_for_test) { gp = std::make_shared<GP>(); }  // create a new GP if the old one is locked for testing
-            gp->active = true;                                         // activate the GP
+            if (gp->locked_for_test) {  // create a new GP if the old one is locked for testing
+                auto new_gp = std::make_shared<GP>();
+                new_gp->position = gp->position;
+                new_gp->half_size = gp->half_size;
+                gp = new_gp;
+            }
+            gp->active = true;  // activate the GP
             if (gp->gp == nullptr) { gp->gp = std::make_shared<LogSdfGaussianProcess>(m_setting_->gp_sdf); }
 
             // collect surface data in the area
@@ -219,20 +229,18 @@ namespace erl::sdf_mapping {
             auto end = quadtree->EndLeafInAabb();
             long count = 0;
             surface_data_vec.clear();
-            for (; it != end; ++it) {
+            for (; it != end; ++it) {  // iterate through all leaf nodes in the area
                 auto surface_data = it->GetSurfaceData();
-                if (surface_data == nullptr) { continue; }
+                if (surface_data == nullptr) { continue; }  // no surface data in the node
                 double dx = surface_data->position.x() - x;
                 double dy = surface_data->position.y() - y;
-                double distance = std::sqrt(dx * dx + dy * dy);
-                surface_data_vec.emplace_back(distance, surface_data);
+                surface_data_vec.emplace_back(dx * dx + dy * dy, surface_data);
                 count++;
             }
 
             if (count == 0) {
                 gp->active = false;  // deactivate the GP if there is no training data
                 gp->num_train_samples = 0;
-                gp->num_train_samples_with_grad = 0;
                 continue;
             }
 
@@ -242,40 +250,32 @@ namespace erl::sdf_mapping {
 
             // prepare data for GP training
             gp->gp->Reset(long(surface_data_vec.size()), 2);
-            auto &mat_x = gp->gp->GetTrainInputSamplesBuffer();
-            auto &vec_y = gp->gp->GetTrainOutputSamplesBuffer();
-            auto &vec_var_y = gp->gp->GetTrainOutputValueSamplesVarianceBuffer();
-            auto &vec_var_grad = gp->gp->GetTrainOutputGradientSamplesVarianceBuffer();
-            auto &vec_var_x = gp->gp->GetTrainInputSamplesVarianceBuffer();
-            auto &vec_grad_flag = gp->gp->GetTrainGradientFlagsBuffer();
-            Eigen::Matrix2Xd mat_valid_grad(2, count);
+            Eigen::MatrixXd &mat_x = gp->gp->GetTrainInputSamplesBuffer();
+            Eigen::VectorXd &vec_y = gp->gp->GetTrainOutputSamplesBuffer();
+            Eigen::MatrixXd &mat_grad = gp->gp->GetTrainOutputGradientSamplesBuffer();
+            Eigen::VectorXd &vec_var_x = gp->gp->GetTrainInputSamplesVarianceBuffer();
+            Eigen::VectorXd &vec_var_y = gp->gp->GetTrainOutputValueSamplesVarianceBuffer();
+            Eigen::VectorXd &vec_var_grad = gp->gp->GetTrainOutputGradientSamplesVarianceBuffer();
+            Eigen::VectorXb &vec_grad_flag = gp->gp->GetTrainGradientFlagsBuffer();
             count = 0;
-            long valid_grad_count = 0;
             for (auto &[distance, surface_data]: surface_data_vec) {
                 mat_x.col(count) = surface_data->position;
+                vec_y[count] = m_setting_->offset_distance;
                 vec_var_y[count] = sensor_noise;
                 vec_var_grad[count] = surface_data->var_normal;
                 if ((surface_data->var_normal > m_setting_->max_valid_gradient_var) ||  // invalid gradient
-                    ((std::fabs(surface_data->normal.x()) < m_setting_->zero_gradient_threshold) &&
-                     (std::fabs(surface_data->normal.y()) < m_setting_->zero_gradient_threshold))) {
-                    vec_var_x[count] = m_setting_->invalid_position_var;  // position is unreliable
-                    vec_grad_flag[count++] = false;
+                    (surface_data->normal.norm() < 0.9)) {                              // invalid normal
+                    vec_var_x[count] = m_setting_->invalid_position_var;                // position is unreliable
+                    vec_grad_flag[count] = false;
+                    mat_grad.col(count++).setZero();
                     continue;
                 }
                 vec_var_x[count] = surface_data->var_position;
-                vec_grad_flag[count++] = true;
-                mat_valid_grad.col(valid_grad_count++) = surface_data->normal;
+                vec_grad_flag[count] = true;
+                mat_grad.col(count++) = surface_data->normal;
                 if (count >= mat_x.cols()) { break; }  // reached max_num_samples
             }
-            vec_y.head(count).setConstant(m_setting_->offset_distance);
-            for (long j = 0; j < valid_grad_count; ++j) {
-                long j1 = j + count;
-                long j2 = j1 + valid_grad_count;
-                vec_y[j1] = mat_valid_grad(0, j);
-                vec_y[j2] = mat_valid_grad(1, j);
-            }
             gp->num_train_samples = count;
-            gp->num_train_samples_with_grad = valid_grad_count;
             if (m_setting_->train_gp_immediately) { gp->Train(); }
         }
     }
@@ -377,7 +377,7 @@ namespace erl::sdf_mapping {
         Eigen::Matrix3Xd covariance(3, kMaxTries);  // covariances of (fGrad1,f), (fGrad2,f), (fGrad2, fGrad1)
         Eigen::MatrixXd no_variance;
         Eigen::MatrixXd no_covariance;
-        std::vector<long> tested_idx;
+        std::vector<std::pair<long, long>> tested_idx;
         tested_idx.reserve(kMaxTries);
 
         for (unsigned int i = start_idx; i < end_idx; ++i) {
@@ -444,8 +444,8 @@ namespace erl::sdf_mapping {
                         var_sdf += weight[k] * vec_x_var[k];
 
                         Eigen::Vector2d v(kPosition.x() - mat_x(0, k), kPosition.y() - mat_x(1, k));
-                        v.normalize();                                       // warning: unchanged if v's norm is very small
-                        if (std::abs(v.norm() - 1.0) > 1.e-3) { continue; }  // invalid gradient, skip this sample
+                        v.normalize();                             // warning: unchanged if v's norm is very small
+                        if (v.squaredNorm() < 0.81) { continue; }  // invalid gradient, skip this sample
                         double angle_dist = std::atan2(
                             grad.x() * v.y() - grad.y() * v.x(),   // cross product
                             grad.x() * v.x() + grad.y() * v.y());  // dot product
@@ -469,7 +469,7 @@ namespace erl::sdf_mapping {
                     if (grad_norm < 1.e-15) { continue; }  // invalid gradient, skip this GP
                 }
 
-                tested_idx.push_back(cnt++);
+                tested_idx.emplace_back(cnt++, j);
                 if (m_setting_->test_query->use_nearest_only) { break; }
                 if ((!need_weighted_sum) && (idx.size() > 1) && (var[0] > m_setting_->test_query->max_test_valid_distance_var)) { need_weighted_sum = true; }
                 if ((!need_weighted_sum) || (cnt >= kMaxTries)) { break; }
@@ -478,19 +478,21 @@ namespace erl::sdf_mapping {
             // store the result
             if (need_weighted_sum) {
                 // sort the results by distance variance
-                std::stable_sort(tested_idx.begin(), tested_idx.end(), [&](long j_1, long j_2) -> bool { return variances(0, j_1) < variances(0, j_2); });
+                std::stable_sort(tested_idx.begin(), tested_idx.end(), [&](auto a, auto b) -> bool { return variances(0, a.first) < variances(0, b.first); });
 
-                if (variances(0, tested_idx[0]) < m_setting_->test_query->max_test_valid_distance_var) {
-                    auto j = tested_idx[0];
+                if (variances(0, tested_idx[0].first) < m_setting_->test_query->max_test_valid_distance_var) {
+                    auto j = tested_idx[0].first;
                     // column j is the result
                     distance_out = fs(0, j);
                     gradient_out << fs(1, j), fs(2, j);
                     variance_out << variances.col(j);
                     if (m_setting_->test_query->compute_covariance) { m_test_buffer_.covariances->col(i) = covariance.col(j); }
+                    m_query_used_gps_[i][0] = gps[tested_idx[0].second].second;
+                    m_query_used_gps_[i][1] = nullptr;
                 } else {
                     // pick the best two results to do weighted sum
-                    auto j_1 = tested_idx[0];
-                    auto j_2 = tested_idx[1];
+                    auto j_1 = tested_idx[0].first;
+                    auto j_2 = tested_idx[1].first;
                     auto w_1 = variances(0, j_1) - m_setting_->test_query->max_test_valid_distance_var;
                     auto w_2 = variances(0, j_2) - m_setting_->test_query->max_test_valid_distance_var;
                     double w_12 = w_1 + w_2;
@@ -509,6 +511,8 @@ namespace erl::sdf_mapping {
                             (covariance(2, j_1) * w_2 + covariance(2, j_2) * w_1) / w_12;
                     }
                     // clang-format on
+                    m_query_used_gps_[i][0] = gps[tested_idx[0].second].second;
+                    m_query_used_gps_[i][1] = gps[tested_idx[1].second].second;
                 }
             } else {
                 // the first column is the result
@@ -516,6 +520,8 @@ namespace erl::sdf_mapping {
                 gradient_out << fs(1, 0), fs(2, 0);
                 variance_out << variances.col(0);
                 if (m_setting_->test_query->compute_covariance) { m_test_buffer_.covariances->col(i) = covariance.col(0); }
+                m_query_used_gps_[i][0] = gps[tested_idx[0].second].second;
+                m_query_used_gps_[i][1] = nullptr;
             }
 
             distance_out -= m_setting_->offset_distance;

@@ -43,7 +43,7 @@ namespace erl::sdf_mapping {
         }
 
         void
-        Train(long num_train_samples, long num_train_samples_with_grad) override;
+        Train(long num_train_samples) override;
 
         void
         Test(
@@ -79,7 +79,7 @@ namespace YAML {
         inline static bool
         decode(const Node &node, erl::sdf_mapping::LogSdfGaussianProcess::Setting &setting) {
             if (!node.IsMap()) { return false; }
-            setting.kernel = node["kernel"].as<decltype(setting.kernel)>();
+            convert<erl::gaussian_process::NoisyInputGaussianProcess::Setting>::decode(node, setting);
             setting.log_lambda = node["log_lambda"].as<double>();
             setting.edf_threshold = node["edf_threshold"].as<double>();
             return true;

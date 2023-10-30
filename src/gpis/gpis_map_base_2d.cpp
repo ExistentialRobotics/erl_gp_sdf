@@ -112,13 +112,13 @@ namespace erl::sdf_mapping::gpis {
 
         grad_local.x() /= gradient_norm;
         grad_local.y() /= gradient_norm;
-        // grad_global << LocalToGlobalSo2(m_gp_theta_->m_train_buffer_.rotation, grad_local);
         grad_global << m_gp_theta_->LocalToGlobalSo2(grad_local);
 
         double var_distance = Clip(distance * distance, m_setting_->compute_variance->min_distance_var, m_setting_->compute_variance->max_distance_var);
         double cos_view_angle = -xy_local.dot(grad_local) / xy_local.norm();
         double cos2_view_angle = std::max(cos_view_angle * cos_view_angle, double(1.e-2));  // avoid zero division
-        double var_direction = (1. - cos2_view_angle) / cos2_view_angle;
+        double var_direction = (1. - cos2_view_angle) / cos2_view_angle;  // tan^2(theta), the bigger the angle, the bigger the variance
+        // FIXME: what if theta is out of [-pi/2, pi/2]?? That means this point is not visible from the sensor currently.
 
         if (new_point) {
             var_position = m_setting_->compute_variance->position_var_alpha * (var_distance + var_direction);
@@ -350,7 +350,7 @@ namespace erl::sdf_mapping::gpis {
             angle[0] = kTrainBuffer.vec_angles[i];
             m_gp_theta_->Test(angle, f, var, true);
 
-            if (var[0] > m_setting_->gp_theta->max_valid_distance_var) { continue; }  // uncertain point, drop it
+            if (var[0] > m_setting_->gp_theta->max_valid_range_var) { continue; }  // uncertain point, drop it
 
             // Insert the point to the tree
             auto node = std::make_shared<GpisNodeContainer2D::Node>(kTrainBuffer.mat_xy_global.col(i));
@@ -453,19 +453,20 @@ namespace erl::sdf_mapping::gpis {
             if (!nodes.empty()) {
                 // generate training data
                 num_nodes = long(nodes.size());
-                auto n = num_nodes;
+                long n = num_nodes;
                 if (m_setting_->update_gp_sdf->add_offset_points) { n *= 3; }
 
+                // TODO: use gp buffer instead of these variables
                 Eigen::Matrix2Xd mat_x(2, n);
                 Eigen::VectorXd vec_f(n);
-                Eigen::RMatrix2Xd vec_f_grad(2, n);
-                Eigen::VectorXd vec_sigma_x(n);     // this is var(x)
-                Eigen::VectorXd vec_sigma_y(n);     // this is var(y)
-                Eigen::VectorXd vec_sigma_grad(n);  // var(grad_f)
+                Eigen::Matrix2Xd mat_f_grad(2, n);
+                Eigen::VectorXd vec_var_x(n);     // this is var(x)
+                Eigen::VectorXd vec_var_y(n);     // this is var(y)
+                Eigen::VectorXd vec_var_grad(n);  // var(grad_f)
                 grad_flag.resize(n);
 
                 int point_cnt = 0;
-                int valid_grad_cnt = 0;
+                // int valid_grad_cnt = 0;
                 for (auto &node: nodes) {
                     auto node_data = node->GetData<GpisData2D>();
                     // auto node_data = node->getData<GpisData>();
@@ -473,54 +474,55 @@ namespace erl::sdf_mapping::gpis {
                     mat_x.col(point_cnt) = node_position;
 
                     vec_f[point_cnt] = node_data->distance;
-                    vec_sigma_y[point_cnt] = m_setting_->gp_theta->sensor_range_var;
-                    vec_sigma_grad[point_cnt] = node_data->var_gradient;
+                    vec_var_y[point_cnt] = m_setting_->gp_theta->sensor_range_var;
+                    vec_var_grad[point_cnt] = node_data->var_gradient;
 
                     if ((node_data->var_gradient > m_setting_->update_gp_sdf->max_valid_gradient_var) ||
                         ((std::fabs(node_data->gradient.x()) < m_setting_->update_gp_sdf->zero_gradient_threshold) &&
                          (std::fabs(node_data->gradient.y()) < m_setting_->update_gp_sdf->zero_gradient_threshold))) {
 
-                        vec_sigma_x[point_cnt] = m_setting_->update_gp_sdf->invalid_position_var;
-                        grad_flag[point_cnt++] = false;
+                        vec_var_x[point_cnt] = m_setting_->update_gp_sdf->invalid_position_var;
+                        grad_flag[point_cnt] = false;
+                        mat_f_grad.col(point_cnt++).setZero();
                         continue;
                     }
 
-                    vec_sigma_x[point_cnt] = node_data->var_position;
-                    grad_flag[point_cnt++] = true;
+                    vec_var_x[point_cnt] = node_data->var_position;
+                    // grad_flag[point_cnt++] = true;
+                    grad_flag[point_cnt] = true;
 
                     auto gradient = node_data->gradient;
-                    vec_f_grad.col(valid_grad_cnt) = gradient;
-                    valid_grad_cnt++;
+                    mat_f_grad.col(point_cnt++) = gradient;
+                    // mat_f_grad.col(valid_grad_cnt) = gradient;
+                    // valid_grad_cnt++;
 
                     if (m_setting_->update_gp_sdf->add_offset_points) {
                         mat_x.col(point_cnt) = node_position + m_setting_->update_gp_sdf->offset_distance * gradient;
                         vec_f[point_cnt] = node_data->distance + m_setting_->update_gp_sdf->offset_distance;
-                        vec_sigma_y[point_cnt] = m_setting_->gp_theta->sensor_range_var;
-                        vec_sigma_grad[point_cnt] = node_data->var_gradient;
-                        vec_sigma_x[point_cnt] = m_setting_->update_gp_sdf->invalid_position_var;
+                        vec_var_y[point_cnt] = m_setting_->gp_theta->sensor_range_var;
+                        vec_var_grad[point_cnt] = node_data->var_gradient;
+                        vec_var_x[point_cnt] = m_setting_->update_gp_sdf->invalid_position_var;
                         grad_flag[point_cnt++] = false;
 
                         mat_x.col(point_cnt) = node_position - m_setting_->update_gp_sdf->offset_distance * gradient;
                         vec_f[point_cnt] = node_data->distance - m_setting_->update_gp_sdf->offset_distance;
-                        vec_sigma_y[point_cnt] = m_setting_->gp_theta->sensor_range_var;
-                        vec_sigma_grad[point_cnt] = node_data->var_gradient;
-                        vec_sigma_x[point_cnt] = m_setting_->update_gp_sdf->invalid_position_var;
+                        vec_var_y[point_cnt] = m_setting_->gp_theta->sensor_range_var;
+                        vec_var_grad[point_cnt] = node_data->var_gradient;
+                        vec_var_x[point_cnt] = m_setting_->update_gp_sdf->invalid_position_var;
                         grad_flag[point_cnt++] = false;
                     }
                 }
                 mat_x.conservativeResize(2, point_cnt);
                 vec_f.conservativeResize(point_cnt);
-                vec_f_grad.conservativeResize(2, valid_grad_cnt);
-                vec_sigma_x.conservativeResize(point_cnt);
-                vec_sigma_y.conservativeResize(point_cnt);
-                vec_sigma_grad.conservativeResize(point_cnt);
+                // mat_f_grad.conservativeResize(2, valid_grad_cnt);
+                mat_f_grad.conservativeResize(2, point_cnt);
+                vec_var_x.conservativeResize(point_cnt);
+                vec_var_y.conservativeResize(point_cnt);
+                vec_var_grad.conservativeResize(point_cnt);
                 grad_flag.conservativeResize(point_cnt);
 
-                Eigen::VectorXd y(point_cnt + 2 * valid_grad_cnt);
-                y << vec_f, vec_f_grad.reshaped<Eigen::RowMajor>(2 * valid_grad_cnt, 1);
-
                 // Train a noisy input GP
-                cluster->SetData(TrainGpX(mat_x, grad_flag, y, vec_sigma_x, vec_sigma_y, vec_sigma_grad));
+                cluster->SetData(TrainGpX(mat_x, vec_f, mat_f_grad, grad_flag, vec_var_x, vec_var_y, vec_var_grad));
             }
         }
     }

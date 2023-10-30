@@ -33,9 +33,10 @@ namespace erl::sdf_mapping::gpis {
     private:
         inline std::shared_ptr<void>
         TrainGpX(
-            const Eigen::Ref<Eigen::MatrixXd> &mat_x_train,
-            const Eigen::Ref<Eigen::VectorXb> &vec_grad_flag,
-            const Eigen::Ref<const Eigen::VectorXd> &vec_y,
+            const Eigen::Ref<const Eigen::MatrixXd> &mat_x_train,
+            const Eigen::Ref<const Eigen::VectorXd> &vec_y_train,
+            const Eigen::Ref<const Eigen::MatrixXd> &mat_grad_train,
+            const Eigen::Ref<const Eigen::VectorXb> &vec_grad_flag,
             const Eigen::Ref<const Eigen::VectorXd> &vec_sigma_x,
             const Eigen::Ref<const Eigen::VectorXd> &vec_sigma_y,
             const Eigen::Ref<const Eigen::VectorXd> &vec_sigma_grad) final {
@@ -44,11 +45,12 @@ namespace erl::sdf_mapping::gpis {
             gp->Reset(mat_x_train.cols(), 2);
             gp->GetTrainInputSamplesBuffer() = mat_x_train;
             gp->GetTrainInputSamplesVarianceBuffer() = vec_sigma_x;
-            gp->GetTrainOutputSamplesBuffer() = vec_y;
+            gp->GetTrainOutputSamplesBuffer() = vec_y_train;
             gp->GetTrainOutputValueSamplesVarianceBuffer() = vec_sigma_y;
+            gp->GetTrainOutputGradientSamplesBuffer() = mat_grad_train;
             gp->GetTrainOutputGradientSamplesVarianceBuffer() = vec_sigma_grad;
             gp->GetTrainGradientFlagsBuffer() = vec_grad_flag;
-            gp->Train(mat_x_train.cols(), vec_grad_flag.cast<long>().sum());
+            gp->Train(mat_x_train.cols());
             return gp;
         }
 

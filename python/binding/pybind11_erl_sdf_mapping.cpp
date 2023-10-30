@@ -201,8 +201,9 @@ BindLogSdfGaussianProcess(py::module &m) {
             "train",
             [](T &self,
                const Eigen::Ref<const Eigen::MatrixXd> &mat_x_train,
+               const Eigen::Ref<const Eigen::VectorXd> &vec_y_train,
+               const Eigen::Ref<const Eigen::MatrixXd> &mat_grad_train,
                const Eigen::Ref<const Eigen::VectorXb> &vec_grad_flag,
-               const Eigen::Ref<const Eigen::VectorXd> &vec_y,
                const Eigen::Ref<const Eigen::VectorXd> &vec_var_x,
                const Eigen::Ref<const Eigen::VectorXd> &vec_var_y,
                const Eigen::Ref<const Eigen::VectorXd> &vec_var_grad) {
@@ -210,16 +211,18 @@ BindLogSdfGaussianProcess(py::module &m) {
                 long x_dim = mat_x_train.rows();
                 self.Reset(num_train_samples, x_dim);
                 self.GetTrainInputSamplesBuffer().topLeftCorner(x_dim, num_train_samples) = mat_x_train;
-                self.GetTrainGradientFlagsBuffer().head(num_train_samples) = vec_grad_flag;
-                self.GetTrainOutputValueSamplesVarianceBuffer().head(vec_y.size()) = vec_y;
                 self.GetTrainInputSamplesVarianceBuffer().head(num_train_samples) = vec_var_x;
+                self.GetTrainOutputValueSamplesVarianceBuffer().head(num_train_samples) = vec_y_train;
                 self.GetTrainOutputValueSamplesVarianceBuffer().head(num_train_samples) = vec_var_y;
+                self.GetTrainOutputGradientSamplesBuffer().topLeftCorner(2, num_train_samples) = mat_grad_train;
+                self.GetTrainGradientFlagsBuffer().head(num_train_samples) = vec_grad_flag;
                 self.GetTrainOutputGradientSamplesVarianceBuffer().head(num_train_samples) = vec_var_grad;
-                self.Train(num_train_samples, vec_grad_flag.head(num_train_samples).cast<long>().sum());
+                self.Train(num_train_samples);
             },
             py::arg("mat_x_train"),
+            py::arg("vec_y_train"),
+            py::arg("mat_grad_train"),
             py::arg("vec_grad_flag"),
-            py::arg("vec_y"),
             py::arg("vec_var_x"),
             py::arg("vec_var_y"),
             py::arg("vec_var_grad"))

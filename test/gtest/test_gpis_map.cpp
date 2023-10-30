@@ -267,10 +267,10 @@ TEST(ERL_SDF_MAPPING, GpisMap2D) {
 
         ss.str(std::string());
         ss << "cluster_gp[" << i << "]->m_gradflag_";
-        Eigen::VectorXb gradflag_ans = gp_ans->GetTrainGradientFlagsBuffer().head(gp_gt->m_gradflag_.size());
-        Eigen::VectorXb gradflag_gt(gp_gt->m_gradflag_.size());
-        for (long j = 0; j < gradflag_gt.size(); ++j) { gradflag_gt[j] = gp_gt->m_gradflag_[j] > double(0.5); }
-        ASSERT_EIGEN_VECTOR_EQUAL(ss.str(), gp_ans->GetTrainGradientFlagsBuffer(), gradflag_gt);
+        Eigen::VectorXb grad_flag_ans = gp_ans->GetTrainGradientFlagsBuffer().head(gp_gt->m_gradflag_.size());
+        Eigen::VectorXb grad_flag_gt(gp_gt->m_gradflag_.size());
+        for (long j = 0; j < grad_flag_gt.size(); ++j) { grad_flag_gt[j] = gp_gt->m_gradflag_[j] > double(0.5); }
+        ASSERT_EIGEN_VECTOR_EQUAL(ss.str(), grad_flag_ans, grad_flag_gt);
 
         ASSERT_EQ(gp_ans->GetSetting()->kernel->scale, gp_gt->m_param_.scale) << "cluster_gp[" << i << "]->m_param_.scale";
         ss.str(std::string());
@@ -292,12 +292,33 @@ TEST(ERL_SDF_MAPPING, GpisMap2D) {
 #endif
 
         ss.str(std::string());
-        ss << "cluster_gp[" << i << "]->m_alpha_";
-        Eigen::VectorXd alpha = gp_ans->GetTrainOutputSamplesBuffer().head(gp_gt->m_alpha_.size());
+        ss << "cluster_gp[" << i << "]->m_y_ (sdf)";
+        Eigen::VectorXd y_ans = gp_ans->GetTrainOutputSamplesBuffer().head(mat_x.cols());
+        Eigen::VectorXd y_gt = gp_gt->m_y_.head(y_ans.size());
+        ASSERT_EIGEN_VECTOR_EQUAL(ss.str(), y_ans, y_gt);
+
+        ss.str(std::string());
+        ss << "cluster_gp[" << i << "]->m_y_ (gradient)";
+        long num_valid_grad = gp_ans->GetNumTrainSamplesWithGrad();
+        Eigen::Matrix2Xd grad_ans(2, num_valid_grad);
+        for (long j = 0, k = 0; j < mat_x.cols(); ++j) {
+            if (!grad_flag_ans[j]) { continue; }
+            grad_ans.col(k++) = gp_ans->GetTrainOutputGradientSamplesBuffer().col(j);
+        }
+        Eigen::Matrix2Xd grad_gt = gp_gt->m_y_.tail(2 * num_valid_grad).reshaped(num_valid_grad, 2).transpose();
 #ifdef NDEBUG
-        ASSERT_EIGEN_VECTOR_NEAR(ss.str(), alpha, gp_gt->m_alpha_, 1.e-10);
+        ASSERT_EIGEN_MATRIX_NEAR(ss.str(), grad_ans, grad_gt, 1.e-10);
 #else
-        ASSERT_EIGEN_VECTOR_EQUAL(ss.str(), alpha, gp_gt->m_alpha_);
+        ASSERT_EIGEN_MATRIX_EQUAL(ss.str(), grad_ans, grad_gt);
+#endif
+
+        ss.str(std::string());
+        ss << "cluster_gp[" << i << "]->m_alpha_";
+        Eigen::VectorXd alpha_ans = gp_ans->GetAlpha().head(gp_gt->m_alpha_.size());
+#ifdef NDEBUG
+        ASSERT_EIGEN_VECTOR_NEAR(ss.str(), alpha_ans, gp_gt->m_alpha_, 1.e-10);
+#else
+        ASSERT_EIGEN_VECTOR_EQUAL(ss.str(), alpha_ans, gp_gt->m_alpha_);
 #endif
         i++;
     }

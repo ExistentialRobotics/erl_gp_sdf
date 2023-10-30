@@ -182,9 +182,10 @@ namespace erl::sdf_mapping::gpis {
 
         virtual std::shared_ptr<void>
         TrainGpX(
-            const Eigen::Ref<Eigen::MatrixXd> &mat_x,
-            const Eigen::Ref<Eigen::VectorXb> &vec_grad_flag,
-            const Eigen::Ref<const Eigen::VectorXd> &vec_y,
+            const Eigen::Ref<const Eigen::MatrixXd> &mat_x_train,
+            const Eigen::Ref<const Eigen::VectorXd> &vec_y_train,
+            const Eigen::Ref<const Eigen::MatrixXd> &mat_grad_train,
+            const Eigen::Ref<const Eigen::VectorXb> &vec_grad_flag,
             const Eigen::Ref<const Eigen::VectorXd> &vec_sigma_x,
             const Eigen::Ref<const Eigen::VectorXd> &vec_sigma_y,
             const Eigen::Ref<const Eigen::VectorXd> &vec_sigma_grad) = 0;

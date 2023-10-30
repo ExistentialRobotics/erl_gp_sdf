@@ -19,22 +19,25 @@ namespace erl::sdf_mapping::gpis {
     private:
         inline std::shared_ptr<void>
         TrainGpX(
-            const Eigen::Ref<Eigen::MatrixXd> &mat_x_train,
-            const Eigen::Ref<Eigen::VectorXb> &vec_grad_flag,
+            const Eigen::Ref<const Eigen::MatrixXd> &mat_x_train,
             const Eigen::Ref<const Eigen::VectorXd> &vec_y,
-            const Eigen::Ref<const Eigen::VectorXd> &vec_sigma_x,
-            const Eigen::Ref<const Eigen::VectorXd> &vec_sigma_y,
-            const Eigen::Ref<const Eigen::VectorXd> &vec_sigma_grad) final {
+            const Eigen::Ref<const Eigen::MatrixXd> &mat_grad_train,
+            const Eigen::Ref<const Eigen::VectorXb> &vec_grad_flag,
+            const Eigen::Ref<const Eigen::VectorXd> &vec_var_x,
+            const Eigen::Ref<const Eigen::VectorXd> &vec_var_y,
+            const Eigen::Ref<const Eigen::VectorXd> &vec_var_grad) final {
 
             auto gp = std::make_shared<gaussian_process::NoisyInputGaussianProcess>(m_setting_->gp_sdf);
-            gp->Reset(mat_x_train.cols(), 2);
-            gp->GetTrainInputSamplesBuffer() = mat_x_train;
-            gp->GetTrainGradientFlagsBuffer() = vec_grad_flag;
-            gp->GetTrainOutputSamplesBuffer() = vec_y;
-            gp->GetTrainInputSamplesVarianceBuffer() = vec_sigma_x;
-            gp->GetTrainOutputValueSamplesVarianceBuffer() = vec_sigma_y;
-            gp->GetTrainOutputGradientSamplesVarianceBuffer() = vec_sigma_grad;
-            gp->Train(mat_x_train.cols(), vec_grad_flag.cast<long>().sum());
+            long num_train_samples = mat_x_train.cols();
+            gp->Reset(num_train_samples, 2);
+            gp->GetTrainInputSamplesBuffer().topLeftCorner(2, num_train_samples) = mat_x_train;
+            gp->GetTrainInputSamplesVarianceBuffer().head(num_train_samples) = vec_var_x;
+            gp->GetTrainOutputSamplesBuffer().head(num_train_samples) = vec_y;
+            gp->GetTrainOutputValueSamplesVarianceBuffer().head(num_train_samples) = vec_var_y;
+            gp->GetTrainOutputGradientSamplesBuffer().topLeftCorner(2, num_train_samples) = mat_grad_train;
+            gp->GetTrainGradientFlagsBuffer().head(num_train_samples) = vec_grad_flag;
+            gp->GetTrainOutputGradientSamplesVarianceBuffer().head(num_train_samples) = vec_var_grad;
+            gp->Train(mat_x_train.cols());
             return gp;
         }
 

@@ -37,12 +37,13 @@ namespace erl::sdf_mapping {
             bool active = false;
             std::atomic_bool locked_for_test = false;
             long num_train_samples = 0;
-            long num_train_samples_with_grad = 0;
+            Eigen::Vector2d position;
+            double half_size = 0;
             std::shared_ptr<LogSdfGaussianProcess> gp = {};
 
             inline void
             Train() {
-                gp->Train(num_train_samples, num_train_samples_with_grad);
+                gp->Train(num_train_samples);
             }
         };
 
@@ -51,13 +52,14 @@ namespace erl::sdf_mapping {
     private:
         std::shared_ptr<Setting> m_setting_ = std::make_shared<Setting>();
         std::mutex m_mutex_;
-        std::shared_ptr<AbstractSurfaceMapping2D> m_surface_mapping_ = nullptr;                 // for getting surface points, racing condition.
-        std::vector<geometry::QuadtreeKey> m_clusters_to_update_ = {};                          // stores clusters that are to be updated by UpdateGpThread().
-        QuadtreeKeyGpMap m_gp_map_ = {};                                                        // for getting GP from Quadtree key, racing condition.
-        std::vector<std::vector<std::pair<double, std::shared_ptr<GP>>>> m_query_to_gps_ = {};  // for testing, racing condition
-        std::queue<std::shared_ptr<GP>> m_new_gps_ = {};                                        // caching new GPs to be moved into m_gps_to_train_
-        std::vector<std::shared_ptr<GP>> m_gps_to_train_ = {};                                  // for training SDF GPs, racing condition in Update() and Test()
-        double m_train_gp_time_ = 10;                                                           // us
+        std::shared_ptr<AbstractSurfaceMapping2D> m_surface_mapping_ = nullptr;                     // for getting surface points, racing condition.
+        std::vector<geometry::QuadtreeKey> m_clusters_to_update_ = {};                              // stores clusters that are to be updated by UpdateGpThread.
+        QuadtreeKeyGpMap m_gp_map_ = {};                                                            // for getting GP from Quadtree key, racing condition.
+        std::vector<std::vector<std::pair<double, std::shared_ptr<GP>>>> m_query_to_gps_ = {};      // for testing, racing condition
+        std::vector<std::array<std::shared_ptr<GP>, 2>> m_query_used_gps_ = {};  // for testing, racing condition
+        std::queue<std::shared_ptr<GP>> m_new_gps_ = {};                                            // caching new GPs to be moved into m_gps_to_train_
+        std::vector<std::shared_ptr<GP>> m_gps_to_train_ = {};  // for training SDF GPs, racing condition in Update() and Test()
+        double m_train_gp_time_ = 10;                           // us
 
         // for testing
         struct TestBuffer {
@@ -169,6 +171,11 @@ namespace erl::sdf_mapping {
             Eigen::Matrix2Xd& gradients_out,
             Eigen::Matrix3Xd& variances_out,
             Eigen::Matrix3Xd& covariances_out);
+
+        inline const std::vector<std::array<std::shared_ptr<GP>, 2>>&
+        GetUsedGps() const {
+            return m_query_used_gps_;
+        }
 
     private:
         void
