@@ -22,12 +22,11 @@ namespace erl::sdf_mapping {
             };
 
             unsigned int num_threads = 64;
-            double update_hz = 20;                   // frequency that Update() is called.
-            double gp_sdf_area_scale = 4;            // ratio between GP area and Quadtree cluster area
-            double offset_distance = 0.0;            // offset distance for surface points
-            double zero_gradient_threshold = 1.e-6;  // gradient below this threshold is considered zero.
-            double max_valid_gradient_var = 0.1;     // maximum gradient variance qualified for training.
-            double invalid_position_var = 2.;        // position variance of points whose gradient is labeled invalid, i.e. > max_valid_gradient_var.
+            double update_hz = 20;                // frequency that Update() is called.
+            double gp_sdf_area_scale = 4;         // ratio between GP area and Quadtree cluster area
+            double offset_distance = 0.0;         // offset distance for surface points
+            double max_valid_gradient_var = 0.1;  // maximum gradient variance qualified for training.
+            double invalid_position_var = 2.;     // position variance of points whose gradient is labeled invalid, i.e. > max_valid_gradient_var.
             bool train_gp_immediately = false;
             std::shared_ptr<LogSdfGaussianProcess::Setting> gp_sdf = std::make_shared<LogSdfGaussianProcess::Setting>();
             std::shared_ptr<TestQuery> test_query = std::make_shared<TestQuery>();  // parameters used by Test.
@@ -57,7 +56,7 @@ namespace erl::sdf_mapping {
         QuadtreeKeyGpMap m_gp_map_ = {};                                                            // for getting GP from Quadtree key, racing condition.
         std::vector<std::vector<std::pair<double, std::shared_ptr<GP>>>> m_query_to_gps_ = {};      // for testing, racing condition
         std::vector<std::array<std::shared_ptr<GP>, 2>> m_query_used_gps_ = {};  // for testing, racing condition
-        std::queue<std::shared_ptr<GP>> m_new_gps_ = {};                                            // caching new GPs to be moved into m_gps_to_train_
+        std::list<std::shared_ptr<GP>> m_new_gps_ = {};                                            // caching new GPs to be moved into m_gps_to_train_
         std::vector<std::shared_ptr<GP>> m_gps_to_train_ = {};  // for training SDF GPs, racing condition in Update() and Test()
         double m_train_gp_time_ = 10;                           // us
 
@@ -252,7 +251,6 @@ namespace YAML {
             node["update_hz"] = setting.update_hz;
             node["gp_sdf_area_scale"] = setting.gp_sdf_area_scale;
             node["offset_distance"] = setting.offset_distance;
-            node["zero_gradient_threshold"] = setting.zero_gradient_threshold;
             node["max_valid_gradient_var"] = setting.max_valid_gradient_var;
             node["invalid_position_var"] = setting.invalid_position_var;
             node["train_gp_immediately"] = setting.train_gp_immediately;
@@ -268,7 +266,6 @@ namespace YAML {
             setting.update_hz = node["update_hz"].as<double>();
             setting.gp_sdf_area_scale = node["gp_sdf_area_scale"].as<double>();
             setting.offset_distance = node["offset_distance"].as<double>();
-            setting.zero_gradient_threshold = node["zero_gradient_threshold"].as<double>();
             setting.max_valid_gradient_var = node["max_valid_gradient_var"].as<double>();
             setting.invalid_position_var = node["invalid_position_var"].as<double>();
             setting.train_gp_immediately = node["train_gp_immediately"].as<bool>();
@@ -285,7 +282,6 @@ namespace YAML {
         out << Key << "update_hz" << Value << setting.update_hz;
         out << Key << "gp_sdf_area_scale" << Value << setting.gp_sdf_area_scale;
         out << Key << "offset_distance" << Value << setting.offset_distance;
-        out << Key << "zero_gradient_threshold" << Value << setting.zero_gradient_threshold;
         out << Key << "max_valid_gradient_var" << Value << setting.max_valid_gradient_var;
         out << Key << "invalid_position_var" << Value << setting.invalid_position_var;
         out << Key << "train_gp_immediately" << Value << setting.train_gp_immediately;

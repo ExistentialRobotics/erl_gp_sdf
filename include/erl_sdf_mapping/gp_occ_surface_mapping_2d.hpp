@@ -30,6 +30,8 @@ namespace erl::sdf_mapping {
                 int max_adjust_tries = 10;
                 double max_bayes_position_var = 1.;   // if the position variance by Bayes Update is above this threshold, it will be discarded.
                 double max_bayes_gradient_var = 0.6;  // if the gradient variance by Bayes Update is above this threshold, it will be discarded.
+//                double min_position_var = 0.001;      // minimum position variance.
+//                double min_gradient_var = 0.001;      // minimum gradient variance.
             };
 
             std::shared_ptr<gaussian_process::LidarGaussianProcess1D::Setting> gp_theta = std::make_shared<gaussian_process::LidarGaussianProcess1D::Setting>();
@@ -39,6 +41,7 @@ namespace erl::sdf_mapping {
             // double quadtree_resolution = 0.05;                                                                                // resolution of quadtree.
             unsigned int cluster_level = 2;  // 2^2 times of the quadtree resolution.
             double perturb_delta = 0.01;
+            double zero_gradient_threshold = 1.e-15;  // gradient below this threshold is considered zero.
             bool update_occupancy = true;
         };
 
@@ -115,18 +118,51 @@ namespace erl::sdf_mapping {
         bool
         ComputeGradient2(const Eigen::Ref<const Eigen::Vector2d> &xy_local, Eigen::Ref<Eigen::Vector2d> gradient, double &occ_mean);
 
-        bool
+        void
         ComputeVariance(
             const Eigen::Ref<const Eigen::Vector2d> &xy_local,
+            const Eigen::Ref<const Eigen::Vector2d> &grad_local,
             const double &distance,
             const double &distance_var,
             const double &occ_mean_abs,
             const double &occ_abs,
             bool new_point,
-            Eigen::Ref<Eigen::Vector2d> grad_local,
-            Eigen::Ref<Eigen::Vector2d> grad_global,
             double &var_position,
             double &var_gradient) const;
+
+        inline bool
+        IsValidRangeEstimation(double range, double range_variance) const {
+            return range >= m_setting_->gp_theta->train_buffer->valid_range_min && range <= m_setting_->gp_theta->train_buffer->valid_range_max &&
+                   range_variance < m_setting_->gp_theta->max_valid_range_var;
+        }
+
+        // inline void
+        // ComputeSensorNoiseModel(
+        //     const Eigen::Ref<const Eigen::Vector2d> &sensor_position,
+        //     const Eigen::Ref<const Eigen::Vector2d> &position,
+        //     const Eigen::Ref<const Eigen::Vector2d> &normal,
+        //     double predicted_range,
+        //     double predicted_range_variance,
+        //     const Eigen::Ref<const Eigen::Vector2d> &predicted_normal,
+        //     double predicted_normal_variance,
+        //     double &var_position,
+        //     double &var_normal) {
+        //
+        //     Eigen::Vector2d view_dir_inv = sensor_position - position;
+        //     double r0 = view_dir_inv.norm();
+        //     double dr = predicted_range - r0;
+        //     double cos_phi = normal.dot(predicted_normal);
+        //     double cos2_phi = cos_phi * cos_phi;
+        //     double tan2_phi = (1 - cos2_phi) / cos2_phi;
+        //
+        //     double alpha = 10.;
+        //     double beta = 1;
+        //     double gamma = 1.;
+        //     double eta = 1.;
+        //
+        //     var_position = alpha * dr * dr + beta * predicted_range_variance;
+        //     var_normal = gamma * tan2_phi + eta * predicted_normal_variance;
+        // }
     };
 
 }  // namespace erl::sdf_mapping
@@ -232,6 +268,7 @@ namespace YAML {
             // node["quadtree_resolution"] = setting.quadtree_resolution;
             node["cluster_level"] = setting.cluster_level;
             node["perturb_delta"] = setting.perturb_delta;
+            node["zero_gradient_threshold"] = setting.zero_gradient_threshold;
             node["update_occupancy"] = setting.update_occupancy;
             return node;
         }
@@ -246,6 +283,7 @@ namespace YAML {
             // setting.quadtree_resolution = node["quadtree_resolution"].as<double>();
             setting.cluster_level = node["cluster_level"].as<unsigned int>();
             setting.perturb_delta = node["perturb_delta"].as<double>();
+            setting.zero_gradient_threshold = node["zero_gradient_threshold"].as<double>();
             setting.update_occupancy = node["update_occupancy"].as<bool>();
             return true;
         }
@@ -261,6 +299,7 @@ namespace YAML {
         // out << Key << "quadtree_resolution" << Value << setting.quadtree_resolution;
         out << Key << "cluster_level" << Value << setting.cluster_level;
         out << Key << "perturb_delta" << Value << setting.perturb_delta;
+        out << Key << "zero_gradient_threshold" << Value << setting.zero_gradient_threshold;
         out << Key << "update_occupancy" << Value << setting.update_occupancy;
         out << EndMap;
         return out;

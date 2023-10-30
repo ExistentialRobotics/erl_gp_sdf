@@ -329,13 +329,13 @@ TEST(ERL_SDF_MAPPING, GpSdfMapping2D) {
             cv::circle(circle_layer, position_px, radius, cv::Scalar(0, 255, 0, 25), cv::FILLED);
             cv::add(img * 0.5, circle_layer * 0.5, img, circle_mask);
             glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
-            pangolin_log->Log(float(std::abs(distance[0])));
-            // pangolin_log->Log(float(distance[0]), float(std::abs(distance[0])), float(variances(0, 0)), float(variances(1, 0)), float(variances(2, 0)));
+//            pangolin_log->Log(float(std::abs(distance[0])));
+             pangolin_log->Log(float(distance[0]), float(std::abs(distance[0])), float(variances(0, 0)), float(variances(1, 0)), float(variances(2, 0)));
 
             // draw used surface points
             auto &[gp1, gp2] = sdf_mapping.GetUsedGps()[0];
-            DrawGp(img, gp1, grid_map_info, {0, 255, 125, 255}, {125, 255, 0, 255}, {125, 0, 255, 255});
-            DrawGp(img, gp2, grid_map_info, {125, 255, 125, 255}, {125, 255, 125, 255}, {125, 125, 255, 255});
+            DrawGp(img, gp1, grid_map_info, {0, 125, 255, 255}, {125, 255, 0, 255}, {125, 0, 255, 255});
+            DrawGp(img, gp2, grid_map_info, {125, 125, 255, 255}, {125, 255, 125, 255}, {125, 125, 255, 255});
             ERL_INFO("GP1 at [%f, %f] has %ld data points.", gp1->position.x(), gp1->position.y(), gp1->gp->GetNumTrainSamples());
             if (gp2 != nullptr) { ERL_INFO("GP2 has %ld data points.", gp2->gp->GetNumTrainSamples()); }
 

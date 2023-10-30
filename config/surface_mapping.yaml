@@ -1,5 +1,5 @@
 gp_theta:
-  group_size: 26
+  group_size: 36  # number of points in each group, including the overlap ones
   overlap_size: 6
   boundary_margin: 0.017500000000000002
   init_variance: 1000000
@@ -7,7 +7,7 @@ gp_theta:
   max_valid_range_var: 0.1  # drop the point if its distance variance is larger than this
   occ_test_temperature: 30
   train_buffer:
-    valid_range_min: 0.2
+    valid_range_min: 0.5
     valid_range_max: 30
     valid_angle_min: -3.141592653 # -2.3561944901923448
     valid_angle_max: 3.141592653  # 2.3561944901923448
@@ -57,4 +57,5 @@ quadtree:
       - 0
 cluster_level: 5
 perturb_delta: 0.005  # this makes the SDF prediction more smooth over time
+zero_gradient_threshold: 1.0e-10
 update_occupancy: true

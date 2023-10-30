@@ -165,7 +165,7 @@ namespace erl::sdf_mapping {
         for (auto &cluster_key: m_clusters_to_update_) {
             auto it = m_gp_map_.find(cluster_key);
             if (it == m_gp_map_.end() || !it->second->active) { continue; }  // GP does not exist or deactivated (e.g. due to no training data)
-            if (it->second->gp != nullptr && !it->second->gp->IsTrained()) { m_new_gps_.push(it->second); }
+            if (it->second->gp != nullptr && !it->second->gp->IsTrained()) { m_new_gps_.push_front(it->second); }
         }
         auto t1 = std::chrono::high_resolution_clock::now();
         auto dt = double(std::chrono::duration<double, std::micro>(t1 - t0).count());
@@ -184,7 +184,7 @@ namespace erl::sdf_mapping {
         while (!m_new_gps_.empty() && gps_to_train.size() < max_num_gps_to_train) {
             auto maybe_new_gp = m_new_gps_.front();
             if (maybe_new_gp->active && maybe_new_gp->gp != nullptr && !maybe_new_gp->gp->IsTrained()) { gps_to_train.insert(maybe_new_gp); }
-            m_new_gps_.pop();
+            m_new_gps_.pop_front();
         }
         m_gps_to_train_.clear();
         m_gps_to_train_.insert(m_gps_to_train_.end(), gps_to_train.begin(), gps_to_train.end());
@@ -475,10 +475,16 @@ namespace erl::sdf_mapping {
                 if ((!need_weighted_sum) || (cnt >= kMaxTries)) { break; }
             }
 
+            // sort the results by distance variance
+            if (tested_idx.size() > 1 && need_weighted_sum) {
+                std::stable_sort(tested_idx.begin(), tested_idx.end(), [&](auto a, auto b) -> bool { return variances(0, a.first) < variances(0, b.first); });
+                // the first two results have different signs, pick the one with smaller variance
+                if (fs(0, tested_idx[0].first) * fs(0, tested_idx[1].first) < 0) { need_weighted_sum = false; }
+            }
+
             // store the result
             if (need_weighted_sum) {
-                // sort the results by distance variance
-                std::stable_sort(tested_idx.begin(), tested_idx.end(), [&](auto a, auto b) -> bool { return variances(0, a.first) < variances(0, b.first); });
+                ERL_INFO("SDF1: %f, SDF2: %f", fs(0, tested_idx[0].first), fs(0, tested_idx[1].first));
 
                 if (variances(0, tested_idx[0].first) < m_setting_->test_query->max_test_valid_distance_var) {
                     auto j = tested_idx[0].first;
@@ -491,10 +497,10 @@ namespace erl::sdf_mapping {
                     m_query_used_gps_[i][1] = nullptr;
                 } else {
                     // pick the best two results to do weighted sum
-                    auto j_1 = tested_idx[0].first;
-                    auto j_2 = tested_idx[1].first;
-                    auto w_1 = variances(0, j_1) - m_setting_->test_query->max_test_valid_distance_var;
-                    auto w_2 = variances(0, j_2) - m_setting_->test_query->max_test_valid_distance_var;
+                    long j_1 = tested_idx[0].first;
+                    long j_2 = tested_idx[1].first;
+                    double w_1 = variances(0, j_1) - m_setting_->test_query->max_test_valid_distance_var;
+                    double w_2 = variances(0, j_2) - m_setting_->test_query->max_test_valid_distance_var;
                     double w_12 = w_1 + w_2;
                     // clang-format off
                     distance_out = (fs(0, j_1) * w_2 + fs(0, j_2) * w_1) / w_12;
@@ -515,6 +521,8 @@ namespace erl::sdf_mapping {
                     m_query_used_gps_[i][1] = gps[tested_idx[1].second].second;
                 }
             } else {
+                ERL_INFO("SDF1: %f", fs(0, tested_idx[0].first));
+
                 // the first column is the result
                 distance_out = fs(0, 0);
                 gradient_out << fs(1, 0), fs(2, 0);

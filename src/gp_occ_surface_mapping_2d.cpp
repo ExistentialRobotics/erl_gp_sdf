@@ -67,66 +67,72 @@ namespace erl::sdf_mapping {
 
         auto it = m_quadtree_->BeginLeafInAabb(min_corner.x(), min_corner.y(), max_corner.x(), max_corner.y());
         auto end = m_quadtree_->EndLeafInAabb();
-        double sensor_x = kTrainBuffer.position.x();
-        double sensor_y = kTrainBuffer.position.y();
+        const Eigen::Vector2d &kSensorPosition = kTrainBuffer.position;
         double cluster_half_size = m_setting_->quadtree->resolution * std::pow(2, m_setting_->cluster_level - 1);
         double squared_dist_max = kTrainBuffer.max_distance * kTrainBuffer.max_distance + cluster_half_size * cluster_half_size * 2;
         for (; it != end; ++it) {
-            double cluster_x, cluster_y;
-            m_quadtree_->KeyToCoord(it.GetKey(), m_quadtree_->GetTreeDepth() - m_setting_->cluster_level, cluster_x, cluster_y);
-            double squared_dist = (sensor_x - cluster_x) * (sensor_x - cluster_x) + (sensor_y - cluster_y) * (sensor_y - cluster_y);
+            Eigen::Vector2d cluster_position;
+            m_quadtree_->KeyToCoord(it.GetKey(), m_quadtree_->GetTreeDepth() - m_setting_->cluster_level, cluster_position.x(), cluster_position.y());
+            double squared_dist = (cluster_position - kSensorPosition).squaredNorm();
             if (squared_dist > squared_dist_max) { continue; }  // out of range
 
             std::shared_ptr<SurfaceMappingQuadtreeNode::SurfaceData> surface_data = it->GetSurfaceData();
             if (surface_data == nullptr) { continue; }  // no surface data
 
-            double distance_old, occ, occ_abs;
-            Eigen::Scalard angle, distance_pred, var;
             Eigen::Vector2d &xy_global_old = surface_data->position;
+            if ((kSensorPosition - xy_global_old).dot(surface_data->normal) < 0.) { continue; }  // no visible by the sensor
+
+            double distance_old;
+            Eigen::Scalard angle;
             Eigen::Vector2d xy_local_old = m_gp_theta_->GlobalToLocalSe2(xy_global_old);
             Cartesian2Polar(xy_local_old, distance_old, angle[0]);
-            if (angle[0] < m_setting_->gp_theta->train_buffer->valid_angle_min || angle[0] > m_setting_->gp_theta->train_buffer->valid_angle_max) { continue; }
-            if (!m_gp_theta_->ComputeOcc(angle, distance_old, distance_pred, var, occ)) { continue; }
+            if (angle[0] < m_setting_->gp_theta->train_buffer->valid_angle_min ||      // out of range
+                angle[0] > m_setting_->gp_theta->train_buffer->valid_angle_max ||      // out of range
+                distance_old < m_setting_->gp_theta->train_buffer->valid_range_min ||  // out of range
+                distance_old > m_setting_->gp_theta->train_buffer->valid_range_max) {
+                continue;
+            }
+
+            double occ;
+            Eigen::Scalard distance_pred, distance_pred_var;
+            if (!m_gp_theta_->ComputeOcc(angle, distance_old, distance_pred, distance_pred_var, occ)) { continue; }
             if (occ < m_setting_->update_map_points->min_observable_occ) { continue; }
-            Eigen::Vector2d grad_local_old = m_gp_theta_->GlobalToLocalSo2(surface_data->normal);
+
+            Eigen::Vector2d &grad_global_old = surface_data->normal;
+            Eigen::Vector2d grad_local_old = m_gp_theta_->GlobalToLocalSo2(grad_global_old);
 
             // compute a new position for the point
-            occ_abs = std::fabs(occ);
             double delta = m_setting_->perturb_delta;
             Eigen::Vector2d xy_local_new = xy_local_old;
-            double distance_new = distance_old;
-            if (occ_abs > m_setting_->update_map_points->max_surface_abs_occ) {  // we need to adjust the point to make it closer to the surface.
-                for (int i = 0; i < m_setting_->update_map_points->max_adjust_tries; ++i) {
-                    // move one step
-                    // the direction is determined by the occupancy sign, the step GetSize is heuristically determined according to iteration.
-                    if (occ < 0.) {
-                        // point is inside the obstacle
-                        xy_local_new += grad_local_old * delta;
-                    } else if (occ > 0.) {
-                        // point is outside the obstacle
-                        xy_local_new -= grad_local_old * delta;
-                    }
-
-                    // test the new point
-                    double occ_new;
-                    Cartesian2Polar(xy_local_new, distance_new, angle[0]);
-                    if (m_gp_theta_->ComputeOcc(angle, distance_new, distance_pred, var, occ_new)) {
-                        auto occ_abs_new = std::fabs(occ_new);
-                        if (occ_abs_new < m_setting_->update_map_points->max_surface_abs_occ) {
-                            occ_abs = occ_abs_new;
-                            break;
-                        } else if (occ * occ_new < 0.) {
-                            delta *= double(0.5);  // too big, make it smaller
-                        } else {
-                            delta *= 1.1;
-                        }
-
-                        occ_abs = occ_abs_new;
-                        occ = occ_new;
-                    } else {
-                        break;  // fail to estimate occ
-                    }
+            int num_adjust_tries = 0;
+            while (num_adjust_tries < m_setting_->update_map_points->max_adjust_tries) {
+                // move one step
+                // the direction is determined by the occupancy sign, the step GetSize is heuristically determined according to iteration.
+                if (occ < 0.) {
+                    // point is inside the obstacle
+                    xy_local_new += grad_local_old * delta;
+                } else if (occ > 0.) {
+                    // point is outside the obstacle
+                    xy_local_new -= grad_local_old * delta;
                 }
+
+                // test the new point
+                double occ_new;
+                Cartesian2Polar(xy_local_new, distance_pred[0], angle[0]);
+                if (m_gp_theta_->ComputeOcc(angle, distance_pred[0], distance_pred, distance_pred_var, occ_new)) {
+                    auto occ_abs_new = std::fabs(occ_new);
+                    if (occ_abs_new < m_setting_->update_map_points->max_surface_abs_occ) {
+                        break;
+                    } else if (occ * occ_new < 0.) {
+                        delta *= 0.5;  // too big, make it smaller
+                    } else {
+                        delta *= 1.1;
+                    }
+                    occ = occ_new;
+                } else {
+                    break;  // fail to estimate occ
+                }
+                ++num_adjust_tries;
             }
 
             // compute new gradient and uncertainty
@@ -134,35 +140,39 @@ namespace erl::sdf_mapping {
             Eigen::Vector2d grad_local_new;
             if (!ComputeGradient1(xy_local_new, grad_local_new, occ_mean, var_distance)) { continue; }
 
-            Eigen::Vector2d grad_global_new;
+            Eigen::Vector2d grad_global_new = m_gp_theta_->LocalToGlobalSo2(grad_local_new);
             double var_position_new, var_gradient_new;
-            if (!ComputeVariance(
-                    xy_local_new,
-                    distance_new,
-                    var_distance,
-                    std::fabs(occ_mean),
-                    occ_abs,
-                    false,
-                    grad_local_new,
-                    grad_global_new,
-                    var_position_new,
-                    var_gradient_new)) {
-                surface_data->var_position *= 2.;
-                surface_data->var_normal *= 2.;
-                continue;
-            }
+            ComputeVariance(
+                xy_local_new,
+                grad_local_new,
+                distance_pred[0],
+                var_distance,
+                std::fabs(occ_mean),
+                std::fabs(occ),
+                false,
+                var_position_new,
+                var_gradient_new);
+            // ComputeSensorNoiseModel(
+            //     kTrainBuffer.position,
+            //     xy_global_old,
+            //     grad_global_old,
+            //     distance_pred[0],
+            //     distance_pred_var[0],
+            //     grad_global_new,
+            //     std::fabs(occ_mean),
+            //     var_position_new,
+            //     var_gradient_new);
 
             Eigen::Vector2d xy_global_new = m_gp_theta_->LocalToGlobalSe2(xy_local_new);
             double &var_position_old = surface_data->var_position;
             double &var_gradient_old = surface_data->var_normal;
             if (var_gradient_old <= m_setting_->update_map_points->max_valid_gradient_var) {
-                // do bayes Update only when the old result is not too bad
+                // do bayes Update only when the old result is not too bad, otherwise, just replace it
                 double var_position_sum = var_position_new + var_position_old;
                 double var_gradient_sum = var_gradient_new + var_gradient_old;
 
                 // position Update
                 xy_global_new = (xy_global_new * var_position_old + xy_global_old * var_position_new) / var_position_sum;
-                double distance = (xy_global_new - xy_global_old).norm() * double(0.5);
 
                 // gradient Update
                 double &old_x = surface_data->normal.x();
@@ -177,12 +187,17 @@ namespace erl::sdf_mapping {
                 grad_global_new.y() = sin * old_x + cos * old_y;
 
                 // variance Update
+                double distance = (xy_global_new - xy_global_old).norm() * double(0.5);
                 var_position_new = std::max((var_position_new * var_position_old) / var_position_sum + distance, m_setting_->gp_theta->sensor_range_var);
                 var_gradient_new = common::ClipRange(
                     (var_gradient_new * var_gradient_old) / var_gradient_sum + distance,
                     m_setting_->compute_variance->min_gradient_var,
                     m_setting_->compute_variance->max_gradient_var);
+                // var_position_new = var_position_new * var_position_old / var_position_sum;
+                // var_gradient_new = var_gradient_new * var_gradient_old / var_gradient_sum;
             }
+            // var_position_new = std::max(var_position_new, m_setting_->update_map_points->min_position_var);
+            // var_gradient_new = std::max(var_gradient_new, m_setting_->update_map_points->min_gradient_var);
 
             // Update the surface data
             if ((var_position_new > m_setting_->update_map_points->max_bayes_position_var) &&
@@ -195,18 +210,7 @@ namespace erl::sdf_mapping {
             if (new_key != it.GetKey()) {
                 it->ResetSurfaceData();
                 RecordChangedKey(it.GetKey());
-                std::shared_ptr<SurfaceMappingQuadtreeNode> new_node;
-                // move the surface data to the new node before updating it
-//                if (m_setting_->update_occupancy) {
-//                    // get new node via occupancy update
-//                    constexpr bool kOccupied = true;
-//                    constexpr bool kLazyEval = false;
-//                    new_node = std::static_pointer_cast<SurfaceMappingQuadtreeNode>(m_quadtree_->UpdateNode(new_key, kOccupied, kLazyEval));
-//                } else {
-//                    // get new node via insert
-//                    new_node = std::static_pointer_cast<SurfaceMappingQuadtreeNode>(m_quadtree_->InsertNode(new_key));
-//                }
-                new_node = std::static_pointer_cast<SurfaceMappingQuadtreeNode>(m_quadtree_->InsertNode(new_key));
+                auto new_node = std::static_pointer_cast<SurfaceMappingQuadtreeNode>(m_quadtree_->InsertNode(new_key));
                 ERL_ASSERTM(new_node != nullptr, "Failed to get the node");
                 if (new_node->GetSurfaceData() != nullptr) { continue; }  // the new node is already occupied
                 new_node->SetSurfaceData(surface_data);
@@ -257,59 +261,49 @@ namespace erl::sdf_mapping {
         auto &kTrainBuffer = m_gp_theta_->GetTrainBuffer();
 
         auto n = kTrainBuffer.Size();
-        Eigen::Scalard angle, f, var;
+        Eigen::Scalard angle, predicted_range, predicted_range_var;
         for (ssize_t i = 0; i < n; ++i) {
             angle[0] = kTrainBuffer.vec_angles[i];
-            m_gp_theta_->Test(angle, f, var, true);
+            m_gp_theta_->Test(angle, predicted_range, predicted_range_var, true);
+            if (!IsValidRangeEstimation(predicted_range[0], predicted_range_var[0])) { continue; }  // uncertain point, drop it
 
-            if (var[0] > m_setting_->gp_theta->max_valid_distance_var) { continue; }  // uncertain point, drop it
-
-            constexpr bool kOccupied = true;
-            constexpr bool kLazyEval = true;  // lazy evaluation to make sure we get the deepest node
             geometry::QuadtreeKey key = m_quadtree_->CoordToKey(kTrainBuffer.mat_xy_global(0, i), kTrainBuffer.mat_xy_global(1, i));
-            std::shared_ptr<SurfaceMappingQuadtreeNode> leaf;
-            if (m_setting_->update_occupancy) {
-                // get the leaf node via occupancy update
-                leaf = std::static_pointer_cast<SurfaceMappingQuadtreeNode>(m_quadtree_->UpdateNode(key, kOccupied, kLazyEval));
-                if (!m_quadtree_->IsNodeOccupied(leaf)) { continue; }  // the leaf is not marked as occupied, skip it
-            } else {
-                // get the leaf node via insert
-                leaf = std::static_pointer_cast<SurfaceMappingQuadtreeNode>(m_quadtree_->InsertNode(key));
-            }
-            ERL_ASSERTM(leaf != nullptr, "Failed to insert a new point to the quadtree.");
-            if (leaf->GetSurfaceData() != nullptr) { continue; }  // the leaf already has surface data, skip it
+            auto leaf = std::static_pointer_cast<SurfaceMappingQuadtreeNode>(m_quadtree_->InsertNode(key));  // insert the point to the tree
+            ERL_ASSERTM(leaf != nullptr, "Failed to insert a new point to the quadtree.");                   // this should not happen
+            if (m_setting_->update_occupancy && !m_quadtree_->IsNodeOccupied(leaf)) { continue; }            // the leaf is not marked as occupied, skip it
+            if (leaf->GetSurfaceData() != nullptr) { continue; }                                             // the leaf already has surface data, skip it
 
             double occ_mean;
             Eigen::Vector2d grad_local;
-            if (!ComputeGradient2(kTrainBuffer.mat_xy_local.col(i), grad_local, occ_mean)) {
-//                if (m_setting_->update_occupancy) {
-//                    // undo the occupancy update
-//                    m_quadtree_->UpdateNode(key, false, false);
-//                } else {
-//                    // undo the insert
-//                    m_quadtree_->DeleteNode(key);
-//                }
+            if (!ComputeGradient2(kTrainBuffer.mat_xy_local.col(i), grad_local, occ_mean)) { continue; }  // uncertain point, drop it
 
-                if (!m_setting_->update_occupancy) { m_quadtree_->DeleteNode(key); }  // undo the insert
-
-                continue;
-            }
-
-            Eigen::Vector2d grad_global;
+            Eigen::Vector2d grad_global = m_gp_theta_->LocalToGlobalSo2(grad_local);
             double var_position, var_gradient;
-            ComputeVariance(
-                kTrainBuffer.mat_xy_local.col(i),
-                kTrainBuffer.vec_ranges[i],
-                0.,  // distance_var is not used for a new point
-                std::fabs(occ_mean),
-                0.,  // occ_abs is not used for a new point
-                true,
-                grad_local,
-                grad_global,
-                var_position,
-                var_gradient);
+             ComputeVariance(
+                 kTrainBuffer.mat_xy_local.col(i),
+                 grad_local,
+                 kTrainBuffer.vec_ranges[i],  // distance
+                 0.,                          // var_distance is not used for a new point
+                 std::fabs(occ_mean),         // occ_mean_abs
+                 0.,                          // occ_abs is not used for a new point
+                 true,                        // new point
+                 var_position,
+                 var_gradient);
 
-            // Insert the point to the tree and mark the key as changed
+             // ComputeSensorNoiseModel(
+             //     kTrainBuffer.position,
+             //     kTrainBuffer.mat_xy_global.col(i),
+             //     grad_global,
+             //     predicted_range[0],
+             //     predicted_range_var[0],
+             //     grad_global,
+             //     std::abs(occ_mean),
+             //     var_position,
+             //     var_gradient);
+             // var_position = std::max(var_position, m_setting_->update_map_points->min_position_var);
+             // var_gradient = std::max(var_gradient, m_setting_->update_map_points->min_gradient_var);
+
+             // Insert the point to the tree and mark the key as changed
             leaf->SetSurfaceData(Eigen::Vector2d(kTrainBuffer.mat_xy_global.col(i)), grad_global, var_position, var_gradient);
             RecordChangedKey(key);
         }
@@ -340,7 +334,7 @@ namespace erl::sdf_mapping {
             } else {
                 return false;
             }
-
+            if (!IsValidRangeEstimation(distance_pred[0], var[0])) { return false; }  // uncertain point, drop it
             distance_sum += distance_pred[0];
             distance_square_mean += distance_pred[0] * distance_pred[0];
         }
@@ -353,6 +347,11 @@ namespace erl::sdf_mapping {
 
         gradient.x() = (occ[0] - occ[1]) / m_setting_->perturb_delta;
         gradient.y() = (occ[2] - occ[3]) / m_setting_->perturb_delta;
+
+        double gradient_norm = gradient.norm();
+        if (gradient_norm <= m_setting_->zero_gradient_threshold) { return false; }  // uncertain point, drop it
+        gradient.x() /= gradient_norm;
+        gradient.y() /= gradient_norm;
 
         return true;
     }
@@ -374,41 +373,32 @@ namespace erl::sdf_mapping {
             } else {
                 return false;
             }
+            if (!IsValidRangeEstimation(distance_pred[0], var[0])) { return false; }  // uncertain point, drop it
         }
 
         occ_mean *= 0.25;
         gradient.x() = (occ[0] - occ[1]) / m_setting_->perturb_delta;
         gradient.y() = (occ[2] - occ[3]) / m_setting_->perturb_delta;
 
+        double gradient_norm = gradient.norm();
+        if (gradient_norm <= m_setting_->zero_gradient_threshold) { return false; }  // uncertain point, drop it
+        gradient.x() /= gradient_norm;
+        gradient.y() /= gradient_norm;
+
         return true;
     }
 
-    bool
+    void
     GpOccSurfaceMapping2D::ComputeVariance(
         const Eigen::Ref<const Eigen::Vector2d> &xy_local,
+        const Eigen::Ref<const Eigen::Vector2d> &grad_local,
         const double &distance,
         const double &distance_var,
         const double &occ_mean_abs,
         const double &occ_abs,
         bool new_point,
-        Eigen::Ref<Eigen::Vector2d> grad_local,
-        Eigen::Ref<Eigen::Vector2d> grad_global,
         double &var_position,
         double &var_gradient) const {
-
-        double gradient_norm = grad_local.norm();
-
-        if (gradient_norm <= double(1.e-6)) {
-            grad_global << grad_local;
-            var_position = m_setting_->compute_variance->zero_gradient_position_var;
-            var_gradient = m_setting_->compute_variance->zero_gradient_gradient_var;
-            return false;
-        }
-
-        grad_local.x() /= gradient_norm;
-        grad_local.y() /= gradient_norm;
-        // grad_global << LocalToGlobalSo2(m_gp_theta_->m_train_buffer_.rotation, grad_local);
-        grad_global << m_gp_theta_->LocalToGlobalSo2(grad_local);
 
         double &min_distance_var = m_setting_->compute_variance->min_distance_var;
         double &max_distance_var = m_setting_->compute_variance->max_distance_var;
@@ -427,7 +417,5 @@ namespace erl::sdf_mapping {
             var_position = m_setting_->compute_variance->position_var_alpha * (var_distance + var_direction) + occ_abs;
             var_gradient = common::ClipRange(occ_mean_abs + distance_var, min_gradient_var, max_gradient_var) + double(0.1) * var_direction;
         }
-
-        return true;
     }
 }  // namespace erl::sdf_mapping
