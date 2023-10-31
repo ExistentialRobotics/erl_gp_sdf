@@ -6,6 +6,38 @@
 namespace erl::sdf_mapping {
 
     bool
+    GpSdfMapping2D::Update(
+        const Eigen::Ref<const Eigen::VectorXd> &angles,
+        const Eigen::Ref<const Eigen::VectorXd> &distances,
+        const Eigen::Ref<const Eigen::Matrix23d> &pose) {
+
+        double time_budget = 1e6 / m_setting_->update_hz;  // us
+        bool success;
+        std::chrono::high_resolution_clock::time_point t0, t1;
+        double dt;
+        {
+            std::lock_guard<std::mutex> lock(m_mutex_);
+            t0 = std::chrono::high_resolution_clock::now();
+            success = m_surface_mapping_->Update(angles, distances, pose);
+            t1 = std::chrono::high_resolution_clock::now();
+            dt = std::chrono::duration<double, std::micro>(t1 - t0).count();
+            ERL_INFO("Surface mapping update time: %f us.", dt);
+        }
+        time_budget -= double(dt);
+
+        if (success) {
+            std::lock_guard<std::mutex> lock(m_mutex_);
+            t0 = std::chrono::high_resolution_clock::now();
+            UpdateGps(time_budget);
+            t1 = std::chrono::high_resolution_clock::now();
+            dt = std::chrono::duration<double, std::milli>(t1 - t0).count();
+            ERL_INFO("GP update time: %f ms.", dt);
+            return true;
+        }
+        return false;
+    }
+
+    bool
     GpSdfMapping2D::Test(
         const Eigen::Ref<const Eigen::Matrix2Xd> &positions_in,
         Eigen::VectorXd &distances_out,
@@ -423,6 +455,7 @@ namespace erl::sdf_mapping {
 
                     auto &mat_x = gp->GetTrainInputSamplesBuffer();
                     auto &vec_x_var = gp->GetTrainInputSamplesVarianceBuffer();
+                    // auto &grad_flag = gp->GetTrainGradientFlagsBuffer();
                     Eigen::Vector2d pos(kPosition.x() - grad.x() * f[0], kPosition.y() - grad.y() * f[0]);
                     long num_samples = gp->GetNumTrainSamples();
                     Eigen::VectorXd weight(num_samples);
@@ -435,6 +468,8 @@ namespace erl::sdf_mapping {
                     var_grad_y = 0;
                     double var_theta = 0;
                     for (long k = 0; k < num_samples; ++k) {
+                        // if (!grad_flag[k]) { continue; }  // invalid gradient, skip this sample
+
                         double dx = mat_x(0, k) - pos.x();
                         double dy = mat_x(1, k) - pos.y();
                         double d = std::sqrt(dx * dx + dy * dy);
@@ -451,8 +486,14 @@ namespace erl::sdf_mapping {
                             grad.x() * v.x() + grad.y() * v.y());  // dot product
                         var_theta += weight[k] * angle_dist * angle_dist;
                     }
+                    // if (weight_sum == 0.) {
+                    //     var_sdf = 10 * m_setting_->invalid_position_var;
+                    //     var_theta = 10 * m_setting_->invalid_position_var;
+                    // } else {
                     var_sdf /= weight_sum;
                     var_theta /= weight_sum;
+                    // }
+
                     double theta0 = std::atan2(grad.y(), grad.x());
                     double sin_theta0 = std::sin(theta0);
                     double cos_theta0 = std::cos(theta0);
@@ -484,7 +525,7 @@ namespace erl::sdf_mapping {
 
             // store the result
             if (need_weighted_sum) {
-                ERL_INFO("SDF1: %f, SDF2: %f", fs(0, tested_idx[0].first), fs(0, tested_idx[1].first));
+                if (m_test_buffer_.Size() == 1) { ERL_INFO("SDF1: %f, SDF2: %f", fs(0, tested_idx[0].first), fs(0, tested_idx[1].first)); }
 
                 if (variances(0, tested_idx[0].first) < m_setting_->test_query->max_test_valid_distance_var) {
                     auto j = tested_idx[0].first;
@@ -521,7 +562,7 @@ namespace erl::sdf_mapping {
                     m_query_used_gps_[i][1] = gps[tested_idx[1].second].second;
                 }
             } else {
-                ERL_INFO("SDF1: %f", fs(0, tested_idx[0].first));
+                if (m_test_buffer_.Size() == 1) { ERL_INFO("SDF1: %f", fs(0, tested_idx[0].first)); }
 
                 // the first column is the result
                 distance_out = fs(0, 0);

@@ -34,9 +34,10 @@ namespace erl::sdf_mapping {
         auto mat_log_ktrain = m_mat_log_k_train_.topLeftCorner(output_size2.first, output_size2.second);       // square matrix
 
         // Compute log-sdf mapping
-        auto vec_alpha = m_vec_alpha_.head(output_size1.first);                                                                   // h and gradient of h
-        auto vec_log_alpha = m_vec_log_alpha_.head(output_size2.first);                                                           // log mapping of h
-        for (long i = 0; i < m_num_train_samples_; ++i) { vec_log_alpha[i] = std::exp(-m_setting_->log_lambda * vec_alpha[i]); }  // compute mapping
+        auto vec_alpha = m_vec_alpha_.head(output_size1.first);          // h and gradient of h
+        auto vec_log_alpha = m_vec_log_alpha_.head(output_size2.first);  // log mapping of h
+        // vec_log_alpha[i] = std::exp(-m_setting_->log_lambda * vec_alpha[i]), but vec_alpha[i] may be nonzero
+        for (long i = 0; i < m_num_train_samples_; ++i) { vec_log_alpha[i] = 1.0; }
 
         // Compute cholesky decomposition and alpha
         auto mat_l = m_mat_l_.topLeftCorner(output_size1.first, output_size1.second);          // square matrix, lower triangular

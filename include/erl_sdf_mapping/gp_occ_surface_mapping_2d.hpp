@@ -30,8 +30,8 @@ namespace erl::sdf_mapping {
                 int max_adjust_tries = 10;
                 double max_bayes_position_var = 1.;   // if the position variance by Bayes Update is above this threshold, it will be discarded.
                 double max_bayes_gradient_var = 0.6;  // if the gradient variance by Bayes Update is above this threshold, it will be discarded.
-//                double min_position_var = 0.001;      // minimum position variance.
-//                double min_gradient_var = 0.001;      // minimum gradient variance.
+                double min_position_var = 0.001;      // minimum position variance.
+                double min_gradient_var = 0.001;      // minimum gradient variance.
             };
 
             std::shared_ptr<gaussian_process::LidarGaussianProcess1D::Setting> gp_theta = std::make_shared<gaussian_process::LidarGaussianProcess1D::Setting>();
@@ -227,6 +227,8 @@ namespace YAML {
             node["max_adjust_tries"] = rhs.max_adjust_tries;
             node["max_bayes_position_var"] = rhs.max_bayes_position_var;
             node["max_bayes_gradient_var"] = rhs.max_bayes_gradient_var;
+            node["min_position_var"] = rhs.min_position_var;
+            node["min_gradient_var"] = rhs.min_gradient_var;
             return node;
         }
 
@@ -239,6 +241,8 @@ namespace YAML {
             rhs.max_adjust_tries = node["max_adjust_tries"].as<int>();
             rhs.max_bayes_position_var = node["max_bayes_position_var"].as<double>();
             rhs.max_bayes_gradient_var = node["max_bayes_gradient_var"].as<double>();
+            rhs.min_position_var = node["min_position_var"].as<double>();
+            rhs.min_gradient_var = node["min_gradient_var"].as<double>();
             return true;
         }
     };
@@ -252,6 +256,8 @@ namespace YAML {
         out << Key << "max_adjust_tries" << Value << rhs.max_adjust_tries;
         out << Key << "max_bayes_position_var" << Value << rhs.max_bayes_position_var;
         out << Key << "max_bayes_gradient_var" << Value << rhs.max_bayes_gradient_var;
+        out << Key << "min_position_var" << Value << rhs.min_position_var;
+        out << Key << "min_gradient_var" << Value << rhs.min_gradient_var;
         out << EndMap;
         return out;
     }
@@ -265,7 +271,6 @@ namespace YAML {
             node["compute_variance"] = setting.compute_variance;
             node["update_map_points"] = setting.update_map_points;
             node["quadtree"] = setting.quadtree;
-            // node["quadtree_resolution"] = setting.quadtree_resolution;
             node["cluster_level"] = setting.cluster_level;
             node["perturb_delta"] = setting.perturb_delta;
             node["zero_gradient_threshold"] = setting.zero_gradient_threshold;
@@ -280,7 +285,6 @@ namespace YAML {
             setting.compute_variance = node["compute_variance"].as<decltype(setting.compute_variance)>();
             setting.update_map_points = node["update_map_points"].as<decltype(setting.update_map_points)>();
             setting.quadtree = node["quadtree"].as<decltype(setting.quadtree)>();
-            // setting.quadtree_resolution = node["quadtree_resolution"].as<double>();
             setting.cluster_level = node["cluster_level"].as<unsigned int>();
             setting.perturb_delta = node["perturb_delta"].as<double>();
             setting.zero_gradient_threshold = node["zero_gradient_threshold"].as<double>();
@@ -296,7 +300,6 @@ namespace YAML {
         out << Key << "compute_variance" << Value << setting.compute_variance;
         out << Key << "update_map_points" << Value << setting.update_map_points;
         out << Key << "quadtree" << Value << setting.quadtree;
-        // out << Key << "quadtree_resolution" << Value << setting.quadtree_resolution;
         out << Key << "cluster_level" << Value << setting.cluster_level;
         out << Key << "perturb_delta" << Value << setting.perturb_delta;
         out << Key << "zero_gradient_threshold" << Value << setting.zero_gradient_threshold;

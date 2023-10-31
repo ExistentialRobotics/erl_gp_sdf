@@ -135,33 +135,7 @@ namespace erl::sdf_mapping {
         Update(
             const Eigen::Ref<const Eigen::VectorXd>& angles,
             const Eigen::Ref<const Eigen::VectorXd>& distances,
-            const Eigen::Ref<const Eigen::Matrix23d>& pose) {
-
-            double time_budget = 1e6 / m_setting_->update_hz;  // us
-            bool success;
-            std::chrono::high_resolution_clock::time_point t0, t1;
-            double dt;
-            {
-                std::lock_guard<std::mutex> lock(m_mutex_);
-                t0 = std::chrono::high_resolution_clock::now();
-                success = m_surface_mapping_->Update(angles, distances, pose);
-                t1 = std::chrono::high_resolution_clock::now();
-                dt = std::chrono::duration<double, std::micro>(t1 - t0).count();
-                ERL_INFO("Surface mapping update time: %f us.", dt);
-            }
-            time_budget -= double(dt);
-
-            if (success) {
-                std::lock_guard<std::mutex> lock(m_mutex_);
-                t0 = std::chrono::high_resolution_clock::now();
-                UpdateGps(time_budget);
-                t1 = std::chrono::high_resolution_clock::now();
-                dt = std::chrono::duration<double, std::milli>(t1 - t0).count();
-                ERL_INFO("GP update time: %f ms.", dt);
-                return true;
-            }
-            return false;
-        }
+            const Eigen::Ref<const Eigen::Matrix23d>& pose);
 
         bool
         Test(

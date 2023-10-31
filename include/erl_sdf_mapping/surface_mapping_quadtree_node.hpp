@@ -62,15 +62,15 @@ namespace erl::sdf_mapping {
             m_data_ = std::make_shared<SurfaceData>(std::move(position), std::move(normal), var_position, var_normal);
         }
 
-        inline void
-        SetSurfaceData(
-            Eigen::Vector2d position,
-            Eigen::Vector2d normal,
-            double var_position,
-            double var_normal,
-            const Eigen::Ref<const Eigen::Vector2d> &hit_ray_start_point) {
-            m_data_ = std::make_shared<SurfaceData>(std::move(position), std::move(normal), var_position, var_normal, hit_ray_start_point);
-        }
+        // inline void
+        // SetSurfaceData(
+        //     Eigen::Vector2d position,
+        //     Eigen::Vector2d normal,
+        //     double var_position,
+        //     double var_normal,
+        //     const Eigen::Ref<const Eigen::Vector2d> &hit_ray_start_point) {
+        //     m_data_ = std::make_shared<SurfaceData>(std::move(position), std::move(normal), var_position, var_normal, hit_ray_start_point);
+        // }
 
         inline void
         SetSurfaceData(const std::shared_ptr<SurfaceData> &data) {
@@ -93,8 +93,10 @@ namespace erl::sdf_mapping {
         }
 
         [[nodiscard]] inline bool
-        AllowUpdateLogOdds(double delta) const override {
-            return delta > 0 || m_data_ == nullptr;
+        AllowUpdateLogOdds(double &delta) const override {
+            if (m_data_ != nullptr && delta < 0.) { delta *= 0.5; }  // change to free slowly
+            return true;
+            // return delta > 0 || m_data_ == nullptr;
         }
 
         // [[nodiscard]] bool
