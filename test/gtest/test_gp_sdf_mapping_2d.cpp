@@ -260,36 +260,53 @@ TEST(ERL_SDF_MAPPING, GpSdfMapping2D) {
 
     // pangolin
     pangolin::WindowInterface *pangolin_plotter_window = nullptr;
-    std::shared_ptr<pangolin::DataLog> pangolin_log = nullptr;
-    std::shared_ptr<pangolin::Plotter> pangolin_plotter;
     pangolin::View *pangolin_plotter_view = nullptr;
+    std::shared_ptr<pangolin::DataLog> pangolin_sdf_log = nullptr;
+    std::shared_ptr<pangolin::Plotter> pangolin_sdf_plotter;
+    // pangolin::View *pangolin_sdf_plotter_view = nullptr;
+    std::shared_ptr<pangolin::DataLog> pangolin_grad_log = nullptr;
+    std::shared_ptr<pangolin::Plotter> pangolin_grad_plotter;
+    // pangolin::View *pangolin_grad_plotter_view = nullptr;
     pangolin::WindowInterface *pangolin_map_window = nullptr;
-    pangolin::View* pangolin_map_view = nullptr;
+    pangolin::View *pangolin_map_view = nullptr;
     std::shared_ptr<pangolin::GlTexture> pangolin_texture = nullptr;
     if (g_options.visualize) {
         pangolin_plotter_window = &pangolin::CreateWindowAndBind(g_window_name + ": curves", 1280, 960);
         glEnable(GL_DEPTH_TEST);
-        pangolin_log = std::make_shared<pangolin::DataLog>();
-        std::vector<std::string> pangolin_labels = {"SDF", "EDF", "var(SDF)", "var(gradX)", "var(gradY)"};
-        pangolin_log->SetLabels(pangolin_labels);
-        float pangolin_bound_left = 0.0f;
-        float pangolin_bound_right = 600.0f;
-        float pangolin_bound_bottom = -1.0f;
-        float pangolin_bound_top = 3.0f;
-        pangolin_plotter = std::make_shared<pangolin::Plotter>(
-            pangolin_log.get(),
-            pangolin_bound_left,
-            pangolin_bound_right,
-            pangolin_bound_bottom,
-            pangolin_bound_top,
+
+        pangolin_sdf_log = std::make_shared<pangolin::DataLog>();
+        pangolin_sdf_log->SetLabels({"SDF", "EDF", "var(SDF)"});
+        pangolin_sdf_plotter = std::make_shared<pangolin::Plotter>(
+            pangolin_sdf_log.get(),
+            0.0f,    // pangolin_bound_left
+            600.0f,  // pangolin_bound_right
+            -0.5f,   // pangolin_bound_bottom
+            3.0f,    // pangolin_bound_top
             float(tic),
             0.05f);
-        pangolin_plotter_view = &pangolin_plotter->SetBounds(0.0, 1.0, 0.0, 1.0);
-        pangolin_plotter->Track("$i");
-        // pangolin_plotter->AddMarker(pangolin::Marker::Vertical, -1000, pangolin::Marker::LessThan, pangolin::Colour::Blue().WithAlpha(0.2f));
-        // pangolin_plotter->AddMarker(pangolin::Marker::Horizontal, 100, pangolin::Marker::GreaterThan, pangolin::Colour::Red().WithAlpha(0.2f));
-        // pangolin_plotter->AddMarker(pangolin::Marker::Horizontal, 10, pangolin::Marker::Equal, pangolin::Colour::Green().WithAlpha(0.2f));
-        pangolin::DisplayBase().AddDisplay(*pangolin_plotter);
+        pangolin_sdf_plotter->Track("$i");
+        pangolin_sdf_plotter->SetBackgroundColour(pangolin::Colour(0.0f, 0.0f, 0.0f, 1.0f));
+        pangolin_sdf_plotter->SetAxisColour(pangolin::Colour(1.0f, 1.0f, 1.0f, 1.0f));
+
+        pangolin_grad_log = std::make_shared<pangolin::DataLog>();
+        pangolin_grad_log->SetLabels({"gradX", "gradY", "var(gradX)", "var(gradY)"});
+        pangolin_grad_plotter = std::make_shared<pangolin::Plotter>(
+            pangolin_grad_log.get(),
+            0.0f,    // pangolin_bound_left
+            600.0f,  // pangolin_bound_right
+            -1.1f,   // pangolin_bound_bottom
+            1.1f,    // pangolin_bound_top
+            float(tic),
+            0.05f);
+        pangolin_grad_plotter->Track("$i");
+        pangolin_grad_plotter->SetBackgroundColour(pangolin::Colour(0.25f, 0.25f, 0.25f, 1.0f));
+        pangolin_grad_plotter->SetAxisColour(pangolin::Colour(1.0f, 1.0f, 1.0f, 1.0f));
+
+        pangolin_plotter_view = &(pangolin::Display("curves")
+                                      .SetBounds(0.0, 1.0, 0.0, 1.0)
+                                      .SetLayout(pangolin::LayoutEqualVertical)
+                                      .AddDisplay(*pangolin_sdf_plotter)
+                                      .AddDisplay(*pangolin_grad_plotter));
 
         pangolin_map_window = &pangolin::CreateWindowAndBind(g_window_name + ": map", img.cols, img.rows);
         glEnable(GL_DEPTH_TEST);
@@ -355,7 +372,15 @@ TEST(ERL_SDF_MAPPING, GpSdfMapping2D) {
 
             // draw sdf gradient
             Eigen::Vector2i gradient_px = grid_map_info->MeterToPixelForVectors(gradient);
-            cv::arrowedLine(img, position_px, cv::Point(position_px.x + gradient_px.x(), position_px.y + gradient_px.y()), cv::Scalar(255, 0, 0, 255), 2, 8, 0, 0.15);
+            cv::arrowedLine(
+                img,
+                position_px,
+                cv::Point(position_px.x + gradient_px.x(), position_px.y + gradient_px.y()),
+                cv::Scalar(255, 0, 0, 255),
+                2,
+                8,
+                0,
+                0.15);
 
             // draw used surface points
             auto &[gp1, gp2] = sdf_mapping.GetUsedGps()[0];
@@ -383,11 +408,13 @@ TEST(ERL_SDF_MAPPING, GpSdfMapping2D) {
 
             pangolin_plotter_window->MakeCurrent();
             pangolin::BindToContext(g_window_name + ": curves");
-            pangolin_plotter_view->Activate();
-            pangolin_plotter_window->ProcessEvents();            // process events like mouse and keyboard inputs
+            pangolin_plotter_window->ProcessEvents();  // process events like mouse and keyboard inputs
+            pangolin_plotter_view->Activate();         // activate view to draw in this area
             glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);  // clear entire window
-            // pangolin_log->Log(float(std::abs(distance[0])));
-            pangolin_log->Log(float(distance[0]), float(std::abs(distance[0])), float(variances(0, 0)), float(variances(1, 0)), float(variances(2, 0)));
+
+            pangolin_sdf_log->Log(float(distance[0]), float(std::abs(distance[0])), float(variances(0, 0)));
+            pangolin_grad_log->Log(float(gradient(0, 0)), float(gradient(1, 0)), float(variances(1, 0)), float(variances(2, 0)));
+
             pangolin::FinishFrame();
             if (g_options.save_video) {
                 pangolin::TypedImage buffer = pangolin::ReadFramebuffer(pangolin_plotter_view->v, "BGR24");
