@@ -285,6 +285,7 @@ BindGpOccSurfaceMapping2D(py::module &m) {
         .def_readwrite("quadtree", &GpOccSurfaceMapping2D::Setting::quadtree)
         .def_readwrite("cluster_level", &GpOccSurfaceMapping2D::Setting::cluster_level)
         .def_readwrite("perturb_delta", &GpOccSurfaceMapping2D::Setting::perturb_delta)
+        .def_readwrite("zero_gradient_threshold", &GpOccSurfaceMapping2D::Setting::zero_gradient_threshold)
         .def_readwrite("update_occupancy", &GpOccSurfaceMapping2D::Setting::update_occupancy);
 
     surface_mapping.def(py::init<>())
@@ -313,7 +314,6 @@ BindGpSdfMapping2D(py::module &m) {
         .def_readwrite("update_hz", &GpSdfMapping2D::Setting::update_hz)
         .def_readwrite("gp_sdf_area_scale", &GpSdfMapping2D::Setting::gp_sdf_area_scale)
         .def_readwrite("offset_distance", &GpSdfMapping2D::Setting::offset_distance)
-        .def_readwrite("zero_gradient_threshold", &GpSdfMapping2D::Setting::zero_gradient_threshold)
         .def_readwrite("max_valid_gradient_var", &GpSdfMapping2D::Setting::max_valid_gradient_var)
         .def_readwrite("invalid_position_var", &GpSdfMapping2D::Setting::invalid_position_var)
         .def_readwrite("train_gp_immediately", &GpSdfMapping2D::Setting::train_gp_immediately)

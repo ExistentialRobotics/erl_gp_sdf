@@ -316,6 +316,7 @@ class GpOccSurfaceMapping2D(AbstractSurfaceMapping2D):
         quadtree: SurfaceMappingQuadtree.Setting
         cluster_level: int
         perturb_delta: float
+        zero_gradient_threshold: float
         update_occupancy: bool
     @overload
     def __init__(self): ...
@@ -337,7 +338,6 @@ class GpSdfMapping2D:
         update_hz: float
         gp_sdf_area_scale: float
         offset_distance: float
-        zero_gradient_threshold: float
         max_valid_gradient_var: float
         invalid_position_var: float
         train_gp_immediately: bool
