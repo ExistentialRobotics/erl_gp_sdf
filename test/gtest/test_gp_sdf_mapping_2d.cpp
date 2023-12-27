@@ -117,12 +117,10 @@ TEST(ERL_SDF_MAPPING, GpSdfMapping2D) {
         erl::geometry::HouseExpoMap house_expo_map(g_options.house_expo_map_file.c_str(), 0.2);
         map_min = house_expo_map.GetMeterSpace()->GetSurface()->vertices.rowwise().minCoeff();
         map_max = house_expo_map.GetMeterSpace()->GetSurface()->vertices.rowwise().maxCoeff();
-        erl::geometry::Lidar2D lidar(house_expo_map.GetMeterSpace());
-        double angle_min = -M_PI;
-        double angle_max = M_PI;
-        double res = 0.5 * M_PI / 180.0;
+        auto lidar_setting = std::make_shared<erl::geometry::Lidar2D::Setting>();
+        lidar_setting->num_lines = 720;
+        erl::geometry::Lidar2D lidar(lidar_setting, house_expo_map.GetMeterSpace());
         bool scan_in_parallel = true;
-        lidar.SetNumLines(int((angle_max - angle_min) / res));
         auto trajectory =
             erl::common::LoadAndCastCsvFile<double>(g_options.house_expo_traj_file.c_str(), [](const std::string &str) -> double { return std::stod(str); });
         max_update_cnt = long(trajectory.size() - g_options.init_frame) / g_options.stride + 1;
@@ -135,13 +133,17 @@ TEST(ERL_SDF_MAPPING, GpSdfMapping2D) {
         for (std::size_t i = g_options.init_frame; i < trajectory.size(); i += g_options.stride, cnt++) {
             std::vector<double> &waypoint = trajectory[i];
             cur_traj.col(long(cnt)) << waypoint[0], waypoint[1];
-            lidar.SetTranslation(cur_traj.col(long(cnt)));
-            lidar.SetRotation(waypoint[2]);
-            auto lidar_ranges = lidar.Scan(scan_in_parallel);
+
+            Eigen::Matrix2d rotation = Eigen::Rotation2Dd(waypoint[2]).toRotationMatrix();
+            Eigen::Vector2d translation(waypoint[0], waypoint[1]);
+            auto lidar_ranges = lidar.Scan(rotation, translation, scan_in_parallel);
             lidar_ranges += erl::common::GenerateGaussianNoise(lidar_ranges.size(), 0.0, 0.01);
             train_angles.push_back(lidar.GetAngles());
             train_ranges.push_back(lidar_ranges);
-            train_poses.emplace_back(lidar.GetPose().topRows<2>());
+            Eigen::Matrix23d pose;
+            pose.leftCols<2>() << rotation;
+            pose.rightCols<1>() << translation;
+            train_poses.push_back(std::move(pose));
             bar.Update();
         }
         train_angles.resize(cnt);
@@ -408,8 +410,8 @@ TEST(ERL_SDF_MAPPING, GpSdfMapping2D) {
 
             pangolin_plotter_window->MakeCurrent();
             pangolin::BindToContext(g_window_name + ": curves");
-            pangolin_plotter_window->ProcessEvents();  // process events like mouse and keyboard inputs
-            pangolin_plotter_view->Activate();         // activate view to draw in this area
+            pangolin_plotter_window->ProcessEvents();            // process events like mouse and keyboard inputs
+            pangolin_plotter_view->Activate();                   // activate view to draw in this area
             glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);  // clear entire window
 
             pangolin_sdf_log->Log(float(distance[0]), float(std::abs(distance[0])), float(variances(0, 0)));
