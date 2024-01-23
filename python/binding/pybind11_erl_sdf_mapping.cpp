@@ -6,7 +6,7 @@
 #include "erl_sdf_mapping/gp_occ_surface_mapping_2d.hpp"
 #include "erl_sdf_mapping/gp_sdf_mapping_2d.hpp"
 #include "erl_sdf_mapping/log_sdf_gp.hpp"
-#include "erl_geometry/pybind11_occupancy_quadtree_base.hpp"
+#include "erl_geometry/pybind11_occupancy_quadtree.hpp"
 
 static void
 BindGpSdf2D(py::module &m) {

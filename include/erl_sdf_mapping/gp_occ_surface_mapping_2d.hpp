@@ -38,7 +38,6 @@ namespace erl::sdf_mapping {
             std::shared_ptr<ComputeVariance> compute_variance = std::make_shared<ComputeVariance>();   // parameters used by ComputeVariance.
             std::shared_ptr<UpdateMapPoints> update_map_points = std::make_shared<UpdateMapPoints>();  // parameters used by UpdateMapPoints.
             std::shared_ptr<SurfaceMappingQuadtree::Setting> quadtree = std::make_shared<SurfaceMappingQuadtree::Setting>();  // parameters used by quadtree.
-            // double quadtree_resolution = 0.05;                                                                                // resolution of quadtree.
             unsigned int cluster_level = 2;  // 2^2 times of the quadtree resolution.
             double perturb_delta = 0.01;
             double zero_gradient_threshold = 1.e-15;  // gradient below this threshold is considered zero.

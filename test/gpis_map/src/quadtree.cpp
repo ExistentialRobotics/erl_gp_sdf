@@ -769,8 +769,8 @@ operator<<(std::ostream &os, QuadTree *a_tree) {
             auto n = tree->m_node_;
             auto np = n->GetPos();
             os << printIndent() << "└──* kSurface Node" << std::setw(2) << 0 << ": position = [" << np.x << ", " << np.y << ']' << std::endl;
-            os << printIndent() << "    └──* distance = " << n->m_val_ << ", gradient = [" << n->m_grad_.x << ", " << n->m_grad_.y
-               << "], var_position = " << n->m_pose_sig_ << ", var_gradient = " << n->m_grad_sig_ << std::endl;
+            os << printIndent() << "    └──* distance = " << n->GetVal() << ", gradient = [" << n->GetGradX() << ", " << n->GetGradY()
+               << "], var_position = " << n->GetPosNoise() << ", var_gradient = " << n->GetGradNoise() << std::endl;
             indents.pop_back();
             indents.emplace_back("├── ");
         }

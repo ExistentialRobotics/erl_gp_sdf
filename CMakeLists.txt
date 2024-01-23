@@ -34,7 +34,7 @@ erl_catkin_package(
 # define the libraries #
 ########################
 file(GLOB SRC_FILES src/*.cpp src/gpis/*.cpp)
-add_library(${PROJECT_NAME} ${SRC_FILES})
+add_library(${PROJECT_NAME} SHARED ${SRC_FILES})
 add_library(${PROJECT_NAME}::${PROJECT_NAME} ALIAS ${PROJECT_NAME})
 target_include_directories(${PROJECT_NAME}
         PUBLIC

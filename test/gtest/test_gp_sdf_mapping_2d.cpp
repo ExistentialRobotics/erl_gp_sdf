@@ -1,4 +1,4 @@
-#include "erl_geometry/house_expo.hpp"
+#include "erl_geometry/house_expo_map.hpp"
 #include "erl_geometry/lidar_2d.hpp"
 #include "erl_sdf_mapping/gp_occ_surface_mapping_2d.hpp"
 #include "erl_geometry/occupancy_quadtree_drawer.hpp"

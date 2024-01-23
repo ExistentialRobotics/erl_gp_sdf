@@ -144,26 +144,7 @@ namespace erl::sdf_mapping {
 
             Eigen::Vector2d grad_global_new = m_gp_theta_->LocalToGlobalSo2(grad_local_new);
             double var_position_new, var_gradient_new;
-            ComputeVariance(
-                xy_local_new,
-                grad_local_new,
-                distance_new,
-                var_distance,
-                std::fabs(occ_mean),
-                occ_abs,
-                false,
-                var_position_new,
-                var_gradient_new);
-            // ComputeSensorNoiseModel(
-            //     kTrainBuffer.position,
-            //     xy_global_old,
-            //     grad_global_old,
-            //     distance_pred[0],
-            //     distance_pred_var[0],
-            //     grad_global_new,
-            //     std::fabs(occ_mean),
-            //     var_position_new,
-            //     var_gradient_new);
+            ComputeVariance(xy_local_new, grad_local_new, distance_new, var_distance, std::fabs(occ_mean), occ_abs, false, var_position_new, var_gradient_new);
 
             Eigen::Vector2d xy_global_new = m_gp_theta_->LocalToGlobalSe2(xy_local_new);
             double &var_position_old = surface_data->var_position;
@@ -290,16 +271,6 @@ namespace erl::sdf_mapping {
                 var_position,
                 var_gradient);
 
-            // ComputeSensorNoiseModel(
-            //     kTrainBuffer.position,
-            //     kTrainBuffer.mat_xy_global.col(i),
-            //     grad_global,
-            //     predicted_range[0],
-            //     predicted_range_var[0],
-            //     grad_global,
-            //     std::abs(occ_mean),
-            //     var_position,
-            //     var_gradient);
             var_position = std::max(var_position, m_setting_->update_map_points->min_position_var);
             var_gradient = std::max(var_gradient, m_setting_->update_map_points->min_gradient_var);
 
