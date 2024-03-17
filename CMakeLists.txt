@@ -45,7 +45,7 @@ target_link_libraries(${PROJECT_NAME} PUBLIC ${${PROJECT_NAME}_ERL_PACKAGES} ${c
 
 if (ROS_ACTIVATED)
     add_executable(erl_sdf_mapping_node src/ros/erl_sdf_mapping_node.cpp)
-    target_link_libraries(erl_sdf_mapping_node PUBLIC ${PROJECT_NAME})
+    target_link_libraries(erl_sdf_mapping_node PUBLIC ${PROJECT_NAME}::${PROJECT_NAME})
 endif ()
 
 ###################

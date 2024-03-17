@@ -191,7 +191,7 @@ namespace erl::sdf_mapping {
             if (new_key != it.GetKey()) {
                 it->ResetSurfaceData();
                 RecordChangedKey(it.GetKey());
-                auto new_node = std::static_pointer_cast<SurfaceMappingQuadtreeNode>(m_quadtree_->InsertNode(new_key));
+                SurfaceMappingQuadtreeNode *new_node = m_quadtree_->InsertNode(new_key);
                 ERL_ASSERTM(new_node != nullptr, "Failed to get the node");
                 if (new_node->GetSurfaceData() != nullptr) { continue; }  // the new node is already occupied
                 new_node->SetSurfaceData(surface_data);
@@ -210,10 +210,7 @@ namespace erl::sdf_mapping {
         const Eigen::Ref<const Eigen::VectorXd> &distances,
         const Eigen::Ref<const Eigen::Matrix23d> &pose) {
 
-        if (m_quadtree_ == nullptr) {
-            m_quadtree_ = std::make_shared<SurfaceMappingQuadtree>(m_setting_->quadtree->resolution);
-            m_quadtree_->SetSetting(m_setting_->quadtree);
-        }
+        if (m_quadtree_ == nullptr) { m_quadtree_ = std::make_shared<SurfaceMappingQuadtree>(m_setting_->quadtree); }
 
         auto n = angles.size();
         auto rotation = pose.topLeftCorner<2, 2>();
@@ -235,8 +232,7 @@ namespace erl::sdf_mapping {
     GpOccSurfaceMapping2D::AddNewMeasurement() {
 
         if (m_quadtree_ == nullptr) {
-            m_quadtree_ = std::make_shared<SurfaceMappingQuadtree>(m_setting_->quadtree->resolution);
-            m_quadtree_->SetSetting(m_setting_->quadtree);
+            m_quadtree_ = std::make_shared<SurfaceMappingQuadtree>(m_setting_->quadtree);
         }
 
         auto &kTrainBuffer = m_gp_theta_->GetTrainBuffer();
@@ -249,10 +245,10 @@ namespace erl::sdf_mapping {
             if (!IsValidRangeEstimation(predicted_range[0], predicted_range_var[0])) { continue; }  // uncertain point, drop it
 
             geometry::QuadtreeKey key = m_quadtree_->CoordToKey(kTrainBuffer.mat_xy_global(0, i), kTrainBuffer.mat_xy_global(1, i));
-            auto leaf = std::static_pointer_cast<SurfaceMappingQuadtreeNode>(m_quadtree_->InsertNode(key));  // insert the point to the tree
-            ERL_ASSERTM(leaf != nullptr, "Failed to insert a new point to the quadtree.");                   // this should not happen
-            if (m_setting_->update_occupancy && !m_quadtree_->IsNodeOccupied(leaf)) { continue; }            // the leaf is not marked as occupied, skip it
-            if (leaf->GetSurfaceData() != nullptr) { continue; }                                             // the leaf already has surface data, skip it
+            SurfaceMappingQuadtreeNode *leaf = m_quadtree_->InsertNode(key);                       // insert the point to the tree
+            ERL_ASSERTM(leaf != nullptr, "Failed to insert a new point to the quadtree.");         // this should not happen
+            if (m_setting_->update_occupancy && !m_quadtree_->IsNodeOccupied(leaf)) { continue; }  // the leaf is not marked as occupied, skip it
+            if (leaf->GetSurfaceData() != nullptr) { continue; }                                   // the leaf already has surface data, skip it
 
             double occ_mean;
             Eigen::Vector2d grad_local;

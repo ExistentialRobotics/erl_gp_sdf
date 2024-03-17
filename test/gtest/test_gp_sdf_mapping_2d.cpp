@@ -6,13 +6,14 @@
 #include "erl_common/csv.hpp"
 #include "erl_geometry/gazebo_room.hpp"
 #include "erl_common/random.hpp"
+#include "erl_common/pangolin_plotter_time_series_2d.hpp"
 #include "erl_common/progress_bar.hpp"
 #include <boost/program_options.hpp>
 #include <gtest/gtest.h>
 #include <filesystem>
-#include <pangolin/display/display.h>
-#include <pangolin/display/image_view.h>
-#include <pangolin/plot/plotter.h>
+// #include <pangolin/display/display.h>
+// #include <pangolin/display/image_view.h>
+// #include <pangolin/plot/plotter.h>
 
 static std::filesystem::path g_file_path = __FILE__;
 static std::filesystem::path g_dir_path = g_file_path.parent_path();
@@ -21,7 +22,6 @@ static std::string g_window_name = "ERL_SDF_MAPPING";
 
 struct Options {
     std::string gazebo_train_file = (g_dir_path / "gazebo_train.dat").string();
-    std::string gazebo_test_file = (g_dir_path / "gazebo_test.dat").string();
     std::string house_expo_map_file = (g_dir_path / "house_expo_room_1451.json").string();
     std::string house_expo_traj_file = (g_dir_path / "house_expo_room_1451.csv").string();
     std::string ros_bag_dat_file = (g_dir_path / "ros_bag.dat").string();
@@ -261,54 +261,44 @@ TEST(ERL_SDF_MAPPING, GpSdfMapping2D) {
     auto grid_map_info = drawer->GetGridMapInfo();
 
     // pangolin
-    pangolin::WindowInterface *pangolin_plotter_window = nullptr;
-    pangolin::View *pangolin_plotter_view = nullptr;
-    std::shared_ptr<pangolin::DataLog> pangolin_sdf_log = nullptr;
-    std::shared_ptr<pangolin::Plotter> pangolin_sdf_plotter;
-    // pangolin::View *pangolin_sdf_plotter_view = nullptr;
-    std::shared_ptr<pangolin::DataLog> pangolin_grad_log = nullptr;
-    std::shared_ptr<pangolin::Plotter> pangolin_grad_plotter;
+    // pangolin::WindowInterface *pangolin_plotter_window = nullptr;
+    // pangolin::View *pangolin_plotter_view = nullptr;
+    // std::shared_ptr<pangolin::DataLog> pangolin_sdf_log = nullptr;
+    // std::shared_ptr<pangolin::Plotter> pangolin_sdf_plotter;
+    // // pangolin::View *pangolin_sdf_plotter_view = nullptr;
+    // std::shared_ptr<pangolin::DataLog> pangolin_grad_log = nullptr;
+    // std::shared_ptr<pangolin::Plotter> pangolin_grad_plotter;
     // pangolin::View *pangolin_grad_plotter_view = nullptr;
+
+    std::shared_ptr<erl::common::PangolinWindow> pangolin_plotter_window;
+    std::shared_ptr<erl::common::PangolinPlotterTimeSeries2D> plotter_sdf;
+    std::shared_ptr<erl::common::PangolinPlotterTimeSeries2D> plotter_grad;
+
     pangolin::WindowInterface *pangolin_map_window = nullptr;
     pangolin::View *pangolin_map_view = nullptr;
     std::shared_ptr<pangolin::GlTexture> pangolin_texture = nullptr;
     if (g_options.visualize) {
-        pangolin_plotter_window = &pangolin::CreateWindowAndBind(g_window_name + ": curves", 1280, 960);
-        glEnable(GL_DEPTH_TEST);
+        pangolin_plotter_window = std::make_shared<erl::common::PangolinWindow>(g_window_name + ": curves", 1280, 960);
+        pangolin_plotter_window->GetDisplay("main").SetLayout(pangolin::LayoutEqualVertical);
+        plotter_sdf = std::make_shared<erl::common::PangolinPlotterTimeSeries2D>(
+            pangolin_plotter_window,
+            "SDF",
+            std::vector<std::string>{"t", "SDF", "EDF", "var(SDF)"},
+            600,         // number of points in the plot window
+            0.0f,        // t0
+            float(tic),  // dt
+            0.05f);      // dy
 
-        pangolin_sdf_log = std::make_shared<pangolin::DataLog>();
-        pangolin_sdf_log->SetLabels({"SDF", "EDF", "var(SDF)"});
-        pangolin_sdf_plotter = std::make_shared<pangolin::Plotter>(
-            pangolin_sdf_log.get(),
-            0.0f,    // pangolin_bound_left
-            600.0f,  // pangolin_bound_right
-            -0.5f,   // pangolin_bound_bottom
-            3.0f,    // pangolin_bound_top
-            float(tic),
-            0.05f);
-        pangolin_sdf_plotter->Track("$i");
-        pangolin_sdf_plotter->SetBackgroundColour(pangolin::Colour(0.0f, 0.0f, 0.0f, 1.0f));
-        pangolin_sdf_plotter->SetAxisColour(pangolin::Colour(1.0f, 1.0f, 1.0f, 1.0f));
-
-        pangolin_grad_log = std::make_shared<pangolin::DataLog>();
-        pangolin_grad_log->SetLabels({"gradX", "gradY", "var(gradX)", "var(gradY)"});
-        pangolin_grad_plotter = std::make_shared<pangolin::Plotter>(
-            pangolin_grad_log.get(),
-            0.0f,    // pangolin_bound_left
-            600.0f,  // pangolin_bound_right
-            -1.1f,   // pangolin_bound_bottom
-            1.1f,    // pangolin_bound_top
-            float(tic),
-            0.05f);
-        pangolin_grad_plotter->Track("$i");
-        pangolin_grad_plotter->SetBackgroundColour(pangolin::Colour(0.25f, 0.25f, 0.25f, 1.0f));
-        pangolin_grad_plotter->SetAxisColour(pangolin::Colour(1.0f, 1.0f, 1.0f, 1.0f));
-
-        pangolin_plotter_view = &(pangolin::Display("curves")
-                                      .SetBounds(0.0, 1.0, 0.0, 1.0)
-                                      .SetLayout(pangolin::LayoutEqualVertical)
-                                      .AddDisplay(*pangolin_sdf_plotter)
-                                      .AddDisplay(*pangolin_grad_plotter));
+        plotter_grad = std::make_shared<erl::common::PangolinPlotterTimeSeries2D>(
+            pangolin_plotter_window,
+            "Gradient",
+            std::vector<std::string>{"t", "gradX", "gradY", "var(gradX)", "var(gradY)"},
+            600,                      // number of points in the plot window
+            0.0f,                     // t0
+            float(tic),               // dt
+            0.05f,                    // dy
+            pangolin::Colour{0.1f, 0.1f, 0.1f, 1.0f}  // bg_color
+        );
 
         pangolin_map_window = &pangolin::CreateWindowAndBind(g_window_name + ": map", img.cols, img.rows);
         glEnable(GL_DEPTH_TEST);
@@ -326,7 +316,7 @@ TEST(ERL_SDF_MAPPING, GpSdfMapping2D) {
         video_frame = cv::Mat(std::max(img.rows, 960), img.cols + 1280, CV_8UC3, cv::Scalar(0));
     }
 
-    double t = 0;
+    double t_ms = 0;
     for (long i = 0; i < max_update_cnt; i++) {
         Eigen::VectorXd noise = erl::common::GenerateGaussianNoise(train_ranges[i].size(), 0.0, 0.01);
 
@@ -335,7 +325,7 @@ TEST(ERL_SDF_MAPPING, GpSdfMapping2D) {
         auto t1 = std::chrono::high_resolution_clock::now();
         auto dt = std::chrono::duration<double, std::milli>(t1 - t0).count();
         ERL_INFO("Update time: %f ms.", dt);
-        t += dt;
+        t_ms += dt;
 
         if (g_options.visualize) {
             if (!drawer_connected) {
@@ -397,43 +387,41 @@ TEST(ERL_SDF_MAPPING, GpSdfMapping2D) {
             // draw fps
             cv::putText(img, std::to_string(1000.0 / dt), cv::Point(10, 30), cv::FONT_HERSHEY_SIMPLEX, 1, cv::Scalar(0, 255, 0, 255), 2);
 
-            pangolin_map_window->MakeCurrent();                  // make current context
-            pangolin::BindToContext(g_window_name + ": map");    // bind context
-            pangolin_map_view->Activate();                       // activate view to draw in this area
-            pangolin_map_window->ProcessEvents();                // process events like mouse and keyboard inputs
-            glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);  // clear entire window
-            // glColor4f(1.0, 1.0, 1.0, 1.0);
-            pangolin_texture->Upload(img.data, GL_BGRA, GL_UNSIGNED_BYTE);
-            pangolin_texture->RenderToViewportFlipY();
-            pangolin::FinishFrame();
-            pangolin_map_window->RemoveCurrent();
+            if (pangolin_plotter_window != nullptr && pangolin_map_window != nullptr && pangolin_map_view != nullptr) {
+                pangolin_map_window->MakeCurrent();                  // make current context
+                pangolin::BindToContext(g_window_name + ": map");    // bind context
+                pangolin_map_view->Activate();                       // activate view to draw in this area
+                pangolin_map_window->ProcessEvents();                // process events like mouse and keyboard inputs
+                glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);  // clear entire window
+                // glColor4f(1.0, 1.0, 1.0, 1.0);
+                pangolin_texture->Upload(img.data, GL_BGRA, GL_UNSIGNED_BYTE);
+                pangolin_texture->RenderToViewportFlipY();
+                pangolin::FinishFrame();
+                pangolin_map_window->RemoveCurrent();
 
-            pangolin_plotter_window->MakeCurrent();
-            pangolin::BindToContext(g_window_name + ": curves");
-            pangolin_plotter_window->ProcessEvents();            // process events like mouse and keyboard inputs
-            pangolin_plotter_view->Activate();                   // activate view to draw in this area
-            glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);  // clear entire window
-
-            pangolin_sdf_log->Log(float(distance[0]), float(std::abs(distance[0])), float(variances(0, 0)));
-            pangolin_grad_log->Log(float(gradient(0, 0)), float(gradient(1, 0)), float(variances(1, 0)), float(variances(2, 0)));
-
-            pangolin::FinishFrame();
-            if (g_options.save_video) {
-                pangolin::TypedImage buffer = pangolin::ReadFramebuffer(pangolin_plotter_view->v, "BGR24");
-                cv::Mat tmp(int(buffer.h), int(buffer.w), CV_8UC3, buffer.ptr);
-                cv::flip(tmp, tmp, 0);
-                int offset = (video_frame.rows - tmp.rows) / 2;
-                tmp.copyTo(video_frame(cv::Rect(img.cols, offset, tmp.cols, tmp.rows)));
-                cv::cvtColor(img, tmp, cv::COLOR_BGRA2BGR);
-                tmp.copyTo(video_frame(cv::Rect(0, 0, tmp.cols, tmp.rows)));
-                video_writer->write(video_frame);
+                pangolin_plotter_window->Activate(true);
+                auto t = float(t_ms / 1000.0);
+                plotter_sdf->Append(t, {float(distance[0]), float(std::abs(distance[0])), float(variances(0, 0))});
+                plotter_grad->Append(t, {float(gradient(0, 0)), float(gradient(1, 0)), float(variances(1, 0)), float(variances(2, 0))});
+                if (g_options.save_video) {
+                    pangolin::TypedImage buffer = pangolin::ReadFramebuffer(pangolin_plotter_window->GetDisplay("main").v, "BGR24");
+                    cv::Mat tmp(int(buffer.h), int(buffer.w), CV_8UC3, buffer.ptr);
+                    cv::flip(tmp, tmp, 0);
+                    int offset = (video_frame.rows - tmp.rows) / 2;
+                    tmp.copyTo(video_frame(cv::Rect(img.cols, offset, tmp.cols, tmp.rows)));
+                    cv::cvtColor(img, tmp, cv::COLOR_BGRA2BGR);
+                    tmp.copyTo(video_frame(cv::Rect(0, 0, tmp.cols, tmp.rows)));
+                    video_writer->write(video_frame);
+                }
+                pangolin_plotter_window->Deactivate();
+            } else {
+                ERL_WARN("Pangolin window is not initialized.");
             }
-            pangolin_plotter_window->RemoveCurrent();
         }
         std::cout << "=====================================" << std::endl;
     }
 
-    ERL_INFO("Average update time: %f ms.", t / double(max_update_cnt));
+    ERL_INFO("Average update time: %f ms.", t_ms / double(max_update_cnt));
     if (g_options.save_video) {
         video_writer->release();
         ERL_INFO("Saved surface mapping video to %s.", video_path.c_str());
@@ -498,7 +486,10 @@ TEST(ERL_SDF_MAPPING, GpSdfMapping2D) {
     ERL_ASSERT(surface_mapping->GetQuadtree()->Write("tree.ot"));
     if (g_options.hold) {
         std::cout << "Press any key to exit." << std::endl;
-        while (!pangolin::ShouldQuit()) { std::this_thread::sleep_for(std::chrono::milliseconds(10)); }
+        while (!pangolin::ShouldQuit()) {
+            std::this_thread::sleep_for(std::chrono::milliseconds(10));
+            pangolin_plotter_window->Activate();
+        }
     } else {
         t0 = std::chrono::high_resolution_clock::now();
         double wait_time = 10.0;
@@ -541,13 +532,9 @@ main(int argc, char *argv[]) {
                 po::value<std::string>(&g_options.gazebo_train_file)->default_value(g_options.gazebo_train_file)->value_name("file"),
                 "Gazebo train data file"
             )(
-                "gazebo-test-file",
-                po::value<std::string>(&g_options.gazebo_test_file)->default_value(g_options.gazebo_test_file)->value_name("file"),
-                "Gazebo test data file"
-            )(
-                "ros-bag-csv-file",
+                "ros-bag-dat-file",
                 po::value<std::string>(&g_options.ros_bag_dat_file)->default_value(g_options.ros_bag_dat_file)->value_name("file"),
-                "ROS bag csv file"
+                "ROS bag dat file"
             )(
                 "surface-mapping-config-file",
                 po::value<std::string>(&g_options.surface_mapping_config_file)->default_value(g_options.surface_mapping_config_file)->value_name("file"),
@@ -565,6 +552,24 @@ main(int argc, char *argv[]) {
             return 0;
         }
         po::notify(vm);
+        if (g_options.use_gazebo_data + g_options.use_house_expo_data + g_options.use_ros_bag_data != 1) {
+            std::cerr << "Please specify one of --use-gazebo-data, --use-house-expo-data, --use-ros-bag-data." << std::endl;
+            return 0;
+        }
+        if (g_options.use_gazebo_data && !std::filesystem::exists(g_options.gazebo_train_file)) {
+            std::cerr << "Gazebo train data file " << g_options.gazebo_train_file << " does not exist." << std::endl;
+            return 0;
+        }
+        if (g_options.use_house_expo_data &&
+            (!std::filesystem::exists(g_options.house_expo_map_file) || !std::filesystem::exists(g_options.house_expo_traj_file))) {
+            std::cerr << "HouseExpo map file " << g_options.house_expo_map_file << " or trajectory file " << g_options.house_expo_traj_file
+                      << " does not exist." << std::endl;
+            return 0;
+        }
+        if (g_options.use_ros_bag_data && !std::filesystem::exists(g_options.ros_bag_dat_file)) {
+            std::cerr << "ROS bag dat file " << g_options.ros_bag_dat_file << " does not exist." << std::endl;
+            return 0;
+        }
     } catch (std::exception &e) {
         std::cerr << e.what() << "\n";
         return 1;

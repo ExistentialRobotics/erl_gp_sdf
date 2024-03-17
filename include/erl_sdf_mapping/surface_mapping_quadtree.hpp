@@ -9,6 +9,8 @@ namespace erl::sdf_mapping {
     class SurfaceMappingQuadtree : public geometry::OccupancyQuadtreeBase<SurfaceMappingQuadtreeNode> {
 
     public:
+        using Setting = geometry::OccupancyQuadtreeBaseSetting;
+
         explicit SurfaceMappingQuadtree(double resolution)
             : OccupancyQuadtreeBase<SurfaceMappingQuadtreeNode>(resolution) {
             s_init_.EnsureLinking();
@@ -25,6 +27,21 @@ namespace erl::sdf_mapping {
         [[nodiscard]] std::shared_ptr<AbstractQuadtree>
         Create() const override {
             return std::make_shared<SurfaceMappingQuadtree>(0.1);
+        }
+
+        [[nodiscard]] std::shared_ptr<Setting>
+        GetSetting() const {
+            auto setting = std::make_shared<Setting>();
+            setting->log_odd_min = this->GetLogOddMin();
+            setting->log_odd_max = this->GetLogOddMax();
+            setting->probability_hit = this->GetProbabilityHit();
+            setting->probability_miss = this->GetProbabilityMiss();
+            setting->probability_occupied_threshold = this->GetOccupancyThreshold();
+            setting->resolution = this->GetResolution();
+            setting->use_change_detection = this->m_use_change_detection_;
+            setting->use_aabb_limit = this->m_use_aabb_limit_;
+            setting->aabb = this->m_aabb_;
+            return setting;
         }
 
         [[nodiscard]] std::string
@@ -87,14 +104,6 @@ namespace erl::sdf_mapping {
 }  // namespace erl::sdf_mapping
 
 namespace YAML {
-    template<>
-    struct convert<erl::sdf_mapping::SurfaceMappingQuadtree::Setting>
-        : public ConvertOccupancyQuadtreeBaseSetting<erl::sdf_mapping::SurfaceMappingQuadtree::Setting> {};
-
-    inline Emitter &
-    operator<<(Emitter &out, const erl::sdf_mapping::SurfaceMappingQuadtree::Setting &rhs) {
-        return PrintOccupancyQuadtreeBaseSetting(out, rhs);
-    }
 
     template<>
     struct convert<erl::sdf_mapping::SurfaceMappingQuadtree::Drawer::Setting>

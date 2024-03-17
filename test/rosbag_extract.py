@@ -3,6 +3,7 @@ import sys
 sys.path.append("/opt/ros/noetic/lib/python3.11/site-packages")
 sys.path.append("/usr/lib/python3.11/site-packages")
 
+import argparse
 import rospy
 import rosbag
 import tf2_py as tf2
@@ -50,7 +51,13 @@ def transform_to_matrix(msg_tf):
 
 def main():
     # filename = 'clf_cbf_sdf_sep_28_2023-09-28-14-49-57.bag'
-    filename = "long_succ4_till_no_path.bag"
+    # filename = "long_succ4_till_no_path.bag"
+    parser = argparse.ArgumentParser(description="Extract data from rosbag")
+    parser.add_argument("--filename", required=True, type=str, help="rosbag file")
+    parser.add_argument("--output-filename", type=str, help="output file")
+    args = parser.parse_args()
+    filename = args.filename
+    output_filename = args.output_filename
     bag = rosbag.Bag(filename, "r")
     # list all topics
     type_and_topic_info_list = bag.get_type_and_topic_info()
@@ -111,8 +118,12 @@ def main():
     )
     order = np.argsort(csv_data[:, 0])  # sort by time
     csv_data = np.ascontiguousarray(csv_data[order, :])
-    np.savetxt(filename[:-4] + ".csv", csv_data, delimiter=",")
-    with open("ros_bag.dat", "wb") as f:
+
+    if output_filename is None:
+        output_filename = filename[:-4]
+
+    np.savetxt(output_filename + ".csv", csv_data, delimiter=",")
+    with open(output_filename + ".dat", "wb") as f:
         f.write(np.array(csv_data.shape).astype(np.int64).tobytes())
         f.write(csv_data.tobytes("F"))  # for Eigen default column major
 

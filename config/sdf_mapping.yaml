@@ -2,8 +2,8 @@ num_threads: 64
 update_hz: 20
 gp_sdf_area_scale: 4
 offset_distance: 0.08
-max_valid_gradient_var: 0.01
-invalid_position_var: 0.1
+max_valid_gradient_var: 0.001
+invalid_position_var: 0.005
 train_gp_immediately: false
 gp_sdf:
   kernel:

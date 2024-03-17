@@ -31,7 +31,7 @@ BindGpSdf2D(py::module &m) {
     py::class_<GpisNode2D, Node, std::shared_ptr<GpisNode2D>>(m, ERL_AS_STRING(GpisNode2D)).def(py::init<Eigen::Vector<double, 2>>(), py::arg("position"));
 
     // GpisNodeContainer2D
-    auto py_gpis_node_container = py::class_<GpisNodeContainer2D, NodeContainer, std::shared_ptr<GpisNodeContainer2D>>(m, ERL_AS_STRING(GpisNodeContainer2D));
+    auto py_gpis_node_container = py::class_<GpisNodeContainer2D, NodeContainer, std::shared_ptr<GpisNodeContainer2D>>(m, "GpisNodeContainer2D");
 
     py::class_<GpisNodeContainer2D::Setting, YamlableBase, std::shared_ptr<GpisNodeContainer2D::Setting>>(py_gpis_node_container, "Setting")
         .def_readwrite("capacity", &GpisNodeContainer2D::Setting::capacity)
@@ -137,7 +137,7 @@ BindGpSdf2D(py::module &m) {
         .def_property_readonly("setting", &GpisMap2D::GetSetting);
 
     // LogGpisMap2D
-    auto py_log_gpis_map = py::class_<LogGpisMap2D, GpisMapBase2D>(m, ERL_AS_STRING(LogGpisMap2D));
+    auto py_log_gpis_map = py::class_<LogGpisMap2D, GpisMapBase2D>(m, "LogGpisMap2D");
 
     py::class_<LogGpisMap2D::Setting, GpisMapBase2D::Setting, std::shared_ptr<LogGpisMap2D::Setting>>(py_log_gpis_map, "Setting")
         .def(py::init<>([]() { return std::make_shared<LogGpisMap2D::Setting>(); }))
@@ -170,7 +170,7 @@ BindGpSdf3D(py::module &m) {
     py::class_<GpisNode3D, Node, std::shared_ptr<GpisNode3D>>(m, ERL_AS_STRING(GpisNode3D)).def(py::init<Eigen::Vector<double, 3>>(), py::arg("position"));
 
     // GpisNodeContainer3D
-    auto py_gpis_node_container = py::class_<GpisNodeContainer3D, NodeContainer, std::shared_ptr<GpisNodeContainer3D>>(m, ERL_AS_STRING(GpisNodeContainer3D));
+    auto py_gpis_node_container = py::class_<GpisNodeContainer3D, NodeContainer, std::shared_ptr<GpisNodeContainer3D>>(m, "GpisNodeContainer3D");
 
     py::class_<GpisNodeContainer3D::Setting, YamlableBase, std::shared_ptr<GpisNodeContainer3D::Setting>>(py_gpis_node_container, "Setting")
         .def_readwrite("capacity", &GpisNodeContainer3D::Setting::capacity)
@@ -187,7 +187,7 @@ BindLogSdfGaussianProcess(py::module &m) {
     using ParentT = erl::gaussian_process::NoisyInputGaussianProcess;
     using T = erl::sdf_mapping::LogSdfGaussianProcess;
 
-    auto py_log_noisy_input_gp = py::class_<T, ParentT, std::shared_ptr<T>>(m, ERL_AS_STRING(LogSdfGaussianProcess));
+    auto py_log_noisy_input_gp = py::class_<T, ParentT, std::shared_ptr<T>>(m, "LogSdfGaussianProcess");
 
     py::class_<T::Setting, ParentT::Setting, std::shared_ptr<T::Setting>>(py_log_noisy_input_gp, "Setting")
         .def(py::init<>())
@@ -248,7 +248,7 @@ BindGpOccSurfaceMapping2D(py::module &m) {
     using namespace erl::sdf_mapping;
 
     // TODO: bind SurfaceMappingQuadtreeNode
-    py::class_<SurfaceMappingQuadtreeNode, OccupancyQuadtreeNode, std::shared_ptr<SurfaceMappingQuadtreeNode>>(m, "SurfaceMappingQuadtreeNode")
+    py::class_<SurfaceMappingQuadtreeNode, OccupancyQuadtreeNode, py::raw_ptr_wrapper<SurfaceMappingQuadtreeNode>>(m, "SurfaceMappingQuadtreeNode")
         .def("allow_update_log_odds", &SurfaceMappingQuadtreeNode::AllowUpdateLogOdds, py::arg("delta"));
 
     BindOccupancyQuadtree<SurfaceMappingQuadtree, SurfaceMappingQuadtreeNode>(m, "SurfaceMappingQuadtree");
@@ -300,7 +300,7 @@ BindGpSdfMapping2D(py::module &m) {
     using namespace erl::common;
     using namespace erl::sdf_mapping;
 
-    py::class_<GpSdfMapping2D, std::shared_ptr<GpSdfMapping2D>> sdf_mapping(m, ERL_AS_STRING(GpSdfMapping2D));
+    py::class_<GpSdfMapping2D, std::shared_ptr<GpSdfMapping2D>> sdf_mapping(m, "GpSdfMapping2D");
     py::class_<GpSdfMapping2D::Setting, YamlableBase, std::shared_ptr<GpSdfMapping2D::Setting>> sdf_mapping_setting(sdf_mapping, "Setting");
     py::class_<GpSdfMapping2D::Setting::TestQuery, YamlableBase, std::shared_ptr<GpSdfMapping2D::Setting::TestQuery>>(sdf_mapping_setting, "TestQuery")
         .def_readwrite("max_test_valid_distance_var", &GpSdfMapping2D::Setting::TestQuery::max_test_valid_distance_var)
