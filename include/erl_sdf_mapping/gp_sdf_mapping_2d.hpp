@@ -51,14 +51,19 @@ namespace erl::sdf_mapping {
     private:
         std::shared_ptr<Setting> m_setting_ = std::make_shared<Setting>();
         std::mutex m_mutex_;
-        std::shared_ptr<AbstractSurfaceMapping2D> m_surface_mapping_ = nullptr;                     // for getting surface points, racing condition.
-        std::vector<geometry::QuadtreeKey> m_clusters_to_update_ = {};                              // stores clusters that are to be updated by UpdateGpThread.
-        QuadtreeKeyGpMap m_gp_map_ = {};                                                            // for getting GP from Quadtree key, racing condition.
-        std::vector<std::vector<std::pair<double, std::shared_ptr<GP>>>> m_query_to_gps_ = {};      // for testing, racing condition
-        std::vector<std::array<std::shared_ptr<GP>, 2>> m_query_used_gps_ = {};  // for testing, racing condition
-        std::list<std::shared_ptr<GP>> m_new_gps_ = {};                                            // caching new GPs to be moved into m_gps_to_train_
-        std::vector<std::shared_ptr<GP>> m_gps_to_train_ = {};  // for training SDF GPs, racing condition in Update() and Test()
-        double m_train_gp_time_ = 10;                           // us
+        std::shared_ptr<AbstractSurfaceMapping2D> m_surface_mapping_ = nullptr;                 // for getting surface points, racing condition.
+        std::vector<geometry::QuadtreeKey> m_clusters_to_update_ = {};                          // stores clusters that are to be updated by UpdateGpThread.
+        QuadtreeKeyGpMap m_gp_map_ = {};                                                        // for getting GP from Quadtree key, racing condition.
+        std::vector<std::vector<std::pair<double, std::shared_ptr<GP>>>> m_query_to_gps_ = {};  // for testing, racing condition
+        std::vector<std::array<std::shared_ptr<GP>, 2>> m_query_used_gps_ = {};                 // for testing, racing condition
+        std::list<std::shared_ptr<GP>> m_new_gps_ = {};                                         // caching new GPs to be moved into m_gps_to_train_
+        std::vector<std::shared_ptr<GP>> m_gps_to_train_ = {};                                  // for training SDF GPs, racing condition in Update() and Test()
+        double m_train_gp_time_ = 10;                                                           // us
+        std::mutex m_log_mutex_;                                                                // for logging
+        double m_travel_distance_ = 0;                                                          // for logging
+        std::optional<Eigen::Vector2d> m_last_position_ = std::nullopt;                         // for logging
+        std::ofstream m_train_log_file_;
+        std::ofstream m_test_log_file_;
 
         // for testing
         struct TestBuffer {
@@ -119,6 +124,20 @@ namespace erl::sdf_mapping {
               m_surface_mapping_(std::move(surface_mapping)) {
             if (m_setting_ == nullptr) { m_setting_ = std::make_shared<Setting>(); }
             ERL_ASSERTM(m_surface_mapping_ != nullptr, "surface_mapping is nullptr.");
+
+            // get log dir from env
+            char* log_dir_env = std::getenv("LOG_DIR");
+            std::filesystem::path log_dir = log_dir_env == nullptr ? std::filesystem::current_path() : std::filesystem::path(log_dir_env);
+            std::filesystem::path train_log_file_name = log_dir / "gp_sdf_mapping_2d_train.csv";
+            std::filesystem::path test_log_file_name = log_dir / "gp_sdf_mapping_2d_test.csv";
+            if (std::filesystem::exists(train_log_file_name)) { std::filesystem::remove(train_log_file_name); }
+            if (std::filesystem::exists(test_log_file_name)) { std::filesystem::remove(test_log_file_name); }
+            m_train_log_file_.open(train_log_file_name);
+            m_test_log_file_.open(test_log_file_name);
+            ERL_WARN_COND(!m_train_log_file_.is_open(), ("Failed to open " + train_log_file_name.string()).c_str());
+            ERL_WARN_COND(!m_test_log_file_.is_open(), ("Failed to open " + test_log_file_name.string()).c_str());
+            m_train_log_file_ << "travel_distance,surf_mapping_time(us),gp_data_update_time(us),gp_delay_cnt,gp_train_time(us),total_update_time(ms)\n" << std::flush;
+            m_test_log_file_ << "travel_distance,gp_train_time(us),test_time(us)\n" << std::flush;
         }
 
         [[nodiscard]] std::shared_ptr<Setting>
