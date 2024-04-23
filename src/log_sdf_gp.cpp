@@ -40,14 +40,14 @@ namespace erl::sdf_mapping {
         for (long i = 0; i < m_num_train_samples_; ++i) { vec_log_alpha[i] = 1.0; }
 
         // Compute cholesky decomposition and alpha
-        auto mat_l = m_mat_l_.topLeftCorner(output_size1.first, output_size1.second);          // square matrix, lower triangular
-        mat_l = mat_ktrain.llt().matrixL();                                                    // gpis, Ktrain = L * L^T
-        mat_l.triangularView<Eigen::Lower>().solveInPlace(vec_alpha);                          // Ktrain^-1 = L^-T * L^-1
-        mat_l.transpose().triangularView<Eigen::Upper>().solveInPlace(vec_alpha);              // alpha = Ktrain^-1 * [h, dh/dx_1, ..., dh/dx_dim]
-        auto mat_log_l = m_mat_log_l_.topLeftCorner(output_size2.first, output_size2.second);  // square matrix, lower triangular
-        mat_log_l = mat_log_ktrain.llt().matrixL();                                            // log-gpis, logKtrain = logL * logL^T
-        mat_log_l.triangularView<Eigen::Lower>().solveInPlace(vec_log_alpha);                  // logKtrain^-1 = logL^-T * logL^-1
-        mat_log_l.transpose().triangularView<Eigen::Upper>().solveInPlace(vec_log_alpha);      // log_alpha = logKtrain^-1 * log(-lambda * h)
+        auto &&mat_l = m_mat_l_.topLeftCorner(output_size1.first, output_size1.second);          // square matrix, lower triangular
+        mat_l = mat_ktrain.llt().matrixL();                                                      // gpis, Ktrain = L * L^T
+        mat_l.triangularView<Eigen::Lower>().solveInPlace(vec_alpha);                            // Ktrain^-1 = L^-T * L^-1
+        mat_l.transpose().triangularView<Eigen::Upper>().solveInPlace(vec_alpha);                // alpha = Ktrain^-1 * [h, dh/dx_1, ..., dh/dx_dim]
+        auto &&mat_log_l = m_mat_log_l_.topLeftCorner(output_size2.first, output_size2.second);  // square matrix, lower triangular
+        mat_log_l = mat_log_ktrain.llt().matrixL();                                              // log-gpis, logKtrain = logL * logL^T
+        mat_log_l.triangularView<Eigen::Lower>().solveInPlace(vec_log_alpha);                    // logKtrain^-1 = logL^-T * logL^-1
+        mat_log_l.transpose().triangularView<Eigen::Upper>().solveInPlace(vec_log_alpha);        // log_alpha = logKtrain^-1 * log(-lambda * h)
 
         m_trained_ = true;
     }

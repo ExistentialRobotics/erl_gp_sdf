@@ -239,19 +239,19 @@ namespace YAML {
         }
     };
 
-    inline Emitter &
-    operator<<(Emitter &out, const GpisMapBase2D::Setting::ComputeVariance &rhs) {
-        out << BeginMap;
-        out << Key << "zero_gradient_position_var" << Value << rhs.zero_gradient_position_var;
-        out << Key << "zero_gradient_gradient_var" << Value << rhs.zero_gradient_gradient_var;
-        out << Key << "min_distance_var" << Value << rhs.min_distance_var;
-        out << Key << "max_distance_var" << Value << rhs.max_distance_var;
-        out << Key << "position_var_alpha" << Value << rhs.position_var_alpha;
-        out << Key << "min_gradient_var" << Value << rhs.min_gradient_var;
-        out << Key << "max_gradient_var" << Value << rhs.max_gradient_var;
-        out << EndMap;
-        return out;
-    }
+//    inline Emitter &
+//    operator<<(Emitter &out, const GpisMapBase2D::Setting::ComputeVariance &rhs) {
+//        out << BeginMap;
+//        out << Key << "zero_gradient_position_var" << Value << rhs.zero_gradient_position_var;
+//        out << Key << "zero_gradient_gradient_var" << Value << rhs.zero_gradient_gradient_var;
+//        out << Key << "min_distance_var" << Value << rhs.min_distance_var;
+//        out << Key << "max_distance_var" << Value << rhs.max_distance_var;
+//        out << Key << "position_var_alpha" << Value << rhs.position_var_alpha;
+//        out << Key << "min_gradient_var" << Value << rhs.min_gradient_var;
+//        out << Key << "max_gradient_var" << Value << rhs.max_gradient_var;
+//        out << EndMap;
+//        return out;
+//    }
 
     template<>
     struct convert<GpisMapBase2D::Setting::UpdateMapPoints> {
@@ -281,18 +281,18 @@ namespace YAML {
         }
     };
 
-    inline Emitter &
-    operator<<(Emitter &out, const GpisMapBase2D::Setting::UpdateMapPoints &rhs) {
-        out << BeginMap;
-        out << Key << "min_observable_occ" << Value << rhs.min_observable_occ;
-        out << Key << "max_surface_abs_occ" << Value << rhs.max_surface_abs_occ;
-        out << Key << "max_valid_gradient_var" << Value << rhs.max_valid_gradient_var;
-        out << Key << "max_adjust_tries" << Value << rhs.max_adjust_tries;
-        out << Key << "max_bayes_position_var" << Value << rhs.max_bayes_position_var;
-        out << Key << "max_bayes_gradient_var" << Value << rhs.max_bayes_gradient_var;
-        out << EndMap;
-        return out;
-    }
+//    inline Emitter &
+//    operator<<(Emitter &out, const GpisMapBase2D::Setting::UpdateMapPoints &rhs) {
+//        out << BeginMap;
+//        out << Key << "min_observable_occ" << Value << rhs.min_observable_occ;
+//        out << Key << "max_surface_abs_occ" << Value << rhs.max_surface_abs_occ;
+//        out << Key << "max_valid_gradient_var" << Value << rhs.max_valid_gradient_var;
+//        out << Key << "max_adjust_tries" << Value << rhs.max_adjust_tries;
+//        out << Key << "max_bayes_position_var" << Value << rhs.max_bayes_position_var;
+//        out << Key << "max_bayes_gradient_var" << Value << rhs.max_bayes_gradient_var;
+//        out << EndMap;
+//        return out;
+//    }
 
     template<>
     struct convert<GpisMapBase2D::Setting::UpdateGpSdf> {
@@ -322,18 +322,18 @@ namespace YAML {
         }
     };
 
-    inline Emitter &
-    operator<<(Emitter &out, const GpisMapBase2D::Setting::UpdateGpSdf &rhs) {
-        out << BeginMap;
-        out << Key << "add_offset_points" << Value << rhs.add_offset_points;
-        out << Key << "offset_distance" << Value << rhs.offset_distance;
-        out << Key << "search_area_scale" << Value << rhs.search_area_scale;
-        out << Key << "zero_gradient_threshold" << Value << rhs.zero_gradient_threshold;
-        out << Key << "max_valid_gradient_var" << Value << rhs.max_valid_gradient_var;
-        out << Key << "invalid_position_var" << Value << rhs.invalid_position_var;
-        out << EndMap;
-        return out;
-    }
+//    inline Emitter &
+//    operator<<(Emitter &out, const GpisMapBase2D::Setting::UpdateGpSdf &rhs) {
+//        out << BeginMap;
+//        out << Key << "add_offset_points" << Value << rhs.add_offset_points;
+//        out << Key << "offset_distance" << Value << rhs.offset_distance;
+//        out << Key << "search_area_scale" << Value << rhs.search_area_scale;
+//        out << Key << "zero_gradient_threshold" << Value << rhs.zero_gradient_threshold;
+//        out << Key << "max_valid_gradient_var" << Value << rhs.max_valid_gradient_var;
+//        out << Key << "invalid_position_var" << Value << rhs.invalid_position_var;
+//        out << EndMap;
+//        return out;
+//    }
 
     template<>
     struct convert<GpisMapBase2D::Setting::TestQuery> {
@@ -357,15 +357,15 @@ namespace YAML {
         }
     };
 
-    inline Emitter &
-    operator<<(Emitter &out, const GpisMapBase2D::Setting::TestQuery &rhs) {
-        out << BeginMap;
-        out << Key << "max_test_valid_distance_var" << Value << rhs.max_test_valid_distance_var;
-        out << Key << "search_area_half_size" << Value << rhs.search_area_half_size;
-        out << Key << "use_nearest_only" << Value << rhs.use_nearest_only;
-        out << EndMap;
-        return out;
-    }
+//    inline Emitter &
+//    operator<<(Emitter &out, const GpisMapBase2D::Setting::TestQuery &rhs) {
+//        out << BeginMap;
+//        out << Key << "max_test_valid_distance_var" << Value << rhs.max_test_valid_distance_var;
+//        out << Key << "search_area_half_size" << Value << rhs.search_area_half_size;
+//        out << Key << "use_nearest_only" << Value << rhs.use_nearest_only;
+//        out << EndMap;
+//        return out;
+//    }
 
     template<>
     struct convert<GpisMapBase2D::Setting> {
@@ -405,21 +405,21 @@ namespace YAML {
         }
     };
 
-    inline Emitter &
-    operator<<(Emitter &out, const GpisMapBase2D::Setting &setting) {
-        out << BeginMap;
-        out << Key << "num_threads" << Value << setting.num_threads;
-        out << Key << "init_tree_half_size" << Value << setting.init_tree_half_size;
-        out << Key << "perturb_delta" << Value << setting.perturb_delta;
-        out << Key << "compute_variance" << Value << *setting.compute_variance;
-        out << Key << "update_map_points" << Value << *setting.update_map_points;
-        out << Key << "update_gp_sdf" << Value << *setting.update_gp_sdf;
-        out << Key << "gp_theta" << Value << *setting.gp_theta;
-        out << Key << "gp_sdf" << Value << *setting.gp_sdf;
-        out << Key << "node_container" << Value << *setting.node_container;
-        out << Key << "quadtree" << Value << *setting.quadtree;
-        out << Key << "test_query" << Value << *setting.test_query;
-        out << EndMap;
-        return out;
-    }
+//    inline Emitter &
+//    operator<<(Emitter &out, const GpisMapBase2D::Setting &setting) {
+//        out << BeginMap;
+//        out << Key << "num_threads" << Value << setting.num_threads;
+//        out << Key << "init_tree_half_size" << Value << setting.init_tree_half_size;
+//        out << Key << "perturb_delta" << Value << setting.perturb_delta;
+//        out << Key << "compute_variance" << Value << *setting.compute_variance;
+//        out << Key << "update_map_points" << Value << *setting.update_map_points;
+//        out << Key << "update_gp_sdf" << Value << *setting.update_gp_sdf;
+//        out << Key << "gp_theta" << Value << *setting.gp_theta;
+//        out << Key << "gp_sdf" << Value << *setting.gp_sdf;
+//        out << Key << "node_container" << Value << *setting.node_container;
+//        out << Key << "quadtree" << Value << *setting.quadtree;
+//        out << Key << "test_query" << Value << *setting.test_query;
+//        out << EndMap;
+//        return out;
+//    }
 }  // namespace YAML

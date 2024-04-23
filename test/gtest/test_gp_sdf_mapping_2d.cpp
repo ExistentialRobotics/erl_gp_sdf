@@ -217,7 +217,7 @@ TEST(ERL_SDF_MAPPING, GpSdfMapping2D) {
     drawer->SetDrawTreeCallback([&](const OccupancyQuadtreeDrawer *self, cv::Mat &img, erl::sdf_mapping::SurfaceMappingQuadtree::TreeIterator &it) {
         unsigned int cluster_depth = surface_mapping->GetQuadtree()->GetTreeDepth() - surface_mapping->GetClusterLevel();
         auto grid_map_info = self->GetGridMapInfo();
-        if (it.GetDepth() == cluster_depth) {
+        if (it->GetDepth() == cluster_depth) {
             Eigen::Vector2i position_px = grid_map_info->MeterToPixelForPoints(Eigen::Vector2d(it.GetX(), it.GetY()));
             cv::Point position_px_cv(position_px[0], position_px[1]);
             cv::circle(img, position_px_cv, 2, cv::Scalar(0, 0, 255, 255), -1);  // draw surface point

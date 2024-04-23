@@ -22,7 +22,7 @@ TEST(ERL_SDF_MAPPING, LogGpisMap2D) {
     std::cout.precision(5);
     std::cout << std::scientific;
 
-    std::size_t t_train_ans = 0;
+    double t_train_ans = 0;
     int cnt = 0;
     std::stringstream ss;
     const char *train_dat_file = "double/train.dat";
@@ -35,15 +35,14 @@ TEST(ERL_SDF_MAPPING, LogGpisMap2D) {
         std::cout << "===============================================" << std::endl;
     }
 
-    t_train_ans /= train_data_loader.size();
+    t_train_ans /= double(train_data_loader.size());
 
     const char *test_dat_file = "double/test.dat";
     auto df = erl::geometry::GazeboRoom::TestDataFrame((dir_path / test_dat_file).c_str());
     Eigen::VectorXd distance_ans, distance_variance_ans;
     Eigen::Matrix2Xd gradient_ans, gradient_variance_ans;
-    // std::vector<double> distance_ans, gradient_ans, distance_variance_ans,
     // gradient_variance_ans;
-    long t_test_ans = ReportTime<std::chrono::milliseconds>("LogGpisMap2D-test", 10, false, [&]() {
+    double t_test_ans = ReportTime<std::chrono::milliseconds>("LogGpisMap2D-test", 10, false, [&]() {
         log_gpis_map.Test(df.positions, distance_ans, gradient_ans, distance_variance_ans, gradient_variance_ans);
     });
     double t_per_point = double(t_test_ans) / double(df.positions.cols() * 1000);  // us

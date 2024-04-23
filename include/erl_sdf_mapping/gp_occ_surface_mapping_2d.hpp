@@ -129,41 +129,12 @@ namespace erl::sdf_mapping {
             double &var_position,
             double &var_gradient) const;
 
-        inline bool
+        [[nodiscard]] inline bool
         IsValidRangeEstimation(double range, double range_variance) const {
             return range >= m_setting_->gp_theta->train_buffer->valid_range_min && range <= m_setting_->gp_theta->train_buffer->valid_range_max &&
                    range_variance < m_setting_->gp_theta->max_valid_range_var;
         }
-
-        // inline void
-        // ComputeSensorNoiseModel(
-        //     const Eigen::Ref<const Eigen::Vector2d> &sensor_position,
-        //     const Eigen::Ref<const Eigen::Vector2d> &position,
-        //     const Eigen::Ref<const Eigen::Vector2d> &normal,
-        //     double predicted_range,
-        //     double predicted_range_variance,
-        //     const Eigen::Ref<const Eigen::Vector2d> &predicted_normal,
-        //     double predicted_normal_variance,
-        //     double &var_position,
-        //     double &var_normal) {
-        //
-        //     Eigen::Vector2d view_dir_inv = sensor_position - position;
-        //     double r0 = view_dir_inv.norm();
-        //     double dr = predicted_range - r0;
-        //     double cos_phi = normal.dot(predicted_normal);
-        //     double cos2_phi = cos_phi * cos_phi;
-        //     double tan2_phi = (1 - cos2_phi) / cos2_phi;
-        //
-        //     double alpha = 10.;
-        //     double beta = 1;
-        //     double gamma = 1.;
-        //     double eta = 1.;
-        //
-        //     var_position = alpha * dr * dr + beta * predicted_range_variance;
-        //     var_normal = gamma * tan2_phi + eta * predicted_normal_variance;
-        // }
     };
-
 }  // namespace erl::sdf_mapping
 
 namespace YAML {
@@ -200,20 +171,6 @@ namespace YAML {
         }
     };
 
-    inline Emitter &
-    operator<<(Emitter &out, const GpOccSurfaceMapping2D::Setting::ComputeVariance &rhs) {
-        out << BeginMap;
-        out << Key << "zero_gradient_position_var" << Value << rhs.zero_gradient_position_var;
-        out << Key << "zero_gradient_gradient_var" << Value << rhs.zero_gradient_gradient_var;
-        out << Key << "min_distance_var" << Value << rhs.min_distance_var;
-        out << Key << "max_distance_var" << Value << rhs.max_distance_var;
-        out << Key << "position_var_alpha" << Value << rhs.position_var_alpha;
-        out << Key << "min_gradient_var" << Value << rhs.min_gradient_var;
-        out << Key << "max_gradient_var" << Value << rhs.max_gradient_var;
-        out << EndMap;
-        return out;
-    }
-
     template<>
     struct convert<GpOccSurfaceMapping2D::Setting::UpdateMapPoints> {
 
@@ -246,21 +203,6 @@ namespace YAML {
         }
     };
 
-    inline Emitter &
-    operator<<(Emitter &out, const GpOccSurfaceMapping2D::Setting::UpdateMapPoints &rhs) {
-        out << BeginMap;
-        out << Key << "min_observable_occ" << Value << rhs.min_observable_occ;
-        out << Key << "max_surface_abs_occ" << Value << rhs.max_surface_abs_occ;
-        out << Key << "max_valid_gradient_var" << Value << rhs.max_valid_gradient_var;
-        out << Key << "max_adjust_tries" << Value << rhs.max_adjust_tries;
-        out << Key << "max_bayes_position_var" << Value << rhs.max_bayes_position_var;
-        out << Key << "max_bayes_gradient_var" << Value << rhs.max_bayes_gradient_var;
-        out << Key << "min_position_var" << Value << rhs.min_position_var;
-        out << Key << "min_gradient_var" << Value << rhs.min_gradient_var;
-        out << EndMap;
-        return out;
-    }
-
     template<>
     struct convert<GpOccSurfaceMapping2D::Setting> {
         inline static Node
@@ -291,19 +233,4 @@ namespace YAML {
             return true;
         }
     };
-
-    inline Emitter &
-    operator<<(Emitter &out, const GpOccSurfaceMapping2D::Setting &setting) {
-        out << BeginMap;
-        out << Key << "gp_theta" << Value << setting.gp_theta;
-        out << Key << "compute_variance" << Value << setting.compute_variance;
-        out << Key << "update_map_points" << Value << setting.update_map_points;
-        out << Key << "quadtree" << Value << setting.quadtree;
-        out << Key << "cluster_level" << Value << setting.cluster_level;
-        out << Key << "perturb_delta" << Value << setting.perturb_delta;
-        out << Key << "zero_gradient_threshold" << Value << setting.zero_gradient_threshold;
-        out << Key << "update_occupancy" << Value << setting.update_occupancy;
-        out << EndMap;
-        return out;
-    }
 }  // namespace YAML

@@ -6,74 +6,38 @@
 
 namespace erl::sdf_mapping {
 
-    class SurfaceMappingQuadtree : public geometry::OccupancyQuadtreeBase<SurfaceMappingQuadtreeNode> {
+    class SurfaceMappingQuadtree : public geometry::OccupancyQuadtreeBase<SurfaceMappingQuadtreeNode, geometry::OccupancyQuadtreeBaseSetting> {
 
     public:
         using Setting = geometry::OccupancyQuadtreeBaseSetting;
+        typedef geometry::OccupancyQuadtreeDrawer<SurfaceMappingQuadtree> Drawer;
 
-        explicit SurfaceMappingQuadtree(double resolution)
-            : OccupancyQuadtreeBase<SurfaceMappingQuadtreeNode>(resolution) {
+        explicit SurfaceMappingQuadtree(const std::shared_ptr<Setting> &setting)
+            : OccupancyQuadtreeBase<SurfaceMappingQuadtreeNode, geometry::OccupancyQuadtreeBaseSetting>(setting) {
             s_init_.EnsureLinking();
         }
 
-        explicit SurfaceMappingQuadtree(const std::shared_ptr<Setting> &setting)
-            : OccupancyQuadtreeBase<SurfaceMappingQuadtreeNode>(setting) {}
+        SurfaceMappingQuadtree()
+            : SurfaceMappingQuadtree(std::make_shared<Setting>()) {}
 
         explicit SurfaceMappingQuadtree(const std::string &filename)
-            : OccupancyQuadtreeBase<SurfaceMappingQuadtreeNode>(0.1) {  // resolution will be set by readBinary
-            this->ReadBinary(filename);
+            : SurfaceMappingQuadtree() {  // resolution will be set by LoadData
+            ERL_ASSERTM(this->LoadData(filename), "Failed to read SurfaceMappingQuadtree from file: %s", filename.c_str());
         }
 
-        [[nodiscard]] std::shared_ptr<AbstractQuadtree>
-        Create() const override {
-            return std::make_shared<SurfaceMappingQuadtree>(0.1);
-        }
+        SurfaceMappingQuadtree(const SurfaceMappingQuadtree &) = delete;  // no copy constructor
 
-        [[nodiscard]] std::shared_ptr<Setting>
-        GetSetting() const {
-            auto setting = std::make_shared<Setting>();
-            setting->log_odd_min = this->GetLogOddMin();
-            setting->log_odd_max = this->GetLogOddMax();
-            setting->probability_hit = this->GetProbabilityHit();
-            setting->probability_miss = this->GetProbabilityMiss();
-            setting->probability_occupied_threshold = this->GetOccupancyThreshold();
-            setting->resolution = this->GetResolution();
-            setting->use_change_detection = this->m_use_change_detection_;
-            setting->use_aabb_limit = this->m_use_aabb_limit_;
-            setting->aabb = this->m_aabb_;
-            return setting;
-        }
-
-        [[nodiscard]] std::string
+        [[nodiscard]] inline std::string
         GetTreeType() const override {
-            return ERL_AS_STRING(SurfaceMappingQuadtree);
+            return "SurfaceMappingQuadtree";
         }
-
-        /**
-         * If no surface data is present, and all children are leaves and equal, then the node is collapsible.
-         * @param node
-         * @return
-         */
-        // bool
-        // IsNodeCollapsible(const std::shared_ptr<SurfaceMappingQuadtreeNode> &node) const override {
-        //     // all children must exist
-        //     if (node->GetNumChildren() != 4) { return false; }
-        //
-        //     auto first_child = this->GetNodeChild(node, 0);
-        //     if (first_child->GetSurfaceData() != nullptr || first_child->HasAnyChild()) { return false; }
-        //
-        //     for (unsigned int i = 1; i < 4; ++i) {
-        //         auto child = this->GetNodeChild(node, i);
-        //         // child should be a leaf node
-        //         if (child->GetSurfaceData() != nullptr || child->HasAnyChild() || *child != *first_child) { return false; }
-        //     }
-        //
-        //     return true;
-        // }
-
-        typedef geometry::OccupancyQuadtreeDrawer<SurfaceMappingQuadtree> Drawer;
 
     protected:
+        [[nodiscard]] inline std::shared_ptr<AbstractQuadtree>
+        Create() const override {
+            return std::make_shared<SurfaceMappingQuadtree>();
+        }
+
         /**
          * Static member object which ensures that this OcTree's prototype
          * ends up in the classIDMapping only once. You need this as a
@@ -84,7 +48,7 @@ namespace erl::sdf_mapping {
         class StaticMemberInitializer {
         public:
             StaticMemberInitializer() {
-                auto tree = std::make_shared<SurfaceMappingQuadtree>(0.1);
+                auto tree = std::make_shared<SurfaceMappingQuadtree>();
                 tree->ClearKeyRays();
                 AbstractQuadtree::RegisterTreeType(tree);
             }
@@ -95,7 +59,7 @@ namespace erl::sdf_mapping {
              * Needs to be called from the constructor of this octree.
              */
             void
-            EnsureLinking(){};
+            EnsureLinking() {}
         };
 
         inline static StaticMemberInitializer s_init_ = {};
@@ -108,9 +72,4 @@ namespace YAML {
     template<>
     struct convert<erl::sdf_mapping::SurfaceMappingQuadtree::Drawer::Setting>
         : public ConvertOccupancyQuadtreeDrawerSetting<erl::sdf_mapping::SurfaceMappingQuadtree::Drawer::Setting> {};
-
-    inline Emitter &
-    operator<<(Emitter &out, const erl::sdf_mapping::SurfaceMappingQuadtree::Drawer::Setting &rhs) {
-        return PrintOccupancyQuadtreeDrawerSetting(out, rhs);
-    }
 }  // namespace YAML

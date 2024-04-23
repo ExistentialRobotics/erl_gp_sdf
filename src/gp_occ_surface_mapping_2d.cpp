@@ -60,7 +60,6 @@ namespace erl::sdf_mapping {
         if (m_quadtree_ == nullptr || !m_gp_theta_->IsTrained()) { return; }
 
         auto &kTrainBuffer = m_gp_theta_->GetTrainBuffer();
-        std::vector<std::shared_ptr<geometry::QuadtreeKey>> keys_to_update;
         geometry::Aabb2D observed_area(kTrainBuffer.position, kTrainBuffer.max_distance + 3.0);
         Eigen::Vector2d &min_corner = observed_area.min();
         Eigen::Vector2d &max_corner = observed_area.max();
@@ -147,33 +146,33 @@ namespace erl::sdf_mapping {
             ComputeVariance(xy_local_new, grad_local_new, distance_new, var_distance, std::fabs(occ_mean), occ_abs, false, var_position_new, var_gradient_new);
 
             Eigen::Vector2d xy_global_new = m_gp_theta_->LocalToGlobalSe2(xy_local_new);
-            double &var_position_old = surface_data->var_position;
-            double &var_gradient_old = surface_data->var_normal;
-            if (var_gradient_old <= m_setting_->update_map_points->max_valid_gradient_var) {
+            const double &kVarPositionOld = surface_data->var_position;
+            const double &kVarGradientOld = surface_data->var_normal;
+            if (kVarGradientOld <= m_setting_->update_map_points->max_valid_gradient_var) {
                 // do bayes Update only when the old result is not too bad, otherwise, just replace it
-                double var_position_sum = var_position_new + var_position_old;
-                double var_gradient_sum = var_gradient_new + var_gradient_old;
+                double var_position_sum = var_position_new + kVarPositionOld;
+                double var_gradient_sum = var_gradient_new + kVarGradientOld;
 
                 // position Update
-                xy_global_new = (xy_global_new * var_position_old + xy_global_old * var_position_new) / var_position_sum;
+                xy_global_new = (xy_global_new * kVarPositionOld + xy_global_old * var_position_new) / var_position_sum;
 
                 // gradient Update
-                double &old_x = surface_data->normal.x();
-                double &old_y = surface_data->normal.y();
-                double &new_x = grad_global_new.x();
-                double &new_y = grad_global_new.y();
-                double angle_dist = std::atan2(old_x * new_y - old_y * new_x, old_x * new_x + old_y * new_y) * var_position_new / var_position_sum;
+                const double &kOldX = surface_data->normal.x();
+                const double &kOldY = surface_data->normal.y();
+                const double &kNewX = grad_global_new.x();
+                const double &kNewY = grad_global_new.y();
+                double angle_dist = std::atan2(kOldX * kNewY - kOldY * kNewX, kOldX * kNewX + kOldY * kNewY) * var_position_new / var_position_sum;
                 double sin = std::sin(angle_dist);
                 double cos = std::cos(angle_dist);
                 // rotate grad_global_old by angle_dist
-                grad_global_new.x() = cos * old_x - sin * old_y;
-                grad_global_new.y() = sin * old_x + cos * old_y;
+                grad_global_new.x() = cos * kOldX - sin * kOldY;
+                grad_global_new.y() = sin * kOldX + cos * kOldY;
 
                 // variance Update
                 double distance = (xy_global_new - xy_global_old).norm() * double(0.5);
-                var_position_new = std::max((var_position_new * var_position_old) / var_position_sum + distance, m_setting_->gp_theta->sensor_range_var);
+                var_position_new = std::max((var_position_new * kVarPositionOld) / var_position_sum + distance, m_setting_->gp_theta->sensor_range_var);
                 var_gradient_new = common::ClipRange(
-                    (var_gradient_new * var_gradient_old) / var_gradient_sum + distance,
+                    (var_gradient_new * kVarGradientOld) / var_gradient_sum + distance,
                     m_setting_->compute_variance->min_gradient_var,
                     m_setting_->compute_variance->max_gradient_var);
             }
@@ -231,9 +230,7 @@ namespace erl::sdf_mapping {
     void
     GpOccSurfaceMapping2D::AddNewMeasurement() {
 
-        if (m_quadtree_ == nullptr) {
-            m_quadtree_ = std::make_shared<SurfaceMappingQuadtree>(m_setting_->quadtree);
-        }
+        if (m_quadtree_ == nullptr) { m_quadtree_ = std::make_shared<SurfaceMappingQuadtree>(m_setting_->quadtree); }
 
         auto &kTrainBuffer = m_gp_theta_->GetTrainBuffer();
 
@@ -246,7 +243,7 @@ namespace erl::sdf_mapping {
 
             geometry::QuadtreeKey key = m_quadtree_->CoordToKey(kTrainBuffer.mat_xy_global(0, i), kTrainBuffer.mat_xy_global(1, i));
             SurfaceMappingQuadtreeNode *leaf = m_quadtree_->InsertNode(key);                       // insert the point to the tree
-            ERL_ASSERTM(leaf != nullptr, "Failed to insert a new point to the quadtree.");         // this should not happen
+            if (leaf == nullptr) { continue; }                                                     // failed to insert the point, skip it
             if (m_setting_->update_occupancy && !m_quadtree_->IsNodeOccupied(leaf)) { continue; }  // the leaf is not marked as occupied, skip it
             if (leaf->GetSurfaceData() != nullptr) { continue; }                                   // the leaf already has surface data, skip it
 

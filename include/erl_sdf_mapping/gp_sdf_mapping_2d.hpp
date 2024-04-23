@@ -222,19 +222,6 @@ namespace YAML {
         }
     };
 
-    inline Emitter&
-    operator<<(Emitter& out, const GpSdfMapping2D::Setting::TestQuery& rhs) {
-        out << BeginMap;
-        out << Key << "max_test_valid_distance_var" << Value << rhs.max_test_valid_distance_var;
-        out << Key << "search_area_half_size" << Value << rhs.search_area_half_size;
-        out << Key << "use_nearest_only" << Value << rhs.use_nearest_only;
-        out << Key << "compute_covariance" << Value << rhs.compute_covariance;
-        out << Key << "recompute_variance" << Value << rhs.recompute_variance;
-        out << Key << "softmax_temperature" << Value << rhs.softmax_temperature;
-        out << EndMap;
-        return out;
-    }
-
     template<>
     struct convert<GpSdfMapping2D::Setting> {
         static Node
@@ -267,21 +254,4 @@ namespace YAML {
             return true;
         }
     };
-
-    inline Emitter&
-    operator<<(Emitter& out, const GpSdfMapping2D::Setting& setting) {
-        out << BeginMap;
-        out << Key << "num_threads" << Value << setting.num_threads;
-        out << Key << "update_hz" << Value << setting.update_hz;
-        out << Key << "gp_sdf_area_scale" << Value << setting.gp_sdf_area_scale;
-        out << Key << "offset_distance" << Value << setting.offset_distance;
-        out << Key << "max_valid_gradient_var" << Value << setting.max_valid_gradient_var;
-        out << Key << "invalid_position_var" << Value << setting.invalid_position_var;
-        out << Key << "train_gp_immediately" << Value << setting.train_gp_immediately;
-        out << Key << "gp_sdf" << Value << setting.gp_sdf;
-        out << Key << "test_query" << Value << setting.test_query;
-        out << EndMap;
-        return out;
-    }
-
 }  // namespace YAML
