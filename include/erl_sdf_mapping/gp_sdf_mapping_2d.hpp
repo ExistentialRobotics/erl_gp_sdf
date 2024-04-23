@@ -30,6 +30,7 @@ namespace erl::sdf_mapping {
             bool train_gp_immediately = false;
             std::shared_ptr<LogSdfGaussianProcess::Setting> gp_sdf = std::make_shared<LogSdfGaussianProcess::Setting>();
             std::shared_ptr<TestQuery> test_query = std::make_shared<TestQuery>();  // parameters used by Test.
+            bool log_timing = false;
         };
 
         struct GP {
@@ -126,18 +127,22 @@ namespace erl::sdf_mapping {
             ERL_ASSERTM(m_surface_mapping_ != nullptr, "surface_mapping is nullptr.");
 
             // get log dir from env
-            char* log_dir_env = std::getenv("LOG_DIR");
-            std::filesystem::path log_dir = log_dir_env == nullptr ? std::filesystem::current_path() : std::filesystem::path(log_dir_env);
-            std::filesystem::path train_log_file_name = log_dir / "gp_sdf_mapping_2d_train.csv";
-            std::filesystem::path test_log_file_name = log_dir / "gp_sdf_mapping_2d_test.csv";
-            if (std::filesystem::exists(train_log_file_name)) { std::filesystem::remove(train_log_file_name); }
-            if (std::filesystem::exists(test_log_file_name)) { std::filesystem::remove(test_log_file_name); }
-            m_train_log_file_.open(train_log_file_name);
-            m_test_log_file_.open(test_log_file_name);
-            ERL_WARN_COND(!m_train_log_file_.is_open(), ("Failed to open " + train_log_file_name.string()).c_str());
-            ERL_WARN_COND(!m_test_log_file_.is_open(), ("Failed to open " + test_log_file_name.string()).c_str());
-            m_train_log_file_ << "travel_distance,surf_mapping_time(us),gp_data_update_time(us),gp_delay_cnt,gp_train_time(us),total_update_time(ms)\n" << std::flush;
-            m_test_log_file_ << "travel_distance,gp_train_time(us),test_time(us)\n" << std::flush;
+            if (m_setting_->log_timing) {
+                char* log_dir_env = std::getenv("LOG_DIR");
+                std::filesystem::path log_dir = log_dir_env == nullptr ? std::filesystem::current_path() : std::filesystem::path(log_dir_env);
+                std::filesystem::path train_log_file_name = log_dir / "gp_sdf_mapping_2d_train.csv";
+                std::filesystem::path test_log_file_name = log_dir / "gp_sdf_mapping_2d_test.csv";
+                if (std::filesystem::exists(train_log_file_name)) { std::filesystem::remove(train_log_file_name); }
+                if (std::filesystem::exists(test_log_file_name)) { std::filesystem::remove(test_log_file_name); }
+                m_train_log_file_.open(train_log_file_name);
+                m_test_log_file_.open(test_log_file_name);
+                ERL_WARN_COND(!m_train_log_file_.is_open(), ("Failed to open " + train_log_file_name.string()).c_str());
+                ERL_WARN_COND(!m_test_log_file_.is_open(), ("Failed to open " + test_log_file_name.string()).c_str());
+                m_train_log_file_ << "travel_distance,surf_mapping_time(us),gp_data_update_time(us),gp_delay_cnt,"
+                                  << "gp_train_time(us),total_gp_update_time(ms),total_update_time(ms)" << std::endl
+                                  << std::flush;
+                m_test_log_file_ << "travel_distance,gp_search_time(us),gp_train_time(us),gp_test_time(us),total_test_time(ms)" << std::endl << std::flush;
+            }
         }
 
         [[nodiscard]] std::shared_ptr<Setting>
@@ -236,6 +241,7 @@ namespace YAML {
             node["train_gp_immediately"] = setting.train_gp_immediately;
             node["gp_sdf"] = setting.gp_sdf;
             node["test_query"] = setting.test_query;
+            node["log_timing"] = setting.log_timing;
             return node;
         }
 
@@ -251,6 +257,7 @@ namespace YAML {
             setting.train_gp_immediately = node["train_gp_immediately"].as<bool>();
             setting.gp_sdf = node["gp_sdf"].as<decltype(setting.gp_sdf)>();
             setting.test_query = node["test_query"].as<decltype(setting.test_query)>();
+            setting.log_timing = node["log_timing"].as<bool>();
             return true;
         }
     };

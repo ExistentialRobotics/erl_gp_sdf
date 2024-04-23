@@ -43,6 +43,7 @@ class RosNode {
 
     std::shared_ptr<ros::NodeHandle> m_node_handle_ = std::make_shared<ros::NodeHandle>();
     Parameters m_params_;
+    std::shared_ptr<ros::AsyncSpinner> m_spinner_ = std::make_shared<ros::AsyncSpinner>(0);
     std::shared_ptr<ros::Subscriber> m_lidar_scan_sub_ = nullptr;
     std::shared_ptr<ros::ServiceServer> m_predict_sdf_server_ = nullptr;
     std::shared_ptr<ros::Publisher> m_quadtree_viz_pub_ = nullptr;
@@ -68,16 +69,8 @@ public:
         : m_node_handle_(std::move(node_handle)) {
         if (m_node_handle_ == nullptr) { m_node_handle_ = std::make_shared<ros::NodeHandle>(kRosNodeName); }
 
+        ros::Duration(1.0).sleep();
         LoadParameters();  // load parameters from ros parameter server
-
-        m_lidar_scan_sub_ = std::make_shared<ros::Subscriber>(
-            m_node_handle_->subscribe(m_params_.lidar_data_topic_path, m_params_.lidar_data_queue_size, &RosNode::SubCallbackLidarScan, this));
-        (void) m_lidar_scan_sub_;
-
-        m_predict_sdf_server_ = std::make_shared<ros::ServiceServer>(m_node_handle_->advertiseService("predict_sdf", &RosNode::SrvCallbackPredictSdf, this));
-        (void) m_predict_sdf_server_;
-
-        m_quadtree_viz_pub_ = std::make_shared<ros::Publisher>(m_node_handle_->advertise<sensor_msgs::Image>("quadtree_viz", 1));
 
         m_surface_mapping_ = std::make_shared<erl::sdf_mapping::GpOccSurfaceMapping2D>(m_surface_mapping_setting_);
         m_sdf_mapping_ = std::make_shared<erl::sdf_mapping::GpSdfMapping2D>(m_surface_mapping_, m_sdf_mapping_setting_);
@@ -115,16 +108,29 @@ public:
             auto grid_map_info = m_quadtree_drawer_->GetGridMapInfo();
             m_cv_image_ = cv::Mat(grid_map_info->Height(), grid_map_info->Width(), CV_8UC4, cv::Scalar(128, 128, 128, 255));
         }
+
+        m_spinner_->start();
+
+        m_lidar_scan_sub_ = std::make_shared<ros::Subscriber>(
+            m_node_handle_->subscribe(m_params_.lidar_data_topic_path, m_params_.lidar_data_queue_size, &RosNode::SubCallbackLidarScan, this));
+        (void) m_lidar_scan_sub_;
+
+        m_predict_sdf_server_ = std::make_shared<ros::ServiceServer>(m_node_handle_->advertiseService("predict_sdf", &RosNode::SrvCallbackPredictSdf, this));
+        (void) m_predict_sdf_server_;
+
+        m_quadtree_viz_pub_ = std::make_shared<ros::Publisher>(m_node_handle_->advertise<sensor_msgs::Image>("quadtree_viz", 1));
     }
 
     void
     Run() const {
-        ros::Rate loop_rate(m_params_.frequency);
-        ros::Duration(5.0).sleep();
-        while (ros::ok()) {
-            ros::spinOnce();
-            loop_rate.sleep();
-        }
+        ROS_INFO("Node %s is running", kRosNodeName.c_str());
+        ros::waitForShutdown();
+        // ros::Rate loop_rate(m_params_.frequency);
+        // ros::Duration(5.0).sleep();
+        // while (ros::ok()) {
+        //     ros::spinOnce();
+        //     loop_rate.sleep();
+        // }
     }
 
 private:
@@ -200,6 +206,7 @@ private:
 
     void
     SubCallbackLidarScan(const sensor_msgs::LaserScanConstPtr &laser_scan) {
+        auto t0 = std::chrono::high_resolution_clock::now();
         auto num_lines = long(laser_scan->ranges.size());
         Eigen::VectorXd angles = Eigen::VectorXd::LinSpaced(num_lines, laser_scan->angle_min, laser_scan->angle_max);
         Eigen::VectorXd ranges = Eigen::Map<const Eigen::VectorXf>((const float *) (laser_scan->ranges.data()), num_lines).cast<double>();
@@ -229,43 +236,58 @@ private:
             m_quadtree_viz_pub_->publish(out_msg.toImageMsg());
             m_visualize_counter_ = (m_visualize_counter_ + 1) % m_params_.visualize_frequency_divider;
         }
+        auto t1 = std::chrono::high_resolution_clock::now();
+        double dt = std::chrono::duration<double, std::milli>(t1 - t0).count();
+        ROS_INFO("Subscriber callback takes time: %f ms", dt);
     }
 
     bool
     SrvCallbackPredictSdf(erl_sdf_mapping::PredictSdf::Request &request, erl_sdf_mapping::PredictSdf::Response &response) {
-        auto num_queries = long(request.x.size());
-        Eigen::Matrix2Xd positions_in(2, num_queries);
-        for (long i = 0; i < num_queries; ++i) { positions_in.col(i) << request.x[i], request.y[i]; }
-        Eigen::VectorXd sdf_out;
-        Eigen::Matrix2Xd gradient_out;
-        Eigen::Matrix3Xd variance_out, covariance_out;
-        bool success = m_sdf_mapping_->Test(positions_in, sdf_out, gradient_out, variance_out, covariance_out);
-        if (!success) { return false; }
-        response.sdf.resize(num_queries);
-        response.gradient_x.resize(num_queries);
-        response.gradient_y.resize(num_queries);
-        response.var_sdf.resize(num_queries);
-        response.var_gradient_x.resize(num_queries);
-        response.var_gradient_y.resize(num_queries);
-        if (covariance_out.cols() > 0) {
-            response.cov_sdf_gradient_x.resize(num_queries);
-            response.cov_sdf_gradient_y.resize(num_queries);
-            response.cov_gradient_x_gradient_y.resize(num_queries);
-        }
-        for (long i = 0; i < num_queries; ++i) {
-            response.sdf[i] = sdf_out[i];
-            response.gradient_x[i] = gradient_out(0, i);
-            response.gradient_y[i] = gradient_out(1, i);
-            response.var_sdf[i] = variance_out(0, i);
-            response.var_gradient_x[i] = variance_out(1, i);
-            response.var_gradient_y[i] = variance_out(2, i);
-            if (covariance_out.cols() > 0) {
-                response.cov_sdf_gradient_x[i] = covariance_out(0, i);
-                response.cov_sdf_gradient_y[i] = covariance_out(1, i);
-                response.cov_gradient_x_gradient_y[i] = covariance_out(2, i);
+        try {
+            auto t0 = std::chrono::high_resolution_clock::now();
+            auto num_queries = long(request.x.size());
+            Eigen::Matrix2Xd positions_in(2, num_queries);
+            for (long i = 0; i < num_queries; ++i) { positions_in.col(i) << request.x[i], request.y[i]; }
+            Eigen::VectorXd sdf_out;
+            Eigen::Matrix2Xd gradient_out;
+            Eigen::Matrix3Xd variance_out, covariance_out;
+            bool success = m_sdf_mapping_->Test(positions_in, sdf_out, gradient_out, variance_out, covariance_out);
+            if (!success) {
+                ROS_ERROR("SDF mapping test failed");
+                return false;
             }
+            response.sdf.resize(num_queries);
+            response.gradient_x.resize(num_queries);
+            response.gradient_y.resize(num_queries);
+            response.var_sdf.resize(num_queries);
+            response.var_gradient_x.resize(num_queries);
+            response.var_gradient_y.resize(num_queries);
+            if (covariance_out.cols() > 0) {
+                response.cov_sdf_gradient_x.resize(num_queries);
+                response.cov_sdf_gradient_y.resize(num_queries);
+                response.cov_gradient_x_gradient_y.resize(num_queries);
+            }
+            for (long i = 0; i < num_queries; ++i) {
+                response.sdf[i] = sdf_out[i];
+                response.gradient_x[i] = gradient_out(0, i);
+                response.gradient_y[i] = gradient_out(1, i);
+                response.var_sdf[i] = variance_out(0, i);
+                response.var_gradient_x[i] = variance_out(1, i);
+                response.var_gradient_y[i] = variance_out(2, i);
+                if (covariance_out.cols() > 0) {
+                    response.cov_sdf_gradient_x[i] = covariance_out(0, i);
+                    response.cov_sdf_gradient_y[i] = covariance_out(1, i);
+                    response.cov_gradient_x_gradient_y[i] = covariance_out(2, i);
+                }
+            }
+            auto t1 = std::chrono::high_resolution_clock::now();
+            double dt = std::chrono::duration<double, std::milli>(t1 - t0).count();
+            ROS_INFO("Service callback takes time: %f ms", dt);
+            return true;
+        } catch (const std::exception &e) {
+            ROS_ERROR("Service callback failed: %s", e.what());
+            return false;
         }
-        return true;
     }
 };
 

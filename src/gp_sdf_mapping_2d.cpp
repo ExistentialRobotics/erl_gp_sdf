@@ -1,4 +1,5 @@
 #include "erl_sdf_mapping/gp_sdf_mapping_2d.hpp"
+#include <chrono>
 #include <vector>
 #include <thread>
 #include <algorithm>
@@ -11,7 +12,7 @@ namespace erl::sdf_mapping {
         const Eigen::Ref<const Eigen::VectorXd> &distances,
         const Eigen::Ref<const Eigen::Matrix23d> &pose) {
 
-        {
+        if (m_setting_->log_timing) {
             std::lock_guard<std::mutex> lock(m_log_mutex_);
             if (m_last_position_.has_value()) {
                 Eigen::Vector2d delta = pose.rightCols<1>() - m_last_position_.value();
@@ -23,6 +24,8 @@ namespace erl::sdf_mapping {
             m_train_log_file_ << m_travel_distance_;
         }
 
+        std::chrono::high_resolution_clock::time_point t_start = std::chrono::high_resolution_clock::now();
+
         double time_budget = 1e6 / m_setting_->update_hz;  // us
         bool success;
         std::chrono::high_resolution_clock::time_point t0, t1;
@@ -33,7 +36,7 @@ namespace erl::sdf_mapping {
             success = m_surface_mapping_->Update(angles, distances, pose);
             t1 = std::chrono::high_resolution_clock::now();
             dt = std::chrono::duration<double, std::micro>(t1 - t0).count();
-            m_train_log_file_ << "," << dt;
+            if (m_setting_->log_timing) { m_train_log_file_ << "," << dt; }  // surface_mapping_time
             ERL_INFO("Surface mapping update time: %f us.", dt);
         }
         time_budget -= double(dt);
@@ -44,10 +47,18 @@ namespace erl::sdf_mapping {
             UpdateGps(time_budget);
             t1 = std::chrono::high_resolution_clock::now();
             dt = std::chrono::duration<double, std::milli>(t1 - t0).count();
-            m_train_log_file_ << "," << dt << std::endl << std::flush;
             ERL_INFO("GP update time: %f ms.", dt);
+
+            if (m_setting_->log_timing) {
+                m_train_log_file_ << "," << dt;  // total_gp_update_time
+                dt = std::chrono::duration<double, std::milli>(t1 - t_start).count();
+                m_train_log_file_ << "," << dt << std::endl << std::flush;  // total_update_time
+            }
+
             return true;
         }
+
+        if (m_setting_->log_timing) { m_train_log_file_ << std::endl; }
         return false;
     }
 
@@ -59,9 +70,18 @@ namespace erl::sdf_mapping {
         Eigen::Matrix3Xd &variances_out,
         Eigen::Matrix3Xd &covariances_out) {
 
-        if (positions_in.cols() == 0) { return false; }
-        if (m_surface_mapping_ == nullptr) { return false; }
-        if (m_surface_mapping_->GetQuadtree() == nullptr) { return false; }
+        if (positions_in.cols() == 0) {
+            ERL_WARN("No query positions provided.");
+            return false;
+        }
+        if (m_surface_mapping_ == nullptr) {
+            ERL_WARN("Surface mapping is not initialized.");
+            return false;
+        }
+        if (m_surface_mapping_->GetQuadtree() == nullptr) {
+            ERL_WARN("Quadtree is not initialized.");
+            return false;
+        }
         if (!m_test_buffer_.ConnectBuffers(  // allocate memory for test results
                 positions_in,
                 distances_out,
@@ -69,8 +89,11 @@ namespace erl::sdf_mapping {
                 variances_out,
                 covariances_out,
                 m_setting_->test_query->compute_covariance)) {
+            ERL_WARN("Failed to connect test buffers.");
             return false;
         }
+
+        std::chrono::high_resolution_clock::time_point t_start = std::chrono::high_resolution_clock::now();
 
         unsigned int num_queries = positions_in.cols();
         unsigned int num_threads = std::min(m_setting_->num_threads, std::thread::hardware_concurrency());
@@ -81,7 +104,7 @@ namespace erl::sdf_mapping {
         std::size_t leftover = num_queries - batch_size * num_threads;
         std::size_t start_idx, end_idx;
 
-        {
+        if (m_setting_->log_timing) {
             std::lock_guard<std::mutex> lock(m_log_mutex_);
             m_test_log_file_ << m_travel_distance_;
         }
@@ -113,6 +136,7 @@ namespace erl::sdf_mapping {
             }
             t1 = std::chrono::high_resolution_clock::now();
             dt = std::chrono::duration<double, std::micro>(t1 - t0).count();
+            if (m_setting_->log_timing) { m_test_log_file_ << "," << dt; }  // gp_search_time
             ERL_INFO("Search GPs: %f us", dt);
 
             // Train any updated GPs
@@ -129,10 +153,10 @@ namespace erl::sdf_mapping {
                 TrainGps();
                 t1 = std::chrono::high_resolution_clock::now();
                 dt = std::chrono::duration<double, std::micro>(t1 - t0).count();
-                m_test_log_file_ << "," << dt;
+                if (m_setting_->log_timing) { m_test_log_file_ << "," << dt; }  // gp_train_time
                 ERL_INFO("Train GPs: %f us", dt);
             } else {
-                m_test_log_file_ << ",0";
+                if (m_setting_->log_timing) { m_test_log_file_ << ",0"; }
             }
         }
 
@@ -154,13 +178,19 @@ namespace erl::sdf_mapping {
         }
         t1 = std::chrono::high_resolution_clock::now();
         dt = std::chrono::duration<double, std::micro>(t1 - t0).count();
-        m_test_log_file_ << "," << dt << std::endl << std::flush;
+        if (m_setting_->log_timing) { m_test_log_file_ << "," << dt; }  // gp_test_time
         ERL_INFO("Test GPs: %f us", dt);
 
         m_test_buffer_.DisconnectBuffers();
 
         for (const auto &gps: m_query_to_gps_) {
             for (const auto &gp: gps) { gp.second->locked_for_test = false; }  // unlock GPs
+        }
+
+        if (m_setting_->log_timing) {
+            std::chrono::high_resolution_clock::time_point t_end = std::chrono::high_resolution_clock::now();
+            dt = std::chrono::duration<double, std::milli>(t_end - t_start).count();
+            m_test_log_file_ << "," << dt << std::endl << std::flush;  // total_test_time
         }
 
         return true;
