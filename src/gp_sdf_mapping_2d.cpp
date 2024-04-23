@@ -136,8 +136,8 @@ namespace erl::sdf_mapping {
 
         m_test_buffer_.DisconnectBuffers();
 
-        for (auto &gps: m_query_to_gps_) {
-            for (auto &gp: gps) { gp.second->locked_for_test = false; }  // unlock GPs
+        for (const auto &gps: m_query_to_gps_) {
+            for (const auto &gp: gps) { gp.second->locked_for_test = false; }  // unlock GPs
         }
 
         return true;
@@ -177,10 +177,9 @@ namespace erl::sdf_mapping {
         }
         std::size_t batch_size = m_clusters_to_update_.size() / num_threads;
         std::size_t left_over = m_clusters_to_update_.size() - batch_size * num_threads;
-        std::size_t start_idx = 0;
         std::size_t end_idx = 0;
         for (unsigned int thread_idx = 0; thread_idx < num_threads; ++thread_idx) {
-            start_idx = end_idx;
+            std::size_t start_idx = end_idx;
             end_idx = start_idx + batch_size;
             if (thread_idx < left_over) { end_idx++; }
             threads.emplace_back(&GpSdfMapping2D::UpdateGpThread, this, thread_idx, start_idx, end_idx);
@@ -324,9 +323,9 @@ namespace erl::sdf_mapping {
         threads.reserve(num_threads);
         std::size_t batch_size = n / num_threads;
         std::size_t leftover = n - batch_size * num_threads;
-        std::size_t start_idx = 0, end_idx;
-        for (unsigned int thread_idx = 0; thread_idx < num_threads; thread_idx++) {
-            end_idx = start_idx + batch_size;
+        std::size_t start_idx = 0;
+        for (uint32_t thread_idx = 0; thread_idx < num_threads; thread_idx++) {
+            std::size_t end_idx = start_idx + batch_size;
             if (thread_idx < leftover) { end_idx++; }
             threads.emplace_back(&GpSdfMapping2D::TrainGpThread, this, thread_idx, start_idx, end_idx);
             start_idx = end_idx;
@@ -373,7 +372,7 @@ namespace erl::sdf_mapping {
                     cluster_depth);
                 auto end = quadtree->EndTreeInAabb();
                 for (; it != end; ++it) {
-                    if (it.GetDepth() != cluster_depth) { continue; }  // not a cluster node
+                    if (it->GetDepth() != cluster_depth) { continue; }  // not a cluster node
                     geometry::QuadtreeKey cluster_key = it.GetIndexKey();
                     auto it_gp = m_gp_map_.find(cluster_key);
                     if (it_gp == m_gp_map_.end()) { continue; }  // no gp for this cluster

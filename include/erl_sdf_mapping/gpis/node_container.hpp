@@ -213,23 +213,23 @@ namespace YAML {
     template<>
     struct convert<GpisNodeContainer3D::Setting> : public ConvertGpisNodeContainerSetting<3> {};
 
-    template<int Dim>
-    inline Emitter &
-    operator<<(Emitter &out, const typename GpisNodeContainer<Dim>::Setting &setting) {
-        out << BeginMap;
-        out << Key << "capacity" << Value << setting.capacity;
-        out << Key << "min_squared_distance" << Value << setting.min_squared_distance;
-        out << EndMap;
-        return out;
-    }
-
-    inline Emitter &
-    operator<<(Emitter &out, const GpisNodeContainer2D::Setting &setting) {
-        return operator<< <2>(out, setting);
-    }
-
-    inline Emitter &
-    operator<<(Emitter &out, const GpisNodeContainer3D::Setting &setting) {
-        return operator<< <3>(out, setting);
-    }
+//    template<int Dim>
+//    inline Emitter &
+//    operator<<(Emitter &out, const typename GpisNodeContainer<Dim>::Setting &setting) {
+//        out << BeginMap;
+//        out << Key << "capacity" << Value << setting.capacity;
+//        out << Key << "min_squared_distance" << Value << setting.min_squared_distance;
+//        out << EndMap;
+//        return out;
+//    }
+//
+//    inline Emitter &
+//    operator<<(Emitter &out, const GpisNodeContainer2D::Setting &setting) {
+//        return operator<< <2>(out, setting);
+//    }
+//
+//    inline Emitter &
+//    operator<<(Emitter &out, const GpisNodeContainer3D::Setting &setting) {
+//        return operator<< <3>(out, setting);
+//    }
 }  // namespace YAML

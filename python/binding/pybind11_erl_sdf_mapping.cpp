@@ -248,10 +248,8 @@ BindGpOccSurfaceMapping2D(py::module &m) {
     using namespace erl::sdf_mapping;
 
     // TODO: bind SurfaceMappingQuadtreeNode
-    py::class_<SurfaceMappingQuadtreeNode, OccupancyQuadtreeNode, py::raw_ptr_wrapper<SurfaceMappingQuadtreeNode>>(m, "SurfaceMappingQuadtreeNode")
-        .def("allow_update_log_odds", &SurfaceMappingQuadtreeNode::AllowUpdateLogOdds, py::arg("delta"));
 
-    BindOccupancyQuadtree<SurfaceMappingQuadtree, SurfaceMappingQuadtreeNode>(m, "SurfaceMappingQuadtree");
+    BindOccupancyQuadtree<SurfaceMappingQuadtree, SurfaceMappingQuadtreeNode>(m, "SurfaceMappingQuadtree", "SurfaceMappingQuadtreeNode");
 
     py::class_<AbstractSurfaceMapping2D, std::shared_ptr<AbstractSurfaceMapping2D>>(m, "AbstractSurfaceMapping2D")
         .def_property_readonly("quadtree", &AbstractSurfaceMapping2D::GetQuadtree)

@@ -42,11 +42,12 @@ update_map_points:
   min_position_var: 0.001
   min_gradient_var: 0.001
 quadtree:
+  tree_depth: 16
   log_odd_min: -2
   log_odd_max: 10
-  probability_hit: 0.7
-  probability_miss: 0.2
-  probability_occupied_threshold: 0.5
+  log_odd_hit: 0.85
+  log_odd_miss: -0.4
+  log_odd_occ_threshold: 0
   resolution: 0.1
   use_change_detection: false
   use_aabb_limit: false

@@ -85,14 +85,4 @@ namespace YAML {
             return true;
         }
     };
-
-    inline Emitter &
-    operator<<(Emitter &out, const erl::sdf_mapping::LogSdfGaussianProcess::Setting &setting) {
-        out << BeginMap;
-        out << Key << "kernel" << Value << setting.kernel;
-        out << Key << "log_lambda" << Value << setting.log_lambda;
-        out << Key << "edf_threshold" << Value << setting.edf_threshold;
-        out << EndMap;
-        return out;
-    }
 }  // namespace YAML
