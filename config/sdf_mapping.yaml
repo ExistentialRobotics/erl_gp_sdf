@@ -1,5 +1,6 @@
 num_threads: 64
 update_hz: 20
+log_timing: true
 gp_sdf_area_scale: 4
 offset_distance: 0.08
 max_valid_gradient_var: 0.001
