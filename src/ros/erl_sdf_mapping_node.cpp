@@ -238,7 +238,7 @@ private:
         }
         auto t1 = std::chrono::high_resolution_clock::now();
         double dt = std::chrono::duration<double, std::milli>(t1 - t0).count();
-        ROS_INFO("Subscriber callback takes time: %f ms", dt);
+        ROS_INFO("Subscriber callback takes time: {:f} ms", dt);
     }
 
     bool
@@ -282,7 +282,7 @@ private:
             }
             auto t1 = std::chrono::high_resolution_clock::now();
             double dt = std::chrono::duration<double, std::milli>(t1 - t0).count();
-            ROS_INFO("Service callback takes time: %f ms", dt);
+            ROS_INFO("Service callback takes time: {:f} ms", dt);
             return true;
         } catch (const std::exception &e) {
             ROS_ERROR("Service callback failed: %s", e.what());

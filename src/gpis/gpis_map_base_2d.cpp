@@ -4,16 +4,16 @@
 #include <numeric>
 #include <thread>
 #include <memory>
-#include <opencv2/imgproc.hpp>
+#include <unordered_set>
 
 namespace erl::sdf_mapping::gpis {
 
-    static inline double
-    Clip(double x, double min_x, double max_x) {
+    static double
+    Clip(const double x, const double min_x, const double max_x) {
         return std::max(std::min(x, max_x), min_x);
     }
 
-    static inline void
+    static void
     Cartesian2Polar(const Eigen::Ref<const Eigen::Vector2d> &xy, double &r, double &angle) {
         r = xy.norm();
         angle = std::atan2(xy.y(), xy.x());
@@ -26,7 +26,7 @@ namespace erl::sdf_mapping::gpis {
         : m_setting_(setting),
           m_gp_theta_(gaussian_process::LidarGaussianProcess1D::Create(setting->gp_theta)),
           m_node_container_constructor_([&]() { return GpisNodeContainer2D::Create(m_setting_->node_container); }),
-          mk_XyPerturb_{[&]() -> Eigen::Matrix24d {
+          m_xy_perturb_{[&]() -> Eigen::Matrix24d {
               Eigen::Matrix24d out;
               // clang-format off
               out << m_setting_->perturb_delta, -m_setting_->perturb_delta, 0., 0.,
@@ -65,7 +65,7 @@ namespace erl::sdf_mapping::gpis {
         double distance;
         Eigen::Scalard angle;
         for (int j = 0; j < 4; ++j) {
-            Cartesian2Polar(xy_local + mk_XyPerturb_.col(j), distance, angle[0]);
+            Cartesian2Polar(xy_local + m_xy_perturb_.col(j), distance, angle[0]);
             if (m_gp_theta_->ComputeOcc(angle, distance, distance_pred, var, occ[j])) {
                 occ_mean += occ[j];
             } else {
@@ -95,13 +95,13 @@ namespace erl::sdf_mapping::gpis {
         const double &distance_var,
         const double &occ_mean_abs,
         const double &occ_abs,
-        bool new_point,
+        const bool new_point,
         Eigen::Ref<Eigen::Vector2d> grad_local,
         Eigen::Ref<Eigen::Vector2d> grad_global,
         double &var_position,
         double &var_gradient) const {
 
-        double gradient_norm = grad_local.norm();
+        const double gradient_norm = grad_local.norm();
 
         if (gradient_norm <= double(1.e-6)) {
             grad_global << grad_local;
@@ -114,11 +114,10 @@ namespace erl::sdf_mapping::gpis {
         grad_local.y() /= gradient_norm;
         grad_global << m_gp_theta_->LocalToGlobalSo2(grad_local);
 
-        double var_distance = Clip(distance * distance, m_setting_->compute_variance->min_distance_var, m_setting_->compute_variance->max_distance_var);
-        double cos_view_angle = -xy_local.dot(grad_local) / xy_local.norm();
-        double cos2_view_angle = std::max(cos_view_angle * cos_view_angle, double(1.e-2));  // avoid zero division
-        double var_direction = (1. - cos2_view_angle) / cos2_view_angle;  // tan^2(theta), the bigger the angle, the bigger the variance
-        // FIXME: what if theta is out of [-pi/2, pi/2]?? That means this point is not visible from the sensor currently.
+        const double var_distance = Clip(distance * distance, m_setting_->compute_variance->min_distance_var, m_setting_->compute_variance->max_distance_var);
+        const double cos_view_angle = -xy_local.dot(grad_local) / xy_local.norm();
+        const double cos2_view_angle = std::max(cos_view_angle * cos_view_angle, 1.e-2);  // avoid zero division
+        const double var_direction = (1. - cos2_view_angle) / cos2_view_angle;            // tan^2(theta), the bigger the angle, the bigger the variance
 
         if (new_point) {
             var_position = m_setting_->compute_variance->position_var_alpha * (var_distance + var_direction);
@@ -126,7 +125,7 @@ namespace erl::sdf_mapping::gpis {
         } else {  // compute variance for update_map_points
             var_position = m_setting_->compute_variance->position_var_alpha * (var_distance + var_direction) + occ_abs;
             var_gradient = Clip(occ_mean_abs + distance_var, m_setting_->compute_variance->min_gradient_var, m_setting_->compute_variance->max_gradient_var) +
-                           double(0.1) * var_direction;
+                           0.1 * var_direction;
         }
 
         return true;
@@ -319,7 +318,7 @@ namespace erl::sdf_mapping::gpis {
         double distance;
         Eigen::Scalard angle;
         for (int j = 0; j < 4; ++j) {
-            Cartesian2Polar(xy_local + mk_XyPerturb_.col(j), distance, angle[0]);
+            Cartesian2Polar(xy_local + m_xy_perturb_.col(j), distance, angle[0]);
             if (m_gp_theta_->ComputeOcc(angle, distance, distance_pred, var, occ[j])) {
                 occ_mean += occ[j];
             } else {
@@ -440,7 +439,7 @@ namespace erl::sdf_mapping::gpis {
 
         for (int i = start_idx; i < end_idx; ++i) {
             if (m_clusters_to_update_[i] == nullptr) {
-                ERL_WARN("Thread %d: empty shared pointer at index %d of m_clusters_to_update_.", thread_idx, i);
+                ERL_WARN("Thread {}: empty shared pointer at index {} of m_clusters_to_update_.", thread_idx, i);
                 continue;
             }
 
@@ -661,7 +660,7 @@ namespace erl::sdf_mapping::gpis {
 
             if (clusters.empty()) {
                 static int warn_cnt = 0;
-                ERL_WARN("[%d] Thread %d: no cluster found for position (%f, %f)", warn_cnt, thread_idx, kPosition.x(), kPosition.y());
+                ERL_WARN("[{}] Thread {}: no cluster found for position ({:f}, {:f})", warn_cnt, thread_idx, kPosition.x(), kPosition.y());
                 warn_cnt++;
                 continue;
             }  // no qualified cluster

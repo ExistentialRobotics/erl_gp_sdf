@@ -1,11 +1,12 @@
 #pragma once
 
-#include <memory>
-#include <unordered_set>
+#include "abstract_surface_mapping_2d.hpp"
+#include "surface_mapping_quadtree.hpp"
+
 #include "erl_common/yaml.hpp"
 #include "erl_gaussian_process/lidar_gp_1d.hpp"
-#include "surface_mapping_quadtree.hpp"
-#include "abstract_surface_mapping_2d.hpp"
+
+#include <memory>
 
 namespace erl::sdf_mapping {
 
@@ -13,7 +14,7 @@ namespace erl::sdf_mapping {
     public:
         struct Setting : public common::Yamlable<Setting> {
 
-            struct ComputeVariance : public common::Yamlable<ComputeVariance> {
+            struct ComputeVariance : public Yamlable<ComputeVariance> {
                 double zero_gradient_position_var = 1.;  // position variance to use when the estimated gradient is almost zero.
                 double zero_gradient_gradient_var = 1.;  // gradient variance to use when the estimated gradient is almost zero.
                 double min_distance_var = 1.;            // minimum distance variance.
@@ -23,7 +24,7 @@ namespace erl::sdf_mapping {
                 double max_gradient_var = 1.;            // maximum gradient variance.
             };
 
-            struct UpdateMapPoints : public common::Yamlable<UpdateMapPoints> {
+            struct UpdateMapPoints : public Yamlable<UpdateMapPoints> {
                 double min_observable_occ = -0.1;     // points of OCC smaller than this value is considered unobservable, i.e. inside the object.
                 double max_surface_abs_occ = 0.02;    // maximum absolute value of surface points' OCC, which should be zero ideally.
                 double max_valid_gradient_var = 0.5;  // maximum valid gradient variance, above this threshold, it won't be used for the Bayes Update.
@@ -103,12 +104,11 @@ namespace erl::sdf_mapping {
         AddNewMeasurement();
 
     protected:
-        inline void
+        void
         RecordChangedKey(const geometry::QuadtreeKey &key) {
             ERL_DEBUG_ASSERT(m_quadtree_ != nullptr, "Quadtree is not initialized.");
             ERL_DEBUG_ASSERT(m_setting_ != nullptr, "Setting is not initialized.");
-            geometry::QuadtreeKey cluster_key = m_quadtree_->AdjustKeyToDepth(key, m_quadtree_->GetTreeDepth() - m_setting_->cluster_level);
-            m_changed_keys_.insert(cluster_key);
+            m_changed_keys_.insert(m_quadtree_->AdjustKeyToDepth(key, m_quadtree_->GetTreeDepth() - m_setting_->cluster_level));
         }
 
         bool
@@ -129,108 +129,103 @@ namespace erl::sdf_mapping {
             double &var_position,
             double &var_gradient) const;
 
-        [[nodiscard]] inline bool
-        IsValidRangeEstimation(double range, double range_variance) const {
+        [[nodiscard]] bool
+        IsValidRangeEstimation(const double range, const double range_variance) const {
             return range >= m_setting_->gp_theta->train_buffer->valid_range_min && range <= m_setting_->gp_theta->train_buffer->valid_range_max &&
                    range_variance < m_setting_->gp_theta->max_valid_range_var;
         }
     };
 }  // namespace erl::sdf_mapping
 
-namespace YAML {
+template<>
+struct YAML::convert<erl::sdf_mapping::GpOccSurfaceMapping2D::Setting::ComputeVariance> {
 
-    using namespace erl::sdf_mapping;
+    static Node
+    encode(const erl::sdf_mapping::GpOccSurfaceMapping2D::Setting::ComputeVariance &rhs) {
+        Node node;
+        node["zero_gradient_position_var"] = rhs.zero_gradient_position_var;
+        node["zero_gradient_gradient_var"] = rhs.zero_gradient_gradient_var;
+        node["min_distance_var"] = rhs.min_distance_var;
+        node["max_distance_var"] = rhs.max_distance_var;
+        node["position_var_alpha"] = rhs.position_var_alpha;
+        node["min_gradient_var"] = rhs.min_gradient_var;
+        node["max_gradient_var"] = rhs.max_gradient_var;
+        return node;
+    }
 
-    template<>
-    struct convert<GpOccSurfaceMapping2D::Setting::ComputeVariance> {
+    static bool
+    decode(const Node &node, erl::sdf_mapping::GpOccSurfaceMapping2D::Setting::ComputeVariance &rhs) {
+        if (!node.IsMap()) { return false; }
+        rhs.zero_gradient_position_var = node["zero_gradient_position_var"].as<double>();
+        rhs.zero_gradient_gradient_var = node["zero_gradient_gradient_var"].as<double>();
+        rhs.min_distance_var = node["min_distance_var"].as<double>();
+        rhs.max_distance_var = node["max_distance_var"].as<double>();
+        rhs.position_var_alpha = node["position_var_alpha"].as<double>();
+        rhs.min_gradient_var = node["min_gradient_var"].as<double>();
+        rhs.max_gradient_var = node["max_gradient_var"].as<double>();
+        return true;
+    }
+};
 
-        inline static Node
-        encode(const GpOccSurfaceMapping2D::Setting::ComputeVariance &rhs) {
-            Node node;
-            node["zero_gradient_position_var"] = rhs.zero_gradient_position_var;
-            node["zero_gradient_gradient_var"] = rhs.zero_gradient_gradient_var;
-            node["min_distance_var"] = rhs.min_distance_var;
-            node["max_distance_var"] = rhs.max_distance_var;
-            node["position_var_alpha"] = rhs.position_var_alpha;
-            node["min_gradient_var"] = rhs.min_gradient_var;
-            node["max_gradient_var"] = rhs.max_gradient_var;
-            return node;
-        }
+template<>
+struct YAML::convert<erl::sdf_mapping::GpOccSurfaceMapping2D::Setting::UpdateMapPoints> {
 
-        inline static bool
-        decode(const Node &node, GpOccSurfaceMapping2D::Setting::ComputeVariance &rhs) {
-            if (!node.IsMap()) { return false; }
-            rhs.zero_gradient_position_var = node["zero_gradient_position_var"].as<double>();
-            rhs.zero_gradient_gradient_var = node["zero_gradient_gradient_var"].as<double>();
-            rhs.min_distance_var = node["min_distance_var"].as<double>();
-            rhs.max_distance_var = node["max_distance_var"].as<double>();
-            rhs.position_var_alpha = node["position_var_alpha"].as<double>();
-            rhs.min_gradient_var = node["min_gradient_var"].as<double>();
-            rhs.max_gradient_var = node["max_gradient_var"].as<double>();
-            return true;
-        }
-    };
+    static Node
+    encode(const erl::sdf_mapping::GpOccSurfaceMapping2D::Setting::UpdateMapPoints &rhs) {
+        Node node;
+        node["min_observable_occ"] = rhs.min_observable_occ;
+        node["max_surface_abs_occ"] = rhs.max_surface_abs_occ;
+        node["max_valid_gradient_var"] = rhs.max_valid_gradient_var;
+        node["max_adjust_tries"] = rhs.max_adjust_tries;
+        node["max_bayes_position_var"] = rhs.max_bayes_position_var;
+        node["max_bayes_gradient_var"] = rhs.max_bayes_gradient_var;
+        node["min_position_var"] = rhs.min_position_var;
+        node["min_gradient_var"] = rhs.min_gradient_var;
+        return node;
+    }
 
-    template<>
-    struct convert<GpOccSurfaceMapping2D::Setting::UpdateMapPoints> {
+    static bool
+    decode(const Node &node, erl::sdf_mapping::GpOccSurfaceMapping2D::Setting::UpdateMapPoints &rhs) {
+        if (!node.IsMap()) { return false; }
+        rhs.min_observable_occ = node["min_observable_occ"].as<double>();
+        rhs.max_surface_abs_occ = node["max_surface_abs_occ"].as<double>();
+        rhs.max_valid_gradient_var = node["max_valid_gradient_var"].as<double>();
+        rhs.max_adjust_tries = node["max_adjust_tries"].as<int>();
+        rhs.max_bayes_position_var = node["max_bayes_position_var"].as<double>();
+        rhs.max_bayes_gradient_var = node["max_bayes_gradient_var"].as<double>();
+        rhs.min_position_var = node["min_position_var"].as<double>();
+        rhs.min_gradient_var = node["min_gradient_var"].as<double>();
+        return true;
+    }
+};
 
-        inline static Node
-        encode(const GpOccSurfaceMapping2D::Setting::UpdateMapPoints &rhs) {
-            Node node;
-            node["min_observable_occ"] = rhs.min_observable_occ;
-            node["max_surface_abs_occ"] = rhs.max_surface_abs_occ;
-            node["max_valid_gradient_var"] = rhs.max_valid_gradient_var;
-            node["max_adjust_tries"] = rhs.max_adjust_tries;
-            node["max_bayes_position_var"] = rhs.max_bayes_position_var;
-            node["max_bayes_gradient_var"] = rhs.max_bayes_gradient_var;
-            node["min_position_var"] = rhs.min_position_var;
-            node["min_gradient_var"] = rhs.min_gradient_var;
-            return node;
-        }
+template<>
+struct YAML::convert<erl::sdf_mapping::GpOccSurfaceMapping2D::Setting> {
+    static Node
+    encode(const erl::sdf_mapping::GpOccSurfaceMapping2D::Setting &setting) {
+        Node node;
+        node["gp_theta"] = setting.gp_theta;
+        node["compute_variance"] = setting.compute_variance;
+        node["update_map_points"] = setting.update_map_points;
+        node["quadtree"] = setting.quadtree;
+        node["cluster_level"] = setting.cluster_level;
+        node["perturb_delta"] = setting.perturb_delta;
+        node["zero_gradient_threshold"] = setting.zero_gradient_threshold;
+        node["update_occupancy"] = setting.update_occupancy;
+        return node;
+    }
 
-        inline static bool
-        decode(const Node &node, GpOccSurfaceMapping2D::Setting::UpdateMapPoints &rhs) {
-            if (!node.IsMap()) { return false; }
-            rhs.min_observable_occ = node["min_observable_occ"].as<double>();
-            rhs.max_surface_abs_occ = node["max_surface_abs_occ"].as<double>();
-            rhs.max_valid_gradient_var = node["max_valid_gradient_var"].as<double>();
-            rhs.max_adjust_tries = node["max_adjust_tries"].as<int>();
-            rhs.max_bayes_position_var = node["max_bayes_position_var"].as<double>();
-            rhs.max_bayes_gradient_var = node["max_bayes_gradient_var"].as<double>();
-            rhs.min_position_var = node["min_position_var"].as<double>();
-            rhs.min_gradient_var = node["min_gradient_var"].as<double>();
-            return true;
-        }
-    };
-
-    template<>
-    struct convert<GpOccSurfaceMapping2D::Setting> {
-        inline static Node
-        encode(const GpOccSurfaceMapping2D::Setting &setting) {
-            Node node;
-            node["gp_theta"] = setting.gp_theta;
-            node["compute_variance"] = setting.compute_variance;
-            node["update_map_points"] = setting.update_map_points;
-            node["quadtree"] = setting.quadtree;
-            node["cluster_level"] = setting.cluster_level;
-            node["perturb_delta"] = setting.perturb_delta;
-            node["zero_gradient_threshold"] = setting.zero_gradient_threshold;
-            node["update_occupancy"] = setting.update_occupancy;
-            return node;
-        }
-
-        inline static bool
-        decode(const Node &node, GpOccSurfaceMapping2D::Setting &setting) {
-            if (!node.IsMap()) { return false; }
-            setting.gp_theta = node["gp_theta"].as<decltype(setting.gp_theta)>();
-            setting.compute_variance = node["compute_variance"].as<decltype(setting.compute_variance)>();
-            setting.update_map_points = node["update_map_points"].as<decltype(setting.update_map_points)>();
-            setting.quadtree = node["quadtree"].as<decltype(setting.quadtree)>();
-            setting.cluster_level = node["cluster_level"].as<unsigned int>();
-            setting.perturb_delta = node["perturb_delta"].as<double>();
-            setting.zero_gradient_threshold = node["zero_gradient_threshold"].as<double>();
-            setting.update_occupancy = node["update_occupancy"].as<bool>();
-            return true;
-        }
-    };
-}  // namespace YAML
+    static bool
+    decode(const Node &node, erl::sdf_mapping::GpOccSurfaceMapping2D::Setting &setting) {
+        if (!node.IsMap()) { return false; }
+        setting.gp_theta = node["gp_theta"].as<decltype(setting.gp_theta)>();
+        setting.compute_variance = node["compute_variance"].as<decltype(setting.compute_variance)>();
+        setting.update_map_points = node["update_map_points"].as<decltype(setting.update_map_points)>();
+        setting.quadtree = node["quadtree"].as<decltype(setting.quadtree)>();
+        setting.cluster_level = node["cluster_level"].as<unsigned int>();
+        setting.perturb_delta = node["perturb_delta"].as<double>();
+        setting.zero_gradient_threshold = node["zero_gradient_threshold"].as<double>();
+        setting.update_occupancy = node["update_occupancy"].as<bool>();
+        return true;
+    }
+};

@@ -1,19 +1,18 @@
-#include "erl_geometry/house_expo_map.hpp"
-#include "erl_geometry/lidar_2d.hpp"
-#include "erl_sdf_mapping/gp_occ_surface_mapping_2d.hpp"
-#include "erl_geometry/occupancy_quadtree_drawer.hpp"
-#include "erl_sdf_mapping/gp_sdf_mapping_2d.hpp"
 #include "erl_common/csv.hpp"
-#include "erl_geometry/gazebo_room.hpp"
-#include "erl_common/random.hpp"
 #include "erl_common/pangolin_plotter_time_series_2d.hpp"
 #include "erl_common/progress_bar.hpp"
+#include "erl_common/random.hpp"
+#include "erl_common/test_helper.hpp"
+#include "erl_geometry/gazebo_room.hpp"
+#include "erl_geometry/house_expo_map.hpp"
+#include "erl_geometry/lidar_2d.hpp"
+#include "erl_geometry/occupancy_quadtree_drawer.hpp"
+#include "erl_sdf_mapping/gp_occ_surface_mapping_2d.hpp"
+#include "erl_sdf_mapping/gp_sdf_mapping_2d.hpp"
+
 #include <boost/program_options.hpp>
-#include <gtest/gtest.h>
+
 #include <filesystem>
-// #include <pangolin/display/display.h>
-// #include <pangolin/display/image_view.h>
-// #include <pangolin/plot/plotter.h>
 
 static std::filesystem::path g_file_path = __FILE__;
 static std::filesystem::path g_dir_path = g_file_path.parent_path();
@@ -45,7 +44,7 @@ static Options g_options;
 void
 DrawGp(
     cv::Mat &img,
-    const std::shared_ptr<erl::sdf_mapping::GpSdfMapping2D::GP> &gp1,
+    const std::shared_ptr<erl::sdf_mapping::GpSdfMapping2D::Gp> &gp1,
     const std::shared_ptr<erl::common::GridMapInfo2D> &grid_map_info,
     const cv::Scalar &data_color = {0, 255, 125, 255},
     const cv::Scalar &pos_color = {125, 255, 0, 255},
@@ -55,13 +54,13 @@ DrawGp(
 
     Eigen::Vector2i gp1_position_px = grid_map_info->MeterToPixelForPoints(gp1->position);
     cv::drawMarker(img, cv::Point(gp1_position_px[0], gp1_position_px[1]), pos_color, cv::MARKER_STAR, 10, 1);
-    Eigen::Vector2d gp1_area_min = gp1->position.array() - gp1->half_size;
-    Eigen::Vector2d gp1_area_max = gp1->position.array() + gp1->half_size;
+    const Eigen::Vector2d gp1_area_min = gp1->position.array() - gp1->half_size;
+    const Eigen::Vector2d gp1_area_max = gp1->position.array() + gp1->half_size;
     Eigen::Vector2i gp1_area_min_px = grid_map_info->MeterToPixelForPoints(gp1_area_min);
     Eigen::Vector2i gp1_area_max_px = grid_map_info->MeterToPixelForPoints(gp1_area_max);
     cv::rectangle(img, cv::Point(gp1_area_min_px[0], gp1_area_min_px[1]), cv::Point(gp1_area_max_px[0], gp1_area_max_px[1]), rect_color, 2);
 
-    Eigen::Matrix2Xd used_surface_points = gp1->gp->GetTrainInputSamplesBuffer().block(0, 0, 2, gp1->gp->GetNumTrainSamples());
+    const Eigen::Matrix2Xd used_surface_points = gp1->gp->GetTrainInputSamplesBuffer().block(0, 0, 2, gp1->gp->GetNumTrainSamples());
     Eigen::Matrix2Xi used_surface_points_px = grid_map_info->MeterToPixelForPoints(used_surface_points);
     for (long j = 0; j < used_surface_points.cols(); j++) {
         cv::circle(img, cv::Point(used_surface_points_px(0, j), used_surface_points_px(1, j)), 3, data_color, -1);
@@ -82,21 +81,23 @@ TEST(ERL_SDF_MAPPING, GpSdfMapping2D) {
 
     if (g_options.use_gazebo_data) {
         auto train_data_loader = erl::geometry::GazeboRoom::TrainDataLoader(g_options.gazebo_train_file.c_str());
-        max_update_cnt = long(train_data_loader.size() - g_options.init_frame) / g_options.stride + 1;
+        max_update_cnt = static_cast<long>(train_data_loader.size() - g_options.init_frame) / g_options.stride + 1;
         train_angles.reserve(max_update_cnt);
         train_ranges.reserve(max_update_cnt);
         train_poses.reserve(max_update_cnt);
         cur_traj.resize(2, max_update_cnt);
-        erl::common::ProgressBar bar(int(max_update_cnt), true, std::cout);
+        auto bar_setting = std::make_shared<erl::common::ProgressBar::Setting>();
+        bar_setting->total = max_update_cnt;
+        const auto bar = erl::common::ProgressBar::Open(bar_setting, std::cout);
         int cnt = 0;
-        for (int i = g_options.init_frame; i < int(train_data_loader.size()); i += g_options.stride, ++cnt) {
+        for (int i = g_options.init_frame; i < static_cast<int>(train_data_loader.size()); i += g_options.stride, ++cnt) {
             auto &df = train_data_loader[i];
             train_angles.push_back(df.angles);
             train_ranges.push_back(df.distances);
             train_poses.emplace_back(df.pose_numpy);
             cur_traj.col(cnt) << df.pose_numpy(0, 2), df.pose_numpy(1, 2);
-            double &x = cur_traj(0, cnt);
-            double &y = cur_traj(1, cnt);
+            const double &x = cur_traj(0, cnt);
+            const double &y = cur_traj(1, cnt);
             if (x < map_min[0]) { map_min[0] = x; }
             if (x > map_max[0]) { map_max[0] = x; }
             if (y < map_min[1]) { map_min[1] = y; }
@@ -107,7 +108,7 @@ TEST(ERL_SDF_MAPPING, GpSdfMapping2D) {
             map_max[1] += 0.15;
             map_resolution.array() = 0.02;
             map_padding.setZero();
-            bar.Update();
+            bar->Update();
         }
         train_angles.resize(cnt);
         train_ranges.resize(cnt);
@@ -120,19 +121,21 @@ TEST(ERL_SDF_MAPPING, GpSdfMapping2D) {
         auto lidar_setting = std::make_shared<erl::geometry::Lidar2D::Setting>();
         lidar_setting->num_lines = 720;
         erl::geometry::Lidar2D lidar(lidar_setting, house_expo_map.GetMeterSpace());
-        bool scan_in_parallel = true;
         auto trajectory =
             erl::common::LoadAndCastCsvFile<double>(g_options.house_expo_traj_file.c_str(), [](const std::string &str) -> double { return std::stod(str); });
-        max_update_cnt = long(trajectory.size() - g_options.init_frame) / g_options.stride + 1;
+        max_update_cnt = static_cast<long>(trajectory.size() - g_options.init_frame) / g_options.stride + 1;
         train_angles.reserve(max_update_cnt);
         train_ranges.reserve(max_update_cnt);
         train_poses.reserve(max_update_cnt);
         cur_traj.resize(2, max_update_cnt);
-        erl::common::ProgressBar bar(int(max_update_cnt), true, std::cout);
+        auto bar_setting = std::make_shared<erl::common::ProgressBar::Setting>();
+        bar_setting->total = max_update_cnt;
+        const auto bar = erl::common::ProgressBar::Open(bar_setting, std::cout);
         int cnt = 0;
         for (std::size_t i = g_options.init_frame; i < trajectory.size(); i += g_options.stride, cnt++) {
+            bool scan_in_parallel = true;
             std::vector<double> &waypoint = trajectory[i];
-            cur_traj.col(long(cnt)) << waypoint[0], waypoint[1];
+            cur_traj.col(cnt) << waypoint[0], waypoint[1];
 
             Eigen::Matrix2d rotation = Eigen::Rotation2Dd(waypoint[2]).toRotationMatrix();
             Eigen::Vector2d translation(waypoint[0], waypoint[1]);
@@ -144,7 +147,7 @@ TEST(ERL_SDF_MAPPING, GpSdfMapping2D) {
             pose.leftCols<2>() << rotation;
             pose.rightCols<1>() << translation;
             train_poses.push_back(std::move(pose));
-            bar.Update();
+            bar->Update();
         }
         train_angles.resize(cnt);
         train_ranges.resize(cnt);
@@ -154,14 +157,16 @@ TEST(ERL_SDF_MAPPING, GpSdfMapping2D) {
         Eigen::MatrixXd ros_bag_data = erl::common::LoadEigenMatrixFromBinaryFile<double, Eigen::Dynamic, Eigen::Dynamic>(g_options.ros_bag_dat_file);
         tic = ros_bag_data(1, 0) - ros_bag_data(0, 0);
         // prepare buffer
-        max_update_cnt = long(ros_bag_data.rows() - g_options.init_frame) / g_options.stride + 1;
+        max_update_cnt = static_cast<long>(ros_bag_data.rows() - g_options.init_frame) / g_options.stride + 1;
         train_angles.reserve(max_update_cnt);
         train_ranges.reserve(max_update_cnt);
         train_poses.reserve(max_update_cnt);
         cur_traj.resize(2, max_update_cnt);
         // load data into buffer
         long num_rays = (ros_bag_data.cols() - 7) / 2;
-        erl::common::ProgressBar bar(int(max_update_cnt), true, std::cout);
+        auto bar_setting = std::make_shared<erl::common::ProgressBar::Setting>();
+        bar_setting->total = max_update_cnt;
+        const auto bar = erl::common::ProgressBar::Open(bar_setting, std::cout);
         long cnt = 0;
         for (long i = g_options.init_frame; i < ros_bag_data.rows(); i += g_options.stride, cnt++) {
             Eigen::Matrix23d pose = ros_bag_data.row(i).segment(1, 6).reshaped(3, 2).transpose();
@@ -169,8 +174,8 @@ TEST(ERL_SDF_MAPPING, GpSdfMapping2D) {
             train_angles.emplace_back(ros_bag_data.row(i).segment(7, num_rays));
             train_ranges.emplace_back(ros_bag_data.row(i).segment(7 + num_rays, num_rays));
             train_poses.push_back(pose);
-            Eigen::VectorXd &angles = train_angles.back();
-            Eigen::VectorXd &ranges = train_ranges.back();
+            const auto &angles = train_angles.back();
+            const Eigen::VectorXd &ranges = train_ranges.back();
             for (long k = 0; k < num_rays; k++) {
                 if (std::isnan(ranges[k]) || std::isinf(ranges[k])) { continue; }
                 double angle = angles[k];
@@ -181,7 +186,7 @@ TEST(ERL_SDF_MAPPING, GpSdfMapping2D) {
                 if (point[1] < map_min[1]) { map_min[1] = point[1]; }
                 if (point[1] > map_max[1]) { map_max[1] = point[1]; }
             }
-            bar.Update();
+            bar->Update();
         }
         train_angles.resize(cnt);
         train_ranges.resize(cnt);
@@ -215,11 +220,11 @@ TEST(ERL_SDF_MAPPING, GpSdfMapping2D) {
     auto drawer = std::make_shared<OccupancyQuadtreeDrawer>(drawer_setting);
     std::vector<std::pair<cv::Point, cv::Point>> arrowed_lines;
     drawer->SetDrawTreeCallback([&](const OccupancyQuadtreeDrawer *self, cv::Mat &img, erl::sdf_mapping::SurfaceMappingQuadtree::TreeIterator &it) {
-        unsigned int cluster_depth = surface_mapping->GetQuadtree()->GetTreeDepth() - surface_mapping->GetClusterLevel();
-        auto grid_map_info = self->GetGridMapInfo();
+        const uint32_t cluster_depth = surface_mapping->GetQuadtree()->GetTreeDepth() - surface_mapping->GetClusterLevel();
+        const auto grid_map_info = self->GetGridMapInfo();
         if (it->GetDepth() == cluster_depth) {
             Eigen::Vector2i position_px = grid_map_info->MeterToPixelForPoints(Eigen::Vector2d(it.GetX(), it.GetY()));
-            cv::Point position_px_cv(position_px[0], position_px[1]);
+            const cv::Point position_px_cv(position_px[0], position_px[1]);
             cv::circle(img, position_px_cv, 2, cv::Scalar(0, 0, 255, 255), -1);  // draw surface point
             return;
         }
@@ -233,7 +238,7 @@ TEST(ERL_SDF_MAPPING, GpSdfMapping2D) {
     });
     drawer->SetDrawLeafCallback([&](const OccupancyQuadtreeDrawer *self, cv::Mat &img, erl::sdf_mapping::SurfaceMappingQuadtree::LeafIterator &it) {
         if (it->GetSurfaceData() == nullptr) { return; }
-        auto grid_map_info = self->GetGridMapInfo();
+        const auto grid_map_info = self->GetGridMapInfo();
         Eigen::Vector2i position_px = grid_map_info->MeterToPixelForPoints(it->GetSurfaceData()->position);
         cv::Point position_px_cv(position_px[0], position_px[1]);
         cv::circle(img, position_px_cv, 1, cv::Scalar(0, 0, 255, 255), -1);  // draw surface point
@@ -242,7 +247,6 @@ TEST(ERL_SDF_MAPPING, GpSdfMapping2D) {
         arrowed_lines.emplace_back(position_px_cv, arrow_end_px);
     });
 
-    bool pixel_based = true;
     cv::Scalar trajectory_color(0, 0, 0, 255);
     cv::Mat img;
     bool drawer_connected = false;
@@ -284,25 +288,25 @@ TEST(ERL_SDF_MAPPING, GpSdfMapping2D) {
             pangolin_plotter_window,
             "SDF",
             std::vector<std::string>{"t", "SDF", "EDF", "var(SDF)"},
-            600,         // number of points in the plot window
-            0.0f,        // t0
-            float(tic),  // dt
-            0.05f);      // dy
+            600,                      // number of points in the plot window
+            0.0f,                     // t0
+            static_cast<float>(tic),  // dt
+            0.05f);                   // dy
 
         plotter_grad = std::make_shared<erl::common::PangolinPlotterTimeSeries2D>(
             pangolin_plotter_window,
             "Gradient",
             std::vector<std::string>{"t", "gradX", "gradY", "var(gradX)", "var(gradY)"},
-            600,                      // number of points in the plot window
-            0.0f,                     // t0
-            float(tic),               // dt
-            0.05f,                    // dy
+            600,                                      // number of points in the plot window
+            0.0f,                                     // t0
+            static_cast<float>(tic),                  // dt
+            0.05f,                                    // dy
             pangolin::Colour{0.1f, 0.1f, 0.1f, 1.0f}  // bg_color
         );
 
         pangolin_map_window = &pangolin::CreateWindowAndBind(g_window_name + ": map", img.cols, img.rows);
         glEnable(GL_DEPTH_TEST);
-        pangolin_map_view = &(pangolin::Display("cam").SetBounds(0, 1.0, 0, 1.0, float(img.cols) / float(img.rows)));
+        pangolin_map_view = &(pangolin::Display("cam").SetBounds(0, 1.0, 0, 1.0, static_cast<float>(img.cols) / static_cast<float>(img.rows)));
         pangolin_texture = std::make_shared<pangolin::GlTexture>(img.cols, img.rows, GL_RGBA, false, 0, GL_RGBA, GL_UNSIGNED_BYTE);
     }
 
@@ -318,16 +322,15 @@ TEST(ERL_SDF_MAPPING, GpSdfMapping2D) {
 
     double t_ms = 0;
     for (long i = 0; i < max_update_cnt; i++) {
-        Eigen::VectorXd noise = erl::common::GenerateGaussianNoise(train_ranges[i].size(), 0.0, 0.01);
-
         auto t0 = std::chrono::high_resolution_clock::now();
         sdf_mapping.Update(train_angles[i], train_ranges[i], train_poses[i]);
         auto t1 = std::chrono::high_resolution_clock::now();
         auto dt = std::chrono::duration<double, std::milli>(t1 - t0).count();
-        ERL_INFO("Update time: %f ms.", dt);
+        ERL_INFO("Update time: {:f} ms.", dt);
         t_ms += dt;
 
         if (g_options.visualize) {
+            bool pixel_based = true;
             if (!drawer_connected) {
                 drawer->SetQuadtree(surface_mapping->GetQuadtree());
                 drawer_connected = true;
@@ -355,7 +358,7 @@ TEST(ERL_SDF_MAPPING, GpSdfMapping2D) {
             cv::Point position_px(
                 grid_map_info->MeterToGridForValue(cur_traj(0, i), 0),
                 grid_map_info->Shape(1) - grid_map_info->MeterToGridForValue(cur_traj(1, i), 1));
-            auto radius = int(std::abs(distance[0]) / grid_map_info->Resolution(0));
+            auto radius = static_cast<int>(std::abs(distance[0]) / grid_map_info->Resolution(0));
             cv::Mat circle_layer(img.rows, img.cols, CV_8UC4, cv::Scalar(0));
             cv::Mat circle_mask(img.rows, img.cols, CV_8UC1, cv::Scalar(0));
             cv::circle(circle_mask, position_px, radius, cv::Scalar(255), cv::FILLED);
@@ -378,8 +381,8 @@ TEST(ERL_SDF_MAPPING, GpSdfMapping2D) {
             auto &[gp1, gp2] = sdf_mapping.GetUsedGps()[0];
             DrawGp(img, gp1, grid_map_info, {0, 125, 255, 255}, {125, 255, 0, 255}, {255, 125, 0, 255});
             DrawGp(img, gp2, grid_map_info, {125, 125, 255, 255}, {125, 255, 125, 255}, {255, 125, 0, 255});
-            ERL_INFO("GP1 at [%f, %f] has %ld data points.", gp1->position.x(), gp1->position.y(), gp1->gp->GetNumTrainSamples());
-            if (gp2 != nullptr) { ERL_INFO("GP2 has %ld data points.", gp2->gp->GetNumTrainSamples()); }
+            ERL_INFO("GP1 at [{:f}, {:f}] has {} data points.", gp1->position.x(), gp1->position.y(), gp1->gp->GetNumTrainSamples());
+            if (gp2 != nullptr) { ERL_INFO("GP2 has {} data points.", gp2->gp->GetNumTrainSamples()); }
 
             // draw trajectory
             erl::common::DrawTrajectoryInplace(img, cur_traj.block(0, 0, 2, i), grid_map_info, trajectory_color, 2, pixel_based);
@@ -400,12 +403,17 @@ TEST(ERL_SDF_MAPPING, GpSdfMapping2D) {
                 pangolin_map_window->RemoveCurrent();
 
                 pangolin_plotter_window->Activate(true);
-                auto t = float(t_ms / 1000.0);
-                plotter_sdf->Append(t, {float(distance[0]), float(std::abs(distance[0])), float(variances(0, 0))});
-                plotter_grad->Append(t, {float(gradient(0, 0)), float(gradient(1, 0)), float(variances(1, 0)), float(variances(2, 0))});
+                auto t = static_cast<float>(t_ms / 1000.0);
+                plotter_sdf->Append(t, {static_cast<float>(distance[0]), static_cast<float>(std::abs(distance[0])), static_cast<float>(variances(0, 0))});
+                plotter_grad->Append(
+                    t,
+                    {static_cast<float>(gradient(0, 0)),
+                     static_cast<float>(gradient(1, 0)),
+                     static_cast<float>(variances(1, 0)),
+                     static_cast<float>(variances(2, 0))});
                 if (g_options.save_video) {
                     pangolin::TypedImage buffer = pangolin::ReadFramebuffer(pangolin_plotter_window->GetDisplay("main").v, "BGR24");
-                    cv::Mat tmp(int(buffer.h), int(buffer.w), CV_8UC3, buffer.ptr);
+                    cv::Mat tmp(static_cast<int>(buffer.h), static_cast<int>(buffer.w), CV_8UC3, buffer.ptr);
                     cv::flip(tmp, tmp, 0);
                     int offset = (video_frame.rows - tmp.rows) / 2;
                     tmp.copyTo(video_frame(cv::Rect(img.cols, offset, tmp.cols, tmp.rows)));
@@ -421,10 +429,10 @@ TEST(ERL_SDF_MAPPING, GpSdfMapping2D) {
         std::cout << "=====================================" << std::endl;
     }
 
-    ERL_INFO("Average update time: %f ms.", t_ms / double(max_update_cnt));
+    ERL_INFO("Average update time: {:f} ms.", t_ms / static_cast<double>(max_update_cnt));
     if (g_options.save_video) {
         video_writer->release();
-        ERL_INFO("Saved surface mapping video to %s.", video_path.c_str());
+        ERL_INFO("Saved surface mapping video to {}.", video_path.c_str());
     }
 
     // Test SDF Estimation
@@ -438,8 +446,8 @@ TEST(ERL_SDF_MAPPING, GpSdfMapping2D) {
     sdf_mapping.Test(positions_in, distances_out, gradients_out, variances_out, covariances_out);
     auto t1 = std::chrono::high_resolution_clock::now();
     auto dt = std::chrono::duration<double, std::milli>(t1 - t0).count();
-    double t_per_point = double(dt) / (double) positions_in.cols() * 1000;  // us
-    ERL_INFO("Test time: %f ms for %ld points, %f us per point.", dt, positions_in.cols(), t_per_point);
+    double t_per_point = dt / static_cast<double>(positions_in.cols()) * 1000;  // us
+    ERL_INFO("Test time: {:f} ms for {} points, {:f} us per point.", dt, positions_in.cols(), t_per_point);
 
     if (g_options.visualize) {
         Eigen::MatrixXd sdf_out_mat = distances_out.reshaped(grid_map_info->Height(), grid_map_info->Width());
@@ -456,9 +464,9 @@ TEST(ERL_SDF_MAPPING, GpSdfMapping2D) {
         pangolin::CreateWindowAndBind(g_window_name + ": sdf", dst.cols, dst.rows);
         glEnable(GL_DEPTH_TEST);
         pangolin::ImageView sdf_img_view("sdf");
-        pangolin::DisplayBase().AddDisplay(sdf_img_view.SetBounds(0, 1.0, 0, 1.0, float(dst.cols) / float(dst.rows)));
+        pangolin::DisplayBase().AddDisplay(sdf_img_view.SetBounds(0, 1.0, 0, 1.0, static_cast<float>(dst.cols) / static_cast<float>(dst.rows)));
         pangolin::TypedImage sdf_img(dst.cols, dst.rows, pangolin::PixelFormatFromString("BGRA32"));
-        std::copy(dst.data, dst.data + dst.cols * dst.rows * 4, sdf_img.ptr);
+        std::copy_n(dst.data, dst.cols * dst.rows * 4, sdf_img.ptr);
         sdf_img_view.SetImage(sdf_img);
         pangolin::FinishFrame();
 
@@ -475,9 +483,9 @@ TEST(ERL_SDF_MAPPING, GpSdfMapping2D) {
         pangolin::CreateWindowAndBind(g_window_name + ": sdf_variances", dst.cols, dst.rows);
         glEnable(GL_DEPTH_TEST);
         pangolin::ImageView sdf_variances_img_view("sdf_variances");
-        pangolin::DisplayBase().AddDisplay(sdf_variances_img_view.SetBounds(0, 1.0, 0, 1.0, float(dst.cols) / float(dst.rows)));
+        pangolin::DisplayBase().AddDisplay(sdf_variances_img_view.SetBounds(0, 1.0, 0, 1.0, static_cast<float>(dst.cols) / static_cast<float>(dst.rows)));
         pangolin::TypedImage variances_img(dst.cols, dst.rows, pangolin::PixelFormatFromString("BGRA32"));
-        std::copy(dst.data, dst.data + dst.cols * dst.rows * 4, variances_img.ptr);
+        std::copy_n(dst.data, dst.cols * dst.rows * 4, variances_img.ptr);
         sdf_variances_img_view.SetImage(variances_img);
         pangolin::FinishFrame();
     }

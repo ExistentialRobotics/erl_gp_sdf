@@ -1,21 +1,21 @@
 #include "erl_common/pybind11.hpp"
+#include "erl_geometry/pybind11_occupancy_quadtree.hpp"
+#include "erl_sdf_mapping/gp_occ_surface_mapping_2d.hpp"
+#include "erl_sdf_mapping/gp_sdf_mapping_2d.hpp"
 #include "erl_sdf_mapping/gpis/gpis_map_2d.hpp"
 #include "erl_sdf_mapping/gpis/log_gpis_map_2d.hpp"
 #include "erl_sdf_mapping/gpis/node.hpp"
 #include "erl_sdf_mapping/gpis/node_container.hpp"
-#include "erl_sdf_mapping/gp_occ_surface_mapping_2d.hpp"
-#include "erl_sdf_mapping/gp_sdf_mapping_2d.hpp"
 #include "erl_sdf_mapping/log_sdf_gp.hpp"
-#include "erl_geometry/pybind11_occupancy_quadtree.hpp"
 
 static void
-BindGpSdf2D(py::module &m) {
+BindGpSdf2D(const py::module &m) {
     using namespace erl::common;
     using namespace erl::geometry;
     using namespace erl::sdf_mapping::gpis;
 
     // GpisData2D
-    py::class_<GpisData2D, NodeData, std::shared_ptr<GpisData2D>>(m, ERL_AS_STRING(GpisData2D))
+    py::class_<GpisData2D, NodeData, std::shared_ptr<GpisData2D>>(m, "GpisData2D")
         .def_readwrite("distance", &GpisData2D::distance)
         .def_readwrite("gradient", &GpisData2D::gradient)
         .def_readwrite("var_position", &GpisData2D::var_position)
@@ -28,7 +28,7 @@ BindGpSdf2D(py::module &m) {
         });
 
     // GpisNode2D
-    py::class_<GpisNode2D, Node, std::shared_ptr<GpisNode2D>>(m, ERL_AS_STRING(GpisNode2D)).def(py::init<Eigen::Vector<double, 2>>(), py::arg("position"));
+    py::class_<GpisNode2D, Node, std::shared_ptr<GpisNode2D>>(m, "GpisNode2D").def(py::init<Eigen::Vector<double, 2>>(), py::arg("position"));
 
     // GpisNodeContainer2D
     auto py_gpis_node_container = py::class_<GpisNodeContainer2D, NodeContainer, std::shared_ptr<GpisNodeContainer2D>>(m, "GpisNodeContainer2D");
@@ -42,7 +42,7 @@ BindGpSdf2D(py::module &m) {
         .def("__len__", py::overload_cast<>(&GpisNodeContainer2D::Size, py::const_));
 
     // GpisMapBase2D
-    auto py_gpis_map_base = py::class_<GpisMapBase2D>(m, ERL_AS_STRING(GpisMapBase2D));
+    auto py_gpis_map_base = py::class_<GpisMapBase2D>(m, "GpisMapBase2D");
     // GpisMapBase2D::Setting
     auto py_gpis_map_setting = py::class_<GpisMapBase2D::Setting, YamlableBase, std::shared_ptr<GpisMapBase2D::Setting>>(py_gpis_map_base, "Setting");
     // GpisMapBase2D::Setting::ComputeVariance
@@ -97,16 +97,11 @@ BindGpSdf2D(py::module &m) {
         .def(
             "test",
             [](GpisMapBase2D &gpis_map, const Eigen::Ref<const Eigen::Matrix2Xd> &xy) {
-                Eigen::VectorXd distances;
-                Eigen::Matrix2Xd gradients;
-                Eigen::VectorXd distance_variances;
-                Eigen::Matrix2Xd gradient_variances;
-
-                if (gpis_map.Test(xy, distances, gradients, distance_variances, gradient_variances)) {
+                Eigen::VectorXd distances, distance_variances;
+                if (Eigen::Matrix2Xd gradients, gradient_variances; gpis_map.Test(xy, distances, gradients, distance_variances, gradient_variances)) {
                     return py::make_tuple(distances, gradients, distance_variances, gradient_variances);
-                } else {
-                    return py::make_tuple(py::none(), py::none(), py::none(), py::none());
                 }
+                return py::make_tuple(py::none(), py::none(), py::none(), py::none());
             },
             py::arg("xy"))
         .def(
@@ -131,7 +126,7 @@ BindGpSdf2D(py::module &m) {
         });
 
     // GpisMap2D
-    py::class_<GpisMap2D, GpisMapBase2D>(m, ERL_AS_STRING(GpisMap2D))
+    py::class_<GpisMap2D, GpisMapBase2D>(m, "GpisMap2D")
         .def(py::init<>())
         .def(py::init<const std::shared_ptr<GpisMap2D::Setting> &>())
         .def_property_readonly("setting", &GpisMap2D::GetSetting);
@@ -149,13 +144,13 @@ BindGpSdf2D(py::module &m) {
 }
 
 static void
-BindGpSdf3D(py::module &m) {
+BindGpSdf3D(const py::module &m) {
     using namespace erl::common;
     using namespace erl::geometry;
     using namespace erl::sdf_mapping::gpis;
 
     // GpisData3D
-    py::class_<GpisData3D, NodeData, std::shared_ptr<GpisData3D>>(m, ERL_AS_STRING(GpisData3D))
+    py::class_<GpisData3D, NodeData, std::shared_ptr<GpisData3D>>(m, "GpisData3D")
         .def_readwrite("distance", &GpisData3D::distance)
         .def_readwrite("gradient", &GpisData3D::gradient)
         .def_readwrite("var_position", &GpisData3D::var_position)
@@ -167,7 +162,7 @@ BindGpSdf3D(py::module &m) {
             return ss.str();
         });
 
-    py::class_<GpisNode3D, Node, std::shared_ptr<GpisNode3D>>(m, ERL_AS_STRING(GpisNode3D)).def(py::init<Eigen::Vector<double, 3>>(), py::arg("position"));
+    py::class_<GpisNode3D, Node, std::shared_ptr<GpisNode3D>>(m, "GpisNode3D").def(py::init<Eigen::Vector<double, 3>>(), py::arg("position"));
 
     // GpisNodeContainer3D
     auto py_gpis_node_container = py::class_<GpisNodeContainer3D, NodeContainer, std::shared_ptr<GpisNodeContainer3D>>(m, "GpisNodeContainer3D");
@@ -182,7 +177,7 @@ BindGpSdf3D(py::module &m) {
 }
 
 void
-BindLogSdfGaussianProcess(py::module &m) {
+BindLogSdfGaussianProcess(const py::module &m) {
 
     using ParentT = erl::gaussian_process::NoisyInputGaussianProcess;
     using T = erl::sdf_mapping::LogSdfGaussianProcess;
@@ -207,8 +202,8 @@ BindLogSdfGaussianProcess(py::module &m) {
                const Eigen::Ref<const Eigen::VectorXd> &vec_var_x,
                const Eigen::Ref<const Eigen::VectorXd> &vec_var_y,
                const Eigen::Ref<const Eigen::VectorXd> &vec_var_grad) {
-                long num_train_samples = mat_x_train.cols();
-                long x_dim = mat_x_train.rows();
+                const long num_train_samples = mat_x_train.cols();
+                const long x_dim = mat_x_train.rows();
                 self.Reset(num_train_samples, x_dim);
                 self.GetTrainInputSamplesBuffer().topLeftCorner(x_dim, num_train_samples) = mat_x_train;
                 self.GetTrainInputSamplesVarianceBuffer().head(num_train_samples) = vec_var_x;
@@ -230,8 +225,8 @@ BindLogSdfGaussianProcess(py::module &m) {
             "test",
             [](const T &self, const Eigen::Ref<const Eigen::MatrixXd> &mat_x_test) {
                 Eigen::MatrixXd mat_f_out, mat_var_out, mat_cov_out;
-                long dim = mat_x_test.rows();
-                long n = mat_x_test.cols();
+                const long dim = mat_x_test.rows();
+                const long n = mat_x_test.cols();
                 mat_f_out.resize(dim + 1, n);
                 mat_var_out.resize(dim + 1, n);
                 mat_cov_out.resize(dim * (dim + 1) / 2, n);
@@ -294,7 +289,7 @@ BindGpOccSurfaceMapping2D(py::module &m) {
 }
 
 static void
-BindGpSdfMapping2D(py::module &m) {
+BindGpSdfMapping2D(const py::module &m) {
     using namespace erl::common;
     using namespace erl::sdf_mapping;
 
@@ -328,14 +323,11 @@ BindGpSdfMapping2D(py::module &m) {
             [](GpSdfMapping2D &self, const Eigen::Ref<const Eigen::Matrix2Xd> &xy) {
                 Eigen::VectorXd distances;
                 Eigen::Matrix2Xd gradients;
-                Eigen::Matrix3Xd variances_out;
-                Eigen::Matrix3Xd covariances_out;
 
-                if (self.Test(xy, distances, gradients, variances_out, covariances_out)) {
+                if (Eigen::Matrix3Xd variances_out, covariances_out; self.Test(xy, distances, gradients, variances_out, covariances_out)) {
                     return py::make_tuple(distances, gradients, variances_out, covariances_out);
-                } else {
-                    return py::make_tuple(py::none(), py::none(), py::none(), py::none());
                 }
+                return py::make_tuple(py::none(), py::none(), py::none(), py::none());
             },
             py::arg("xy"));
 }
@@ -343,7 +335,7 @@ BindGpSdfMapping2D(py::module &m) {
 PYBIND11_MODULE(PYBIND_MODULE_NAME, m) {
     m.doc() = "Python 3 Interface of erl_sdf_mapping";
 
-    auto gpis = m.def_submodule("gpis", "Interface of erl_sdf_mapping");
+    const auto gpis = m.def_submodule("gpis", "Interface of erl_sdf_mapping");
     BindGpSdf2D(gpis);
     BindGpSdf3D(gpis);
 

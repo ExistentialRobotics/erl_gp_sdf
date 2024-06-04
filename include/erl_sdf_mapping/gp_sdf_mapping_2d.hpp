@@ -1,10 +1,12 @@
 #pragma once
 
-#include <memory>
-#include <queue>
-#include "erl_common/yaml.hpp"
 #include "abstract_surface_mapping_2d.hpp"
 #include "log_sdf_gp.hpp"
+
+#include "erl_common/yaml.hpp"
+
+#include <memory>
+#include <queue>
 
 namespace erl::sdf_mapping {
 
@@ -12,7 +14,7 @@ namespace erl::sdf_mapping {
 
     public:
         struct Setting : public common::Yamlable<Setting> {
-            struct TestQuery : public common::Yamlable<TestQuery> {
+            struct TestQuery : public Yamlable<TestQuery> {
                 double max_test_valid_distance_var = 0.4;  // maximum distance variance of prediction.
                 double search_area_half_size = 4.8;
                 bool use_nearest_only = false;    // if true, only the nearest point will be used for prediction.
@@ -21,7 +23,7 @@ namespace erl::sdf_mapping {
                 double softmax_temperature = 10.;
             };
 
-            unsigned int num_threads = 64;
+            uint32_t num_threads = 64;
             double update_hz = 20;                // frequency that Update() is called.
             double gp_sdf_area_scale = 4;         // ratio between GP area and Quadtree cluster area
             double offset_distance = 0.0;         // offset distance for surface points
@@ -33,7 +35,7 @@ namespace erl::sdf_mapping {
             bool log_timing = false;
         };
 
-        struct GP {
+        struct Gp {
             bool active = false;
             std::atomic_bool locked_for_test = false;
             long num_train_samples = 0;
@@ -41,13 +43,13 @@ namespace erl::sdf_mapping {
             double half_size = 0;
             std::shared_ptr<LogSdfGaussianProcess> gp = {};
 
-            inline void
-            Train() {
+            void
+            Train() const {
                 gp->Train(num_train_samples);
             }
         };
 
-        using QuadtreeKeyGpMap = std::unordered_map<geometry::QuadtreeKey, std::shared_ptr<GP>, geometry::QuadtreeKey::KeyHash>;
+        using QuadtreeKeyGpMap = std::unordered_map<geometry::QuadtreeKey, std::shared_ptr<Gp>, geometry::QuadtreeKey::KeyHash>;
 
     private:
         std::shared_ptr<Setting> m_setting_ = std::make_shared<Setting>();
@@ -55,10 +57,10 @@ namespace erl::sdf_mapping {
         std::shared_ptr<AbstractSurfaceMapping2D> m_surface_mapping_ = nullptr;                 // for getting surface points, racing condition.
         std::vector<geometry::QuadtreeKey> m_clusters_to_update_ = {};                          // stores clusters that are to be updated by UpdateGpThread.
         QuadtreeKeyGpMap m_gp_map_ = {};                                                        // for getting GP from Quadtree key, racing condition.
-        std::vector<std::vector<std::pair<double, std::shared_ptr<GP>>>> m_query_to_gps_ = {};  // for testing, racing condition
-        std::vector<std::array<std::shared_ptr<GP>, 2>> m_query_used_gps_ = {};                 // for testing, racing condition
-        std::list<std::shared_ptr<GP>> m_new_gps_ = {};                                         // caching new GPs to be moved into m_gps_to_train_
-        std::vector<std::shared_ptr<GP>> m_gps_to_train_ = {};                                  // for training SDF GPs, racing condition in Update() and Test()
+        std::vector<std::vector<std::pair<double, std::shared_ptr<Gp>>>> m_query_to_gps_ = {};  // for testing, racing condition
+        std::vector<std::array<std::shared_ptr<Gp>, 2>> m_query_used_gps_ = {};                 // for testing, racing condition
+        std::list<std::shared_ptr<Gp>> m_new_gps_ = {};                                         // caching new GPs to be moved into m_gps_to_train_
+        std::vector<std::shared_ptr<Gp>> m_gps_to_train_ = {};                                  // for training SDF GPs, racing condition in Update() and Test()
         double m_train_gp_time_ = 10;                                                           // us
         std::mutex m_log_mutex_;                                                                // for logging
         double m_travel_distance_ = 0;                                                          // for logging
@@ -74,26 +76,26 @@ namespace erl::sdf_mapping {
             std::unique_ptr<Eigen::Ref<Eigen::Matrix3Xd>> variances = nullptr;
             std::unique_ptr<Eigen::Ref<Eigen::Matrix3Xd>> covariances = nullptr;
 
-            [[nodiscard]] inline std::size_t
+            [[nodiscard]] std::size_t
             Size() const {
                 if (positions == nullptr) return 0;
                 return positions->cols();
             }
 
-            inline bool
+            bool
             ConnectBuffers(
                 const Eigen::Ref<const Eigen::Matrix2Xd>& positions_in,
                 Eigen::VectorXd& distances_out,
                 Eigen::Matrix2Xd& gradients_out,
                 Eigen::Matrix3Xd& variances_out,
                 Eigen::Matrix3Xd& covariances_out,
-                bool compute_covariance) {
+                const bool compute_covariance) {
                 positions = nullptr;
                 distances = nullptr;
                 gradients = nullptr;
                 variances = nullptr;
                 covariances = nullptr;
-                long n = positions_in.cols();
+                const long n = positions_in.cols();
                 if (n == 0) return false;
                 distances_out.resize(n);
                 gradients_out.resize(2, n);
@@ -107,7 +109,7 @@ namespace erl::sdf_mapping {
                 return true;
             }
 
-            inline void
+            void
             DisconnectBuffers() {
                 positions = nullptr;
                 distances = nullptr;
@@ -129,9 +131,9 @@ namespace erl::sdf_mapping {
             // get log dir from env
             if (m_setting_->log_timing) {
                 char* log_dir_env = std::getenv("LOG_DIR");
-                std::filesystem::path log_dir = log_dir_env == nullptr ? std::filesystem::current_path() : std::filesystem::path(log_dir_env);
-                std::filesystem::path train_log_file_name = log_dir / "gp_sdf_mapping_2d_train.csv";
-                std::filesystem::path test_log_file_name = log_dir / "gp_sdf_mapping_2d_test.csv";
+                const std::filesystem::path log_dir = log_dir_env == nullptr ? std::filesystem::current_path() : std::filesystem::path(log_dir_env);
+                const std::filesystem::path train_log_file_name = log_dir / "gp_sdf_mapping_2d_train.csv";
+                const std::filesystem::path test_log_file_name = log_dir / "gp_sdf_mapping_2d_test.csv";
                 if (std::filesystem::exists(train_log_file_name)) { std::filesystem::remove(train_log_file_name); }
                 if (std::filesystem::exists(test_log_file_name)) { std::filesystem::remove(test_log_file_name); }
                 m_train_log_file_.open(train_log_file_name);
@@ -169,7 +171,7 @@ namespace erl::sdf_mapping {
             Eigen::Matrix3Xd& variances_out,
             Eigen::Matrix3Xd& covariances_out);
 
-        inline const std::vector<std::array<std::shared_ptr<GP>, 2>>&
+        const std::vector<std::array<std::shared_ptr<Gp>, 2>>&
         GetUsedGps() const {
             return m_query_used_gps_;
         }
@@ -179,86 +181,81 @@ namespace erl::sdf_mapping {
         UpdateGps(double time_budget);
 
         void
-        UpdateGpThread(unsigned int thread_idx, std::size_t start_idx, std::size_t end_idx);
+        UpdateGpThread(uint32_t thread_idx, std::size_t start_idx, std::size_t end_idx);
 
         void
         TrainGps();
 
         void
-        TrainGpThread(unsigned int thread_idx, std::size_t start_idx, std::size_t end_idx);
+        TrainGpThread(uint32_t thread_idx, std::size_t start_idx, std::size_t end_idx) const;
 
         void
-        SearchGpThread(unsigned int thread_idx, std::size_t start_idx, std::size_t end_idx);
+        SearchGpThread(uint32_t thread_idx, std::size_t start_idx, std::size_t end_idx);
 
         void
-        TestGpThread(unsigned int thread_idx, std::size_t start_idx, std::size_t end_idx);
+        TestGpThread(uint32_t thread_idx, std::size_t start_idx, std::size_t end_idx);
     };
 }  // namespace erl::sdf_mapping
 
-namespace YAML {
+template<>
+struct YAML::convert<erl::sdf_mapping::GpSdfMapping2D::Setting::TestQuery> {
 
-    using namespace erl::sdf_mapping;
+    static Node
+    encode(const erl::sdf_mapping::GpSdfMapping2D::Setting::TestQuery& rhs) {
+        Node node;
+        node["max_test_valid_distance_var"] = rhs.max_test_valid_distance_var;
+        node["search_area_half_size"] = rhs.search_area_half_size;
+        node["use_nearest_only"] = rhs.use_nearest_only;
+        node["compute_covariance"] = rhs.compute_covariance;
+        node["recompute_variance"] = rhs.recompute_variance;
+        node["softmax_temperature"] = rhs.softmax_temperature;
+        return node;
+    }
 
-    template<>
-    struct convert<GpSdfMapping2D::Setting::TestQuery> {
+    static bool
+    decode(const Node& node, erl::sdf_mapping::GpSdfMapping2D::Setting::TestQuery& rhs) {
+        if (!node.IsMap()) { return false; }
+        rhs.max_test_valid_distance_var = node["max_test_valid_distance_var"].as<double>();
+        rhs.search_area_half_size = node["search_area_half_size"].as<double>();
+        rhs.use_nearest_only = node["use_nearest_only"].as<bool>();
+        rhs.compute_covariance = node["compute_covariance"].as<bool>();
+        rhs.recompute_variance = node["recompute_variance"].as<bool>();
+        rhs.softmax_temperature = node["softmax_temperature"].as<double>();
+        return true;
+    }
+};
 
-        inline static Node
-        encode(const GpSdfMapping2D::Setting::TestQuery& rhs) {
-            Node node;
-            node["max_test_valid_distance_var"] = rhs.max_test_valid_distance_var;
-            node["search_area_half_size"] = rhs.search_area_half_size;
-            node["use_nearest_only"] = rhs.use_nearest_only;
-            node["compute_covariance"] = rhs.compute_covariance;
-            node["recompute_variance"] = rhs.recompute_variance;
-            node["softmax_temperature"] = rhs.softmax_temperature;
-            return node;
-        }
+template<>
+struct YAML::convert<erl::sdf_mapping::GpSdfMapping2D::Setting> {
+    static Node
+    encode(const erl::sdf_mapping::GpSdfMapping2D::Setting& setting) {
+        Node node;
+        node["num_threads"] = setting.num_threads;
+        node["update_hz"] = setting.update_hz;
+        node["gp_sdf_area_scale"] = setting.gp_sdf_area_scale;
+        node["offset_distance"] = setting.offset_distance;
+        node["max_valid_gradient_var"] = setting.max_valid_gradient_var;
+        node["invalid_position_var"] = setting.invalid_position_var;
+        node["train_gp_immediately"] = setting.train_gp_immediately;
+        node["gp_sdf"] = setting.gp_sdf;
+        node["test_query"] = setting.test_query;
+        node["log_timing"] = setting.log_timing;
+        return node;
+    }
 
-        inline static bool
-        decode(const Node& node, GpSdfMapping2D::Setting::TestQuery& rhs) {
-            if (!node.IsMap()) { return false; }
-            rhs.max_test_valid_distance_var = node["max_test_valid_distance_var"].as<double>();
-            rhs.search_area_half_size = node["search_area_half_size"].as<double>();
-            rhs.use_nearest_only = node["use_nearest_only"].as<bool>();
-            rhs.compute_covariance = node["compute_covariance"].as<bool>();
-            rhs.recompute_variance = node["recompute_variance"].as<bool>();
-            rhs.softmax_temperature = node["softmax_temperature"].as<double>();
-            return true;
-        }
-    };
-
-    template<>
-    struct convert<GpSdfMapping2D::Setting> {
-        static Node
-        encode(const GpSdfMapping2D::Setting& setting) {
-            Node node;
-            node["num_threads"] = setting.num_threads;
-            node["update_hz"] = setting.update_hz;
-            node["gp_sdf_area_scale"] = setting.gp_sdf_area_scale;
-            node["offset_distance"] = setting.offset_distance;
-            node["max_valid_gradient_var"] = setting.max_valid_gradient_var;
-            node["invalid_position_var"] = setting.invalid_position_var;
-            node["train_gp_immediately"] = setting.train_gp_immediately;
-            node["gp_sdf"] = setting.gp_sdf;
-            node["test_query"] = setting.test_query;
-            node["log_timing"] = setting.log_timing;
-            return node;
-        }
-
-        static bool
-        decode(const Node& node, GpSdfMapping2D::Setting& setting) {
-            if (!node.IsMap()) { return false; }
-            setting.num_threads = node["num_threads"].as<unsigned int>();
-            setting.update_hz = node["update_hz"].as<double>();
-            setting.gp_sdf_area_scale = node["gp_sdf_area_scale"].as<double>();
-            setting.offset_distance = node["offset_distance"].as<double>();
-            setting.max_valid_gradient_var = node["max_valid_gradient_var"].as<double>();
-            setting.invalid_position_var = node["invalid_position_var"].as<double>();
-            setting.train_gp_immediately = node["train_gp_immediately"].as<bool>();
-            setting.gp_sdf = node["gp_sdf"].as<decltype(setting.gp_sdf)>();
-            setting.test_query = node["test_query"].as<decltype(setting.test_query)>();
-            setting.log_timing = node["log_timing"].as<bool>();
-            return true;
-        }
-    };
-}  // namespace YAML
+    static bool
+    decode(const Node& node, erl::sdf_mapping::GpSdfMapping2D::Setting& setting) {
+        if (!node.IsMap()) { return false; }
+        setting.num_threads = node["num_threads"].as<uint32_t>();
+        setting.update_hz = node["update_hz"].as<double>();
+        setting.gp_sdf_area_scale = node["gp_sdf_area_scale"].as<double>();
+        setting.offset_distance = node["offset_distance"].as<double>();
+        setting.max_valid_gradient_var = node["max_valid_gradient_var"].as<double>();
+        setting.invalid_position_var = node["invalid_position_var"].as<double>();
+        setting.train_gp_immediately = node["train_gp_immediately"].as<bool>();
+        setting.gp_sdf = node["gp_sdf"].as<decltype(setting.gp_sdf)>();
+        setting.test_query = node["test_query"].as<decltype(setting.test_query)>();
+        setting.log_timing = node["log_timing"].as<bool>();
+        return true;
+    }
+};

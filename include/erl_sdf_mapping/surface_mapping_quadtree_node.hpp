@@ -1,4 +1,5 @@
 #pragma once
+#include "erl_common/eigen.hpp"
 #include "erl_geometry/occupancy_quadtree_node.hpp"
 
 namespace erl::sdf_mapping {
@@ -14,7 +15,7 @@ namespace erl::sdf_mapping {
 
             SurfaceData() = default;
 
-            SurfaceData(Eigen::Vector2d position, Eigen::Vector2d normal, double var_position, double var_normal)
+            SurfaceData(Eigen::Vector2d position, Eigen::Vector2d normal, const double var_position, const double var_normal)
                 : position(std::move(position)),
                   normal(std::move(normal)),
                   var_position(var_position),
@@ -27,12 +28,12 @@ namespace erl::sdf_mapping {
             SurfaceData &
             operator=(SurfaceData &&other) noexcept = default;
 
-            [[nodiscard]] inline bool
+            [[nodiscard]] bool
             operator==(const SurfaceData &other) const {
                 return position == other.position && normal == other.normal && var_position == other.var_position && var_normal == other.var_normal;
             }
 
-            [[nodiscard]] inline bool
+            [[nodiscard]] bool
             operator!=(const SurfaceData &other) const {
                 return !(*this == other);
             }
@@ -42,17 +43,17 @@ namespace erl::sdf_mapping {
         std::shared_ptr<SurfaceData> m_data_ = nullptr;
 
     public:
-        explicit SurfaceMappingQuadtreeNode(uint32_t depth = 0, int child_index = -1, float log_odds = 0)
+        explicit SurfaceMappingQuadtreeNode(const uint32_t depth = 0, const int child_index = -1, const float log_odds = 0)
             : OccupancyQuadtreeNode(depth, child_index, log_odds) {}
 
         SurfaceMappingQuadtreeNode(const SurfaceMappingQuadtreeNode &other)
-            : geometry::OccupancyQuadtreeNode(other),
+            : OccupancyQuadtreeNode(other),
               m_data_(std::make_shared<SurfaceData>(*other.m_data_)) {}
 
         SurfaceMappingQuadtreeNode &
         operator=(const SurfaceMappingQuadtreeNode &other) {
             if (this == &other) { return *this; }
-            geometry::OccupancyQuadtreeNode::operator=(other);
+            OccupancyQuadtreeNode::operator=(other);
             m_data_ = std::make_shared<SurfaceData>(*other.m_data_);
             return *this;
         }
@@ -62,43 +63,48 @@ namespace erl::sdf_mapping {
         SurfaceMappingQuadtreeNode &
         operator=(SurfaceMappingQuadtreeNode &&other) noexcept = default;
 
-        [[nodiscard]] inline geometry::AbstractQuadtreeNode *
+        [[nodiscard]] AbstractQuadtreeNode *
+        Create(const uint32_t depth, const int child_index) const override {
+            return new SurfaceMappingQuadtreeNode(depth, child_index, /*log_odds*/ 0);
+        }
+
+        [[nodiscard]] AbstractQuadtreeNode *
         Clone() const override {
             return new SurfaceMappingQuadtreeNode(*this);
         }
 
-        inline bool
-        operator==(const geometry::AbstractQuadtreeNode &other) const override {
-            if (geometry::OccupancyQuadtreeNode::operator==(other)) {
+        bool
+        operator==(const AbstractQuadtreeNode &other) const override {
+            if (OccupancyQuadtreeNode::operator==(other)) {
                 const auto &other_node = reinterpret_cast<const SurfaceMappingQuadtreeNode &>(other);
                 return *m_data_ == *other_node.m_data_;
             }
             return false;
         }
 
-        inline void
+        void
         SetSurfaceData(Eigen::Vector2d position, Eigen::Vector2d normal, double var_position, double var_normal) {
             m_data_ = std::make_shared<SurfaceData>(std::move(position), std::move(normal), var_position, var_normal);
         }
 
-        inline void
+        void
         SetSurfaceData(const std::shared_ptr<SurfaceData> &data) {
             m_data_ = data;
         }
 
-        inline std::shared_ptr<SurfaceData>
+        std::shared_ptr<SurfaceData>
         GetSurfaceData() {
             return m_data_;
         }
 
-        inline void
+        void
         ResetSurfaceData() {
             m_data_.reset();
         }
 
         std::istream &
         ReadData(std::istream &s) override {
-            geometry::OccupancyQuadtreeNode::ReadData(s);
+            OccupancyQuadtreeNode::ReadData(s);
             char has_data;
             s.read(&has_data, sizeof(char));
             if (has_data == 0) {
@@ -115,24 +121,19 @@ namespace erl::sdf_mapping {
 
         std::ostream &
         WriteData(std::ostream &s) const override {
-            geometry::OccupancyQuadtreeNode::WriteData(s);
+            OccupancyQuadtreeNode::WriteData(s);
             if (m_data_ == nullptr) {
-                s << char(0);
+                s << static_cast<char>(0);
                 return s;
-            } else {
-                s << char(1);
             }
+            s << static_cast<char>(1);
             s.write(reinterpret_cast<const char *>(m_data_->position.data()), sizeof(double) * 2);
             s.write(reinterpret_cast<const char *>(m_data_->normal.data()), sizeof(double) * 2);
             s.write(reinterpret_cast<const char *>(&m_data_->var_position), sizeof(double));
             s.write(reinterpret_cast<const char *>(&m_data_->var_normal), sizeof(double));
             return s;
         }
-
-    private:
-        inline AbstractQuadtreeNode *
-        AllocateChildPtr(uint32_t child_index) override {
-            return new SurfaceMappingQuadtreeNode(m_depth_ + 1, int(child_index), 0);
-        }
     };
+
+    ERL_REGISTER_QUADTREE_NODE(SurfaceMappingQuadtreeNode);
 }  // namespace erl::sdf_mapping

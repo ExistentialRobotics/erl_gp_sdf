@@ -1,8 +1,8 @@
-#include <gtest/gtest.h>
-#include <filesystem>
 #include "erl_common/test_helper.hpp"
 #include "erl_geometry/gazebo_room.hpp"
 #include "erl_sdf_mapping/gpis/log_gpis_map_2d.hpp"
+
+#include <filesystem>
 
 using namespace erl::common;
 using namespace erl::sdf_mapping::gpis;
@@ -35,7 +35,7 @@ TEST(ERL_SDF_MAPPING, LogGpisMap2D) {
         std::cout << "===============================================" << std::endl;
     }
 
-    t_train_ans /= double(train_data_loader.size());
+    t_train_ans /= static_cast<double>(train_data_loader.size());
 
     const char *test_dat_file = "double/test.dat";
     auto df = erl::geometry::GazeboRoom::TestDataFrame((dir_path / test_dat_file).c_str());
@@ -45,12 +45,12 @@ TEST(ERL_SDF_MAPPING, LogGpisMap2D) {
     double t_test_ans = ReportTime<std::chrono::milliseconds>("LogGpisMap2D-test", 10, false, [&]() {
         log_gpis_map.Test(df.positions, distance_ans, gradient_ans, distance_variance_ans, gradient_variance_ans);
     });
-    double t_per_point = double(t_test_ans) / double(df.positions.cols() * 1000);  // us
+    double t_per_point = t_test_ans / static_cast<double>(df.positions.cols() * 1000);  // us
     std::cout << "===============================================" << std::endl;
 
-    std::cout << PrintInfo("Average training time:") << std::endl;
+    Logging::Info("Average training time:");
     std::cout << "LogGpisMap2D: " << t_train_ans << " us" << std::endl;
-    std::cout << PrintInfo("Average testing time:") << std::endl;
+    Logging::Info("Average testing time:");
     std::cout << "LogGpisMap2D: " << t_test_ans << " ms for " << df.positions.cols() << " points, " << t_per_point << " us per point" << std::endl;
 }
 

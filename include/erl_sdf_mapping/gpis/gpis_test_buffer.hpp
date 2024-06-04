@@ -18,12 +18,12 @@ namespace erl::sdf_mapping::gpis {
         std::unique_ptr<OutVectorBuffer> distance_variances;
         std::unique_ptr<OutMatrixBuffer> gradient_variances;
 
-        [[nodiscard]] inline ssize_t
+        [[nodiscard]] ssize_t
         Size() const {
             return n;
         }
 
-        inline bool
+        bool
         ConnectBuffers(
             const InBuffer &xy,
             OutVectorBuffer::PlainMatrix &distances_buf,
@@ -49,7 +49,7 @@ namespace erl::sdf_mapping::gpis {
             return true;
         }
 
-        inline void
+        void
         DisconnectBuffers() {
             n = 0;
             positions = nullptr;

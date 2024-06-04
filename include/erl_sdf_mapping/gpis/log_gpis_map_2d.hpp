@@ -1,9 +1,8 @@
 #pragma once
 
-#include <fstream>
+#include "gpis_map_base_2d.hpp"
 
 #include "erl_sdf_mapping/log_sdf_gp.hpp"
-#include "gpis_map_base_2d.hpp"
 
 namespace erl::sdf_mapping::gpis {
 
@@ -11,27 +10,22 @@ namespace erl::sdf_mapping::gpis {
 
     public:
         struct Setting : public GpisMapBase2D::Setting {
-            std::shared_ptr<LogSdfGaussianProcess::Setting> gp_sdf = std::make_shared<LogSdfGaussianProcess::Setting>();
+            Setting() { gp_sdf = std::make_shared<LogSdfGaussianProcess::Setting>(); }
         };
 
-    private:
-        std::shared_ptr<Setting> m_setting_ = {};
-
-    public:
         explicit LogGpisMap2D()
             : LogGpisMap2D(std::make_shared<Setting>()) {}
 
         explicit LogGpisMap2D(const std::shared_ptr<Setting> &setting)
-            : GpisMapBase2D(setting),
-              m_setting_(setting) {}
+            : GpisMapBase2D(setting) {}
 
-        std::shared_ptr<Setting>
+        [[nodiscard]] std::shared_ptr<Setting>
         GetSetting() const {
-            return m_setting_;
+            return std::dynamic_pointer_cast<Setting>(m_setting_);
         }
 
     private:
-        inline std::shared_ptr<void>
+        std::shared_ptr<void>
         TrainGpX(
             const Eigen::Ref<const Eigen::MatrixXd> &mat_x_train,
             const Eigen::Ref<const Eigen::VectorXd> &vec_y_train,
@@ -39,9 +33,9 @@ namespace erl::sdf_mapping::gpis {
             const Eigen::Ref<const Eigen::VectorXb> &vec_grad_flag,
             const Eigen::Ref<const Eigen::VectorXd> &vec_sigma_x,
             const Eigen::Ref<const Eigen::VectorXd> &vec_sigma_y,
-            const Eigen::Ref<const Eigen::VectorXd> &vec_sigma_grad) final {
+            const Eigen::Ref<const Eigen::VectorXd> &vec_sigma_grad) override {
 
-            auto gp = std::make_shared<LogSdfGaussianProcess>(m_setting_->gp_sdf);
+            auto gp = std::make_shared<LogSdfGaussianProcess>(std::dynamic_pointer_cast<LogSdfGaussianProcess::Setting>(m_setting_->gp_sdf));
             gp->Reset(mat_x_train.cols(), 2);
             gp->GetTrainInputSamplesBuffer() = mat_x_train;
             gp->GetTrainInputSamplesVarianceBuffer() = vec_sigma_x;
@@ -54,14 +48,14 @@ namespace erl::sdf_mapping::gpis {
             return gp;
         }
 
-        inline void
+        void
         InferWithGpX(
             const std::shared_ptr<const void> &gp_ptr,
             const Eigen::Ref<const Eigen::Vector2d> &mat_x_test,
-            Eigen::Ref<Eigen::Vector3d> vec_f_out,
-            Eigen::Ref<Eigen::Vector3d> vec_var_out) const final {
+            const Eigen::Ref<Eigen::Vector3d> vec_f_out,
+            const Eigen::Ref<Eigen::Vector3d> vec_var_out) const override {
 
-            auto gp = std::static_pointer_cast<const LogSdfGaussianProcess>(gp_ptr);
+            const auto gp = std::static_pointer_cast<const LogSdfGaussianProcess>(gp_ptr);
             Eigen::Matrix3Xd mat_cov_out;
             gp->Test(mat_x_test, vec_f_out, vec_var_out, mat_cov_out);
         }

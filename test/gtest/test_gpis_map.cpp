@@ -1,16 +1,18 @@
-#include <filesystem>
 #include "GPisMap.h"
+
 #include "erl_common/test_helper.hpp"
-#include "erl_geometry/gazebo_room.hpp"
 #include "erl_gaussian_process/noisy_input_gp.hpp"
+#include "erl_geometry/gazebo_room.hpp"
 #include "erl_sdf_mapping/gpis/gpis_map_2d.hpp"
+
+#include <filesystem>
 
 void
 PrintStatusOfErlGpisMap(const erl::sdf_mapping::gpis::GpisMap2D &gpis_map, std::ostream &os = std::cout) {
     if (&os == &std::cout) {
-        std::cout << erl::common::PrintInfo("Tree Structure of ERL-GpisMap2D:") << std::endl;
+        erl::common::Logging::Info("Tree Structure of ERL-GpisMap2D:");
     } else {
-        std::cout << erl::common::PrintInfo("Print tree structure of ERL-GpisMap2D to ostream ...") << std::endl;
+        erl::common::Logging::Info("Print tree structure of ERL-GpisMap2D to ostream ...");
     }
     if (gpis_map.GetQuadtree() == nullptr) {
         os << "null" << std::endl;
@@ -22,9 +24,9 @@ PrintStatusOfErlGpisMap(const erl::sdf_mapping::gpis::GpisMap2D &gpis_map, std::
 void
 PrintStatusOfGpisMap(const GPisMap &gpis_map, std::ostream &os = std::cout) {
     if (&os == &std::cout) {
-        std::cout << erl::common::PrintInfo("Tree Structure of GPisMap:") << std::endl;
+        erl::common::Logging::Info("Tree Structure of GPisMap:");
     } else {
-        std::cout << erl::common::PrintInfo("Print tree structure of GPisMap to ostream ...") << std::endl;
+        erl::common::Logging::Info("Print tree structure of GPisMap to ostream ...");
     }
     os << gpis_map.m_tree_;
 }
@@ -36,21 +38,21 @@ TEST(ERL_SDF_MAPPING, GpisMap2D) {
 
     GPisMap gpm;
     erl::sdf_mapping::gpis::GpisMap2D gpis_map;
-    gpis_map.m_setting_->update_gp_sdf->offset_distance = GPISMAP_FBIAS;
+    gpis_map.GetSetting()->update_gp_sdf->offset_distance = GPISMAP_FBIAS;
     std::cout << *gpis_map.GetSetting() << std::endl;
 
     std::cout.precision(5);
     std::cout << std::scientific;
 
-    std::size_t t_train_gt = 0;
-    std::size_t t_train_ans = 0;
+    double t_train_gt = 0;
+    double t_train_ans = 0;
     int cnt = 0;
     std::stringstream ss;
     for (auto df: train_data_loader) {
         ss.str(std::string());
         ss << "GPisMap-Train[" << cnt << ']';
         t_train_gt += erl::common::ReportTime<std::chrono::microseconds>(ss.str().c_str(), 0, true, [&]() {
-            gpm.Update(df.angles.data(), df.distances.data(), int(df.angles.size()), df.pose_matlab);
+            gpm.Update(df.angles.data(), df.distances.data(), static_cast<int>(df.angles.size()), df.pose_matlab);
         });
         ss.str(std::string());
         ss << "GpisMap2D-Train[" << cnt << ']';
@@ -63,10 +65,10 @@ TEST(ERL_SDF_MAPPING, GpisMap2D) {
         std::cout << "===============================================" << std::endl;
     }
 
-    t_train_gt /= train_data_loader.size();
-    t_train_ans /= train_data_loader.size();
+    t_train_gt /= static_cast<double>(train_data_loader.size());
+    t_train_ans /= static_cast<double>(train_data_loader.size());
 
-    std::cout << erl::common::PrintInfo("Average training time:") << std::endl;
+    erl::common::Logging::Info("Average training time:");
     std::cout << "ERL-GpisMap2D: " << t_train_ans << " us" << std::endl << "GPisMap: " << t_train_gt << " us" << std::endl;
 
     std::ofstream fs;
@@ -79,7 +81,7 @@ TEST(ERL_SDF_MAPPING, GpisMap2D) {
     fs.close();
 
     // Check m_train_buffer_
-    auto &train_buffer = gpis_map.m_gp_theta_->GetTrainBuffer();
+    auto &train_buffer = gpis_map.GetGpTheta()->GetTrainBuffer();
     ASSERT_EIGEN_VECTOR_EQUAL("m_gp_theta_->m_train_buffer_.vec_angles", train_buffer.vec_angles, gpm.m_obs_theta_);
     ASSERT_EIGEN_VECTOR_EQUAL("m_gp_theta_->m_train_buffer_.vec_ranges", train_buffer.vec_ranges, gpm.m_obs_range_);
     ASSERT_EIGEN_VECTOR_EQUAL("m_gp_theta_->m_train_buffer_.vec_mapped_distances", train_buffer.vec_mapped_distances, gpm.m_obs_f_);
@@ -93,22 +95,23 @@ TEST(ERL_SDF_MAPPING, GpisMap2D) {
     EXPECT_EQ(train_buffer.max_distance, gpm.m_range_obs_max_) << "m_gp_theta_->m_train_buffer_.max_distance";
 
     Eigen::MatrixXd mat_xy_local_ans = train_buffer.mat_xy_local;
-    Eigen::MatrixXd mat_xy_local_gt = Eigen::Map<Eigen::MatrixXd>(gpm.m_obs_xy_local_.data(), 2, long(gpm.m_obs_xy_local_.size()) / 2);
+    Eigen::MatrixXd mat_xy_local_gt = Eigen::Map<Eigen::MatrixXd>(gpm.m_obs_xy_local_.data(), 2, static_cast<long>(gpm.m_obs_xy_local_.size()) / 2);
     ASSERT_EIGEN_MATRIX_EQUAL("m_gp_theta_->m_train_buffer_.mat_xy_local", mat_xy_local_ans, mat_xy_local_gt);
 
     Eigen::MatrixXd mat_xy_global_ans = train_buffer.mat_xy_global;
-    Eigen::MatrixXd mat_xy_global_gt = Eigen::Map<Eigen::MatrixXd>(gpm.m_obs_xy_global_.data(), 2, long(gpm.m_obs_xy_global_.size()) / 2);
+    Eigen::MatrixXd mat_xy_global_gt = Eigen::Map<Eigen::MatrixXd>(gpm.m_obs_xy_global_.data(), 2, static_cast<long>(gpm.m_obs_xy_global_.size()) / 2);
     ASSERT_EIGEN_MATRIX_EQUAL("m_gp_theta_->m_train_buffer_.mat_xy_global", mat_xy_global_ans, mat_xy_global_gt);
 
     // Check regress observation
-    EXPECT_EQ(gpis_map.m_gp_theta_->GetSetting()->overlap_size, gpm.m_gpo_->param.overlap) << "overlap_size";
-    EXPECT_EQ(gpis_map.m_gp_theta_->GetSetting()->group_size - gpis_map.m_gp_theta_->GetSetting()->overlap_size, gpm.m_gpo_->param.group_size) << "group_size";
-    EXPECT_EQ(gpis_map.m_gp_theta_->GetSetting()->boundary_margin, gpm.m_gpo_->param.margin) << "boundary_margin";
-    EXPECT_EQ(gpis_map.m_gp_theta_->GetSetting()->gp->kernel->scale, gpm.m_gpo_->param.scale) << "gp->kernel->scale";
-    EXPECT_EQ(gpis_map.m_setting_->gp_theta->sensor_range_var, gpm.m_gpo_->param.noise) << "gp_theta->sensor_range_var";
-    ASSERT_STD_VECTOR_EQUAL("gpm.m_gpo_->range", gpis_map.m_gp_theta_->GetPartitions(), gpm.m_gpo_->range);
+    EXPECT_EQ(gpis_map.GetGpTheta()->GetSetting()->overlap_size, gpm.m_gpo_->param.overlap) << "overlap_size";
+    EXPECT_EQ(gpis_map.GetGpTheta()->GetSetting()->group_size - gpis_map.GetGpTheta()->GetSetting()->overlap_size, gpm.m_gpo_->param.group_size)
+        << "group_size";
+    EXPECT_EQ(gpis_map.GetGpTheta()->GetSetting()->boundary_margin, gpm.m_gpo_->param.margin) << "boundary_margin";
+    EXPECT_EQ(gpis_map.GetGpTheta()->GetSetting()->gp->kernel->scale, gpm.m_gpo_->param.scale) << "gp->kernel->scale";
+    EXPECT_EQ(gpis_map.GetSetting()->gp_theta->sensor_range_var, gpm.m_gpo_->param.noise) << "gp_theta->sensor_range_var";
+    ASSERT_STD_VECTOR_EQUAL("gpm.m_gpo_->range", gpis_map.GetGpTheta()->GetPartitions(), gpm.m_gpo_->range);
 
-    auto gps = gpis_map.m_gp_theta_->GetGps();
+    auto gps = gpis_map.GetGpTheta()->GetGps();
     for (size_t i = 0; i < gps.size(); ++i) {
         ss.str(std::string());
         ss << "gpm.m_gpo_->gps[" << i << "]->x";
@@ -142,7 +145,7 @@ TEST(ERL_SDF_MAPPING, GpisMap2D) {
 
     // Check UpdateSurfacePoints & AddNewSurfaceSamples
     std::vector<std::shared_ptr<erl::geometry::Node>> nodes_ans;
-    gpis_map.m_quadtree_->CollectNodesOfTypeInArea(0, gpis_map.m_quadtree_->GetArea(), nodes_ans);
+    gpis_map.GetQuadtree()->CollectNodesOfTypeInArea(0, gpis_map.GetQuadtree()->GetArea(), nodes_ans);
     std::vector<std::shared_ptr<Node>> nodes_gt;
     gpm.m_tree_->QueryRange(gpm.m_tree_->m_boundary_, nodes_gt);
     ASSERT_EQ(nodes_ans.size(), nodes_gt.size()) << "Number of Nodes stored in the QuadTree";
@@ -211,7 +214,7 @@ TEST(ERL_SDF_MAPPING, GpisMap2D) {
     // Check UpdateGpSdf
     std::vector<std::shared_ptr<const erl::geometry::IncrementalQuadtree>> clusters_ans;
     std::vector<QuadTree *> clusters_gt;
-    gpis_map.m_quadtree_->CollectTrees(
+    gpis_map.GetQuadtree()->CollectTrees(
         [](const std::shared_ptr<const erl::geometry::IncrementalQuadtree> &tree) -> bool { return tree->GetData<void>() != nullptr; },
         clusters_ans);
     gpm.m_tree_->CollectTrees([](const QuadTree *tree) -> bool { return tree->m_gp_ != nullptr; }, clusters_gt);
@@ -220,7 +223,7 @@ TEST(ERL_SDF_MAPPING, GpisMap2D) {
     int i = 0;
     for (auto &cluster: clusters_ans) {
         auto itr = std::find_if(clusters_gt.begin(), clusters_gt.end(), [&](QuadTree *tree) -> bool {
-            auto c = tree->GetCenter();
+            const auto c = tree->GetCenter();
             return (cluster->GetArea().center - Eigen::Vector2d{c.x, c.y}).squaredNorm() < 1.e-10;
         });
         ASSERT_TRUE(itr != clusters_gt.end()) << "failed to find the corresponding GP for the cluster at " << cluster->GetArea().center;
@@ -269,7 +272,7 @@ TEST(ERL_SDF_MAPPING, GpisMap2D) {
         ss << "cluster_gp[" << i << "]->m_gradflag_";
         Eigen::VectorXb grad_flag_ans = gp_ans->GetTrainGradientFlagsBuffer().head(gp_gt->m_gradflag_.size());
         Eigen::VectorXb grad_flag_gt(gp_gt->m_gradflag_.size());
-        for (long j = 0; j < grad_flag_gt.size(); ++j) { grad_flag_gt[j] = gp_gt->m_gradflag_[j] > double(0.5); }
+        for (long j = 0; j < grad_flag_gt.size(); ++j) { grad_flag_gt[j] = gp_gt->m_gradflag_[j] > 0.5; }
         ASSERT_EIGEN_VECTOR_EQUAL(ss.str(), grad_flag_ans, grad_flag_gt);
 
         ASSERT_EQ(gp_ans->GetSetting()->kernel->scale, gp_gt->m_param_.scale) << "cluster_gp[" << i << "]->m_param_.scale";
@@ -328,7 +331,7 @@ TEST(ERL_SDF_MAPPING, GpisMap2D) {
     auto df = erl::geometry::GazeboRoom::TestDataFrame(path.string().c_str());
     Eigen::VectorXd distance_ans(df.positions.cols()), distance_variance_ans(df.positions.cols());
     Eigen::Matrix2Xd gradient_ans(2, df.positions.cols()), gradient_variance_ans(2, df.positions.cols());
-    long t_test_ans, t_test_gt;
+    double t_test_ans, t_test_gt;
     t_test_gt = erl::common::ReportTime<std::chrono::milliseconds>("GPisMap-test", 5, false, [&]() {
         gpm.Test(df.positions.data(), df.dim, df.num_queries, df.out_buf.data());
     });
@@ -347,9 +350,9 @@ TEST(ERL_SDF_MAPPING, GpisMap2D) {
     ASSERT_EIGEN_VECTOR_NEAR("distanceVariance", distance_variance_ans, distance_variance_gt, 1.e-10);
     ASSERT_EIGEN_MATRIX_NEAR("gradientVariance", gradient_variance_ans, gradient_variance_gt, 1.e-10);
 
-    std::cout << erl::common::PrintInfo("Average training time:") << std::endl;
+    erl::common::Logging::Info("Average training time:");
     std::cout << "ERL-GpisMap2D: " << t_train_ans << " us" << std::endl << "GPisMap: " << t_train_gt << " us" << std::endl;
-    std::cout << erl::common::PrintInfo("Average testing time:") << std::endl;
+    erl::common::Logging::Info("Average testing time:");
     std::cout << "ERL-GpisMap2D: " << t_test_ans << " ms" << std::endl << "GPisMap: " << t_test_gt << " ms" << std::endl;
 
     // erl::common::SaveBinaryFile<double>("GPisMap-xy.dat", df.positions.data(), (std::streamsize) df.positions.size());

@@ -41,7 +41,11 @@ target_include_directories(${PROJECT_NAME}
         $<BUILD_INTERFACE:${${PROJECT_NAME}_INCLUDE_DIR}>
         $<INSTALL_INTERFACE:${${PROJECT_NAME}_INSTALL_INCLUDE_DIR}>)
 target_include_directories(${PROJECT_NAME} SYSTEM PUBLIC ${catkin_INCLUDE_DIRS})
-target_link_libraries(${PROJECT_NAME} PUBLIC ${${PROJECT_NAME}_ERL_PACKAGES} ${catkin_LIBRARIES})
+if (catkin_LIBRARIES)
+    target_link_libraries(${PROJECT_NAME} PUBLIC ${catkin_LIBRARIES})
+else ()
+    target_link_libraries(${PROJECT_NAME} PUBLIC ${${PROJECT_NAME}_ERL_PACKAGES})
+endif ()
 
 if (ROS_ACTIVATED)
     add_executable(erl_sdf_mapping_node src/ros/erl_sdf_mapping_node.cpp)
