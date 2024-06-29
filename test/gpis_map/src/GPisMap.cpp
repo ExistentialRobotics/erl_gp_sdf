@@ -20,11 +20,12 @@
 
 #include "GPisMap.h"
 
+#include "params.h"
+
 #include <algorithm>
+#include <fstream>
 #include <numeric>
 #include <thread>
-#include <fstream>
-#include "params.h"
 
 TreeParam QuadTree::m_param_ =
     TreeParam(GPISMAP_TREE_MIN_HALF_LENGTH, GPISMAP_TREE_MAX_HALF_LENGTH, GPISMAP_TREE_INIT_ROOT_HALF_LENGTH, GPISMAP_TREE_CLUSTER_HALF_LENGTH);
@@ -32,29 +33,29 @@ TreeParam QuadTree::m_param_ =
 #define MAX_RANGE double(3.e1)
 #define MIN_RANGE double(2.e-1)
 
-static inline bool
-IsRangeValid(double r) {
+static bool
+IsRangeValid(const double r) {
     return (r < MAX_RANGE) && (r > MIN_RANGE);
 }
 
-static inline double
-OccTest(double r_inv, double r_inv_0, double a) {
-    return 2.0 * (1. / (1. + std::exp(-a * (r_inv - r_inv_0))) - 0.5);
+static double
+OccTest(const double r_inv, const double r_inv_0, const double a) {
+    return 2.0 * (1.0 / (1.0 + std::exp(-a * (r_inv - r_inv_0))) - 0.5);
 }
 
-static inline double
-Saturate(double val, double min_val, double max_val) {
+static double
+Saturate(const double val, const double min_val, const double max_val) {
     return std::min(std::max(val, min_val), max_val);
 }
 
-static inline void
-Polar2Cart(double a, double r, double &x, double &y) {
+static void
+Polar2Cart(const double a, const double r, double &x, double &y) {
     x = r * std::cos(a);
     y = r * std::sin(a);
 }
 
-static inline void
-Cart2Polar(double x, double y, double &a, double &r) {
+static void
+Cart2Polar(const double x, const double y, double &a, double &r) {
     a = std::atan2(y, x);
     r = std::sqrt(x * x + y * y);
 }
@@ -117,9 +118,9 @@ GPisMap::PreproData(double *datax, double *dataf, int n, std::vector<double> &po
 
     m_obs_numdata_ = 0;
     for (int k = 0; k < n; k++) {
-        double x_loc = 0.;
-        double y_loc = 0.;
         if (IsRangeValid(dataf[k])) {
+            double x_loc = 0.;
+            double y_loc = 0.;
             if (m_range_obs_max_ < dataf[k]) { m_range_obs_max_ = dataf[k]; }
             m_obs_theta_.push_back(datax[k]);
             m_obs_range_.push_back(dataf[k]);
@@ -186,13 +187,13 @@ GPisMap::UpdateMapPoints() {
 
             double r_sq = m_range_obs_max_ * m_range_obs_max_;
             int k = 0;
-            for (auto it = quads.begin(); it != quads.end(); it++, k++) {
+            for (auto it = quads.begin(); it != quads.end(); ++it, k++) {
 
                 Point<double> ct = (*it)->GetCenter();
                 double l = (*it)->GetHalfLength();
-                double sqr_range = (ct.x - m_pose_tr_[0]) * (ct.x - m_pose_tr_[0]) + (ct.y - m_pose_tr_[1]) * (ct.y - m_pose_tr_[1]);
 
-                if (sqr_range > (r_sq + 2. * l * l)) {  // out_of_range
+                if (const double sqr_range = (ct.x - m_pose_tr_[0]) * (ct.x - m_pose_tr_[0]) + (ct.y - m_pose_tr_[1]) * (ct.y - m_pose_tr_[1]);
+                    sqr_range > (r_sq + 2. * l * l)) {  // out_of_range
                     continue;
                 }
 
@@ -211,7 +212,7 @@ GPisMap::UpdateMapPoints() {
                     double ang = 0.;
                     double r = 0.;
                     Cart2Polar(x_loc, y_loc, ang, r);
-                    within_angle += int((ang > m_setting_.angle_obs_limit[0]) && (ang < m_setting_.angle_obs_limit[1]));
+                    within_angle += static_cast<int>((ang > m_setting_.angle_obs_limit[0]) && (ang < m_setting_.angle_obs_limit[1]));
                 }
 
                 if (within_angle == 0) { continue; }
@@ -287,23 +288,22 @@ GPisMap::ReEvalPoints(std::vector<std::shared_ptr<Node>> &nodes) {
             amx(0) = ang;
             m_gpo_->test(amx, r_inv_0, var);
 
-            if (var(0) > m_setting_.obs_var_thre) break;
-            else {
-                double oc_new = OccTest(1. / std::sqrt(r_new), r_inv_0(0), r_new * double(30.0));
-                double abs_oc_new = std::fabs(oc_new);
+            if (var(0) > m_setting_.obs_var_thre) { break; }
+            double oc_new = OccTest(1. / std::sqrt(r_new), r_inv_0(0), r_new * 30.0);
+            double abs_oc_new = std::fabs(oc_new);
 
-                if (abs_oc_new < 0.02) {
-                    abs_oc = abs_oc_new;
-                    break;
-                } else if (oc * oc_new < 0.) {
-                    dx = 0.5 * dx;
-                } else {
-                    dx = 1.1 * dx;
-                }
-
+            if (abs_oc_new < 0.02) {
                 abs_oc = abs_oc_new;
-                oc = oc_new;
+                break;
             }
+            if (oc * oc_new < 0.) {
+                dx = 0.5 * dx;
+            } else {
+                dx = 1.1 * dx;
+            }
+
+            abs_oc = abs_oc_new;
+            oc = oc_new;
         }
 
         // Compute its gradient and uncertainty
@@ -323,7 +323,7 @@ GPisMap::ReEvalPoints(std::vector<std::shared_ptr<Node>> &nodes) {
             m_gpo_->test(amx, r_inv_0, var);
 
             if (var(0) > m_setting_.obs_var_thre) { break; }
-            occ[i] = OccTest(1. / std::sqrt(d), r_inv_0(0), d * double(30.0));
+            occ[i] = OccTest(1. / std::sqrt(d), r_inv_0(0), d * 30.0);
             occ_mean += occ[i];
             double r_0 = 1. / (r_inv_0(0) * r_inv_0(0));
             r_0_sqr_sum += r_0 * r_0;
@@ -341,25 +341,25 @@ GPisMap::ReEvalPoints(std::vector<std::shared_ptr<Node>> &nodes) {
         grad_new_loc.y = (occ[2] - occ[3]) / m_setting_.delx;
         norm_grad_new = std::sqrt(grad_new_loc.x * grad_new_loc.x + grad_new_loc.y * grad_new_loc.y);
 
-        if (norm_grad_new < double(1.e-6)) {  // uncertainty increased
+        if (norm_grad_new < 1.e-6) {  // uncertainty increased
             node->UpdateNoise(2.0 * node->GetPosNoise(), 2.0 * node->GetGradNoise());
             continue;
         }
 
-        double r_var = (r_0_sqr_sum - r_0_sum * r_0_sum * 0.25) / (double(3.0) * m_setting_.delx);
+        double r_var = (r_0_sqr_sum - r_0_sum * r_0_sum * 0.25) / (3.0 * m_setting_.delx);
         double grad_noise = 1.;
         grad_new_loc.x = grad_new_loc.x / norm_grad_new;
         grad_new_loc.y = grad_new_loc.y / norm_grad_new;
-        double dist_noise = Saturate(r_new * r_new, 1., double(100.));
+        double dist_noise = Saturate(r_new * r_new, 1., 100.);
 
         double dist = std::sqrt(x_new[0] * x_new[0] + x_new[1] * x_new[1]);
         double view_ang = -(x_new[0] * grad_new_loc.x + x_new[1] * grad_new_loc.y) / dist;
-        double view_sq_ang = std::max(view_ang * view_ang, double(1.e-2));
+        double view_sq_ang = std::max(view_ang * view_ang, 1.e-2);
         double view_noise = (1. - view_sq_ang) / view_sq_ang;
 
         double noise = m_setting_.min_position_noise * (dist_noise + view_noise) + abs_oc;  // extra term: abs_oc
         // extra term: r_var and 0.1 * view_noise
-        grad_noise = Saturate(std::fabs(occ_mean) + r_var, m_setting_.min_grad_noise, grad_noise) + double(0.1) * view_noise;
+        grad_noise = Saturate(std::fabs(occ_mean) + r_var, m_setting_.min_grad_noise, grad_noise) + 0.1 * view_noise;
 
         // local to global coord.
         Point<double> pos_new;
@@ -405,7 +405,7 @@ GPisMap::ReEvalPoints(std::vector<std::shared_ptr<Node>> &nodes) {
         // Remove
         m_tree_->Remove(node, m_active_set_);
 
-        if (noise > 1. && grad_noise > double(0.6)) {
+        if (noise > 1. && grad_noise > 0.6) {
             continue;
         } else {
             // try inserting
@@ -493,7 +493,7 @@ GPisMap::EvalPoints() {
             m_gpo_->test(amx, r_inv_0, var);
 
             if (var(0) > m_setting_.obs_var_thre) { break; }
-            occ[i] = OccTest(1. / std::sqrt(r), r_inv_0(0), r * double(30.0));
+            occ[i] = OccTest(1. / std::sqrt(r), r_inv_0(0), r * 30.0);
             occ_mean += occ[i];
         }
         occ_mean *= 0.25;
@@ -511,18 +511,18 @@ GPisMap::EvalPoints() {
         grad.y = (occ[2] - occ[3]) / m_setting_.delx;
         double norm_grad = grad.x * grad.x + grad.y * grad.y;
         norm_grad = std::sqrt(norm_grad);
-        if (norm_grad > double(1.e-6)) {
+        if (norm_grad > 1.e-6) {
             double grad_loc_x = grad.x / norm_grad;
             double grad_loc_y = grad.y / norm_grad;
 
             grad.x = m_pose_r_[0] * grad_loc_x + m_pose_r_[2] * grad_loc_y;
             grad.y = m_pose_r_[1] * grad_loc_x + m_pose_r_[3] * grad_loc_y;
 
-            double dist_noise = Saturate(m_obs_range_[k] * m_obs_range_[k], 1., double(100.));
+            double dist_noise = Saturate(m_obs_range_[k] * m_obs_range_[k], 1., 100.);
             grad_noise = Saturate(std::fabs(occ_mean), m_setting_.min_grad_noise, grad_noise);
             double dist = std::sqrt(m_obs_xy_local_[k_2] * m_obs_xy_local_[k_2] + m_obs_xy_local_[k_2 + 1] * m_obs_xy_local_[k_2 + 1]);
             double view_ang = -(m_obs_xy_local_[k_2] * grad_loc_x + m_obs_xy_local_[k_2 + 1] * grad_loc_y) / dist;
-            double view_sq_ang = std::max(view_ang * view_ang, double(1.e-2));
+            double view_sq_ang = std::max(view_ang * view_ang, 1.e-2);
             double view_noise = (1. - view_sq_ang) / view_sq_ang;  // var(angle) = alpha_angle * tan(r_angle)^2, different from the paper
             noise = m_setting_.min_position_noise * (dist_noise + view_noise);
         } else {
@@ -550,7 +550,7 @@ GPisMap::UpdateGPsKernel(int thread_idx, int start_idx, int end_idx, QuadTree **
         if (nodes_to_update[i] != nullptr) {
             Point<double> ct = (nodes_to_update[i])->GetCenter();
             double l = (nodes_to_update[i])->GetHalfLength();
-            Aabb search_bb(ct.x, ct.y, l * double(4.0));
+            Aabb search_bb(ct.x, ct.y, l * 4.0);
             res.clear();
             m_tree_->QueryRange(search_bb, res);
             if (!res.empty()) {
@@ -575,7 +575,7 @@ GPisMap::UpdateGPs() {
 
         Point<double> ct = it->GetCenter();
         double l = it->GetHalfLength();
-        Aabb search_bb(ct.x, ct.y, double(4.0) * l);
+        Aabb search_bb(ct.x, ct.y, 4.0 * l);
         std::vector<QuadTree *> qs;
         m_tree_->QueryNonEmptyLevelC(search_bb, qs);
         if (!qs.empty()) {
@@ -617,7 +617,7 @@ void
 GPisMap::TestKernel(int thread_idx, int start_idx, int end_idx, double *x, double *res) const {
     (void) thread_idx;
 
-    auto var_thre = double(0.4);  // TO-DO
+    auto var_thre = 0.4;  // TO-DO
 
     for (int i = start_idx; i < end_idx; ++i) {
         EVectorX xt(2);
@@ -626,7 +626,7 @@ GPisMap::TestKernel(int thread_idx, int start_idx, int end_idx, double *x, doubl
         int k_6 = 6 * i;
 
         // query Cs
-        auto search_bb_half_size = m_setting_.map_scale_param * double(4.0);
+        auto search_bb_half_size = m_setting_.map_scale_param * 4.0;
         std::vector<QuadTree *> quads;
         std::vector<double> sqdst;
         while (search_bb_half_size < m_tree_->GetHalfLength()) {
@@ -635,7 +635,7 @@ GPisMap::TestKernel(int thread_idx, int start_idx, int end_idx, double *x, doubl
             sqdst.clear();
             m_tree_->QueryNonEmptyLevelC(search_bb, quads, sqdst);
             if (!quads.empty()) { break; }
-            search_bb_half_size *= double(2.0);
+            search_bb_half_size *= 2.0;
         }
 
         if (quads.empty()) { continue; }

@@ -35,10 +35,8 @@ namespace erl::sdf_mapping {
         Reset(const long max_num_samples, const long x_dim) override {
             NoisyInputGaussianProcess::Reset(max_num_samples, x_dim);
             if (m_setting_->max_num_samples <= 0 || m_setting_->kernel->x_dim <= 0) { AllocateMemory2(max_num_samples, x_dim); }
-            m_kernel_ = covariance::Covariance::CreateCovariance(m_setting_->kernel_type);
-            const auto kernel_setting = m_kernel_->GetSetting();
-            *kernel_setting = *m_setting_->kernel;
-            kernel_setting->scale = std::sqrt(3.) / m_setting_->log_lambda;
+            m_kernel_ = covariance::Covariance::CreateCovariance(m_setting_->kernel_type, m_setting_->kernel);
+            m_kernel_->GetSetting()->scale = std::sqrt(3.) / m_setting_->log_lambda;
         }
 
         void
@@ -63,6 +61,7 @@ namespace erl::sdf_mapping {
     };
 }  // namespace erl::sdf_mapping
 
+// ReSharper disable CppInconsistentNaming
 template<>
 struct YAML::convert<erl::sdf_mapping::LogSdfGaussianProcess::Setting> {
     static Node
@@ -83,3 +82,5 @@ struct YAML::convert<erl::sdf_mapping::LogSdfGaussianProcess::Setting> {
         return true;
     }
 };  // namespace YAML
+
+// ReSharper restore CppInconsistentNaming

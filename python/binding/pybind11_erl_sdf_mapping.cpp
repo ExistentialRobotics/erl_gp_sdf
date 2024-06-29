@@ -15,7 +15,7 @@ BindGpSdf2D(const py::module &m) {
     using namespace erl::sdf_mapping::gpis;
 
     // GpisData2D
-    py::class_<GpisData2D, NodeData, std::shared_ptr<GpisData2D>>(m, "GpisData2D")
+    py::class_<GpisData2D, std::shared_ptr<GpisData2D>>(m, "GpisData2D")
         .def_readwrite("distance", &GpisData2D::distance)
         .def_readwrite("gradient", &GpisData2D::gradient)
         .def_readwrite("var_position", &GpisData2D::var_position)
@@ -28,16 +28,16 @@ BindGpSdf2D(const py::module &m) {
         });
 
     // GpisNode2D
-    py::class_<GpisNode2D, Node, std::shared_ptr<GpisNode2D>>(m, "GpisNode2D").def(py::init<Eigen::Vector<double, 2>>(), py::arg("position"));
+    py::class_<GpisNode2D, std::shared_ptr<GpisNode2D>>(m, "GpisNode2D").def(py::init<Eigen::Vector<double, 2>>(), py::arg("position"));
 
     // GpisNodeContainer2D
-    auto py_gpis_node_container = py::class_<GpisNodeContainer2D, NodeContainer, std::shared_ptr<GpisNodeContainer2D>>(m, "GpisNodeContainer2D");
+    auto py_gpis_node_container = py::class_<GpisNodeContainer2D, std::shared_ptr<GpisNodeContainer2D>>(m, "GpisNodeContainer2D");
 
     py::class_<GpisNodeContainer2D::Setting, YamlableBase, std::shared_ptr<GpisNodeContainer2D::Setting>>(py_gpis_node_container, "Setting")
         .def_readwrite("capacity", &GpisNodeContainer2D::Setting::capacity)
         .def_readwrite("min_squared_distance", &GpisNodeContainer2D::Setting::min_squared_distance);
 
-    py_gpis_node_container.def(py::init(&GpisNodeContainer2D::Create), py::arg("setting").none(false))
+    py_gpis_node_container.def(py::init<std::shared_ptr<GpisNodeContainer2D::Setting>>(), py::arg("setting").none(false))
         .def_property_readonly("setting", &GpisNodeContainer2D::GetSetting)
         .def("__len__", py::overload_cast<>(&GpisNodeContainer2D::Size, py::const_));
 
@@ -88,7 +88,6 @@ BindGpSdf2D(const py::module &m) {
         .def_readwrite("update_gp_sdf", &GpisMapBase2D::Setting::update_gp_sdf)
         .def_readwrite("gp_theta", &GpisMapBase2D::Setting::gp_theta)
         .def_readwrite("gp_sdf", &GpisMapBase2D::Setting::gp_sdf)
-        .def_readwrite("node_container", &GpisMapBase2D::Setting::node_container)
         .def_readwrite("quadtree", &GpisMapBase2D::Setting::quadtree)
         .def_readwrite("test_query", &GpisMapBase2D::Setting::test_query);
 
@@ -138,8 +137,7 @@ BindGpSdf2D(const py::module &m) {
         .def(py::init<>([]() { return std::make_shared<LogGpisMap2D::Setting>(); }))
         .def_readwrite("gp_sdf", &LogGpisMap2D::Setting::gp_sdf);
 
-    py_log_gpis_map.def(py::init<>())
-        .def(py::init<const std::shared_ptr<LogGpisMap2D::Setting> &>(), py::arg("setting").none(false))
+    py_log_gpis_map.def(py::init<const std::shared_ptr<LogGpisMap2D::Setting> &>(), py::arg("setting").none(false))
         .def_property_readonly("setting", &LogGpisMap2D::GetSetting);
 }
 
@@ -150,7 +148,7 @@ BindGpSdf3D(const py::module &m) {
     using namespace erl::sdf_mapping::gpis;
 
     // GpisData3D
-    py::class_<GpisData3D, NodeData, std::shared_ptr<GpisData3D>>(m, "GpisData3D")
+    py::class_<GpisData3D, std::shared_ptr<GpisData3D>>(m, "GpisData3D")
         .def_readwrite("distance", &GpisData3D::distance)
         .def_readwrite("gradient", &GpisData3D::gradient)
         .def_readwrite("var_position", &GpisData3D::var_position)
@@ -162,16 +160,16 @@ BindGpSdf3D(const py::module &m) {
             return ss.str();
         });
 
-    py::class_<GpisNode3D, Node, std::shared_ptr<GpisNode3D>>(m, "GpisNode3D").def(py::init<Eigen::Vector<double, 3>>(), py::arg("position"));
+    py::class_<GpisNode3D, std::shared_ptr<GpisNode3D>>(m, "GpisNode3D").def(py::init<Eigen::Vector<double, 3>>(), py::arg("position"));
 
     // GpisNodeContainer3D
-    auto py_gpis_node_container = py::class_<GpisNodeContainer3D, NodeContainer, std::shared_ptr<GpisNodeContainer3D>>(m, "GpisNodeContainer3D");
+    auto py_gpis_node_container = py::class_<GpisNodeContainer3D, std::shared_ptr<GpisNodeContainer3D>>(m, "GpisNodeContainer3D");
 
     py::class_<GpisNodeContainer3D::Setting, YamlableBase, std::shared_ptr<GpisNodeContainer3D::Setting>>(py_gpis_node_container, "Setting")
         .def_readwrite("capacity", &GpisNodeContainer3D::Setting::capacity)
         .def_readwrite("min_squared_distance", &GpisNodeContainer3D::Setting::min_squared_distance);
 
-    py_gpis_node_container.def(py::init(&GpisNodeContainer3D::Create), py::arg("setting").none(false))
+    py_gpis_node_container.def(py::init<std::shared_ptr<GpisNodeContainer3D::Setting>>(), py::arg("setting").none(false))
         .def_property_readonly("setting", &GpisNodeContainer3D::GetSetting)
         .def("__len__", py::overload_cast<>(&GpisNodeContainer3D::Size, py::const_));
 }
@@ -237,7 +235,7 @@ BindLogSdfGaussianProcess(const py::module &m) {
 }
 
 static void
-BindGpOccSurfaceMapping2D(py::module &m) {
+BindGpOccSurfaceMapping2D(const py::module &m) {
     using namespace erl::common;
     using namespace erl::geometry;
     using namespace erl::sdf_mapping;
@@ -281,11 +279,35 @@ BindGpOccSurfaceMapping2D(py::module &m) {
         .def_readwrite("zero_gradient_threshold", &GpOccSurfaceMapping2D::Setting::zero_gradient_threshold)
         .def_readwrite("update_occupancy", &GpOccSurfaceMapping2D::Setting::update_occupancy);
 
-    surface_mapping.def(py::init<>())
-        .def(py::init<const std::shared_ptr<GpOccSurfaceMapping2D::Setting> &>(), py::arg("setting"))
+    surface_mapping.def(py::init<const std::shared_ptr<GpOccSurfaceMapping2D::Setting> &>(), py::arg("setting"))
         .def_property_readonly("setting", &GpOccSurfaceMapping2D::GetSetting);
 
     // TODO: bind other methods of GpOccSurfaceMapping2D
+}
+
+static void
+BindGpSdfMappingSetting(const py::module &m) {
+    using namespace erl::common;
+    using namespace erl::sdf_mapping;
+
+    py::class_<GpSdfMappingSetting, YamlableBase, std::shared_ptr<GpSdfMappingSetting>> sdf_mapping_setting(m, "GpSdfMappingSetting");
+    py::class_<GpSdfMappingSetting::TestQuery, YamlableBase, std::shared_ptr<GpSdfMappingSetting::TestQuery>>(sdf_mapping_setting, "TestQuery")
+        .def_readwrite("max_test_valid_distance_var", &GpSdfMappingSetting::TestQuery::max_test_valid_distance_var)
+        .def_readwrite("search_area_half_size", &GpSdfMappingSetting::TestQuery::search_area_half_size)
+        .def_readwrite("use_nearest_only", &GpSdfMappingSetting::TestQuery::use_nearest_only)
+        .def_readwrite("compute_covariance", &GpSdfMappingSetting::TestQuery::compute_covariance)
+        .def_readwrite("recompute_variance", &GpSdfMappingSetting::TestQuery::recompute_variance)
+        .def_readwrite("softmax_temperature", &GpSdfMappingSetting::TestQuery::softmax_temperature);
+    sdf_mapping_setting.def(py::init<>([]() { return std::make_shared<GpSdfMappingSetting>(); }))
+        .def_readwrite("num_threads", &GpSdfMappingSetting::num_threads)
+        .def_readwrite("update_hz", &GpSdfMappingSetting::update_hz)
+        .def_readwrite("gp_sdf_area_scale", &GpSdfMappingSetting::gp_sdf_area_scale)
+        .def_readwrite("offset_distance", &GpSdfMappingSetting::offset_distance)
+        .def_readwrite("max_valid_gradient_var", &GpSdfMappingSetting::max_valid_gradient_var)
+        .def_readwrite("invalid_position_var", &GpSdfMappingSetting::invalid_position_var)
+        .def_readwrite("train_gp_immediately", &GpSdfMappingSetting::train_gp_immediately)
+        .def_readwrite("gp_sdf", &GpSdfMappingSetting::gp_sdf)
+        .def_readwrite("test_query", &GpSdfMappingSetting::test_query);
 }
 
 static void
@@ -293,28 +315,8 @@ BindGpSdfMapping2D(const py::module &m) {
     using namespace erl::common;
     using namespace erl::sdf_mapping;
 
-    py::class_<GpSdfMapping2D, std::shared_ptr<GpSdfMapping2D>> sdf_mapping(m, "GpSdfMapping2D");
-    py::class_<GpSdfMapping2D::Setting, YamlableBase, std::shared_ptr<GpSdfMapping2D::Setting>> sdf_mapping_setting(sdf_mapping, "Setting");
-    py::class_<GpSdfMapping2D::Setting::TestQuery, YamlableBase, std::shared_ptr<GpSdfMapping2D::Setting::TestQuery>>(sdf_mapping_setting, "TestQuery")
-        .def_readwrite("max_test_valid_distance_var", &GpSdfMapping2D::Setting::TestQuery::max_test_valid_distance_var)
-        .def_readwrite("search_area_half_size", &GpSdfMapping2D::Setting::TestQuery::search_area_half_size)
-        .def_readwrite("use_nearest_only", &GpSdfMapping2D::Setting::TestQuery::use_nearest_only)
-        .def_readwrite("compute_covariance", &GpSdfMapping2D::Setting::TestQuery::compute_covariance)
-        .def_readwrite("recompute_variance", &GpSdfMapping2D::Setting::TestQuery::recompute_variance)
-        .def_readwrite("softmax_temperature", &GpSdfMapping2D::Setting::TestQuery::softmax_temperature);
-    sdf_mapping_setting.def(py::init<>([]() { return std::make_shared<GpSdfMapping2D::Setting>(); }))
-        .def_readwrite("num_threads", &GpSdfMapping2D::Setting::num_threads)
-        .def_readwrite("update_hz", &GpSdfMapping2D::Setting::update_hz)
-        .def_readwrite("gp_sdf_area_scale", &GpSdfMapping2D::Setting::gp_sdf_area_scale)
-        .def_readwrite("offset_distance", &GpSdfMapping2D::Setting::offset_distance)
-        .def_readwrite("max_valid_gradient_var", &GpSdfMapping2D::Setting::max_valid_gradient_var)
-        .def_readwrite("invalid_position_var", &GpSdfMapping2D::Setting::invalid_position_var)
-        .def_readwrite("train_gp_immediately", &GpSdfMapping2D::Setting::train_gp_immediately)
-        .def_readwrite("gp_sdf", &GpSdfMapping2D::Setting::gp_sdf)
-        .def_readwrite("test_query", &GpSdfMapping2D::Setting::test_query);
-
-    sdf_mapping
-        .def(py::init<std::shared_ptr<AbstractSurfaceMapping2D>, std::shared_ptr<GpSdfMapping2D::Setting>>(), py::arg("surface_mapping"), py::arg("setting"))
+    py::class_<GpSdfMapping2D, std::shared_ptr<GpSdfMapping2D>>(m, "GpSdfMapping2D")
+        .def(py::init<std::shared_ptr<AbstractSurfaceMapping2D>, std::shared_ptr<GpSdfMappingSetting>>(), py::arg("surface_mapping"), py::arg("setting"))
         .def_property_readonly("setting", &GpSdfMapping2D::GetSetting)
         .def_property_readonly("surface_mapping", &GpSdfMapping2D::GetSurfaceMapping)
         .def("update", &GpSdfMapping2D::Update, py::arg("angles"), py::arg("distances"), py::arg("pose"))
@@ -341,6 +343,7 @@ PYBIND11_MODULE(PYBIND_MODULE_NAME, m) {
 
     BindLogSdfGaussianProcess(m);
     BindGpOccSurfaceMapping2D(m);
+    BindGpSdfMappingSetting(m);
     BindGpSdfMapping2D(m);
     // TODO: bind other modules
 }

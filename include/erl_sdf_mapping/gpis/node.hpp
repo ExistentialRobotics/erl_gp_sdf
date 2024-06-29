@@ -1,6 +1,5 @@
 #pragma once
 
-#include "erl_geometry/node.hpp"
 #include "erl_common/eigen.hpp"
 
 namespace erl::sdf_mapping::gpis {
@@ -9,7 +8,7 @@ namespace erl::sdf_mapping::gpis {
      * GpisData stores the distance, gradient and the corresponding variances of surface points for GPIS training.
      */
     template<int Dim>
-    struct GpisData : public geometry::NodeData {
+    struct GpisData {
 
         double distance = 0.;
         Eigen::Vector<double, Dim> gradient = Eigen::Vector<double, Dim>::Zero();
@@ -40,14 +39,14 @@ namespace erl::sdf_mapping::gpis {
         }
 
         void
-        Print(std::ostream &os) const override {
+        Print(std::ostream &os) const {
             auto format = GetEigenTextFormat(common::EigenTextFormat::kNumpyFmt);
             os << "distance = " << distance << ", gradient = " << gradient.transpose().format(format) << ", var_position = " << var_position
                << ", var_gradient = " << var_gradient;
         }
 
         [[nodiscard]] bool
-        operator==(const NodeData &other) const override {
+        operator==(const GpisData &other) const {
             const auto *other_ptr = dynamic_cast<const GpisData<Dim> *>(&other);
             return other_ptr != nullptr && distance == other_ptr->distance && gradient == other_ptr->gradient && var_position == other_ptr->var_position &&
                    var_gradient == other_ptr->var_gradient;
@@ -58,18 +57,33 @@ namespace erl::sdf_mapping::gpis {
     using GpisData3D = GpisData<3>;
 
     template<int Dim>
-    struct GpisNode : public geometry::Node {
+    struct GpisNode {
+        int type = 0;                                        // node type
+        Eigen::VectorXd position;                            // node position to determine where to store in the tree
+        std::shared_ptr<GpisData<Dim>> node_data = nullptr;  // attached data
 
         explicit GpisNode(const Eigen::Ref<const Eigen::Vector<double, Dim>> &position)
-            : Node(0, position, std::make_shared<GpisData<Dim>>()) {}
+            : position(std::move(position)) {}
 
         [[nodiscard]] bool
-        operator==(const Node &other) const override {
+        operator==(const GpisNode &other) const {
             return position == other.position && *node_data == *other.node_data;
+        }
+
+        bool
+        operator!=(const GpisNode &other) const {
+            return !(*this == other);
         }
     };
 
     using GpisNode2D = GpisNode<2>;
     using GpisNode3D = GpisNode<3>;
+
+    template<int Dim>
+    std::ostream &
+    operator<<(std::ostream &os, const GpisData<Dim> &node_data) {
+        node_data.Print(os);
+        return os;
+    }
 
 }  // namespace erl::sdf_mapping::gpis

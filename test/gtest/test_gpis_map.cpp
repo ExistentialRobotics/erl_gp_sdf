@@ -38,7 +38,11 @@ TEST(ERL_SDF_MAPPING, GpisMap2D) {
 
     GPisMap gpm;
     erl::sdf_mapping::gpis::GpisMap2D gpis_map;
-    gpis_map.GetSetting()->update_gp_sdf->offset_distance = GPISMAP_FBIAS;
+    auto gpis_map_setting = gpis_map.GetSetting();
+    gpis_map_setting->num_threads = std::thread::hardware_concurrency();
+    gpis_map_setting->update_gp_sdf->offset_distance = GPISMAP_FBIAS;
+    gpis_map_setting->gp_theta->gp->kernel_type = "OrnsteinUhlenbeck1D";
+    gpis_map_setting->gp_theta->gp->kernel->x_dim = 1;
     std::cout << *gpis_map.GetSetting() << std::endl;
 
     std::cout.precision(5);
@@ -103,12 +107,17 @@ TEST(ERL_SDF_MAPPING, GpisMap2D) {
     ASSERT_EIGEN_MATRIX_EQUAL("m_gp_theta_->m_train_buffer_.mat_xy_global", mat_xy_global_ans, mat_xy_global_gt);
 
     // Check regress observation
-    EXPECT_EQ(gpis_map.GetGpTheta()->GetSetting()->overlap_size, gpm.m_gpo_->param.overlap) << "overlap_size";
-    EXPECT_EQ(gpis_map.GetGpTheta()->GetSetting()->group_size - gpis_map.GetGpTheta()->GetSetting()->overlap_size, gpm.m_gpo_->param.group_size)
-        << "group_size";
-    EXPECT_EQ(gpis_map.GetGpTheta()->GetSetting()->boundary_margin, gpm.m_gpo_->param.margin) << "boundary_margin";
-    EXPECT_EQ(gpis_map.GetGpTheta()->GetSetting()->gp->kernel->scale, gpm.m_gpo_->param.scale) << "gp->kernel->scale";
-    EXPECT_EQ(gpis_map.GetSetting()->gp_theta->sensor_range_var, gpm.m_gpo_->param.noise) << "gp_theta->sensor_range_var";
+    const auto gp_theta_setting = gpis_map.GetGpTheta()->GetSetting();
+    EXPECT_EQ(gp_theta_setting->overlap_size, gpm.m_gpo_->param.overlap) << "overlap_size";
+    EXPECT_EQ(gp_theta_setting->group_size - gp_theta_setting->overlap_size, gpm.m_gpo_->param.group_size) << "group_size";
+    EXPECT_EQ(gp_theta_setting->boundary_margin, gpm.m_gpo_->param.margin) << "boundary_margin";
+    EXPECT_EQ(gp_theta_setting->gp->kernel->scale, gpm.m_gpo_->param.scale) << "gp->kernel->scale";
+    EXPECT_EQ(gp_theta_setting->gp->kernel->x_dim, 1) << "gp->kernel->x_dim";
+    EXPECT_EQ(gp_theta_setting->sensor_range_var, gpm.m_gpo_->param.noise) << "gp_theta->sensor_range_var";
+    EXPECT_EQ(gp_theta_setting->train_buffer->valid_angle_min, gpm.m_setting_.angle_obs_limit[0]) << "valid_angle_min";
+    EXPECT_EQ(gp_theta_setting->train_buffer->valid_angle_max, gpm.m_setting_.angle_obs_limit[1]) << "valid_angle_max";
+    EXPECT_EQ(gp_theta_setting->train_buffer->valid_range_min, 0.2) << "valid_range_min";
+    EXPECT_EQ(gp_theta_setting->train_buffer->valid_range_max, 30.0) << "valid_range_max";
     ASSERT_STD_VECTOR_EQUAL("gpm.m_gpo_->range", gpis_map.GetGpTheta()->GetPartitions(), gpm.m_gpo_->range);
 
     auto gps = gpis_map.GetGpTheta()->GetGps();
@@ -144,7 +153,7 @@ TEST(ERL_SDF_MAPPING, GpisMap2D) {
     }
 
     // Check UpdateSurfacePoints & AddNewSurfaceSamples
-    std::vector<std::shared_ptr<erl::geometry::Node>> nodes_ans;
+    std::vector<std::shared_ptr<erl::sdf_mapping::gpis::GpisNode2D>> nodes_ans;
     gpis_map.GetQuadtree()->CollectNodesOfTypeInArea(0, gpis_map.GetQuadtree()->GetArea(), nodes_ans);
     std::vector<std::shared_ptr<Node>> nodes_gt;
     gpm.m_tree_->QueryRange(gpm.m_tree_->m_boundary_, nodes_gt);
@@ -154,7 +163,7 @@ TEST(ERL_SDF_MAPPING, GpisMap2D) {
         ss.str(std::string());
         auto &node_ans = nodes_ans[j];
         auto &node_gt = nodes_gt[j];
-        auto node_data_ans = node_ans->GetData<erl::sdf_mapping::gpis::GpisData2D>();
+        auto node_data_ans = node_ans->node_data;
 
         ss << "nodes_ans[" << j << "]position.x";
 #ifdef NDEBUG
@@ -212,10 +221,10 @@ TEST(ERL_SDF_MAPPING, GpisMap2D) {
     }
 
     // Check UpdateGpSdf
-    std::vector<std::shared_ptr<const erl::geometry::IncrementalQuadtree>> clusters_ans;
+    std::vector<std::shared_ptr<const erl::sdf_mapping::gpis::IncrementalQuadtree>> clusters_ans;
     std::vector<QuadTree *> clusters_gt;
     gpis_map.GetQuadtree()->CollectTrees(
-        [](const std::shared_ptr<const erl::geometry::IncrementalQuadtree> &tree) -> bool { return tree->GetData<void>() != nullptr; },
+        [](const std::shared_ptr<const erl::sdf_mapping::gpis::IncrementalQuadtree> &tree) -> bool { return tree->GetData<void>() != nullptr; },
         clusters_ans);
     gpm.m_tree_->CollectTrees([](const QuadTree *tree) -> bool { return tree->m_gp_ != nullptr; }, clusters_gt);
     ASSERT_EQ(clusters_ans.size(), clusters_gt.size()) << "Number of QuadTrees having GP";

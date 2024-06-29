@@ -1,13 +1,13 @@
 #pragma once
 
 #include "gpis_test_buffer.hpp"
+#include "incremental_quadtree.hpp"
 #include "node_container.hpp"
 
 #include "erl_common/eigen.hpp"
 #include "erl_common/yaml.hpp"
 #include "erl_gaussian_process/lidar_gp_1d.hpp"
 #include "erl_gaussian_process/noisy_input_gp.hpp"
-#include "erl_geometry/incremental_quadtree.hpp"
 #include "erl_geometry/ray_marching.hpp"
 
 #include <memory>
@@ -23,7 +23,7 @@ namespace erl::sdf_mapping::gpis {
             struct ComputeVariance : public Yamlable<ComputeVariance> {
                 double zero_gradient_position_var = 1.;  // position variance to use when the estimated gradient is almost zero.
                 double zero_gradient_gradient_var = 1.;  // gradient variance to use when the estimated gradient is almost zero.
-                double min_distance_var = 1.;            // minimum distance variance.
+                double min_distance_var = 0.01;          // minimum distance variance.
                 double max_distance_var = 100.;          // maximum distance variance.
                 double position_var_alpha = 0.01;        // scaling number of position variance.
                 double min_gradient_var = 0.01;          // minimum gradient variance.
@@ -63,8 +63,7 @@ namespace erl::sdf_mapping::gpis {
             std::shared_ptr<gaussian_process::LidarGaussianProcess1D::Setting> gp_theta = std::make_shared<gaussian_process::LidarGaussianProcess1D::Setting>();
             std::shared_ptr<gaussian_process::NoisyInputGaussianProcess::Setting> gp_sdf =
                 std::make_shared<gaussian_process::NoisyInputGaussianProcess::Setting>();
-            std::shared_ptr<GpisNodeContainer2D::Setting> node_container = std::make_shared<GpisNodeContainer2D::Setting>();
-            std::shared_ptr<geometry::IncrementalQuadtree::Setting> quadtree = std::make_shared<geometry::IncrementalQuadtree::Setting>();
+            std::shared_ptr<IncrementalQuadtree::Setting> quadtree = std::make_shared<IncrementalQuadtree::Setting>();
             std::shared_ptr<TestQuery> test_query = std::make_shared<TestQuery>();  // parameters used by GpisMap2D::Test.
         };
 
@@ -74,10 +73,10 @@ namespace erl::sdf_mapping::gpis {
         std::shared_ptr<gaussian_process::LidarGaussianProcess1D> m_gp_theta_;  // the GP of regression between angle and mapped distance
 
         // structure for storing, updating the map
-        std::shared_ptr<geometry::IncrementalQuadtree> m_quadtree_ = nullptr;
-        std::unordered_set<std::shared_ptr<geometry::IncrementalQuadtree>> m_active_clusters_;
-        std::vector<std::shared_ptr<geometry::IncrementalQuadtree>> m_clusters_to_update_;
-        std::function<std::shared_ptr<geometry::NodeContainer>()> m_node_container_constructor_;
+        std::shared_ptr<IncrementalQuadtree> m_quadtree_ = nullptr;
+        std::unordered_set<std::shared_ptr<IncrementalQuadtree>> m_active_clusters_;
+        std::vector<std::shared_ptr<IncrementalQuadtree>> m_clusters_to_update_;
+        // std::function<std::shared_ptr<GpisNodeContainer<2>>()> m_node_container_constructor_;
         // other parameters
         const Eigen::Matrix24d m_xy_perturb_;
 
@@ -93,7 +92,7 @@ namespace erl::sdf_mapping::gpis {
             return m_gp_theta_;
         }
 
-        [[nodiscard]] std::shared_ptr<const geometry::IncrementalQuadtree>
+        [[nodiscard]] std::shared_ptr<const IncrementalQuadtree>
         GetQuadtree() const {
             return m_quadtree_;
         }
@@ -327,7 +326,6 @@ struct YAML::convert<erl::sdf_mapping::gpis::GpisMapBase2D::Setting> {
         node["update_gp_sdf"] = *setting.update_gp_sdf;
         node["gp_theta"] = *setting.gp_theta;
         node["gp_sdf"] = *setting.gp_sdf;
-        node["node_container"] = *setting.node_container;
         node["quadtree"] = *setting.quadtree;
         node["test_query"] = *setting.test_query;
         return node;
@@ -344,8 +342,7 @@ struct YAML::convert<erl::sdf_mapping::gpis::GpisMapBase2D::Setting> {
         *setting.update_gp_sdf = node["update_gp_sdf"].as<GpisMapBase2D::Setting::UpdateGpSdf>();
         *setting.gp_theta = node["gp_theta"].as<erl::gaussian_process::LidarGaussianProcess1D::Setting>();
         *setting.gp_sdf = node["gp_sdf"].as<erl::gaussian_process::NoisyInputGaussianProcess::Setting>();
-        *setting.node_container = node["node_container"].as<GpisNodeContainer2D::Setting>();
-        *setting.quadtree = node["quadtree"].as<erl::geometry::IncrementalQuadtree::Setting>();
+        *setting.quadtree = node["quadtree"].as<IncrementalQuadtree::Setting>();
         *setting.test_query = node["test_query"].as<GpisMapBase2D::Setting::TestQuery>();
         return true;
     }

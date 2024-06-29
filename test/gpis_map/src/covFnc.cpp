@@ -20,6 +20,7 @@
  * Authors: Bhoram Lee <bhoram.lee@gmail.com>
  */
 #include "covFnc.h"
+
 #include <cmath>
 
 using namespace Eigen;

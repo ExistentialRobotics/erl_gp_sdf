@@ -15,9 +15,9 @@ gp_theta:
       type: kInverseSqrt
       scale: 1
   gp:
+    kernel_type: OrnsteinUhlenbeck1D
     kernel:
-      type: kOrnsteinUhlenbeck
-      x_dim: 2
+      x_dim: 1
       alpha: 1
       scale: 0.5
       scale_mix: 1

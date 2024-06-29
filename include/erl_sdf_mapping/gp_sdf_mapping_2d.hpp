@@ -1,6 +1,7 @@
 #pragma once
 
 #include "abstract_surface_mapping_2d.hpp"
+#include "gp_sdf_mapping_setting.hpp"
 #include "log_sdf_gp.hpp"
 
 #include "erl_common/yaml.hpp"
@@ -13,28 +14,6 @@ namespace erl::sdf_mapping {
     class GpSdfMapping2D {
 
     public:
-        struct Setting : public common::Yamlable<Setting> {
-            struct TestQuery : public Yamlable<TestQuery> {
-                double max_test_valid_distance_var = 0.4;  // maximum distance variance of prediction.
-                double search_area_half_size = 4.8;
-                bool use_nearest_only = false;    // if true, only the nearest point will be used for prediction.
-                bool compute_covariance = false;  // if true, compute covariance of prediction.
-                bool recompute_variance = true;   // if true, compute variance using different method.
-                double softmax_temperature = 10.;
-            };
-
-            uint32_t num_threads = 64;
-            double update_hz = 20;                // frequency that Update() is called.
-            double gp_sdf_area_scale = 4;         // ratio between GP area and Quadtree cluster area
-            double offset_distance = 0.0;         // offset distance for surface points
-            double max_valid_gradient_var = 0.1;  // maximum gradient variance qualified for training.
-            double invalid_position_var = 2.;     // position variance of points whose gradient is labeled invalid, i.e. > max_valid_gradient_var.
-            bool train_gp_immediately = false;
-            std::shared_ptr<LogSdfGaussianProcess::Setting> gp_sdf = std::make_shared<LogSdfGaussianProcess::Setting>();
-            std::shared_ptr<TestQuery> test_query = std::make_shared<TestQuery>();  // parameters used by Test.
-            bool log_timing = false;
-        };
-
         struct Gp {
             bool active = false;
             std::atomic_bool locked_for_test = false;
@@ -52,7 +31,7 @@ namespace erl::sdf_mapping {
         using QuadtreeKeyGpMap = std::unordered_map<geometry::QuadtreeKey, std::shared_ptr<Gp>, geometry::QuadtreeKey::KeyHash>;
 
     private:
-        std::shared_ptr<Setting> m_setting_ = std::make_shared<Setting>();
+        std::shared_ptr<GpSdfMappingSetting> m_setting_ = std::make_shared<GpSdfMappingSetting>();
         std::mutex m_mutex_;
         std::shared_ptr<AbstractSurfaceMapping2D> m_surface_mapping_ = nullptr;                 // for getting surface points, racing condition.
         std::vector<geometry::QuadtreeKey> m_clusters_to_update_ = {};                          // stores clusters that are to be updated by UpdateGpThread.
@@ -122,10 +101,10 @@ namespace erl::sdf_mapping {
         TestBuffer m_test_buffer_ = {};
 
     public:
-        explicit GpSdfMapping2D(std::shared_ptr<AbstractSurfaceMapping2D> surface_mapping, std::shared_ptr<Setting> setting = nullptr)
+        explicit GpSdfMapping2D(std::shared_ptr<AbstractSurfaceMapping2D> surface_mapping, std::shared_ptr<GpSdfMappingSetting> setting = nullptr)
             : m_setting_(std::move(setting)),
               m_surface_mapping_(std::move(surface_mapping)) {
-            if (m_setting_ == nullptr) { m_setting_ = std::make_shared<Setting>(); }
+            if (m_setting_ == nullptr) { m_setting_ = std::make_shared<GpSdfMappingSetting>(); }
             ERL_ASSERTM(m_surface_mapping_ != nullptr, "surface_mapping is nullptr.");
 
             // get log dir from env
@@ -147,7 +126,7 @@ namespace erl::sdf_mapping {
             }
         }
 
-        [[nodiscard]] std::shared_ptr<Setting>
+        [[nodiscard]] std::shared_ptr<const GpSdfMappingSetting>
         GetSetting() const {
             return m_setting_;
         }
@@ -196,66 +175,3 @@ namespace erl::sdf_mapping {
         TestGpThread(uint32_t thread_idx, std::size_t start_idx, std::size_t end_idx);
     };
 }  // namespace erl::sdf_mapping
-
-template<>
-struct YAML::convert<erl::sdf_mapping::GpSdfMapping2D::Setting::TestQuery> {
-
-    static Node
-    encode(const erl::sdf_mapping::GpSdfMapping2D::Setting::TestQuery& rhs) {
-        Node node;
-        node["max_test_valid_distance_var"] = rhs.max_test_valid_distance_var;
-        node["search_area_half_size"] = rhs.search_area_half_size;
-        node["use_nearest_only"] = rhs.use_nearest_only;
-        node["compute_covariance"] = rhs.compute_covariance;
-        node["recompute_variance"] = rhs.recompute_variance;
-        node["softmax_temperature"] = rhs.softmax_temperature;
-        return node;
-    }
-
-    static bool
-    decode(const Node& node, erl::sdf_mapping::GpSdfMapping2D::Setting::TestQuery& rhs) {
-        if (!node.IsMap()) { return false; }
-        rhs.max_test_valid_distance_var = node["max_test_valid_distance_var"].as<double>();
-        rhs.search_area_half_size = node["search_area_half_size"].as<double>();
-        rhs.use_nearest_only = node["use_nearest_only"].as<bool>();
-        rhs.compute_covariance = node["compute_covariance"].as<bool>();
-        rhs.recompute_variance = node["recompute_variance"].as<bool>();
-        rhs.softmax_temperature = node["softmax_temperature"].as<double>();
-        return true;
-    }
-};
-
-template<>
-struct YAML::convert<erl::sdf_mapping::GpSdfMapping2D::Setting> {
-    static Node
-    encode(const erl::sdf_mapping::GpSdfMapping2D::Setting& setting) {
-        Node node;
-        node["num_threads"] = setting.num_threads;
-        node["update_hz"] = setting.update_hz;
-        node["gp_sdf_area_scale"] = setting.gp_sdf_area_scale;
-        node["offset_distance"] = setting.offset_distance;
-        node["max_valid_gradient_var"] = setting.max_valid_gradient_var;
-        node["invalid_position_var"] = setting.invalid_position_var;
-        node["train_gp_immediately"] = setting.train_gp_immediately;
-        node["gp_sdf"] = setting.gp_sdf;
-        node["test_query"] = setting.test_query;
-        node["log_timing"] = setting.log_timing;
-        return node;
-    }
-
-    static bool
-    decode(const Node& node, erl::sdf_mapping::GpSdfMapping2D::Setting& setting) {
-        if (!node.IsMap()) { return false; }
-        setting.num_threads = node["num_threads"].as<uint32_t>();
-        setting.update_hz = node["update_hz"].as<double>();
-        setting.gp_sdf_area_scale = node["gp_sdf_area_scale"].as<double>();
-        setting.offset_distance = node["offset_distance"].as<double>();
-        setting.max_valid_gradient_var = node["max_valid_gradient_var"].as<double>();
-        setting.invalid_position_var = node["invalid_position_var"].as<double>();
-        setting.train_gp_immediately = node["train_gp_immediately"].as<bool>();
-        setting.gp_sdf = node["gp_sdf"].as<decltype(setting.gp_sdf)>();
-        setting.test_query = node["test_query"].as<decltype(setting.test_query)>();
-        setting.log_timing = node["log_timing"].as<bool>();
-        return true;
-    }
-};

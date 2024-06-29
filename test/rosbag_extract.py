@@ -50,8 +50,6 @@ def transform_to_matrix(msg_tf):
 
 
 def main():
-    # filename = 'clf_cbf_sdf_sep_28_2023-09-28-14-49-57.bag'
-    # filename = "long_succ4_till_no_path.bag"
     parser = argparse.ArgumentParser(description="Extract data from rosbag")
     parser.add_argument("--filename", required=True, type=str, help="rosbag file")
     parser.add_argument("--output-filename", type=str, help="output file")

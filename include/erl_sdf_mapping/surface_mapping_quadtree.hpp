@@ -28,8 +28,10 @@ namespace erl::sdf_mapping {
 
     protected:
         [[nodiscard]] std::shared_ptr<AbstractQuadtree>
-        Create() const override {
-            return std::make_shared<SurfaceMappingQuadtree>();
+        Create(const std::shared_ptr<geometry::NdTreeSetting> &setting) const override {
+            auto tree_setting = std::dynamic_pointer_cast<Setting>(setting);
+            if (tree_setting == nullptr) { tree_setting = std::make_shared<Setting>(); }
+            return std::make_shared<SurfaceMappingQuadtree>(tree_setting);
         }
     };
 

@@ -1,8 +1,9 @@
 #include "erl_sdf_mapping/gp_sdf_mapping_2d.hpp"
-#include <chrono>
-#include <vector>
-#include <thread>
+
 #include <algorithm>
+#include <chrono>
+#include <thread>
+#include <vector>
 
 namespace erl::sdf_mapping {
 
@@ -168,7 +169,7 @@ namespace erl::sdf_mapping {
             start_idx = 0;
             for (uint32_t thread_idx = 0; thread_idx < num_threads; thread_idx++) {
                 end_idx = start_idx + batch_size;
-                if (thread_idx < leftover) end_idx++;
+                if (thread_idx < leftover) { ++end_idx; }
                 threads.emplace_back(&GpSdfMapping2D::TestGpThread, this, thread_idx, start_idx, end_idx);
                 start_idx = end_idx;
             }
@@ -335,7 +336,9 @@ namespace erl::sdf_mapping {
 
             // sort surface data by distance
             std::sort(surface_data_vec.begin(), surface_data_vec.end(), [](const auto &a, const auto &b) { return a.first < b.first; });
-            if (surface_data_vec.size() > static_cast<std::size_t>(m_setting_->gp_sdf->max_num_samples)) { surface_data_vec.resize(m_setting_->gp_sdf->max_num_samples); }
+            if (surface_data_vec.size() > static_cast<std::size_t>(m_setting_->gp_sdf->max_num_samples)) {
+                surface_data_vec.resize(m_setting_->gp_sdf->max_num_samples);
+            }
 
             // prepare data for GP training
             gp->gp->Reset(static_cast<long>(surface_data_vec.size()), 2);
@@ -374,7 +377,7 @@ namespace erl::sdf_mapping {
         ERL_INFO("Training {} GPs ...", m_gps_to_train_.size());
         const auto t0 = std::chrono::high_resolution_clock::now();
         const uint32_t n = m_gps_to_train_.size();
-        if (n == 0) return;
+        if (n == 0) { return; }
         uint32_t num_threads = std::min(n, std::thread::hardware_concurrency());
         num_threads = std::min(num_threads, m_setting_->num_threads);
         std::vector<std::thread> threads;
@@ -384,7 +387,7 @@ namespace erl::sdf_mapping {
         std::size_t start_idx = 0;
         for (uint32_t thread_idx = 0; thread_idx < num_threads; thread_idx++) {
             std::size_t end_idx = start_idx + batch_size;
-            if (thread_idx < leftover) { end_idx++; }
+            if (thread_idx < leftover) { ++end_idx; }
             threads.emplace_back(&GpSdfMapping2D::TrainGpThread, this, thread_idx, start_idx, end_idx);
             start_idx = end_idx;
         }

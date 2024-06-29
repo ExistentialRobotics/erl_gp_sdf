@@ -8,20 +8,20 @@
 // 4. http://wiki.ros.org/cv_bridge/Tutorials/UsingCvBridgeToConvertBetweenROSImagesAndOpenCVImages
 
 #include "erl_common/eigen.hpp"
-#include "erl_sdf_mapping/gp_occ_surface_mapping_2d.hpp"
 #include "erl_geometry/occupancy_quadtree_drawer.hpp"  // must make sure the tree is included before the drawer
+#include "erl_sdf_mapping/gp_occ_surface_mapping_2d.hpp"
 #include "erl_sdf_mapping/gp_sdf_mapping_2d.hpp"
 #define BOOST_BIND_GLOBAL_PLACEHOLDERS
+#include <cv_bridge/cv_bridge.h>
+#include <erl_sdf_mapping/PredictSdf.h>
 #include <ros/ros.h>
 #include <sensor_msgs/LaserScan.h>
-#include <cv_bridge/cv_bridge.h>
-#include <tf2_ros/transform_listener.h>
 #include <tf2_eigen/tf2_eigen.h>
-#include <tf2/convert.h>
-#include <filesystem>
-#include <erl_sdf_mapping/PredictSdf.h>
-#include <mutex>
+#include <tf2_ros/transform_listener.h>
+
 #include <cmath>
+#include <filesystem>
+#include <mutex>
 
 static const std::string kRosNodeName = "erl_sdf_mapping_node";
 static const std::filesystem::path kRosNodeParamRoot = "/erl_sdf_mapping_node";
@@ -62,14 +62,14 @@ class RosNode {
     std::vector<std::pair<cv::Point, cv::Point>> m_arrowed_lines_;
     cv::Mat m_cv_image_;
     int m_visualize_counter_ = 0;
-    std::mutex m_quadtree_mutex_;
+    std::mutex m_quadtree_mutex_{};
 
 public:
     explicit RosNode(std::shared_ptr<ros::NodeHandle> node_handle = nullptr)
         : m_node_handle_(std::move(node_handle)) {
         if (m_node_handle_ == nullptr) { m_node_handle_ = std::make_shared<ros::NodeHandle>(kRosNodeName); }
 
-        ros::Duration(1.0).sleep();
+        (void) ros::Duration(1.0).sleep();
         LoadParameters();  // load parameters from ros parameter server
 
         m_surface_mapping_ = std::make_shared<erl::sdf_mapping::GpOccSurfaceMapping2D>(m_surface_mapping_setting_);
@@ -121,8 +121,8 @@ public:
         m_quadtree_viz_pub_ = std::make_shared<ros::Publisher>(m_node_handle_->advertise<sensor_msgs::Image>("quadtree_viz", 1));
     }
 
-    void
-    Run() const {
+    static void
+    Run() {
         ROS_INFO("Node %s is running", kRosNodeName.c_str());
         ros::waitForShutdown();
         // ros::Rate loop_rate(m_params_.frequency);
@@ -137,7 +137,7 @@ private:
     // enable if T is not std::string
     template<typename T>
     std::enable_if_t<!std::is_same_v<T, std::string>, void>
-    LoadParameter(const std::string &param_path, T &param, bool must_exist = false) {
+    LoadParameter(const std::string &param_path, T &param, const bool must_exist = false) {
         if (m_node_handle_->hasParam(param_path)) {
             m_node_handle_->getParam(param_path, param);
             ROS_INFO("Load parameter %s: %s", param_path.c_str(), std::to_string(param).c_str());
@@ -148,7 +148,7 @@ private:
     }
 
     void
-    LoadParameter(const std::string &param_path, std::string &param, bool must_exist = false) {
+    LoadParameter(const std::string &param_path, std::string &param, const bool must_exist = false) const {
         if (m_node_handle_->hasParam(param_path)) {
             m_node_handle_->getParam(param_path, param);
             ROS_INFO("Load parameter %s: %s", param_path.c_str(), param.c_str());
@@ -187,7 +187,7 @@ private:
 #undef LOAD_PARAMETER
 
     Eigen::Matrix23d
-    GetLidarPose(const ros::Time &target_time) {
+    GetLidarPose(const ros::Time &target_time) const {
         geometry_msgs::TransformStamped transform_stamped;
         while (true) {
             try {
@@ -195,8 +195,7 @@ private:
                 break;
             } catch (tf2::TransformException &ex) {
                 ROS_WARN("%s", ex.what());
-                ros::Duration(1.0).sleep();
-                continue;
+                (void) ros::Duration(1.0).sleep();
             }
         }
         Eigen::Matrix4d eigen_transform_matrix = tf2::transformToEigen(transform_stamped).matrix();
@@ -207,7 +206,7 @@ private:
     void
     SubCallbackLidarScan(const sensor_msgs::LaserScanConstPtr &laser_scan) {
         auto t0 = std::chrono::high_resolution_clock::now();
-        auto num_lines = long(laser_scan->ranges.size());
+        auto num_lines = static_cast<long>(laser_scan->ranges.size());
         Eigen::VectorXd angles = Eigen::VectorXd::LinSpaced(num_lines, laser_scan->angle_min, laser_scan->angle_max);
         Eigen::VectorXd ranges = Eigen::Map<const Eigen::VectorXf>((const float *) (laser_scan->ranges.data()), num_lines).cast<double>();
         auto lidar_pose = GetLidarPose(laser_scan->header.stamp);
@@ -238,14 +237,14 @@ private:
         }
         auto t1 = std::chrono::high_resolution_clock::now();
         double dt = std::chrono::duration<double, std::milli>(t1 - t0).count();
-        ROS_INFO("Subscriber callback takes time: {:f} ms", dt);
+        ROS_INFO("Subscriber callback takes time: %f ms", dt);
     }
 
     bool
     SrvCallbackPredictSdf(erl_sdf_mapping::PredictSdf::Request &request, erl_sdf_mapping::PredictSdf::Response &response) {
         try {
             auto t0 = std::chrono::high_resolution_clock::now();
-            auto num_queries = long(request.x.size());
+            auto num_queries = static_cast<long>(request.x.size());
             Eigen::Matrix2Xd positions_in(2, num_queries);
             for (long i = 0; i < num_queries; ++i) { positions_in.col(i) << request.x[i], request.y[i]; }
             Eigen::VectorXd sdf_out;
@@ -282,7 +281,7 @@ private:
             }
             auto t1 = std::chrono::high_resolution_clock::now();
             double dt = std::chrono::duration<double, std::milli>(t1 - t0).count();
-            ROS_INFO("Service callback takes time: {:f} ms", dt);
+            ROS_INFO("Service callback takes time: %f ms", dt);
             return true;
         } catch (const std::exception &e) {
             ROS_ERROR("Service callback failed: %s", e.what());
@@ -295,6 +294,6 @@ int
 main(int argc, char *argv[]) {
     ros::init(argc, argv, kRosNodeName);
     RosNode node;
-    node.Run();
+    RosNode::Run();
     return 0;
 }

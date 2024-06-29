@@ -1,9 +1,9 @@
 #include "erl_sdf_mapping/gpis/gpis_map_base_2d.hpp"
 
 #include <algorithm>
+#include <memory>
 #include <numeric>
 #include <thread>
-#include <memory>
 #include <unordered_set>
 
 namespace erl::sdf_mapping::gpis {
@@ -24,8 +24,7 @@ namespace erl::sdf_mapping::gpis {
 
     GpisMapBase2D::GpisMapBase2D(const std::shared_ptr<Setting> &setting)
         : m_setting_(setting),
-          m_gp_theta_(gaussian_process::LidarGaussianProcess1D::Create(setting->gp_theta)),
-          m_node_container_constructor_([&]() { return GpisNodeContainer2D::Create(m_setting_->node_container); }),
+          m_gp_theta_(std::make_shared<gaussian_process::LidarGaussianProcess1D>(setting->gp_theta)),
           m_xy_perturb_{[&]() -> Eigen::Matrix24d {
               Eigen::Matrix24d out;
               // clang-format off
@@ -136,17 +135,17 @@ namespace erl::sdf_mapping::gpis {
         // first observation, bad observation or failed to regress the observation
         if (m_quadtree_ == nullptr || !m_gp_theta_->IsTrained()) { return; }
 
-        auto &kTrainBuffer = m_gp_theta_->GetTrainBuffer();
-        std::vector<std::shared_ptr<geometry::IncrementalQuadtree>> clusters_to_update;
-        geometry::Aabb2D observed_area(kTrainBuffer.position, kTrainBuffer.max_distance);
+        auto &train_buffer = m_gp_theta_->GetTrainBuffer();
+        std::vector<std::shared_ptr<IncrementalQuadtree>> clusters_to_update;
+        geometry::Aabb2D observed_area(train_buffer.position, train_buffer.max_distance);
         m_quadtree_->CollectNonEmptyClusters(observed_area, clusters_to_update);
         if (clusters_to_update.empty()) { return; }
 
-        double r_2 = kTrainBuffer.max_distance * kTrainBuffer.max_distance;
+        double r_2 = train_buffer.max_distance * train_buffer.max_distance;
         for (auto &cluster: clusters_to_update) {
-            auto &kArea = cluster->GetArea();
-            double square_dist = (kTrainBuffer.position - kArea.center).squaredNorm();
-            double l = kArea.half_sizes[0];
+            auto &area = cluster->GetArea();
+            double square_dist = (train_buffer.position - area.center).squaredNorm();
+            double l = area.half_sizes[0];
 
             // approximately out of m_range_
             if (square_dist > (r_2 + 2 * l * l)) { continue; }
@@ -154,9 +153,9 @@ namespace erl::sdf_mapping::gpis {
             // auto corners = kArea.getCorners();
             double distance_old;
             Eigen::Scalard angle, distance_pred, var;
-            std::vector<std::shared_ptr<geometry::Node>> nodes;
+            std::vector<std::shared_ptr<GpisNode2D>> nodes;
             for (int corner_idx = 0; corner_idx < 4; ++corner_idx) {
-                Eigen::Vector2d corner = kArea.corner(geometry::Aabb2D::CornerType(corner_idx));
+                Eigen::Vector2d corner = area.corner(static_cast<geometry::Aabb2D::CornerType>(corner_idx));
                 // global frame to local frame
                 double r;
                 Cartesian2Polar(m_gp_theta_->GlobalToLocalSe2(corner), r, angle[0]);
@@ -178,7 +177,7 @@ namespace erl::sdf_mapping::gpis {
 
                         if (occ < m_setting_->update_map_points->min_observable_occ) { continue; }
 
-                        auto node_data = node->GetData<GpisData2D>();
+                        auto node_data = node->node_data;
                         auto grad_local_old = m_gp_theta_->GlobalToLocalSo2(node_data->gradient);
 
                         // compute a new position for the point
@@ -199,15 +198,15 @@ namespace erl::sdf_mapping::gpis {
                                 }
 
                                 // test the new point
-                                double occ_new;
                                 Cartesian2Polar(xy_local_new, distance_new, angle[0]);
-                                if (m_gp_theta_->ComputeOcc(angle, distance_new, distance_pred, var, occ_new)) {
+                                if (double occ_new; m_gp_theta_->ComputeOcc(angle, distance_new, distance_pred, var, occ_new)) {
                                     auto occ_abs_new = std::fabs(occ_new);
                                     if (occ_abs_new < m_setting_->update_map_points->max_surface_abs_occ) {
                                         occ_abs = occ_abs_new;
                                         break;
-                                    } else if (occ * occ_new < 0.) {
-                                        delta *= double(0.5);  // too big, make it smaller
+                                    }
+                                    if (occ * occ_new < 0.) {
+                                        delta *= 0.5;  // too big, make it smaller
                                     } else {
                                         delta *= 1.1;
                                     }
@@ -248,8 +247,8 @@ namespace erl::sdf_mapping::gpis {
                         m_active_clusters_.insert(cluster);
 
                         auto xy_global_new = m_gp_theta_->LocalToGlobalSe2(xy_local_new);
-                        double &var_position_old = node_data->var_position;
-                        double &var_gradient_old = node_data->var_gradient;
+                        const double var_position_old = node_data->var_position;
+                        const double var_gradient_old = node_data->var_gradient;
 
                         if (var_gradient_old <= m_setting_->update_map_points->max_valid_gradient_var) {
                             // do bayes Update only when the old result is not too bad
@@ -258,7 +257,7 @@ namespace erl::sdf_mapping::gpis {
 
                             // position Update
                             xy_global_new = (xy_global_new * var_position_old + xy_global_old * var_position_new) / var_position_sum;
-                            double distance = (xy_global_new - xy_global_old).norm() * double(0.5);
+                            double distance = (xy_global_new - xy_global_old).norm() * 0.5;
 
                             // gradient Update
                             auto &grad_global_old = node_data->gradient;
@@ -288,7 +287,7 @@ namespace erl::sdf_mapping::gpis {
 
                         // Insert the point to the tree
                         auto new_node = std::make_shared<GpisNodeContainer2D::Node>(xy_global_new);
-                        std::shared_ptr<geometry::IncrementalQuadtree> inserted_leaf = m_quadtree_->Insert(new_node, m_quadtree_);
+                        std::shared_ptr<IncrementalQuadtree> inserted_leaf = m_quadtree_->Insert(new_node, m_quadtree_);
                         if (inserted_leaf == nullptr) { continue; }  // may fail if the point to Insert is too close to existing ones.
                         m_active_clusters_.insert(inserted_leaf->GetCluster());
                         double distance;
@@ -297,7 +296,8 @@ namespace erl::sdf_mapping::gpis {
                         } else {
                             distance = m_setting_->update_gp_sdf->offset_distance;  // offset the surface point
                         }
-                        new_node->GetData<GpisData2D>()->UpdateData(distance, grad_global_new, var_position_new, var_gradient_new);
+                        if (new_node->node_data == nullptr) { new_node->node_data = std::make_shared<GpisData2D>(); }
+                        new_node->node_data->UpdateData(distance, grad_global_new, var_position_new, var_gradient_new);
                     }
 
                     // this observed cluster is updated
@@ -336,10 +336,7 @@ namespace erl::sdf_mapping::gpis {
     void
     GpisMapBase2D::AddNewMeasurement() {
         if (m_quadtree_ == nullptr) {
-            m_quadtree_ = geometry::IncrementalQuadtree::Create(
-                m_setting_->quadtree,
-                geometry::Aabb2D({0., 0.}, m_setting_->init_tree_half_size),
-                m_node_container_constructor_);
+            m_quadtree_ = std::make_shared<IncrementalQuadtree>(m_setting_->quadtree, geometry::Aabb2D({0., 0.}, m_setting_->init_tree_half_size));
         }
 
         auto &kTrainBuffer = m_gp_theta_->GetTrainBuffer();
@@ -353,7 +350,7 @@ namespace erl::sdf_mapping::gpis {
 
             // Insert the point to the tree
             auto node = std::make_shared<GpisNodeContainer2D::Node>(kTrainBuffer.mat_xy_global.col(i));
-            std::shared_ptr<geometry::IncrementalQuadtree> inserted_leaf = m_quadtree_->Insert(node, m_quadtree_);
+            std::shared_ptr<IncrementalQuadtree> inserted_leaf = m_quadtree_->Insert(node, m_quadtree_);
             if (inserted_leaf == nullptr) { continue; }  // may fail if the point to Insert is too close to existing ones.
 
             double occ_mean;
@@ -386,7 +383,8 @@ namespace erl::sdf_mapping::gpis {
             } else {
                 distance = m_setting_->update_gp_sdf->offset_distance;  // offset the surface point
             }
-            node->GetData<GpisData2D>()->UpdateData(distance, grad_global, var_position, var_gradient);
+            if (node->node_data == nullptr) { node->node_data = std::make_shared<GpisData2D>(); }
+            node->node_data->UpdateData(distance, grad_global, var_position, var_gradient);
         }
     }
 
@@ -394,12 +392,12 @@ namespace erl::sdf_mapping::gpis {
     GpisMapBase2D::UpdateGpX() {
         if (m_active_clusters_.empty()) { return; }
 
-        std::unordered_set<std::shared_ptr<geometry::IncrementalQuadtree>> active_set(m_active_clusters_);
+        std::unordered_set<std::shared_ptr<IncrementalQuadtree>> active_set(m_active_clusters_);
 
         for (auto &kCluster: m_active_clusters_) {
             auto &kArea = kCluster->GetArea();
             geometry::Aabb2D search_area(kArea.center, kArea.half_sizes[0] * m_setting_->update_gp_sdf->search_area_scale);
-            std::vector<std::shared_ptr<geometry::IncrementalQuadtree>> clusters;
+            std::vector<std::shared_ptr<IncrementalQuadtree>> clusters;
             m_quadtree_->CollectNonEmptyClusters(search_area, clusters);
             for (auto &cluster: clusters) { active_set.insert(cluster); }
         }
@@ -434,7 +432,7 @@ namespace erl::sdf_mapping::gpis {
     GpisMapBase2D::UpdateGpXsThread(int thread_idx, int start_idx, int end_idx) {
 
         long num_nodes;
-        std::vector<std::shared_ptr<geometry::Node>> nodes;
+        std::vector<std::shared_ptr<GpisNode2D>> nodes;
         Eigen::VectorXb grad_flag;
 
         for (int i = start_idx; i < end_idx; ++i) {
@@ -451,7 +449,7 @@ namespace erl::sdf_mapping::gpis {
 
             if (!nodes.empty()) {
                 // generate training data
-                num_nodes = long(nodes.size());
+                num_nodes = static_cast<long>(nodes.size());
                 long n = num_nodes;
                 if (m_setting_->update_gp_sdf->add_offset_points) { n *= 3; }
 
@@ -467,7 +465,7 @@ namespace erl::sdf_mapping::gpis {
                 int point_cnt = 0;
                 // int valid_grad_cnt = 0;
                 for (auto &node: nodes) {
-                    auto node_data = node->GetData<GpisData2D>();
+                    auto node_data = node->node_data;
                     // auto node_data = node->getData<GpisData>();
                     auto &node_position = std::dynamic_pointer_cast<GpisNode2D>(node)->position;
                     mat_x.col(point_cnt) = node_position;
@@ -629,9 +627,9 @@ namespace erl::sdf_mapping::gpis {
     }
 
     void
-    GpisMapBase2D::TestThread(int thread_idx, size_t start_idx, size_t end_idx) {
+    GpisMapBase2D::TestThread(int thread_idx, const size_t start_idx, const size_t end_idx) {
 
-        std::vector<std::shared_ptr<geometry::IncrementalQuadtree>> clusters;
+        std::vector<std::shared_ptr<IncrementalQuadtree>> clusters;
         std::vector<double> square_distances;
         std::vector<size_t> idx;
         const int kMaxTries = 4;
@@ -641,13 +639,13 @@ namespace erl::sdf_mapping::gpis {
         std::vector<long> tested_idx;
         tested_idx.reserve(kMaxTries);
 
-        for (long i = (long) start_idx; i < (long) end_idx; ++i) {
-            const auto &kPosition = m_test_buffer_.positions->col(i);
+        for (long i = static_cast<long>(start_idx); i < (long) end_idx; ++i) {
+            const auto &position = m_test_buffer_.positions->col(i);
 
             // search the corresponding cluster
             auto search_area_half_size = m_setting_->test_query->search_area_half_size;
             while (search_area_half_size < m_quadtree_->GetArea().half_sizes[0]) {
-                geometry::Aabb2D search_area(kPosition, search_area_half_size);
+                geometry::Aabb2D search_area(position, search_area_half_size);
                 clusters.clear();
                 square_distances.clear();
                 m_quadtree_->CollectClustersWithData(search_area, clusters, square_distances);
@@ -660,7 +658,7 @@ namespace erl::sdf_mapping::gpis {
 
             if (clusters.empty()) {
                 static int warn_cnt = 0;
-                ERL_WARN("[{}] Thread {}: no cluster found for position ({:f}, {:f})", warn_cnt, thread_idx, kPosition.x(), kPosition.y());
+                ERL_WARN("[{}] Thread {}: no cluster found for position ({:f}, {:f})", warn_cnt, thread_idx, position.x(), position.y());
                 warn_cnt++;
                 continue;
             }  // no qualified cluster
@@ -681,7 +679,7 @@ namespace erl::sdf_mapping::gpis {
                 Eigen::Ref<Eigen::Vector3d> f = fs.col(cnt);      // distance, gradient_x, gradient_y
                 Eigen::Ref<Eigen::Vector3d> var = vars.col(cnt);  // var_distance, var_gradient_x, var_gradient_y
 
-                InferWithGpX(clusters[j]->GetData<void>(), kPosition, f, var);
+                InferWithGpX(clusters[j]->GetData<void>(), position, f, var);
 
                 tested_idx.push_back(cnt++);
                 if (m_setting_->test_query->use_nearest_only) { break; }
@@ -733,7 +731,7 @@ namespace erl::sdf_mapping::gpis {
     Eigen::Matrix2Xd
     GpisMapBase2D::DumpSurfacePoints() const {
 
-        std::vector<std::shared_ptr<geometry::Node>> quadtree_nodes;
+        std::vector<std::shared_ptr<GpisNode2D>> quadtree_nodes;
         m_quadtree_->CollectNodes(quadtree_nodes);
 
         Eigen::Matrix2Xd points(2, quadtree_nodes.size());
@@ -745,11 +743,11 @@ namespace erl::sdf_mapping::gpis {
     Eigen::Matrix2Xd
     GpisMapBase2D::DumpSurfaceNormals() const {
 
-        std::vector<std::shared_ptr<geometry::Node>> quadtree_nodes;
+        std::vector<std::shared_ptr<GpisNode2D>> quadtree_nodes;
         m_quadtree_->CollectNodes(quadtree_nodes);
 
         Eigen::Matrix2Xd normals(2, quadtree_nodes.size());
-        for (ssize_t i = 0; i < (ssize_t) quadtree_nodes.size(); i++) { normals.col(i) = quadtree_nodes[i]->GetData<GpisData2D>()->gradient; }
+        for (ssize_t i = 0; i < (ssize_t) quadtree_nodes.size(); i++) { normals.col(i) = quadtree_nodes[i]->node_data->gradient; }
 
         return normals;
     }
@@ -761,19 +759,19 @@ namespace erl::sdf_mapping::gpis {
         Eigen::VectorXd &points_variance,
         Eigen::VectorXd &normals_variance) const {
 
-        std::vector<std::shared_ptr<geometry::Node>> quadtree_nodes;
+        std::vector<std::shared_ptr<GpisNode2D>> quadtree_nodes;
         m_quadtree_->CollectNodes(quadtree_nodes);
 
-        auto n = (ssize_t) quadtree_nodes.size();
+        auto n = static_cast<ssize_t>(quadtree_nodes.size());
         surface_points.resize(2, n);
         surface_normals.resize(2, n);
         points_variance.resize(n);
         normals_variance.resize(n);
 
-        for (ssize_t i = 0; i < (ssize_t) quadtree_nodes.size(); ++i) {
-            auto &node = quadtree_nodes[i];
+        for (ssize_t i = 0; i < static_cast<ssize_t>(quadtree_nodes.size()); ++i) {
+            const auto node = quadtree_nodes[i];
             surface_points.col(i) = node->position;
-            auto gpis_data = node->GetData<GpisData2D>();
+            const auto gpis_data = node->node_data;
             surface_normals.col(i) = gpis_data->gradient;
             points_variance[i] = gpis_data->var_position;
             normals_variance[i] = gpis_data->var_gradient;

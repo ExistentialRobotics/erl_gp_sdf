@@ -13,13 +13,10 @@ namespace erl::sdf_mapping::gpis {
             Setting() { gp_sdf = std::make_shared<LogSdfGaussianProcess::Setting>(); }
         };
 
-        explicit LogGpisMap2D()
-            : LogGpisMap2D(std::make_shared<Setting>()) {}
-
         explicit LogGpisMap2D(const std::shared_ptr<Setting> &setting)
             : GpisMapBase2D(setting) {}
 
-        [[nodiscard]] std::shared_ptr<Setting>
+        [[nodiscard]] std::shared_ptr<const Setting>
         GetSetting() const {
             return std::dynamic_pointer_cast<Setting>(m_setting_);
         }

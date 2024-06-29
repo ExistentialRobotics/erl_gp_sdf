@@ -2,12 +2,13 @@
 
 #include "node.hpp"
 
-#include "erl_geometry/node_container.hpp"
+#include "erl_common/yaml.hpp"
+#include "erl_geometry/aabb.hpp"
 
 namespace erl::sdf_mapping::gpis {
 
     template<int Dim>
-    class GpisNodeContainer : public geometry::NodeContainer {
+    class GpisNodeContainer {
 
     public:
         using Node = GpisNode<Dim>;
@@ -19,12 +20,12 @@ namespace erl::sdf_mapping::gpis {
 
     private:
         std::shared_ptr<Setting> m_setting_ = nullptr;
-        std::vector<std::shared_ptr<geometry::Node>> m_nodes_ = {};
+        std::vector<std::shared_ptr<Node>> m_nodes_ = {};
 
     public:
-        static std::shared_ptr<GpisNodeContainer>
-        Create(const std::shared_ptr<Setting> &setting) {
-            return std::shared_ptr<GpisNodeContainer>(new GpisNodeContainer(setting));
+        explicit GpisNodeContainer(std::shared_ptr<Setting> setting)
+            : m_setting_(std::move(setting)) {
+            Reset();
         }
 
         [[nodiscard]] std::shared_ptr<Setting>
@@ -33,74 +34,108 @@ namespace erl::sdf_mapping::gpis {
         }
 
         [[nodiscard]] std::vector<int>
-        GetNodeTypes() const override {
+        GetNodeTypes() const {
             return std::vector<int>{0};  // vector of one element 0
         }
 
         [[nodiscard]] std::string
-        GetNodeTypeName(const int type) const override {
+        GetNodeTypeName(const int type) const {
             static const char *names[] = {"kSurface"};
             ERL_DEBUG_ASSERT(type >= 0 && type < 1, "Invalid node type.");
             return names[type];
         }
 
         [[nodiscard]] std::size_t
-        Capacity() const override {
+        Capacity() const {
             return m_setting_->capacity;
         }
 
         [[nodiscard]] std::size_t
-        Capacity(int /*type*/) const override {
+        Capacity(int /*type*/) const {
             return m_setting_->capacity;
         }
 
+        [[nodiscard]] bool
+        Empty() const {
+            return Size() == 0;
+        }
+
+        [[nodiscard]] bool
+        Empty(const int type) const {
+            return Size(type) == 0;
+        }
+
+        [[nodiscard]] bool
+        Full() const {
+            return Size() >= Capacity();
+        }
+
+        [[nodiscard]] bool
+        Full(const int type) const {
+            return Size(type) >= Capacity(type);
+        }
+
         [[nodiscard]] std::size_t
-        Size() const override {
+        Size() const {
             return m_nodes_.size();
         }
 
         [[nodiscard]] std::size_t
-        Size(int /*type*/) const override {
+        Size(int /*type*/) const {
             return m_nodes_.size();
         }
 
         void
-        Clear() override {
+        Clear() {
             Reset();
         }
 
-        std::vector<std::shared_ptr<geometry::Node>>::iterator
-        Begin(int /*type*/) override {
+        typename std::vector<std::shared_ptr<Node>>::iterator
+        Begin(int /*type*/) {
             return m_nodes_.begin();
         }
 
-        [[nodiscard]] std::vector<std::shared_ptr<geometry::Node>>::const_iterator
-        Begin(int /*type*/) const override {
+        [[nodiscard]] typename std::vector<std::shared_ptr<Node>>::const_iterator
+        Begin(int /*type*/) const {
             return m_nodes_.begin();
         }
 
-        std::vector<std::shared_ptr<geometry::Node>>::iterator
-        End(int /*type*/) override {
+        typename std::vector<std::shared_ptr<Node>>::iterator
+        End(int /*type*/) {
             return m_nodes_.end();
         }
 
-        [[nodiscard]] std::vector<std::shared_ptr<geometry::Node>>::const_iterator
-        End(int /*type*/) const override {
+        [[nodiscard]] typename std::vector<std::shared_ptr<Node>>::const_iterator
+        End(int /*type*/) const {
             return m_nodes_.end();
+        }
+
+        [[nodiscard]] std::vector<std::shared_ptr<Node>>
+        CollectNodes() const {
+            std::vector<std::shared_ptr<Node>> out;
+            CollectNodes(out);
+            return out;
         }
 
         void
-        CollectNodes(std::vector<std::shared_ptr<geometry::Node>> &out) const override {
+        CollectNodes(std::vector<std::shared_ptr<Node>> &out) const {
+            out.insert(out.end(), m_nodes_.begin(), m_nodes_.end());
+        }
+
+        [[nodiscard]] std::vector<std::shared_ptr<Node>>
+        CollectNodesOfType(const int type) const {
+            std::vector<std::shared_ptr<Node>> out;
+            CollectNodesOfType(type, out);
+            return out;
+        }
+
+        void
+        CollectNodesOfType(int /*type*/, std::vector<std::shared_ptr<Node>> &out) const {
             out.insert(out.end(), m_nodes_.begin(), m_nodes_.end());
         }
 
         void
-        CollectNodesOfType(int /*type*/, std::vector<std::shared_ptr<geometry::Node>> &out) const override {
-            out.insert(out.end(), m_nodes_.begin(), m_nodes_.end());
-        }
-
-        void
-        CollectNodesOfTypeInAabb2D(int /*type*/, const geometry::Aabb2D &area, std::vector<std::shared_ptr<geometry::Node>> &nodes) const override {
+        CollectNodesOfTypeInAabb2D(int /*type*/, const geometry::Aabb2D &area, std::vector<std::shared_ptr<Node>> &nodes) const {
             if (Dim == 3) { throw std::runtime_error("GpisNodeContainer::CollectNodesOfTypeInAabb2D: 3D not implemented"); }
 
             for (auto &node: m_nodes_) {
@@ -109,7 +144,7 @@ namespace erl::sdf_mapping::gpis {
         }
 
         void
-        CollectNodesOfTypeInAabb3D(int /*type*/, const geometry::Aabb3D &area, std::vector<std::shared_ptr<geometry::Node>> &nodes) const override {
+        CollectNodesOfTypeInAabb3D(int /*type*/, const geometry::Aabb3D &area, std::vector<std::shared_ptr<Node>> &nodes) const {
             if (Dim == 2) { throw std::runtime_error("GpisNodeContainer::CollectNodesOfTypeInAabb2D: 2D not implemented"); }
 
             for (auto &node: m_nodes_) {
@@ -118,12 +153,12 @@ namespace erl::sdf_mapping::gpis {
         }
 
         bool
-        Insert(const std::shared_ptr<geometry::Node> &node, bool &too_close) override {
+        Insert(const std::shared_ptr<Node> &node, bool &too_close) {
             too_close = false;
 
             // must compute too_close before checking capacity, otherwise the node may be inserted into another container.
             if (!m_nodes_.empty()) {  // not empty
-                too_close = std::any_of(m_nodes_.begin(), m_nodes_.end(), [&node, this](const std::shared_ptr<geometry::Node> &stored_node) {
+                too_close = std::any_of(m_nodes_.begin(), m_nodes_.end(), [&node, this](const std::shared_ptr<Node> &stored_node) {
                     return (stored_node->position - node->position).squaredNorm() < m_setting_->min_squared_distance;
                 });
                 if (too_close) { return false; }
@@ -135,7 +170,7 @@ namespace erl::sdf_mapping::gpis {
         }
 
         bool
-        Remove(const std::shared_ptr<const geometry::Node> &node) override {
+        Remove(const std::shared_ptr<const Node> &node) {
             if (m_nodes_.empty()) { return false; }
             auto end = m_nodes_.end();
             for (auto itr = m_nodes_.begin(); itr < end; ++itr) {
@@ -149,11 +184,6 @@ namespace erl::sdf_mapping::gpis {
         }
 
     private:
-        explicit GpisNodeContainer(std::shared_ptr<Setting> setting)
-            : m_setting_(std::move(setting)) {
-            Reset();
-        }
-
         void
         Reset() {
             ERL_ASSERTM(m_setting_ != nullptr, "Setting is null");
@@ -168,6 +198,7 @@ namespace erl::sdf_mapping::gpis {
     using GpisNodeContainer3D = GpisNodeContainer<3>;
 }  // namespace erl::sdf_mapping::gpis
 
+// ReSharper disable CppInconsistentNaming
 namespace YAML {
 
     using namespace erl::sdf_mapping::gpis;
@@ -197,3 +228,5 @@ namespace YAML {
     template<>
     struct convert<GpisNodeContainer3D::Setting> : public ConvertGpisNodeContainerSetting<3> {};
 }  // namespace YAML
+
+// ReSharper restore CppInconsistentNaming

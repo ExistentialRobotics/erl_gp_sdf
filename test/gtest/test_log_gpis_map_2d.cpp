@@ -14,7 +14,9 @@ TEST(ERL_SDF_MAPPING, LogGpisMap2D) {
     auto setting = std::make_shared<LogGpisMap2D::Setting>();
     setting->quadtree->min_half_area_size = 0.025;
     setting->quadtree->cluster_half_area_size = 0.1;
-    setting->node_container->min_squared_distance = 0.025 * 0.025;
+    setting->quadtree->node_container->min_squared_distance = 0.025 * 0.025;
+    setting->gp_theta->gp->kernel_type = "OrnsteinUhlenbeck1D";
+    setting->gp_theta->gp->kernel->x_dim = 1;
     LogGpisMap2D log_gpis_map(setting);
 
     std::cout << *log_gpis_map.GetSetting() << std::endl;
