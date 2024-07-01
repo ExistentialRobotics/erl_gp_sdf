@@ -204,6 +204,7 @@ namespace erl::sdf_mapping {
             surface_data->normal = grad_global_new;
             surface_data->var_position = var_position_new;
             surface_data->var_normal = var_gradient_new;
+            ERL_DEBUG_ASSERT(std::abs(surface_data->normal.norm() - 1.0) < 1.e-6, "surface_data->normal.norm() = {:.6f}", surface_data->normal.norm());
         }
     }
 
@@ -286,7 +287,6 @@ namespace erl::sdf_mapping {
     bool
     GpOccSurfaceMapping2D::ComputeGradient1(const Eigen::Vector2d &xy_local, Eigen::Vector2d &gradient, double &occ_mean, double &distance_var) {
 
-        Eigen::Scalard distance_pred, var;
         double occ[4];
         occ_mean = 0.;
         double distance_sum = 0.;
@@ -297,13 +297,11 @@ namespace erl::sdf_mapping {
             double distance;
             Eigen::Scalard angle;
             Cartesian2Polar(xy_local + m_xy_perturb_.col(j), distance, angle[0]);
-            if (m_gp_theta_->ComputeOcc(angle, distance, distance_pred, var, occ[j])) {
-                occ_mean += occ[j];
-                distance_sum += distance_pred[0];
-                distance_square_mean += distance_pred[0] * distance_pred[0];
-            } else {
-                return false;
-            }
+            Eigen::Scalard distance_pred;
+            if (Eigen::Scalard var; !m_gp_theta_->ComputeOcc(angle, distance, distance_pred, var, occ[j])) { return false; }
+            occ_mean += occ[j];
+            distance_sum += distance_pred[0];
+            distance_square_mean += distance_pred[0] * distance_pred[0];
         }
 
         occ_mean *= 0.25;
@@ -323,7 +321,6 @@ namespace erl::sdf_mapping {
 
     bool
     GpOccSurfaceMapping2D::ComputeGradient2(const Eigen::Ref<const Eigen::Vector2d> &xy_local, Eigen::Vector2d &gradient, double &occ_mean) {
-        Eigen::Scalard distance_pred, var;
         double occ[4];
         occ_mean = 0.;
         gradient.setZero();
@@ -332,11 +329,8 @@ namespace erl::sdf_mapping {
             double distance;
             Eigen::Scalard angle;
             Cartesian2Polar(xy_local + m_xy_perturb_.col(j), distance, angle[0]);
-            if (m_gp_theta_->ComputeOcc(angle, distance, distance_pred, var, occ[j])) {
-                occ_mean += occ[j];
-            } else {
-                return false;
-            }
+            if (Eigen::Scalard distance_pred, var; !m_gp_theta_->ComputeOcc(angle, distance, distance_pred, var, occ[j])) { return false; }
+            occ_mean += occ[j];
         }
 
         occ_mean *= 0.25;

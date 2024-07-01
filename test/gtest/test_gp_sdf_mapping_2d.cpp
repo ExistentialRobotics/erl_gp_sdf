@@ -201,7 +201,7 @@ TEST(ERL_SDF_MAPPING, GpSdfMapping2D) {
     auto surface_mapping_setting = std::make_shared<erl::sdf_mapping::GpOccSurfaceMapping2D::Setting>();
     surface_mapping_setting->FromYamlFile(g_options.surface_mapping_config_file);
     auto surface_mapping = std::make_shared<erl::sdf_mapping::GpOccSurfaceMapping2D>(surface_mapping_setting);
-    auto sdf_mapping_setting = std::make_shared<erl::sdf_mapping::GpSdfMapping2D::Setting>();
+    auto sdf_mapping_setting = std::make_shared<erl::sdf_mapping::GpSdfMappingSetting>();
     sdf_mapping_setting->FromYamlFile(g_options.sdf_mapping_config_file);
     erl::sdf_mapping::GpSdfMapping2D sdf_mapping(surface_mapping, sdf_mapping_setting);
     sdf_mapping.GetSetting()->test_query->compute_covariance = true;

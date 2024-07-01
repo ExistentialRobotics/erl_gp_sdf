@@ -63,44 +63,48 @@ namespace erl::sdf_mapping {
         const Eigen::Vector3d &min_corner = observed_area.min();
         const Eigen::Vector3d &max_corner = observed_area.max();
 
-        const uint32_t cluster_level = m_setting_->cluster_level;
-        const double sensor_range_var = m_setting_->sensor_gp->sensor_range_var;
-        const double min_comp_gradient_var = m_setting_->compute_variance.min_gradient_var;
-        const double max_comp_gradient_var = m_setting_->compute_variance.max_gradient_var;
-        const int max_adjust_tries = m_setting_->update_map_points.max_adjust_tries;
-        const double min_observable_occ = m_setting_->update_map_points.min_observable_occ;
-        const double max_surface_abs_occ = m_setting_->update_map_points.max_surface_abs_occ;
-        const double max_valid_gradient_var = m_setting_->update_map_points.max_valid_gradient_var;
-        const double min_position_var = m_setting_->update_map_points.min_position_var;
-        const double min_gradient_var = m_setting_->update_map_points.min_gradient_var;
-        const double max_bayes_position_var = m_setting_->update_map_points.max_bayes_position_var;
-        const double max_bayes_gradient_var = m_setting_->update_map_points.max_bayes_gradient_var;
-
-        const double cluster_half_size = m_setting_->octree->resolution * std::pow(2, cluster_level - 1);
-        const double squared_dist_max = max_sensor_range * max_sensor_range + cluster_half_size * cluster_half_size * 2.0;
-
-        // TODO: parallelize this loop if possible
+        std::vector<std::tuple<geometry::OctreeKey, SurfaceMappingOctreeNode *, std::optional<geometry::OctreeKey>>> nodes_in_aabb;
         for (auto it = m_octree_->BeginLeafInAabb(min_corner.x(), min_corner.y(), min_corner.z(), max_corner.x(), max_corner.y(), max_corner.z()),
                   end = m_octree_->EndLeafInAabb();
              it != end;
              ++it) {
+            nodes_in_aabb.emplace_back(it.GetKey(), *it, std::nullopt);
+        }
+
+#pragma omp parallel for default(none) shared(nodes_in_aabb, max_sensor_range, sensor_pos, sensor_frame, g_print_mutex)
+        for (auto &[node_key, node, new_key]: nodes_in_aabb) {
+            const uint32_t cluster_level = m_setting_->cluster_level;
+            const double sensor_range_var = m_setting_->sensor_gp->sensor_range_var;
+            const double min_comp_gradient_var = m_setting_->compute_variance.min_gradient_var;
+            const double max_comp_gradient_var = m_setting_->compute_variance.max_gradient_var;
+            const int max_adjust_tries = m_setting_->update_map_points.max_adjust_tries;
+            const double min_observable_occ = m_setting_->update_map_points.min_observable_occ;
+            const double max_surface_abs_occ = m_setting_->update_map_points.max_surface_abs_occ;
+            const double max_valid_gradient_var = m_setting_->update_map_points.max_valid_gradient_var;
+            const double min_position_var = m_setting_->update_map_points.min_position_var;
+            const double min_gradient_var = m_setting_->update_map_points.min_gradient_var;
+            const double max_bayes_position_var = m_setting_->update_map_points.max_bayes_position_var;
+            const double max_bayes_gradient_var = m_setting_->update_map_points.max_bayes_gradient_var;
+
+            const double cluster_half_size = m_setting_->octree->resolution * std::pow(2, cluster_level - 1);
+            const double squared_dist_max = max_sensor_range * max_sensor_range + cluster_half_size * cluster_half_size * 2.0;
+
             Eigen::Vector3d cluster_position;
-            m_octree_->KeyToCoord(it.GetKey(), m_octree_->GetTreeDepth() - cluster_level, cluster_position.x(), cluster_position.y(), cluster_position.z());
+            m_octree_->KeyToCoord(node_key, m_octree_->GetTreeDepth() - cluster_level, cluster_position.x(), cluster_position.y(), cluster_position.z());
             if ((cluster_position - sensor_pos).squaredNorm() > squared_dist_max) { continue; }
 
-            std::shared_ptr<SurfaceMappingOctreeNode::SurfaceData> surface_data = it->GetSurfaceData();
+            std::shared_ptr<SurfaceMappingOctreeNode::SurfaceData> surface_data = node->GetSurfaceData();
             if (surface_data == nullptr) { continue; }
 
             const Eigen::Vector3d &xyz_global_old = surface_data->position;
             Eigen::Vector3d xyz_local_old = sensor_frame->WorldToFrameSe3(xyz_global_old);
             double distance_old = xyz_local_old.norm();
-            Eigen::Vector2d frame_coords = sensor_frame->ComputeFrameCoords(xyz_local_old);
 
-            if (!sensor_frame->IsInFrame(frame_coords)) { continue; }
+            if (!sensor_frame->PointIsInFrame(xyz_local_old)) { continue; }
 
             double occ;
             Eigen::Scalard distance_pred, distance_pred_var;
-            if (!m_sensor_gp_->ComputeOcc(frame_coords, distance_old, distance_pred, distance_pred_var, occ)) { continue; }
+            if (!m_sensor_gp_->ComputeOcc(xyz_local_old / distance_old, distance_old, distance_pred, distance_pred_var, occ)) { continue; }
             if (occ < min_observable_occ) { continue; }
 
             const Eigen::Vector3d &grad_global_old = surface_data->normal;
@@ -123,8 +127,7 @@ namespace erl::sdf_mapping {
 
                 // test the new point
                 distance_pred[0] = xyz_local_new.norm();
-                frame_coords = sensor_frame->ComputeFrameCoords(xyz_local_new);
-                if (double occ_new; m_sensor_gp_->ComputeOcc(frame_coords, distance_pred[0], distance_pred, distance_pred_var, occ_new)) {
+                if (double occ_new; m_sensor_gp_->ComputeOcc(xyz_local_new / distance_pred[0], distance_pred[0], distance_pred, distance_pred_var, occ_new)) {
                     occ_abs = std::fabs(occ_new);
                     distance_new = distance_pred[0];
                     if (occ_abs < max_surface_abs_occ) { break; }
@@ -144,7 +147,7 @@ namespace erl::sdf_mapping {
             double occ_mean, var_distance;
             Eigen::Vector3d grad_local_new;
             if (!ComputeGradient1(xyz_local_new, grad_local_new, occ_mean, var_distance)) { continue; }
-            Eigen::Vector3d grad_global_new = sensor_frame->FrameToWorldSe3(grad_local_new);
+            Eigen::Vector3d grad_global_new = sensor_frame->FrameToWorldSo3(grad_local_new);
             double var_position_new, var_gradient_new;
             ComputeVariance(xyz_local_new, grad_local_new, distance_new, var_distance, std::fabs(occ_mean), occ_abs, false, var_position_new, var_gradient_new);
 
@@ -160,10 +163,172 @@ namespace erl::sdf_mapping {
                 // gradient Update
                 Eigen::Vector3d rot_axis = grad_global_old.cross(grad_global_new);
                 const double axis_norm = rot_axis.norm();
-                rot_axis /= axis_norm;
+                if (axis_norm < 1.e-6) {
+                    rot_axis = grad_global_old;  // parallel
+                } else {
+                    rot_axis /= axis_norm;
+                }
                 const double angle_dist = std::atan2(axis_norm, grad_global_old.dot(grad_global_new)) * var_position_new / var_position_sum;
                 Eigen::AngleAxisd rot(angle_dist, rot_axis);
                 grad_global_new = rot * grad_global_old;
+                ERL_DEBUG_ASSERT(std::abs(grad_global_new.norm() - 1.0) < 1.e-6, "grad_global_new.norm() = {:.6f}", grad_global_new.norm());
+
+                // variance Update
+                const double distance = (xyz_global_new - xyz_global_old).norm() * 0.5;
+                var_position_new = std::max((var_position_new * var_position_old) / var_position_sum + distance, sensor_range_var);
+                var_gradient_new = common::ClipRange(  //
+                    (var_gradient_new * var_gradient_old) / var_gradient_sum + distance,
+                    min_comp_gradient_var,
+                    max_comp_gradient_var);
+            }
+            var_position_new = std::max(var_position_new, min_position_var);
+            var_gradient_new = std::max(var_gradient_new, min_gradient_var);
+
+            // Update the surface data
+            if ((var_position_new > max_bayes_position_var) && (var_gradient_new > max_bayes_gradient_var)) {
+                node->ResetSurfaceData();
+                // {
+                // #pragma omp critical(changed_keys)
+                //     RecordChangedKey(node_key);
+                // }
+                continue;  // too bad, skip
+            }
+            if (new_key = m_octree_->CoordToKey(xyz_global_new.x(), xyz_global_new.y(), xyz_global_new.z()); new_key.value() == node_key) {
+                new_key = std::nullopt;
+                // node->ResetSurfaceData();
+                // {
+                // #pragma omp critical(changed_keys)
+                //     RecordChangedKey(node_key);
+                // }
+
+                // SurfaceMappingOctreeNode *new_node = nullptr;
+                // {
+                // #pragma omp critical(insert_node)
+                //     new_node = m_octree_->InsertNode(new_key);
+                //     ERL_DEBUG_ASSERT(new_node != nullptr, "Failed to get the node");
+                //     if (new_node->GetSurfaceData() != nullptr) { continue; }  // the new node is already occupied
+                //     new_node->SetSurfaceData(surface_data);
+                // }
+
+                // {
+                // #pragma omp critical(changed_keys)
+                //     RecordChangedKey(new_key);
+                // }
+            }
+            surface_data->position = xyz_global_new;
+            surface_data->normal = grad_global_new;
+            surface_data->var_position = var_position_new;
+            surface_data->var_normal = var_gradient_new;
+            ERL_DEBUG_ASSERT(std::abs(surface_data->normal.norm() - 1.0) < 1.e-6, "surface_data->normal.norm() = {:.6f}", surface_data->normal.norm());
+        }
+
+        for (auto &[key, node, new_key]: nodes_in_aabb) {
+            if (node->GetSurfaceData() == nullptr) {  // too bad, surface data is removed
+                RecordChangedKey(key);
+                continue;
+            }
+            if (new_key.has_value()) {  // the node is moved to a new position
+                auto surface_data = node->GetSurfaceData();
+                node->ResetSurfaceData();
+                RecordChangedKey(key);
+
+                SurfaceMappingOctreeNode *new_node = m_octree_->InsertNode(new_key.value());
+                ERL_DEBUG_ASSERT(new_node != nullptr, "Failed to get the node");
+                if (new_node->GetSurfaceData() != nullptr) { continue; }  // the new node is already occupied
+                new_node->SetSurfaceData(surface_data);
+                RecordChangedKey(new_key.value());
+            }
+        }
+
+        // TODO: parallelize this loop if possible
+        /*for (auto it = m_octree_->BeginLeafInAabb(min_corner.x(), min_corner.y(), min_corner.z(), max_corner.x(), max_corner.y(), max_corner.z()),
+                  end = m_octree_->EndLeafInAabb();
+             it != end;
+             ++it) {
+            Eigen::Vector3d cluster_position;
+            m_octree_->KeyToCoord(it.GetKey(), m_octree_->GetTreeDepth() - cluster_level, cluster_position.x(), cluster_position.y(), cluster_position.z());
+            if ((cluster_position - sensor_pos).squaredNorm() > squared_dist_max) { continue; }
+
+            std::shared_ptr<SurfaceMappingOctreeNode::SurfaceData> surface_data = it->GetSurfaceData();
+            if (surface_data == nullptr) { continue; }
+
+            const Eigen::Vector3d &xyz_global_old = surface_data->position;
+            Eigen::Vector3d xyz_local_old = sensor_frame->WorldToFrameSe3(xyz_global_old);
+            double distance_old = xyz_local_old.norm();
+
+            if (!sensor_frame->PointIsInFrame(xyz_local_old)) { continue; }
+
+            double occ;
+            Eigen::Scalard distance_pred, distance_pred_var;
+            if (!m_sensor_gp_->ComputeOcc(xyz_local_old / distance_old, distance_old, distance_pred, distance_pred_var, occ)) { continue; }
+            if (occ < min_observable_occ) { continue; }
+
+            const Eigen::Vector3d &grad_global_old = surface_data->normal;
+            Eigen::Vector3d grad_local_old = sensor_frame->WorldToFrameSo3(grad_global_old);
+
+            // compute a new position for the point
+            Eigen::Vector3d xyz_local_new = xyz_local_old;
+            double delta = m_setting_->perturb_delta;
+            int num_adjust_tries = 0;
+            double occ_abs = std::fabs(occ);
+            double distance_new = distance_old;
+            while (num_adjust_tries < max_adjust_tries && occ_abs > max_surface_abs_occ) {
+                // move one step
+                // the direction is determined by the occupancy sign, the step size is heuristically determined according to iteration.
+                if (occ < 0.) {
+                    xyz_local_new += grad_local_old * delta;  // point is inside the obstacle
+                } else if (occ > 0.) {
+                    xyz_local_new -= grad_local_old * delta;  // point is outside the obstacle
+                }
+
+                // test the new point
+                distance_pred[0] = xyz_local_new.norm();
+                if (double occ_new; m_sensor_gp_->ComputeOcc(xyz_local_new / distance_pred[0], distance_pred[0], distance_pred, distance_pred_var, occ_new)) {
+                    occ_abs = std::fabs(occ_new);
+                    distance_new = distance_pred[0];
+                    if (occ_abs < max_surface_abs_occ) { break; }
+                    if (occ * occ_new < 0.) {
+                        delta *= 0.5;  // too big, make it smaller
+                    } else {
+                        delta *= 1.1;
+                    }
+                    occ = occ_new;
+                } else {
+                    break;  // fail to estimate occ
+                }
+                ++num_adjust_tries;
+            }
+
+            // compute new gradient and uncertainty
+            double occ_mean, var_distance;
+            Eigen::Vector3d grad_local_new;
+            if (!ComputeGradient1(xyz_local_new, grad_local_new, occ_mean, var_distance)) { continue; }
+            Eigen::Vector3d grad_global_new = sensor_frame->FrameToWorldSo3(grad_local_new);
+            double var_position_new, var_gradient_new;
+            ComputeVariance(xyz_local_new, grad_local_new, distance_new, var_distance, std::fabs(occ_mean), occ_abs, false, var_position_new, var_gradient_new);
+
+            Eigen::Vector3d xyz_global_new = sensor_frame->FrameToWorldSe3(xyz_local_new);
+            if (const double var_position_old = surface_data->var_position, var_gradient_old = surface_data->var_normal;
+                var_gradient_old <= max_valid_gradient_var) {
+                // do bayes Update only when the old result is not too bad, otherwise, just replace it
+                const double var_position_sum = var_position_new + var_position_old;
+                const double var_gradient_sum = var_gradient_new + var_gradient_old;
+
+                // position Update
+                xyz_global_new = (xyz_global_new * var_position_old + xyz_global_old * var_position_new) / var_position_sum;
+                // gradient Update
+                Eigen::Vector3d rot_axis = grad_global_old.cross(grad_global_new);
+                const double axis_norm = rot_axis.norm();
+                if (axis_norm < 1.e-6) {
+                    rot_axis = grad_global_old;  // parallel
+                } else {
+                    rot_axis /= axis_norm;
+                }
+                const double angle_dist = std::atan2(axis_norm, grad_global_old.dot(grad_global_new)) * var_position_new / var_position_sum;
+                Eigen::AngleAxisd rot(angle_dist, rot_axis);
+                grad_global_new = rot * grad_global_old;
+                ERL_DEBUG_ASSERT(std::abs(grad_global_new.norm() - 1.0) < 1.e-6, "grad_global_new.norm() = {:.6f}", grad_global_new.norm());
+
                 // variance Update
                 const double distance = (xyz_global_new - xyz_global_old).norm() * 0.5;
                 var_position_new = std::max((var_position_new * var_position_old) / var_position_sum + distance, sensor_range_var);
@@ -185,7 +350,7 @@ namespace erl::sdf_mapping {
                 it->ResetSurfaceData();
                 RecordChangedKey(it.GetKey());
                 SurfaceMappingOctreeNode *new_node = m_octree_->InsertNode(new_key);
-                ERL_ASSERTM(new_node != nullptr, "Failed to get the node");
+                ERL_DEBUG_ASSERT(new_node != nullptr, "Failed to get the node");
                 if (new_node->GetSurfaceData() != nullptr) { continue; }  // the new node is already occupied
                 new_node->SetSurfaceData(surface_data);
                 RecordChangedKey(new_key);
@@ -194,7 +359,8 @@ namespace erl::sdf_mapping {
             surface_data->normal = grad_global_new;
             surface_data->var_position = var_position_new;
             surface_data->var_normal = var_gradient_new;
-        }
+            ERL_DEBUG_ASSERT(std::abs(surface_data->normal.norm() - 1.0) < 1.e-6, "surface_data->normal.norm() = {:.6f}", surface_data->normal.norm());
+        }*/
     }
 
     void
@@ -203,7 +369,8 @@ namespace erl::sdf_mapping {
         if (m_octree_ == nullptr) { m_octree_ = std::make_shared<SurfaceMappingOctree>(m_setting_->octree); }
 
         const auto sensor_frame = m_sensor_gp_->GetRangeSensorFrame();
-        const Eigen::Map<const Eigen::Matrix3Xd> map_points(sensor_frame->GetEndPointsInWorld().data()->data(), 3, sensor_frame->GetNumRays());
+        // const Eigen::Map<const Eigen::Matrix3Xd> map_points(sensor_frame->GetEndPointsInWorld().data()->data(), 3, sensor_frame->GetNumRays());
+        const Eigen::Map<const Eigen::Matrix3Xd> map_points(sensor_frame->GetHitPointsWorld().data()->data(), 3, sensor_frame->GetNumHitRays());
         constexpr bool parallel = false;
         constexpr bool lazy_eval = false;
         constexpr bool discrete = true;
@@ -216,47 +383,95 @@ namespace erl::sdf_mapping {
         if (m_octree_ == nullptr) { m_octree_ = std::make_shared<SurfaceMappingOctree>(m_setting_->octree); }
 
         const auto sensor_frame = m_sensor_gp_->GetRangeSensorFrame();
-        const long num_hit_rays = sensor_frame->GetNumHitRays();
-        const std::vector<Eigen::Vector3d> &hit_points = sensor_frame->GetHitPointsWorld();
+
         const std::vector<std::pair<long, long>> &hit_ray_indices = sensor_frame->GetHitRayIndices();
-        const Eigen::MatrixX<Eigen::Vector3d> points_frame = sensor_frame->GetEndPointsInFrame();
+        const Eigen::MatrixX<Eigen::Vector3d> &points_local = sensor_frame->GetEndPointsInFrame();
+        const Eigen::MatrixX<Eigen::Vector3d> &directions_frame = sensor_frame->GetRayDirectionsInFrame();
+
+        // const double valid_range_min = m_setting_->sensor_gp->range_sensor_frame->valid_range_min;
+        // const double valid_range_max = m_setting_->sensor_gp->range_sensor_frame->valid_range_max;
+        // const double max_valid_range_var = m_setting_->sensor_gp->max_valid_range_var;
+
+        const long num_hit_rays = sensor_frame->GetNumHitRays();
+        Eigen::Matrix3Xd directions_local(3, num_hit_rays);
+        for (long i = 0; i < num_hit_rays; ++i) {
+            const auto [row, col] = hit_ray_indices[i];
+            // directions_local.col(i) = points_local(row, col).normalized();
+            directions_local.col(i) = directions_frame(row, col);
+        }
+        Eigen::VectorXd predicted_ranges(num_hit_rays);
+        Eigen::VectorXd predicted_ranges_var(num_hit_rays);
+        if (!m_sensor_gp_->Test(directions_local, true, predicted_ranges, predicted_ranges_var, true, true)) { return; }
+        Eigen::VectorXb invalid = (predicted_ranges_var.array() > m_setting_->sensor_gp->max_valid_range_var) ||              //
+                                  (predicted_ranges.array() < m_setting_->sensor_gp->range_sensor_frame->valid_range_min) ||  //
+                                  (predicted_ranges.array() > m_setting_->sensor_gp->range_sensor_frame->valid_range_max);
+
+        Eigen::VectorXd occ_mean_values(num_hit_rays);
+        std::vector<Eigen::Vector3d> gradients_local(num_hit_rays);
+#pragma omp parallel for default(none) shared(num_hit_rays, hit_ray_indices, points_local, invalid, occ_mean_values, gradients_local)
+        for (long i = 0; i < num_hit_rays; ++i) {
+            if (invalid[i]) { continue; }
+            if (const auto [row, col] = hit_ray_indices[i];  //
+                !ComputeGradient2(points_local(row, col), gradients_local[i], occ_mean_values[i])) {
+                invalid[i] = true;
+            }
+        }
+
+        const std::vector<Eigen::Vector3d> &hit_points = sensor_frame->GetHitPointsWorld();
         const Eigen::MatrixXd &ranges = sensor_frame->GetRanges();
         const double min_position_var = m_setting_->update_map_points.min_position_var;
         const double min_gradient_var = m_setting_->update_map_points.min_gradient_var;
-
         for (long i = 0; i < num_hit_rays; ++i) {
-            const auto [row, col] = hit_ray_indices[i];
-            Eigen::Vector3d xyz_frame = points_frame(row, col);
-            Eigen::Vector2d frame_coords = sensor_frame->ComputeFrameCoords(xyz_frame);
-            Eigen::Scalard predicted_range, predicted_range_var;
-            if (!m_sensor_gp_->Test(frame_coords, predicted_range, predicted_range_var, true)) { continue; }
+            if (invalid[i]) { continue; }
 
-            geometry::OctreeKey key = m_octree_->CoordToKey(hit_points[i].x(), hit_points[i].y(), hit_points[i].z());
+            const Eigen::Vector3d &hit_point = hit_points[i];
+            geometry::OctreeKey key = m_octree_->CoordToKey(hit_point.x(), hit_point.y(), hit_point.z());
+            SurfaceMappingOctreeNode *node = m_octree_->InsertNode(key);  // insert the node
+            if (node == nullptr) { continue; }                            // failed to insert the node
+            if (node->GetSurfaceData() != nullptr) { continue; }          // the node is already occupied
+
+            double var_position, var_gradient;
+            const auto [row, col] = hit_ray_indices[i];
+            const Eigen::Vector3d &xyz_local = points_local(row, col);
+            ComputeVariance(xyz_local, gradients_local[i], ranges(row, col), 0, std::fabs(occ_mean_values[i]), 0, true, var_position, var_gradient);
+            var_position = std::max(var_position, min_position_var);
+            var_gradient = std::max(var_gradient, min_gradient_var);
+
+            Eigen::Vector3d grad_global = sensor_frame->FrameToWorldSo3(gradients_local[i]);
+            node->SetSurfaceData(hit_point, std::move(grad_global), var_position, var_gradient);
+            RecordChangedKey(key);
+        }
+
+        /*for (long i = 0; i < num_hit_rays; ++i) {
+            const auto [row, col] = hit_ray_indices[i];
+            const Eigen::Vector3d &xyz_local = points_local(row, col);
+            Eigen::Scalard predicted_range, predicted_range_var;
+            if (!m_sensor_gp_->Test(xyz_local.normalized(), true, predicted_range, predicted_range_var, true, false)) { continue; }
+            if (!(predicted_range[0] >= valid_range_min && predicted_range[0] <= valid_range_max && predicted_range_var[0] < max_valid_range_var)) { continue; }
+
+            const Eigen::Vector3d &hit_point = hit_points[i];
+            geometry::OctreeKey key = m_octree_->CoordToKey(hit_point.x(), hit_point.y(), hit_point.z());
             SurfaceMappingOctreeNode *node = m_octree_->InsertNode(key);  // insert the node
             if (node == nullptr) { continue; }                            // failed to insert the node
             if (node->GetSurfaceData() != nullptr) { continue; }          // the node is already occupied
 
             double occ_mean;
             Eigen::Vector3d grad_local;
-            if (!ComputeGradient2(xyz_frame, grad_local, occ_mean)) { continue; }
+            if (!ComputeGradient2(xyz_local, grad_local, occ_mean)) { continue; }
 
-            const Eigen::Vector3d grad_global = sensor_frame->FrameToWorldSo3(grad_local);
+            Eigen::Vector3d grad_global = sensor_frame->FrameToWorldSo3(grad_local);
             double var_position, var_gradient;
-            ComputeVariance(xyz_frame, grad_local, ranges(row, col), 0, std::fabs(occ_mean), 0, true, var_position, var_gradient);
+            ComputeVariance(xyz_local, grad_local, ranges(row, col), 0, std::fabs(occ_mean), 0, true, var_position, var_gradient);
             var_position = std::max(var_position, min_position_var);
             var_gradient = std::max(var_gradient, min_gradient_var);
 
-            node->SetSurfaceData(hit_points[i], grad_global, var_position, var_gradient);
+            node->SetSurfaceData(hit_point, std::move(grad_global), var_position, var_gradient);
             RecordChangedKey(key);
-        }
+        }*/
     }
 
     bool
-    GpOccSurfaceMapping3D::ComputeGradient1(
-        const Eigen::Ref<const Eigen::Vector3d> &xyz_local,
-        Eigen::Ref<Eigen::Vector3d> gradient,
-        double &occ_mean,
-        double &distance_var) {
+    GpOccSurfaceMapping3D::ComputeGradient1(const Eigen::Vector3d &xyz_local, Eigen::Vector3d &gradient, double &occ_mean, double &distance_var) {
 
         double occ[6];
         occ_mean = 0;
@@ -267,8 +482,9 @@ namespace erl::sdf_mapping {
         for (int i = 0; i < 6; ++i) {
             const Eigen::Vector3d xyz_local_perturbed = xyz_local + m_xyz_perturb_.col(i);
             const double distance = xyz_local_perturbed.norm();
-            Eigen::Scalard distance_pred, distance_pred_var;
-            if (!m_sensor_gp_->ComputeOcc(m_sensor_gp_->ComputeFrameCoords(xyz_local_perturbed), distance, distance_pred, distance_pred_var, occ[i])) {
+            Eigen::Scalard distance_pred;
+            if (Eigen::Scalard distance_pred_var;
+                !m_sensor_gp_->ComputeOcc(xyz_local_perturbed / distance, distance, distance_pred, distance_pred_var, occ[i])) {
                 return false;
             }
             occ_mean += occ[i];
@@ -291,8 +507,8 @@ namespace erl::sdf_mapping {
     }
 
     bool
-    GpOccSurfaceMapping3D::ComputeGradient2(const Eigen::Ref<const Eigen::Vector3d> &xyz_local, Eigen::Ref<Eigen::Vector3d> gradient, double &occ_mean) {
-        //
+    GpOccSurfaceMapping3D::ComputeGradient2(const Eigen::Vector3d &xyz_local, Eigen::Vector3d &gradient, double &occ_mean) {
+
         double occ[6];
         occ_mean = 0;
         gradient.setZero();
@@ -300,8 +516,8 @@ namespace erl::sdf_mapping {
         for (int i = 0; i < 6; ++i) {
             const Eigen::Vector3d xyz_local_perturbed = xyz_local + m_xyz_perturb_.col(i);
             const double distance = xyz_local_perturbed.norm();
-            Eigen::Scalard distance_pred, distance_pred_var;
-            if (!m_sensor_gp_->ComputeOcc(m_sensor_gp_->ComputeFrameCoords(xyz_local_perturbed), distance, distance_pred, distance_pred_var, occ[i])) {
+            if (Eigen::Scalard distance_pred, distance_pred_var;
+                !m_sensor_gp_->ComputeOcc(xyz_local_perturbed / distance, distance, distance_pred, distance_pred_var, occ[i])) {
                 return false;
             }
             occ_mean += occ[i];
@@ -325,7 +541,7 @@ namespace erl::sdf_mapping {
         const double &distance_var,
         const double &occ_mean_abs,
         const double &occ_abs,
-        bool new_point,
+        const bool new_point,
         double &var_position,
         double &var_gradient) const {
 

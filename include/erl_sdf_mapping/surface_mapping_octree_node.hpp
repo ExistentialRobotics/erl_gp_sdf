@@ -85,11 +85,13 @@ namespace erl::sdf_mapping {
         void
         SetSurfaceData(Eigen::Vector3d position, Eigen::Vector3d normal, double var_position, double var_normal) {
             m_data_ = std::make_shared<SurfaceData>(std::move(position), std::move(normal), var_position, var_normal);
+            ERL_DEBUG_ASSERT(std::abs(m_data_->normal.norm() - 1.0) < 1.e-6, "normal.norm() = {:.6f}", m_data_->normal.norm());
         }
 
         void
         SetSurfaceData(const std::shared_ptr<SurfaceData> &data) {
             m_data_ = data;
+            ERL_DEBUG_ASSERT(std::abs(m_data_->normal.norm() - 1.0) < 1.e-6, "normal.norm() = {:.6f}", m_data_->normal.norm());
         }
 
         std::shared_ptr<SurfaceData>

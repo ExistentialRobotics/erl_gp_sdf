@@ -51,6 +51,11 @@ namespace erl::sdf_mapping {
             return m_octree_;
         }
 
+        std::shared_ptr<gaussian_process::RangeSensorGaussianProcess3D>
+        GetSensorGp() {
+            return m_sensor_gp_;
+        }
+
         [[nodiscard]] double
         GetSensorNoise() const override {
             return m_setting_->sensor_gp->sensor_range_var;
@@ -79,10 +84,10 @@ namespace erl::sdf_mapping {
         }
 
         bool
-        ComputeGradient1(const Eigen::Ref<const Eigen::Vector3d> &xyz_local, Eigen::Ref<Eigen::Vector3d> gradient, double &occ_mean, double &distance_var);
+        ComputeGradient1(const Eigen::Vector3d &xyz_local, Eigen::Vector3d &gradient, double &occ_mean, double &distance_var);
 
         bool
-        ComputeGradient2(const Eigen::Ref<const Eigen::Vector3d> &xyz_local, Eigen::Ref<Eigen::Vector3d> gradient, double &occ_mean);
+        ComputeGradient2(const Eigen::Vector3d &xyz_local, Eigen::Vector3d &gradient, double &occ_mean);
 
         void
         ComputeVariance(
