@@ -123,6 +123,14 @@ namespace erl::sdf_mapping {
                 double x, y, z;
                 m_surface_mapping_->GetOctree()->GetMetricMin(x, y, z);  // trigger the octree to update its metric min/max
             }
+
+            // if we iterate through the octree for each query position separately, it takes too much CPU time
+            Eigen::Vector3d query_aabb_min = positions_in.rowwise().minCoeff();
+            Eigen::Vector3d query_aabb_max = positions_in.rowwise().maxCoeff();
+            query_aabb_min.array() -= m_setting_->test_query->search_area_half_size;
+            query_aabb_max.array() += m_setting_->test_query->search_area_half_size;
+            geometry::Aabb3D query_aabb(query_aabb_min, query_aabb_max);
+
             if (num_queries == 1) {
                 SearchGpThread(0, 0, 1);  // save time on thread creation
             } else {
@@ -453,7 +461,7 @@ namespace erl::sdf_mapping {
         if (m_surface_mapping_ == nullptr) { return; }
 
         std::vector<std::size_t> gp_indices;
-        constexpr int max_tries = 4;
+        constexpr int max_tries = 4;                // we ask at most 4 GPs for each query position
         Eigen::Matrix4Xd fs(4, max_tries);          // f, fGrad1, fGrad2, fGrad3
         Eigen::Matrix4Xd variances(4, max_tries);   // variances of f, fGrad1, fGrad2, fGrad3
         Eigen::Matrix6Xd covariance(6, max_tries);  // covariances of (fGrad1,f), (fGrad2,f), (fGrad2, fGrad1), (fGrad3, f), (fGrad3, fGrad1), (fGrad3, fGrad2)

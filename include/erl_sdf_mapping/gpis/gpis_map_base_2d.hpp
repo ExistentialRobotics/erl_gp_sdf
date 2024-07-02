@@ -76,7 +76,6 @@ namespace erl::sdf_mapping::gpis {
         std::shared_ptr<IncrementalQuadtree> m_quadtree_ = nullptr;
         std::unordered_set<std::shared_ptr<IncrementalQuadtree>> m_active_clusters_;
         std::vector<std::shared_ptr<IncrementalQuadtree>> m_clusters_to_update_;
-        // std::function<std::shared_ptr<GpisNodeContainer<2>>()> m_node_container_constructor_;
         // other parameters
         const Eigen::Matrix24d m_xy_perturb_;
 
