@@ -228,7 +228,7 @@ namespace erl::sdf_mapping {
         m_clusters_to_update_.insert(m_clusters_to_update_.end(), affected_clusters.begin(), affected_clusters.end());
         for (auto &cluster_key: m_clusters_to_update_) {
             auto [it, inserted] = m_gp_map_.try_emplace(cluster_key, std::make_shared<Gp>());
-            quadtree->KeyToCoord(cluster_key, cluster_depth, it->second->position.x(), it->second->position.y());
+            quadtree->KeyToCoord(cluster_key, cluster_depth, it->second->position);
             it->second->half_size = area_half_size;
         }
         std::size_t batch_size = m_clusters_to_update_.size() / num_threads;
@@ -288,8 +288,8 @@ namespace erl::sdf_mapping {
         const auto quadtree = m_surface_mapping_->GetQuadtree();
         if (quadtree == nullptr) { return; }
         const double sensor_noise = m_surface_mapping_->GetSensorNoise();
-
-        const double cluster_size = quadtree->GetNodeSize(quadtree->GetTreeDepth() - m_surface_mapping_->GetClusterLevel());
+        const uint32_t cluster_depth = quadtree->GetTreeDepth() - m_surface_mapping_->GetClusterLevel();
+        const double cluster_size = quadtree->GetNodeSize(cluster_depth);
         const double aabb_half_size = cluster_size * m_setting_->gp_sdf_area_scale / 2.;
 
         std::vector<std::pair<double, std::shared_ptr<geometry::SurfaceMappingQuadtreeNode::SurfaceData>>> surface_data_vec;
@@ -309,26 +309,18 @@ namespace erl::sdf_mapping {
             if (gp->gp == nullptr) { gp->gp = std::make_shared<LogSdfGaussianProcess>(m_setting_->gp_sdf); }
 
             // collect surface data in the area
-            double x, y;
-            quadtree->KeyToCoord(cluster_key, x, y);
-            const double aabb_min_x = x - aabb_half_size;
-            const double aabb_min_y = y - aabb_half_size;
-            const double aabb_max_x = x + aabb_half_size;
-            const double aabb_max_y = y + aabb_half_size;
-            auto it = quadtree->BeginLeafInAabb(aabb_min_x, aabb_min_y, aabb_max_x, aabb_max_y);
-            auto end = quadtree->EndLeafInAabb();
-            long count = 0;
+            const Eigen::Vector2d cluster_center = quadtree->KeyToCoord(cluster_key, cluster_depth);
             surface_data_vec.clear();
-            for (; it != end; ++it) {  // iterate through all leaf nodes in the area
+            for (auto it = quadtree->BeginLeafInAabb(geometry::Aabb2D(cluster_center.array() - aabb_half_size, cluster_center.array() + aabb_half_size)),
+                      end = quadtree->EndLeafInAabb();
+                 it != end;
+                 ++it) {  // iterate through all leaf nodes in the area
                 auto surface_data = it->GetSurfaceData();
                 if (surface_data == nullptr) { continue; }  // no surface data in the node
-                const double dx = surface_data->position.x() - x;
-                const double dy = surface_data->position.y() - y;
-                surface_data_vec.emplace_back(dx * dx + dy * dy, surface_data);
-                count++;
+                surface_data_vec.emplace_back((surface_data->position - cluster_center).norm(), surface_data);
             }
 
-            if (count == 0) {
+            if (surface_data_vec.empty()) {
                 gp->active = false;  // deactivate the GP if there is no training data
                 gp->num_train_samples = 0;
                 continue;
@@ -349,7 +341,7 @@ namespace erl::sdf_mapping {
             Eigen::VectorXd &vec_var_y = gp->gp->GetTrainOutputValueSamplesVarianceBuffer();
             Eigen::VectorXd &vec_var_grad = gp->gp->GetTrainOutputGradientSamplesVarianceBuffer();
             Eigen::VectorXb &vec_grad_flag = gp->gp->GetTrainGradientFlagsBuffer();
-            count = 0;
+            long count = 0;
             for (auto &[distance, surface_data]: surface_data_vec) {
                 mat_x.col(count) = surface_data->position;
                 vec_y[count] = m_setting_->offset_distance;
@@ -417,43 +409,28 @@ namespace erl::sdf_mapping {
             std::vector<std::pair<double, std::shared_ptr<Gp>>> &gps = m_query_to_gps_[i];
             gps.reserve(16);
             double search_area_half_size = m_setting_->test_query->search_area_half_size;
-            double tree_min_x, tree_min_y, tree_max_x, tree_max_y;
-            quadtree->GetMetricMinMax(tree_min_x, tree_min_y, tree_max_x, tree_max_y);
-            Eigen::AlignedBox2d quadtree_aabb(Eigen::Vector2d(tree_min_x, tree_min_y), Eigen::Vector2d(tree_max_x, tree_max_y));
-            Eigen::AlignedBox2d search_aabb(
-                Eigen::Vector2d(position.x() - search_area_half_size, position.y() - search_area_half_size),
-                Eigen::Vector2d(position.x() + search_area_half_size, position.y() + search_area_half_size));
-            Eigen::AlignedBox2d intersection = quadtree_aabb.intersection(search_aabb);
+            // double tree_min_x, tree_min_y, tree_max_x, tree_max_y;
+            Eigen::Vector2d tree_min, tree_max;
+            quadtree->GetMetricMinMax(tree_min.x(), tree_min.y(), tree_max.x(), tree_max.y());
+            const geometry::Aabb2D quadtree_aabb(tree_min, tree_max);
+            geometry::Aabb2D search_aabb(position.array() - search_area_half_size, position.array() + search_area_half_size);
+            geometry::Aabb2D intersection = quadtree_aabb.Intersection(search_aabb);
             while (intersection.sizes().prod() > 0) {
                 // search the quadtree for clusters in the search area
-                for (auto it = quadtree->BeginTreeInAabb(
-                              intersection.min().x(),
-                              intersection.min().y(),
-                              intersection.max().x(),
-                              intersection.max().y(),
-                              cluster_depth),
-                          end = quadtree->EndTreeInAabb();
-                     it != end;
-                     ++it) {
-
+                for (auto it = quadtree->BeginTreeInAabb(intersection, cluster_depth), end = quadtree->EndTreeInAabb(); it != end; ++it) {
                     if (it->GetDepth() != cluster_depth) { continue; }  // not a cluster node
                     geometry::QuadtreeKey cluster_key = it.GetIndexKey();
                     auto it_gp = m_gp_map_.find(cluster_key);
                     if (it_gp == m_gp_map_.end()) { continue; }  // no gp for this cluster
                     if (!it_gp->second->active) { continue; }    // gp is inactive (e.g. due to no training data)
-                    Eigen::Vector2d cluster_center;
-                    quadtree->KeyToCoord(cluster_key, cluster_center.x(), cluster_center.y());
-                    double dx = cluster_center.x() - position.x();
-                    double dy = cluster_center.y() - position.y();
+                    const Eigen::Vector2d cluster_center = quadtree->KeyToCoord(cluster_key, cluster_depth);
                     it_gp->second->locked_for_test = true;  // lock the GP for testing
-                    gps.emplace_back(dx * dx + dy * dy, it_gp->second);
+                    gps.emplace_back((cluster_center - position).norm(), it_gp->second);
                 }
                 if (!gps.empty()) { break; }  // found at least one gp
                 search_area_half_size *= 2;   // double search area size
-                search_aabb = Eigen::AlignedBox2d(
-                    Eigen::Vector2d(position.x() - search_area_half_size, position.y() - search_area_half_size),
-                    Eigen::Vector2d(position.x() + search_area_half_size, position.y() + search_area_half_size));
-                auto new_intersection = quadtree_aabb.intersection(search_aabb);
+                search_aabb = geometry::Aabb2D(position.array() - search_area_half_size, position.array() + search_area_half_size);
+                geometry::Aabb2D new_intersection = quadtree_aabb.Intersection(search_aabb);
                 if ((intersection.min() == new_intersection.min()) && (intersection.max() == new_intersection.max())) { break; }  // intersection did not change
                 intersection = new_intersection;
             }
@@ -511,14 +488,13 @@ namespace erl::sdf_mapping {
                     } else {
                         gp->Test(position, f, no_variance, no_covariance);
                     }
-                    Eigen::Vector2d grad(f[1], f[2]);
+                    Eigen::Vector2d grad = f.tail<2>();
                     if (grad.norm() < 1.e-15) { continue; }  // invalid gradient, skip this GP
                     grad.normalize();
 
                     auto &mat_x = gp->GetTrainInputSamplesBuffer();
                     auto &vec_x_var = gp->GetTrainInputSamplesVarianceBuffer();
-                    // auto &grad_flag = gp->GetTrainGradientFlagsBuffer();
-                    Eigen::Vector2d pos(position.x() - grad.x() * f[0], position.y() - grad.y() * f[0]);
+                    const Eigen::Vector2d predicted_surf_position = position - grad * f[0];
                     long num_samples = gp->GetNumTrainSamples();
                     Eigen::VectorXd weight(num_samples);
                     double weight_sum = 0;
@@ -530,20 +506,16 @@ namespace erl::sdf_mapping {
                     var_grad_y = 0;
                     double var_theta = 0;
                     for (long k = 0; k < num_samples; ++k) {
-                        double dx = mat_x(0, k) - pos.x();
-                        double dy = mat_x(1, k) - pos.y();
-                        double d = std::sqrt(dx * dx + dy * dy);
+                        const double d = (mat_x.col(k) - predicted_surf_position).norm();
                         weight[k] = std::max(1.e-6, std::exp(-d * m_setting_->test_query->softmax_temperature));
                         weight_sum += weight[k];
 
                         var_sdf += weight[k] * vec_x_var[k];
 
-                        Eigen::Vector2d v(position.x() - mat_x(0, k), position.y() - mat_x(1, k));
+                        Eigen::Vector2d v = position - mat_x.col(k);
                         v.normalize();                             // warning: unchanged if v's norm is very small
                         if (v.squaredNorm() < 0.81) { continue; }  // invalid gradient, skip this sample
-                        double angle_dist = std::atan2(
-                            grad.x() * v.y() - grad.y() * v.x(),   // cross product
-                            grad.x() * v.x() + grad.y() * v.y());  // dot product
+                        const double angle_dist = std::atan2(grad.x() * v.y() - grad.y() * v.x(), grad.x() * v.x() + grad.y() * v.y());
                         var_theta += weight[k] * angle_dist * angle_dist;
                     }
 
@@ -561,7 +533,7 @@ namespace erl::sdf_mapping {
                     } else {
                         gp->Test(position, f, var, no_covariance);
                     }
-                    if (std::sqrt(f[1] * f[1] + f[2] * f[2]) < 1.e-15) { continue; }  // invalid gradient, skip this GP
+                    if (f.tail<2>().norm() < 1.e-15) { continue; }  // invalid gradient, skip this GP
                 }
 
                 tested_idx.emplace_back(cnt++, j);
@@ -585,7 +557,7 @@ namespace erl::sdf_mapping {
                     auto j = tested_idx[0].first;
                     // column j is the result
                     distance_out = fs(0, j);
-                    gradient_out << fs(1, j), fs(2, j);
+                    gradient_out << fs.col(j).tail<2>();
                     variance_out << variances.col(j);
                     if (m_setting_->test_query->compute_covariance) { m_test_buffer_.covariances->col(i) = covariance.col(j); }
                     m_query_used_gps_[i][0] = gps[tested_idx[0].second].second;

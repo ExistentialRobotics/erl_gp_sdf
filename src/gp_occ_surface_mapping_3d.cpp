@@ -346,7 +346,7 @@ namespace erl::sdf_mapping {
         if (m_octree_ == nullptr) { m_octree_ = std::make_shared<geometry::SurfaceMappingOctree>(m_setting_->octree); }
 
         const auto sensor_frame = m_sensor_gp_->GetRangeSensorFrame();
-        const Eigen::Map<const Eigen::Matrix3Xd> map_points(sensor_frame->GetEndPointsInWorld().data()->data(), 3, sensor_frame->GetNumRays());
+        const Eigen::Map<const Eigen::Matrix3Xd> map_points(sensor_frame->GetHitPointsWorld().data()->data(), 3, sensor_frame->GetNumHitRays());
         constexpr bool parallel = false;
         constexpr bool lazy_eval = false;
         constexpr bool discrete = true;

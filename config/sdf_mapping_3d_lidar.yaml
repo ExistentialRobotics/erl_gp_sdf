@@ -1,5 +1,5 @@
 num_threads: 64
-update_hz: 20
+update_hz: 1
 log_timing: true
 gp_sdf_area_scale: 4
 offset_distance: 0.08
@@ -7,9 +7,9 @@ max_valid_gradient_var: 0.001
 invalid_position_var: 0.005
 train_gp_immediately: false
 gp_sdf:
-  kernel_type: Matern32_2D
+  kernel_type: Matern32_3D
   kernel:
-    x_dim: 2
+    x_dim: 3
     alpha: 1
     scale: 2.0
     scale_mix: 1

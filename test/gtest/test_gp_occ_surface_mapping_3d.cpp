@@ -52,16 +52,6 @@ TEST(GpOccSurfaceMapping3D, LiDAR) {
     lidar_setting->num_elevation_lines = lidar_frame_setting->num_elevation_lines;
     erl::geometry::Lidar3D lidar(lidar_setting, mesh->vertices_, mesh->triangles_);
 
-    // the trajectory we use is for depth camera, so we need to convert it for lidar
-    Eigen::Matrix4d trans_depth_to_lidar;
-    // clang-format off
-    trans_depth_to_lidar << 0,  0, 1, 0,
-                           -1,  0, 0, 0,
-                            0, -1, 0, 0,
-                            0,  0, 0, 1;
-    // clang-format on
-    trans_depth_to_lidar = Eigen::Matrix4d(trans_depth_to_lidar).inverse();
-
     const auto visualizer_setting = std::make_shared<erl::geometry::Open3dVisualizerWrapper::Setting>();
     visualizer_setting->window_name = test_info->name();
     visualizer_setting->mesh_show_back_face = false;
@@ -86,7 +76,7 @@ TEST(GpOccSurfaceMapping3D, LiDAR) {
         }
 
         const auto t_start = std::chrono::high_resolution_clock::now();
-        const Eigen::Matrix4d pose = traj_matrix.col(wp_idx).reshaped(4, 4).transpose() * trans_depth_to_lidar;
+        const Eigen::Matrix4d pose = traj_matrix.col(wp_idx).reshaped(4, 4).transpose();
         const Eigen::Matrix3d rotation = pose.topLeftCorner<3, 3>();
         const Eigen::Vector3d translation = pose.topRightCorner<3, 1>();
         wp_idx += STRIDE;

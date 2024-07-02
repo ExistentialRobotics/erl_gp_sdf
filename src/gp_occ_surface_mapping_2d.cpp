@@ -367,7 +367,9 @@ namespace erl::sdf_mapping {
         if (m_quadtree_ == nullptr) { m_quadtree_ = std::make_shared<geometry::SurfaceMappingQuadtree>(m_setting_->quadtree); }
 
         const auto sensor_frame = m_sensor_gp_->GetLidarFrame();
-        const Eigen::Map<const Eigen::Matrix2Xd> map_points(sensor_frame->GetEndPointsInWorld().data()->data(), 2, sensor_frame->GetNumRays());
+        // In AddNewMeasurement(), only rays classified as hit are used. So, we use the same here to avoid inconsistency.
+        // Experiments show that this achieves higher fps and better results.
+        const Eigen::Map<const Eigen::Matrix2Xd> map_points(sensor_frame->GetHitPointsWorld().data()->data(), 2, sensor_frame->GetNumHitRays());
         constexpr bool parallel = false;
         constexpr bool lazy_eval = false;
         constexpr bool discrete = true;

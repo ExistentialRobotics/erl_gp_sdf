@@ -33,6 +33,9 @@ namespace erl::sdf_mapping {
 
         void
         Reset(const long max_num_samples, const long x_dim) override {
+            if (m_setting_->kernel->x_dim > 0) {
+                ERL_ASSERTM(x_dim == m_setting_->kernel->x_dim, "x_dim {} does not match kernel x_dim {}", x_dim, m_setting_->kernel->x_dim);
+            }
             NoisyInputGaussianProcess::Reset(max_num_samples, x_dim);
             if (m_setting_->max_num_samples <= 0 || m_setting_->kernel->x_dim <= 0) { AllocateMemory2(max_num_samples, x_dim); }
             m_kernel_ = covariance::Covariance::CreateCovariance(m_setting_->kernel_type, m_setting_->kernel);
