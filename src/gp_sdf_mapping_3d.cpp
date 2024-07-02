@@ -124,13 +124,6 @@ namespace erl::sdf_mapping {
                 m_surface_mapping_->GetOctree()->GetMetricMin(x, y, z);  // trigger the octree to update its metric min/max
             }
 
-            // if we iterate through the octree for each query position separately, it takes too much CPU time
-            Eigen::Vector3d query_aabb_min = positions_in.rowwise().minCoeff();
-            Eigen::Vector3d query_aabb_max = positions_in.rowwise().maxCoeff();
-            query_aabb_min.array() -= m_setting_->test_query->search_area_half_size;
-            query_aabb_max.array() += m_setting_->test_query->search_area_half_size;
-            geometry::Aabb3D query_aabb(query_aabb_min, query_aabb_max);
-
             if (num_queries == 1) {
                 SearchGpThread(0, 0, 1);  // save time on thread creation
             } else {
@@ -327,7 +320,6 @@ namespace erl::sdf_mapping {
             if (gp->gp == nullptr) { gp->gp = std::make_shared<LogSdfGaussianProcess>(m_setting_->gp_sdf); }
 
             // collect surface data in the area
-            // double x, y, z;
             const Eigen::Vector3d cluster_center = octree->KeyToCoord(cluster_key, cluster_depth);
             surface_data_vec.clear();
             for (auto it = octree->BeginLeafInAabb(geometry::Aabb3D(cluster_center.array() - aabb_half_size, cluster_center.array() + aabb_half_size)),
