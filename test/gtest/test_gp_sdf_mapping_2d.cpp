@@ -24,8 +24,8 @@ struct Options {
     std::string house_expo_map_file = (g_dir_path / "house_expo_room_1451.json").string();
     std::string house_expo_traj_file = (g_dir_path / "house_expo_room_1451.csv").string();
     std::string ros_bag_dat_file = (g_dir_path / "ros_bag.dat").string();
-    std::string surface_mapping_config_file = (g_config_dir_path / "surface_mapping.yaml").string();
-    std::string sdf_mapping_config_file = (g_config_dir_path / "sdf_mapping.yaml").string();
+    std::string surface_mapping_config_file = (g_config_dir_path / "surface_mapping_2d.yaml").string();
+    std::string sdf_mapping_config_file = (g_config_dir_path / "sdf_mapping_2d.yaml").string();
     std::string output_dir = (g_dir_path / "results").string();
     bool use_gazebo_data = false;
     bool use_house_expo_data = false;
@@ -71,13 +71,19 @@ TEST(ERL_SDF_MAPPING, GpSdfMapping2D) {
     long max_update_cnt;
     std::vector<Eigen::VectorXd> train_angles;
     std::vector<Eigen::VectorXd> train_ranges;
-    std::vector<Eigen::Matrix23d> train_poses;
+    std::vector<std::pair<Eigen::Matrix2d, Eigen::Vector2d>> train_poses;
     Eigen::Vector2d map_min(0, 0);
     Eigen::Vector2d map_max(0, 0);
     Eigen::Vector2d map_resolution(g_options.map_resolution, g_options.map_resolution);
     Eigen::Vector2i map_padding(10, 10);
     Eigen::Matrix2Xd cur_traj;
     double tic = 0.05;
+
+    auto surface_mapping_setting = std::make_shared<erl::sdf_mapping::GpOccSurfaceMapping2D::Setting>();
+    surface_mapping_setting->FromYamlFile(g_options.surface_mapping_config_file);
+    auto sdf_mapping_setting = std::make_shared<erl::sdf_mapping::GpSdfMappingSetting>();
+    sdf_mapping_setting->FromYamlFile(g_options.sdf_mapping_config_file);
+    sdf_mapping_setting->test_query->compute_covariance = true;
 
     if (g_options.use_gazebo_data) {
         auto train_data_loader = erl::geometry::GazeboRoom::TrainDataLoader(g_options.gazebo_train_file.c_str());
@@ -94,8 +100,8 @@ TEST(ERL_SDF_MAPPING, GpSdfMapping2D) {
             auto &df = train_data_loader[i];
             train_angles.push_back(df.angles);
             train_ranges.push_back(df.distances);
-            train_poses.emplace_back(df.pose_numpy);
-            cur_traj.col(cnt) << df.pose_numpy(0, 2), df.pose_numpy(1, 2);
+            train_poses.emplace_back(df.pose_numpy.leftCols(2), df.pose_numpy.rightCols(1));
+            cur_traj.col(cnt) << df.pose_numpy.col(2);
             const double &x = cur_traj(0, cnt);
             const double &y = cur_traj(1, cnt);
             if (x < map_min[0]) { map_min[0] = x; }
@@ -143,10 +149,7 @@ TEST(ERL_SDF_MAPPING, GpSdfMapping2D) {
             lidar_ranges += erl::common::GenerateGaussianNoise(lidar_ranges.size(), 0.0, 0.01);
             train_angles.push_back(lidar.GetAngles());
             train_ranges.push_back(lidar_ranges);
-            Eigen::Matrix23d pose;
-            pose.leftCols<2>() << rotation;
-            pose.rightCols<1>() << translation;
-            train_poses.push_back(std::move(pose));
+            train_poses.emplace_back(rotation, translation);
             bar->Update();
         }
         train_angles.resize(cnt);
@@ -173,7 +176,7 @@ TEST(ERL_SDF_MAPPING, GpSdfMapping2D) {
             cur_traj.col(cnt) << pose(0, 2), pose(1, 2);
             train_angles.emplace_back(ros_bag_data.row(i).segment(7, num_rays));
             train_ranges.emplace_back(ros_bag_data.row(i).segment(7 + num_rays, num_rays));
-            train_poses.push_back(pose);
+            train_poses.emplace_back(pose.leftCols(2), pose.col(2));
             const auto &angles = train_angles.back();
             const Eigen::VectorXd &ranges = train_ranges.back();
             for (long k = 0; k < num_rays; k++) {
@@ -198,18 +201,19 @@ TEST(ERL_SDF_MAPPING, GpSdfMapping2D) {
     }
     max_update_cnt = cur_traj.cols();
 
-    auto surface_mapping_setting = std::make_shared<erl::sdf_mapping::GpOccSurfaceMapping2D::Setting>();
-    surface_mapping_setting->FromYamlFile(g_options.surface_mapping_config_file);
-    auto surface_mapping = std::make_shared<erl::sdf_mapping::GpOccSurfaceMapping2D>(surface_mapping_setting);
-    auto sdf_mapping_setting = std::make_shared<erl::sdf_mapping::GpSdfMappingSetting>();
-    sdf_mapping_setting->FromYamlFile(g_options.sdf_mapping_config_file);
-    erl::sdf_mapping::GpSdfMapping2D sdf_mapping(surface_mapping, sdf_mapping_setting);
-    sdf_mapping.GetSetting()->test_query->compute_covariance = true;
+    surface_mapping_setting->sensor_gp->lidar_frame->angle_min = train_angles[0].minCoeff();
+    surface_mapping_setting->sensor_gp->lidar_frame->angle_max = train_angles[0].maxCoeff();
+    surface_mapping_setting->sensor_gp->lidar_frame->num_rays = train_ranges[0].size();
+
     std::cout << "Surface Mapping Setting:" << std::endl
-              << *surface_mapping->GetSetting() << std::endl
+              << *surface_mapping_setting << std::endl
               << "Sdf Mapping Setting:" << std::endl
-              << *sdf_mapping.GetSetting() << std::endl;
-    using OccupancyQuadtreeDrawer = erl::geometry::OccupancyQuadtreeDrawer<erl::sdf_mapping::SurfaceMappingQuadtree>;
+              << *sdf_mapping_setting << std::endl;
+
+    auto surface_mapping = std::make_shared<erl::sdf_mapping::GpOccSurfaceMapping2D>(surface_mapping_setting);
+    erl::sdf_mapping::GpSdfMapping2D sdf_mapping(surface_mapping, sdf_mapping_setting);
+
+    using OccupancyQuadtreeDrawer = erl::geometry::OccupancyQuadtreeDrawer<erl::geometry::SurfaceMappingQuadtree>;
     auto drawer_setting = std::make_shared<OccupancyQuadtreeDrawer::Setting>();
     drawer_setting->area_min = map_min;
     drawer_setting->area_max = map_max;
@@ -219,7 +223,7 @@ TEST(ERL_SDF_MAPPING, GpSdfMapping2D) {
     std::cout << "Quadtree Drawer Setting:" << std::endl << *drawer_setting << std::endl;
     auto drawer = std::make_shared<OccupancyQuadtreeDrawer>(drawer_setting);
     std::vector<std::pair<cv::Point, cv::Point>> arrowed_lines;
-    drawer->SetDrawTreeCallback([&](const OccupancyQuadtreeDrawer *self, cv::Mat &img, erl::sdf_mapping::SurfaceMappingQuadtree::TreeIterator &it) {
+    drawer->SetDrawTreeCallback([&](const OccupancyQuadtreeDrawer *self, cv::Mat &img, erl::geometry::SurfaceMappingQuadtree::TreeIterator &it) {
         const uint32_t cluster_depth = surface_mapping->GetQuadtree()->GetTreeDepth() - surface_mapping->GetClusterLevel();
         const auto grid_map_info = self->GetGridMapInfo();
         if (it->GetDepth() == cluster_depth) {
@@ -236,7 +240,7 @@ TEST(ERL_SDF_MAPPING, GpSdfMapping2D) {
         cv::Point arrow_end_px(position_px[0] + normal_px[0], position_px[1] + normal_px[1]);
         arrowed_lines.emplace_back(position_px_cv, arrow_end_px);
     });
-    drawer->SetDrawLeafCallback([&](const OccupancyQuadtreeDrawer *self, cv::Mat &img, erl::sdf_mapping::SurfaceMappingQuadtree::LeafIterator &it) {
+    drawer->SetDrawLeafCallback([&](const OccupancyQuadtreeDrawer *self, cv::Mat &img, erl::geometry::SurfaceMappingQuadtree::LeafIterator &it) {
         if (it->GetSurfaceData() == nullptr) { return; }
         const auto grid_map_info = self->GetGridMapInfo();
         Eigen::Vector2i position_px = grid_map_info->MeterToPixelForPoints(it->GetSurfaceData()->position);
@@ -322,8 +326,10 @@ TEST(ERL_SDF_MAPPING, GpSdfMapping2D) {
 
     double t_ms = 0;
     for (long i = 0; i < max_update_cnt; i++) {
+        const auto &[rotation, translation] = train_poses[i];
+        const Eigen::VectorXd &ranges = train_ranges[i];
         auto t0 = std::chrono::high_resolution_clock::now();
-        sdf_mapping.Update(train_angles[i], train_ranges[i], train_poses[i]);
+        sdf_mapping.Update(rotation, translation, ranges);
         auto t1 = std::chrono::high_resolution_clock::now();
         auto dt = std::chrono::duration<double, std::milli>(t1 - t0).count();
         ERL_INFO("Update time: {:f} ms.", dt);

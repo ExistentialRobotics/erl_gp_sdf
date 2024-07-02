@@ -6,7 +6,7 @@ import numpy as np
 import numpy.typing as npt
 
 from erl_common.yaml import YamlableBase
-from erl_gaussian_process import LidarGaussianProcess1D
+from erl_gaussian_process import LidarGaussianProcess2D
 from erl_sdf_mapping import LogSdfGaussianProcess
 from erl_gaussian_process import NoisyInputGaussianProcess
 from erl_geometry import NodeData
@@ -89,7 +89,7 @@ class GpisMapBase2D:
         compute_variance: ComputeVariance
         update_map_points: UpdateMapPoints
         update_gp_sdf: UpdateGpSdf
-        gp_theta: LidarGaussianProcess1D.Setting
+        gp_theta: LidarGaussianProcess2D.Setting
         gp_sdf: NoisyInputGaussianProcess.Setting
         node_container: GpisNodeContainer2D.Setting
         quadtree: IncrementalQuadtree.Setting

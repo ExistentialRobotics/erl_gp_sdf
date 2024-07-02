@@ -63,7 +63,7 @@ namespace erl::sdf_mapping {
         const Eigen::Vector3d &min_corner = observed_area.min();
         const Eigen::Vector3d &max_corner = observed_area.max();
 
-        std::vector<std::tuple<geometry::OctreeKey, SurfaceMappingOctreeNode *, std::optional<geometry::OctreeKey>>> nodes_in_aabb;
+        std::vector<std::tuple<geometry::OctreeKey, geometry::SurfaceMappingOctreeNode *, std::optional<geometry::OctreeKey>>> nodes_in_aabb;
         for (auto it = m_octree_->BeginLeafInAabb(min_corner.x(), min_corner.y(), min_corner.z(), max_corner.x(), max_corner.y(), max_corner.z()),
                   end = m_octree_->EndLeafInAabb();
              it != end;
@@ -93,17 +93,17 @@ namespace erl::sdf_mapping {
             m_octree_->KeyToCoord(node_key, m_octree_->GetTreeDepth() - cluster_level, cluster_position.x(), cluster_position.y(), cluster_position.z());
             if ((cluster_position - sensor_pos).squaredNorm() > squared_dist_max) { continue; }
 
-            std::shared_ptr<SurfaceMappingOctreeNode::SurfaceData> surface_data = node->GetSurfaceData();
+            std::shared_ptr<geometry::SurfaceMappingOctreeNode::SurfaceData> surface_data = node->GetSurfaceData();
             if (surface_data == nullptr) { continue; }
 
             const Eigen::Vector3d &xyz_global_old = surface_data->position;
             Eigen::Vector3d xyz_local_old = sensor_frame->WorldToFrameSe3(xyz_global_old);
-            double distance_old = xyz_local_old.norm();
 
             if (!sensor_frame->PointIsInFrame(xyz_local_old)) { continue; }
 
             double occ;
             Eigen::Scalard distance_pred, distance_pred_var;
+            const double distance_old = xyz_local_old.norm();
             if (!m_sensor_gp_->ComputeOcc(xyz_local_old / distance_old, distance_old, distance_pred, distance_pred_var, occ)) { continue; }
             if (occ < min_observable_occ) { continue; }
 
@@ -187,33 +187,10 @@ namespace erl::sdf_mapping {
             // Update the surface data
             if ((var_position_new > max_bayes_position_var) && (var_gradient_new > max_bayes_gradient_var)) {
                 node->ResetSurfaceData();
-                // {
-                // #pragma omp critical(changed_keys)
-                //     RecordChangedKey(node_key);
-                // }
                 continue;  // too bad, skip
             }
             if (new_key = m_octree_->CoordToKey(xyz_global_new.x(), xyz_global_new.y(), xyz_global_new.z()); new_key.value() == node_key) {
                 new_key = std::nullopt;
-                // node->ResetSurfaceData();
-                // {
-                // #pragma omp critical(changed_keys)
-                //     RecordChangedKey(node_key);
-                // }
-
-                // SurfaceMappingOctreeNode *new_node = nullptr;
-                // {
-                // #pragma omp critical(insert_node)
-                //     new_node = m_octree_->InsertNode(new_key);
-                //     ERL_DEBUG_ASSERT(new_node != nullptr, "Failed to get the node");
-                //     if (new_node->GetSurfaceData() != nullptr) { continue; }  // the new node is already occupied
-                //     new_node->SetSurfaceData(surface_data);
-                // }
-
-                // {
-                // #pragma omp critical(changed_keys)
-                //     RecordChangedKey(new_key);
-                // }
             }
             surface_data->position = xyz_global_new;
             surface_data->normal = grad_global_new;
@@ -232,7 +209,7 @@ namespace erl::sdf_mapping {
                 node->ResetSurfaceData();
                 RecordChangedKey(key);
 
-                SurfaceMappingOctreeNode *new_node = m_octree_->InsertNode(new_key.value());
+                geometry::SurfaceMappingOctreeNode *new_node = m_octree_->InsertNode(new_key.value());
                 ERL_DEBUG_ASSERT(new_node != nullptr, "Failed to get the node");
                 if (new_node->GetSurfaceData() != nullptr) { continue; }  // the new node is already occupied
                 new_node->SetSurfaceData(surface_data);
@@ -366,11 +343,10 @@ namespace erl::sdf_mapping {
     void
     GpOccSurfaceMapping3D::UpdateOccupancy() {
 
-        if (m_octree_ == nullptr) { m_octree_ = std::make_shared<SurfaceMappingOctree>(m_setting_->octree); }
+        if (m_octree_ == nullptr) { m_octree_ = std::make_shared<geometry::SurfaceMappingOctree>(m_setting_->octree); }
 
         const auto sensor_frame = m_sensor_gp_->GetRangeSensorFrame();
-        // const Eigen::Map<const Eigen::Matrix3Xd> map_points(sensor_frame->GetEndPointsInWorld().data()->data(), 3, sensor_frame->GetNumRays());
-        const Eigen::Map<const Eigen::Matrix3Xd> map_points(sensor_frame->GetHitPointsWorld().data()->data(), 3, sensor_frame->GetNumHitRays());
+        const Eigen::Map<const Eigen::Matrix3Xd> map_points(sensor_frame->GetEndPointsInWorld().data()->data(), 3, sensor_frame->GetNumRays());
         constexpr bool parallel = false;
         constexpr bool lazy_eval = false;
         constexpr bool discrete = true;
@@ -380,7 +356,7 @@ namespace erl::sdf_mapping {
     void
     GpOccSurfaceMapping3D::AddNewMeasurement() {
 
-        if (m_octree_ == nullptr) { m_octree_ = std::make_shared<SurfaceMappingOctree>(m_setting_->octree); }
+        if (m_octree_ == nullptr) { m_octree_ = std::make_shared<geometry::SurfaceMappingOctree>(m_setting_->octree); }
 
         const auto sensor_frame = m_sensor_gp_->GetRangeSensorFrame();
 
@@ -388,15 +364,10 @@ namespace erl::sdf_mapping {
         const Eigen::MatrixX<Eigen::Vector3d> &points_local = sensor_frame->GetEndPointsInFrame();
         const Eigen::MatrixX<Eigen::Vector3d> &directions_frame = sensor_frame->GetRayDirectionsInFrame();
 
-        // const double valid_range_min = m_setting_->sensor_gp->range_sensor_frame->valid_range_min;
-        // const double valid_range_max = m_setting_->sensor_gp->range_sensor_frame->valid_range_max;
-        // const double max_valid_range_var = m_setting_->sensor_gp->max_valid_range_var;
-
         const long num_hit_rays = sensor_frame->GetNumHitRays();
         Eigen::Matrix3Xd directions_local(3, num_hit_rays);
         for (long i = 0; i < num_hit_rays; ++i) {
             const auto [row, col] = hit_ray_indices[i];
-            // directions_local.col(i) = points_local(row, col).normalized();
             directions_local.col(i) = directions_frame(row, col);
         }
         Eigen::VectorXd predicted_ranges(num_hit_rays);
@@ -426,9 +397,9 @@ namespace erl::sdf_mapping {
 
             const Eigen::Vector3d &hit_point = hit_points[i];
             geometry::OctreeKey key = m_octree_->CoordToKey(hit_point.x(), hit_point.y(), hit_point.z());
-            SurfaceMappingOctreeNode *node = m_octree_->InsertNode(key);  // insert the node
-            if (node == nullptr) { continue; }                            // failed to insert the node
-            if (node->GetSurfaceData() != nullptr) { continue; }          // the node is already occupied
+            geometry::SurfaceMappingOctreeNode *node = m_octree_->InsertNode(key);  // insert the node
+            if (node == nullptr) { continue; }                                      // failed to insert the node
+            if (node->GetSurfaceData() != nullptr) { continue; }                    // the node is already occupied
 
             double var_position, var_gradient;
             const auto [row, col] = hit_ray_indices[i];

@@ -9,19 +9,19 @@ namespace erl::sdf_mapping {
 
     bool
     GpSdfMapping2D::Update(
-        const Eigen::Ref<const Eigen::VectorXd> &angles,
-        const Eigen::Ref<const Eigen::VectorXd> &distances,
-        const Eigen::Ref<const Eigen::Matrix23d> &pose) {
+        const Eigen::Ref<const Eigen::Matrix2d> &rotation,
+        const Eigen::Ref<const Eigen::Vector2d> &translation,
+        const Eigen::Ref<const Eigen::MatrixXd> &ranges) {
 
         if (m_setting_->log_timing) {
             std::lock_guard<std::mutex> lock(m_log_mutex_);
             if (m_last_position_.has_value()) {
-                const Eigen::Vector2d delta = pose.rightCols<1>() - m_last_position_.value();
+                const Eigen::Vector2d delta = translation - m_last_position_.value();
                 m_travel_distance_ += delta.norm();
             } else {
                 m_travel_distance_ = 0;
             }
-            m_last_position_ = pose.rightCols<1>();
+            m_last_position_ = translation;
             m_train_log_file_ << m_travel_distance_;
         }
 
@@ -34,7 +34,7 @@ namespace erl::sdf_mapping {
         {
             std::lock_guard<std::mutex> lock(m_mutex_);
             t0 = std::chrono::high_resolution_clock::now();
-            success = m_surface_mapping_->Update(angles, distances, pose);
+            success = m_surface_mapping_->Update(rotation, translation, ranges);
             t1 = std::chrono::high_resolution_clock::now();
             dt = std::chrono::duration<double, std::micro>(t1 - t0).count();
             if (m_setting_->log_timing) { m_train_log_file_ << "," << dt; }  // surface_mapping_time
@@ -204,7 +204,7 @@ namespace erl::sdf_mapping {
         // add affected clusters
         geometry::QuadtreeKeySet changed_clusters = m_surface_mapping_->GetChangedClusters();
         uint32_t cluster_level = m_surface_mapping_->GetClusterLevel();
-        std::shared_ptr<SurfaceMappingQuadtree> quadtree = m_surface_mapping_->GetQuadtree();
+        std::shared_ptr<geometry::SurfaceMappingQuadtree> quadtree = m_surface_mapping_->GetQuadtree();
         uint32_t cluster_depth = quadtree->GetTreeDepth() - cluster_level;
         double cluster_size = quadtree->GetNodeSize(cluster_depth);
         double area_half_size = cluster_size * m_setting_->gp_sdf_area_scale / 2;
@@ -292,7 +292,7 @@ namespace erl::sdf_mapping {
         const double cluster_size = quadtree->GetNodeSize(quadtree->GetTreeDepth() - m_surface_mapping_->GetClusterLevel());
         const double aabb_half_size = cluster_size * m_setting_->gp_sdf_area_scale / 2.;
 
-        std::vector<std::pair<double, std::shared_ptr<SurfaceMappingQuadtreeNode::SurfaceData>>> surface_data_vec;
+        std::vector<std::pair<double, std::shared_ptr<geometry::SurfaceMappingQuadtreeNode::SurfaceData>>> surface_data_vec;
         surface_data_vec.reserve(1024);
         for (uint32_t i = start_idx; i < end_idx; ++i) {
             auto &cluster_key = m_clusters_to_update_[i];

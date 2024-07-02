@@ -1,10 +1,10 @@
 #pragma once
 
-#include "abstract_surface_mapping_2d.hpp"
 #include "gp_sdf_mapping_setting.hpp"
 #include "log_sdf_gp.hpp"
 
 #include "erl_common/yaml.hpp"
+#include "erl_geometry/abstract_surface_mapping_2d.hpp"
 
 #include <memory>
 #include <queue>
@@ -29,11 +29,12 @@ namespace erl::sdf_mapping {
         };
 
         using QuadtreeKeyGpMap = std::unordered_map<geometry::QuadtreeKey, std::shared_ptr<Gp>, geometry::QuadtreeKey::KeyHash>;
+        using Setting = GpSdfMappingSetting;
 
     private:
-        std::shared_ptr<GpSdfMappingSetting> m_setting_ = std::make_shared<GpSdfMappingSetting>();
+        std::shared_ptr<Setting> m_setting_ = std::make_shared<Setting>();
         std::mutex m_mutex_;
-        std::shared_ptr<AbstractSurfaceMapping2D> m_surface_mapping_ = nullptr;                 // for getting surface points, racing condition.
+        std::shared_ptr<geometry::AbstractSurfaceMapping2D> m_surface_mapping_ = nullptr;       // for getting surface points, racing condition.
         std::vector<geometry::QuadtreeKey> m_clusters_to_update_ = {};                          // stores clusters that are to be updated by UpdateGpThread.
         QuadtreeKeyGpMap m_gp_map_ = {};                                                        // for getting GP from Quadtree key, racing condition.
         std::vector<std::vector<std::pair<double, std::shared_ptr<Gp>>>> m_query_to_gps_ = {};  // for testing, racing condition
@@ -101,10 +102,10 @@ namespace erl::sdf_mapping {
         TestBuffer m_test_buffer_ = {};
 
     public:
-        explicit GpSdfMapping2D(std::shared_ptr<AbstractSurfaceMapping2D> surface_mapping, std::shared_ptr<GpSdfMappingSetting> setting = nullptr)
+        explicit GpSdfMapping2D(std::shared_ptr<geometry::AbstractSurfaceMapping2D> surface_mapping, std::shared_ptr<Setting> setting = nullptr)
             : m_setting_(std::move(setting)),
               m_surface_mapping_(std::move(surface_mapping)) {
-            if (m_setting_ == nullptr) { m_setting_ = std::make_shared<GpSdfMappingSetting>(); }
+            if (m_setting_ == nullptr) { m_setting_ = std::make_shared<Setting>(); }
             ERL_ASSERTM(m_surface_mapping_ != nullptr, "surface_mapping is nullptr.");
 
             // get log dir from env
@@ -126,21 +127,21 @@ namespace erl::sdf_mapping {
             }
         }
 
-        [[nodiscard]] std::shared_ptr<const GpSdfMappingSetting>
+        [[nodiscard]] std::shared_ptr<const Setting>
         GetSetting() const {
             return m_setting_;
         }
 
-        [[nodiscard]] std::shared_ptr<AbstractSurfaceMapping2D>
+        [[nodiscard]] std::shared_ptr<geometry::AbstractSurfaceMapping2D>
         GetSurfaceMapping() const {
             return m_surface_mapping_;
         }
 
         bool
         Update(
-            const Eigen::Ref<const Eigen::VectorXd>& angles,
-            const Eigen::Ref<const Eigen::VectorXd>& distances,
-            const Eigen::Ref<const Eigen::Matrix23d>& pose);
+            const Eigen::Ref<const Eigen::Matrix2d>& rotation,
+            const Eigen::Ref<const Eigen::Vector2d>& translation,
+            const Eigen::Ref<const Eigen::MatrixXd>& ranges);
 
         bool
         Test(

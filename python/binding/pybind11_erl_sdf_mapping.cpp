@@ -86,7 +86,7 @@ BindGpSdf2D(const py::module &m) {
         .def_readwrite("compute_variance", &GpisMapBase2D::Setting::compute_variance)
         .def_readwrite("update_map_points", &GpisMapBase2D::Setting::update_map_points)
         .def_readwrite("update_gp_sdf", &GpisMapBase2D::Setting::update_gp_sdf)
-        .def_readwrite("gp_theta", &GpisMapBase2D::Setting::gp_theta)
+        .def_readwrite("sensor_gp", &GpisMapBase2D::Setting::gp_theta)
         .def_readwrite("gp_sdf", &GpisMapBase2D::Setting::gp_sdf)
         .def_readwrite("quadtree", &GpisMapBase2D::Setting::quadtree)
         .def_readwrite("test_query", &GpisMapBase2D::Setting::test_query);
@@ -234,50 +234,19 @@ BindLogSdfGaussianProcess(const py::module &m) {
             py::arg("mat_x_test"));
 }
 
+void
+BindGpOccSurfaceMappingBaseSetting(const py::module &m);
+
 static void
 BindGpOccSurfaceMapping2D(const py::module &m) {
     using namespace erl::common;
     using namespace erl::geometry;
     using namespace erl::sdf_mapping;
 
-    // TODO: bind SurfaceMappingQuadtreeNode
-
-    BindOccupancyQuadtree<SurfaceMappingQuadtree, SurfaceMappingQuadtreeNode>(m, "SurfaceMappingQuadtree", "SurfaceMappingQuadtreeNode");
-
-    py::class_<AbstractSurfaceMapping2D, std::shared_ptr<AbstractSurfaceMapping2D>>(m, "AbstractSurfaceMapping2D")
-        .def_property_readonly("quadtree", &AbstractSurfaceMapping2D::GetQuadtree)
-        .def_property_readonly("sensor_noise", &AbstractSurfaceMapping2D::GetSensorNoise)
-        .def("update", &AbstractSurfaceMapping2D::Update, py::arg("angles"), py::arg("distances"), py::arg("pose"));
-
     py::class_<GpOccSurfaceMapping2D, AbstractSurfaceMapping2D, std::shared_ptr<GpOccSurfaceMapping2D>> surface_mapping(m, "GpOccSurfaceMapping2D");
-    py::class_<GpOccSurfaceMapping2D::Setting, std::shared_ptr<GpOccSurfaceMapping2D::Setting>> surface_mapping_setting(surface_mapping, "Setting");
-    py::class_<GpOccSurfaceMapping2D::Setting::ComputeVariance, YamlableBase, std::shared_ptr<GpOccSurfaceMapping2D::Setting::ComputeVariance>>(
-        surface_mapping_setting,
-        "ComputeVariance")
-        .def_readwrite("zero_gradient_position_var", &GpOccSurfaceMapping2D::Setting::ComputeVariance::zero_gradient_position_var)
-        .def_readwrite("zero_gradient_gradient_var", &GpOccSurfaceMapping2D::Setting::ComputeVariance::zero_gradient_gradient_var)
-        .def_readwrite("min_distance_var", &GpOccSurfaceMapping2D::Setting::ComputeVariance::min_distance_var)
-        .def_readwrite("max_distance_var", &GpOccSurfaceMapping2D::Setting::ComputeVariance::max_distance_var)
-        .def_readwrite("position_var_alpha", &GpOccSurfaceMapping2D::Setting::ComputeVariance::position_var_alpha)
-        .def_readwrite("min_gradient_var", &GpOccSurfaceMapping2D::Setting::ComputeVariance::min_gradient_var)
-        .def_readwrite("max_gradient_var", &GpOccSurfaceMapping2D::Setting::ComputeVariance::max_gradient_var);
-    py::class_<GpOccSurfaceMapping2D::Setting::UpdateMapPoints, YamlableBase, std::shared_ptr<GpOccSurfaceMapping2D::Setting::UpdateMapPoints>>(
-        surface_mapping_setting,
-        "UpdateMapPoints")
-        .def_readwrite("min_observable_occ", &GpOccSurfaceMapping2D::Setting::UpdateMapPoints::min_observable_occ)
-        .def_readwrite("max_surface_abs_occ", &GpOccSurfaceMapping2D::Setting::UpdateMapPoints::max_surface_abs_occ)
-        .def_readwrite("max_valid_gradient_var", &GpOccSurfaceMapping2D::Setting::UpdateMapPoints::max_valid_gradient_var)
-        .def_readwrite("max_adjust_tries", &GpOccSurfaceMapping2D::Setting::UpdateMapPoints::max_adjust_tries)
-        .def_readwrite("max_bayes_position_var", &GpOccSurfaceMapping2D::Setting::UpdateMapPoints::max_bayes_position_var)
-        .def_readwrite("max_bayes_gradient_var", &GpOccSurfaceMapping2D::Setting::UpdateMapPoints::max_bayes_gradient_var);
-    surface_mapping_setting.def_readwrite("gp_theta", &GpOccSurfaceMapping2D::Setting::gp_theta)
-        .def_readwrite("compute_variance", &GpOccSurfaceMapping2D::Setting::compute_variance)
-        .def_readwrite("update_map_points", &GpOccSurfaceMapping2D::Setting::update_map_points)
-        .def_readwrite("quadtree", &GpOccSurfaceMapping2D::Setting::quadtree)
-        .def_readwrite("cluster_level", &GpOccSurfaceMapping2D::Setting::cluster_level)
-        .def_readwrite("perturb_delta", &GpOccSurfaceMapping2D::Setting::perturb_delta)
-        .def_readwrite("zero_gradient_threshold", &GpOccSurfaceMapping2D::Setting::zero_gradient_threshold)
-        .def_readwrite("update_occupancy", &GpOccSurfaceMapping2D::Setting::update_occupancy);
+    py::class_<GpOccSurfaceMapping2D::Setting, GpOccSurfaceMappingBaseSetting, std::shared_ptr<GpOccSurfaceMapping2D::Setting>>(surface_mapping, "Setting")
+        .def_readwrite("sensor_gp", &GpOccSurfaceMapping2D::Setting::sensor_gp)
+        .def_readwrite("quadtree", &GpOccSurfaceMapping2D::Setting::quadtree);
 
     surface_mapping.def(py::init<const std::shared_ptr<GpOccSurfaceMapping2D::Setting> &>(), py::arg("setting"))
         .def_property_readonly("setting", &GpOccSurfaceMapping2D::GetSetting);
@@ -313,6 +282,7 @@ BindGpSdfMappingSetting(const py::module &m) {
 static void
 BindGpSdfMapping2D(const py::module &m) {
     using namespace erl::common;
+    using namespace erl::geometry;
     using namespace erl::sdf_mapping;
 
     py::class_<GpSdfMapping2D, std::shared_ptr<GpSdfMapping2D>>(m, "GpSdfMapping2D")

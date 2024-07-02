@@ -24,7 +24,7 @@ namespace erl::sdf_mapping::gpis {
 
     GpisMapBase2D::GpisMapBase2D(const std::shared_ptr<Setting> &setting)
         : m_setting_(setting),
-          m_gp_theta_(std::make_shared<gaussian_process::LidarGaussianProcess1D>(setting->gp_theta)),
+          m_gp_theta_(std::make_shared<gaussian_process::LidarGaussianProcess2D>(setting->gp_theta)),
           m_xy_perturb_{[&]() -> Eigen::Matrix24d {
               Eigen::Matrix24d out;
               // clang-format off
@@ -35,13 +35,10 @@ namespace erl::sdf_mapping::gpis {
           }()} {}
 
     bool
-    GpisMapBase2D::Update(
-        const Eigen::Ref<const Eigen::VectorXd> &angles,
-        const Eigen::Ref<const Eigen::VectorXd> &distances,
-        const Eigen::Ref<const Eigen::Matrix23d> &pose) {
+    GpisMapBase2D::Update(const Eigen::Matrix2d &rotation, const Eigen::Vector2d &translation, Eigen::VectorXd ranges) {
 
         // regress observation
-        m_gp_theta_->Train(angles, distances, pose);
+        (void) m_gp_theta_->Train(rotation, translation, std::move(ranges), true);
         if (m_gp_theta_->IsTrained()) { return LaunchUpdate(); }
         return false;
     }
@@ -135,20 +132,23 @@ namespace erl::sdf_mapping::gpis {
         // first observation, bad observation or failed to regress the observation
         if (m_quadtree_ == nullptr || !m_gp_theta_->IsTrained()) { return; }
 
-        auto &train_buffer = m_gp_theta_->GetTrainBuffer();
+        // auto &train_buffer = m_gp_theta_->GetTrainBuffer();
+        const auto lidar_frame = m_gp_theta_->GetLidarFrame();
+        const Eigen::Vector2d translation = lidar_frame->GetTranslationVector();
+        const double max_valid_range = lidar_frame->GetMaxValidRange();
+
         std::vector<std::shared_ptr<IncrementalQuadtree>> clusters_to_update;
-        geometry::Aabb2D observed_area(train_buffer.position, train_buffer.max_distance);
+        geometry::Aabb2D observed_area(translation, max_valid_range);
         m_quadtree_->CollectNonEmptyClusters(observed_area, clusters_to_update);
         if (clusters_to_update.empty()) { return; }
 
-        double r_2 = train_buffer.max_distance * train_buffer.max_distance;
+        double r_2 = max_valid_range * max_valid_range;
         for (auto &cluster: clusters_to_update) {
             auto &area = cluster->GetArea();
-            double square_dist = (train_buffer.position - area.center).squaredNorm();
-            double l = area.half_sizes[0];
+            double square_dist = (translation - area.center).squaredNorm();
 
             // approximately out of m_range_
-            if (square_dist > (r_2 + 2 * l * l)) { continue; }
+            if (const double half_size = area.half_sizes[0]; square_dist > (r_2 + 2 * half_size * half_size)) { continue; }
 
             // auto corners = kArea.getCorners();
             double distance_old;
@@ -160,8 +160,7 @@ namespace erl::sdf_mapping::gpis {
                 double r;
                 Cartesian2Polar(m_gp_theta_->GlobalToLocalSe2(corner), r, angle[0]);
 
-                if ((angle[0] >= m_gp_theta_->GetSetting()->train_buffer->valid_angle_min) &&
-                    (angle[0] <= m_gp_theta_->GetSetting()->train_buffer->valid_angle_max)) {
+                if (lidar_frame->AngleIsInFrame(angle[0])) {
                     nodes.clear();
                     cluster->CollectNodes(nodes);
                     // cluster->CollectNodesOfType(Node::Type::SURFACE, m_nodes_);
@@ -339,23 +338,30 @@ namespace erl::sdf_mapping::gpis {
             m_quadtree_ = std::make_shared<IncrementalQuadtree>(m_setting_->quadtree, geometry::Aabb2D({0., 0.}, m_setting_->init_tree_half_size));
         }
 
-        auto &kTrainBuffer = m_gp_theta_->GetTrainBuffer();
-        auto n = kTrainBuffer.Size();
+        // auto &kTrainBuffer = m_gp_theta_->GetTrainBuffer();
+        const auto lidar_frame = m_gp_theta_->GetLidarFrame();
+        // const long n = lidar_frame->GetNumHitRays();
+        const std::vector<long> &hit_ray_indices = lidar_frame->GetHitRayIndices();
+        const Eigen::VectorXd &angles_local = lidar_frame->GetAnglesInFrame();
+        const std::vector<Eigen::Vector2d> &vec_xy_global = lidar_frame->GetEndPointsInWorld();
+        const std::vector<Eigen::Vector2d> &vec_xy_local = lidar_frame->GetEndPointsInFrame();
+        const Eigen::VectorXd &ranges = lidar_frame->GetRanges();
+
         Eigen::Scalard angle, f, var;
-        for (ssize_t i = 0; i < n; ++i) {
-            angle[0] = kTrainBuffer.vec_angles[i];
-            m_gp_theta_->Test(angle, f, var, true);
+        for (const long idx: hit_ray_indices) {
+            angle[0] = angles_local[idx];
+            if (!m_gp_theta_->Test(angle, true, f, var, true, false)) { continue; }
 
             if (var[0] > m_setting_->gp_theta->max_valid_range_var) { continue; }  // uncertain point, drop it
 
             // Insert the point to the tree
-            auto node = std::make_shared<GpisNodeContainer2D::Node>(kTrainBuffer.mat_xy_global.col(i));
+            auto node = std::make_shared<GpisNodeContainer2D::Node>(vec_xy_global[idx]);
             std::shared_ptr<IncrementalQuadtree> inserted_leaf = m_quadtree_->Insert(node, m_quadtree_);
             if (inserted_leaf == nullptr) { continue; }  // may fail if the point to Insert is too close to existing ones.
 
             double occ_mean;
             Eigen::Vector2d grad_local;
-            if (!ComputeGradient2(kTrainBuffer.mat_xy_local.col(i), grad_local, occ_mean)) {
+            if (!ComputeGradient2(vec_xy_local[idx], grad_local, occ_mean)) {
                 m_quadtree_->Remove(node);  // failed to estimate the grad_local
                 continue;
             }
@@ -366,8 +372,8 @@ namespace erl::sdf_mapping::gpis {
             Eigen::Vector2d grad_global;
             double var_position, var_gradient;
             ComputeVariance(
-                kTrainBuffer.mat_xy_local.col(i),
-                kTrainBuffer.vec_ranges[i],
+                vec_xy_local[idx],
+                ranges[idx],
                 0.,
                 std::fabs(occ_mean),
                 0.,

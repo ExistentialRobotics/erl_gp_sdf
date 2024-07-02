@@ -206,7 +206,7 @@ namespace erl::sdf_mapping {
         // add affected clusters
         const geometry::OctreeKeySet changed_clusters = m_surface_mapping_->GetChangedClusters();
         const uint32_t cluster_level = m_surface_mapping_->GetClusterLevel();
-        const std::shared_ptr<SurfaceMappingOctree> octree = m_surface_mapping_->GetOctree();
+        const std::shared_ptr<geometry::SurfaceMappingOctree> octree = m_surface_mapping_->GetOctree();
         const uint32_t cluster_depth = octree->GetTreeDepth() - cluster_level;
         const double cluster_size = octree->GetNodeSize(cluster_depth);
         const double area_half_size = cluster_size * m_setting_->gp_sdf_area_scale / 2;
@@ -301,7 +301,7 @@ namespace erl::sdf_mapping {
         const double cluster_size = octree->GetNodeSize(octree->GetTreeDepth() - m_surface_mapping_->GetClusterLevel());
         const double aabb_half_size = cluster_size * m_setting_->gp_sdf_area_scale / 2.;
 
-        std::vector<std::pair<double, std::shared_ptr<SurfaceMappingOctreeNode::SurfaceData>>> surface_data_vec;
+        std::vector<std::pair<double, std::shared_ptr<geometry::SurfaceMappingOctreeNode::SurfaceData>>> surface_data_vec;
         surface_data_vec.reserve(1024);
         for (uint32_t i = start_idx; i < end_idx; ++i) {
             auto &cluster_key = m_clusters_to_update_[i];

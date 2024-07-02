@@ -1,34 +1,36 @@
 #pragma once
 
-#include "abstract_surface_mapping_2d.hpp"
 #include "gp_occ_surface_mapping_base_setting.hpp"
-#include "surface_mapping_quadtree.hpp"
 
 #include "erl_common/yaml.hpp"
-#include "erl_gaussian_process/lidar_gp_1d.hpp"
+#include "erl_gaussian_process/lidar_gp_2d.hpp"
+#include "erl_geometry/abstract_surface_mapping_2d.hpp"
+#include "erl_geometry/surface_mapping_quadtree.hpp"
 
 #include <memory>
 
 namespace erl::sdf_mapping {
 
-    class GpOccSurfaceMapping2D : public AbstractSurfaceMapping2D {
+    class GpOccSurfaceMapping2D : public geometry::AbstractSurfaceMapping2D {
     public:
+        using SensorGp = gaussian_process::LidarGaussianProcess2D;
+
         struct Setting : common::OverrideYamlable<GpOccSurfaceMappingBaseSetting, Setting> {
-            std::shared_ptr<gaussian_process::LidarGaussianProcess1D::Setting> gp_theta = std::make_shared<gaussian_process::LidarGaussianProcess1D::Setting>();
-            std::shared_ptr<SurfaceMappingQuadtree::Setting> quadtree = std::make_shared<SurfaceMappingQuadtree::Setting>();  // parameters used by quadtree.
+            std::shared_ptr<SensorGp::Setting> sensor_gp = std::make_shared<SensorGp::Setting>();
+            std::shared_ptr<geometry::SurfaceMappingQuadtree::Setting> quadtree = std::make_shared<geometry::SurfaceMappingQuadtree::Setting>();
         };
 
     private:
         std::shared_ptr<Setting> m_setting_ = std::make_shared<Setting>();
-        std::shared_ptr<gaussian_process::LidarGaussianProcess1D> m_gp_theta_ = nullptr;  // the GP of regression between angle and mapped distance
-        std::shared_ptr<SurfaceMappingQuadtree> m_quadtree_ = nullptr;
+        std::shared_ptr<gaussian_process::LidarGaussianProcess2D> m_sensor_gp_ = nullptr;  // the GP of regression between angle and mapped distance
+        std::shared_ptr<geometry::SurfaceMappingQuadtree> m_quadtree_ = nullptr;
         Eigen::Matrix24d m_xy_perturb_ = {};
         geometry::QuadtreeKeySet m_changed_keys_ = {};
 
     public:
         explicit GpOccSurfaceMapping2D(const std::shared_ptr<Setting> &setting)
             : m_setting_(setting),
-              m_gp_theta_(std::make_shared<gaussian_process::LidarGaussianProcess1D>(m_setting_->gp_theta)) {}
+              m_sensor_gp_(std::make_shared<gaussian_process::LidarGaussianProcess2D>(m_setting_->sensor_gp)) {}
 
         [[nodiscard]] std::shared_ptr<const Setting>
         GetSetting() const {
@@ -45,30 +47,27 @@ namespace erl::sdf_mapping {
             return m_setting_->cluster_level;
         }
 
-        std::shared_ptr<SurfaceMappingQuadtree>
+        std::shared_ptr<geometry::SurfaceMappingQuadtree>
         GetQuadtree() override {
             return m_quadtree_;
         }
 
         [[nodiscard]] double
         GetSensorNoise() const override {
-            return m_setting_->gp_theta->sensor_range_var;
+            return m_setting_->sensor_gp->sensor_range_var;
         }
 
         bool
         Update(
-            const Eigen::Ref<const Eigen::VectorXd> &angles,
-            const Eigen::Ref<const Eigen::VectorXd> &distances,
-            const Eigen::Ref<const Eigen::Matrix23d> &pose) override;
+            const Eigen::Ref<const Eigen::Matrix2d> &rotation,
+            const Eigen::Ref<const Eigen::Vector2d> &translation,
+            const Eigen::Ref<const Eigen::MatrixXd> &ranges) override;
 
         void
         UpdateMapPoints();
 
         void
-        UpdateOccupancy(
-            const Eigen::Ref<const Eigen::VectorXd> &angles,
-            const Eigen::Ref<const Eigen::VectorXd> &distances,
-            const Eigen::Ref<const Eigen::Matrix23d> &pose);
+        UpdateOccupancy();
 
         void
         AddNewMeasurement();
@@ -107,7 +106,7 @@ struct YAML::convert<erl::sdf_mapping::GpOccSurfaceMapping2D::Setting> {
     static Node
     encode(const erl::sdf_mapping::GpOccSurfaceMapping2D::Setting &setting) {
         Node node = convert<erl::sdf_mapping::GpOccSurfaceMappingBaseSetting>::encode(setting);
-        node["gp_theta"] = setting.gp_theta;
+        node["sensor_gp"] = setting.sensor_gp;
         node["quadtree"] = setting.quadtree;
         return node;
     }
@@ -115,7 +114,7 @@ struct YAML::convert<erl::sdf_mapping::GpOccSurfaceMapping2D::Setting> {
     static bool
     decode(const Node &node, erl::sdf_mapping::GpOccSurfaceMapping2D::Setting &setting) {
         if (!convert<erl::sdf_mapping::GpOccSurfaceMappingBaseSetting>::decode(node, setting)) { return false; }
-        setting.gp_theta = node["gp_theta"].as<decltype(setting.gp_theta)>();
+        setting.sensor_gp = node["sensor_gp"].as<decltype(setting.sensor_gp)>();
         setting.quadtree = node["quadtree"].as<decltype(setting.quadtree)>();
         return true;
     }

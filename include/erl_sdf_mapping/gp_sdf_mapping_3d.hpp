@@ -1,10 +1,10 @@
 #pragma once
 
-#include "abstract_surface_mapping_3d.hpp"
 #include "gp_sdf_mapping_setting.hpp"
 #include "log_sdf_gp.hpp"
 
 #include "erl_common/yaml.hpp"
+#include "erl_geometry/abstract_surface_mapping_3d.hpp"
 
 #include <memory>
 #include <queue>
@@ -29,11 +29,12 @@ namespace erl::sdf_mapping {
         };
 
         using OctreeKeyGpMap = std::unordered_map<geometry::OctreeKey, std::shared_ptr<Gp>, geometry::OctreeKey::KeyHash>;
+        using Setting = GpSdfMappingSetting;
 
     private:
-        std::shared_ptr<GpSdfMappingSetting> m_setting_ = std::make_shared<GpSdfMappingSetting>();
+        std::shared_ptr<Setting> m_setting_ = std::make_shared<Setting>();
         std::mutex m_mutex_;
-        std::shared_ptr<AbstractSurfaceMapping3D> m_surface_mapping_ = nullptr;                 // for getting surface points, racing condition.
+        std::shared_ptr<geometry::AbstractSurfaceMapping3D> m_surface_mapping_ = nullptr;       // for getting surface points, racing condition.
         std::vector<geometry::OctreeKey> m_clusters_to_update_ = {};                            // stores clusters that are to be updated by UpdateGpThread.
         OctreeKeyGpMap m_gp_map_ = {};                                                          // for getting GP from Octree key, racing condition.
         std::vector<std::vector<std::pair<double, std::shared_ptr<Gp>>>> m_query_to_gps_ = {};  // for testing, racing condition
@@ -103,10 +104,10 @@ namespace erl::sdf_mapping {
         TestBuffer m_test_buffer_ = {};
 
     public:
-        explicit GpSdfMapping3D(std::shared_ptr<AbstractSurfaceMapping3D> surface_mapping, std::shared_ptr<GpSdfMappingSetting> setting = nullptr)
+        explicit GpSdfMapping3D(std::shared_ptr<geometry::AbstractSurfaceMapping3D> surface_mapping, std::shared_ptr<Setting> setting = nullptr)
             : m_setting_(std::move(setting)),
               m_surface_mapping_(std::move(surface_mapping)) {
-            if (m_setting_ == nullptr) { m_setting_ = std::make_shared<GpSdfMappingSetting>(); }
+            if (m_setting_ == nullptr) { m_setting_ = std::make_shared<Setting>(); }
             ERL_ASSERTM(m_surface_mapping_ != nullptr, "surface_mapping is nullptr.");
 
             // get log dir from env
@@ -128,12 +129,12 @@ namespace erl::sdf_mapping {
             }
         }
 
-        [[nodiscard]] std::shared_ptr<const GpSdfMappingSetting>
+        [[nodiscard]] std::shared_ptr<const Setting>
         GetSetting() const {
             return m_setting_;
         }
 
-        [[nodiscard]] std::shared_ptr<AbstractSurfaceMapping3D>
+        [[nodiscard]] std::shared_ptr<geometry::AbstractSurfaceMapping3D>
         GetSurfaceMapping() const {
             return m_surface_mapping_;
         }

@@ -12,28 +12,32 @@
 #define STRIDE             1
 #define ANIMATION_INTERVAL 2
 
-TEST(GpOccSurfaceMapping3D, Build) {
+TEST(GpOccSurfaceMapping3D, LiDAR) {
     GTEST_PREPARE_OUTPUT_DIR();
 
     const auto gp_setting = std::make_shared<erl::sdf_mapping::GpOccSurfaceMapping3D::Setting>();
-    const auto lidar_frame_setting = std::make_shared<erl::geometry::LidarFrame3D::Setting>();
-    lidar_frame_setting->valid_range_min = 0.2;
-    lidar_frame_setting->valid_range_max = 30.0;
-    lidar_frame_setting->azimuth_min = -M_PI * 3 / 4;
-    lidar_frame_setting->azimuth_max = M_PI * 3 / 4;
-    lidar_frame_setting->num_azimuth_lines = 271;
-    lidar_frame_setting->elevation_min = -M_PI / 2;
-    lidar_frame_setting->elevation_max = M_PI / 2;
-    lidar_frame_setting->num_elevation_lines = 91;
-    gp_setting->sensor_gp->range_sensor_frame_type = "lidar";
-    gp_setting->sensor_gp->range_sensor_frame = lidar_frame_setting;
-    gp_setting->sensor_gp->row_group_size = 10;
-    gp_setting->sensor_gp->row_overlap_size = 3;
-    gp_setting->sensor_gp->row_margin = 0;
-    gp_setting->sensor_gp->col_group_size = 10;
-    gp_setting->sensor_gp->col_overlap_size = 3;
-    gp_setting->sensor_gp->col_margin = 0;
-    gp_setting->update_occupancy = false;
+    // const auto lidar_frame_setting = std::make_shared<erl::geometry::LidarFrame3D::Setting>();
+    // lidar_frame_setting->valid_range_min = 0.2;
+    // lidar_frame_setting->valid_range_max = 30.0;
+    // lidar_frame_setting->azimuth_min = -M_PI * 3 / 4;
+    // lidar_frame_setting->azimuth_max = M_PI * 3 / 4;
+    // lidar_frame_setting->num_azimuth_lines = 271;
+    // lidar_frame_setting->elevation_min = -M_PI / 2;
+    // lidar_frame_setting->elevation_max = M_PI / 2;
+    // lidar_frame_setting->num_elevation_lines = 91;
+    // gp_setting->sensor_gp->range_sensor_frame_type = "lidar";
+    // gp_setting->sensor_gp->range_sensor_frame = lidar_frame_setting;
+    // gp_setting->sensor_gp->row_group_size = 10;
+    // gp_setting->sensor_gp->row_overlap_size = 3;
+    // gp_setting->sensor_gp->row_margin = 0;
+    // gp_setting->sensor_gp->col_group_size = 10;
+    // gp_setting->sensor_gp->col_overlap_size = 3;
+    // gp_setting->sensor_gp->col_margin = 0;
+    // gp_setting->update_occupancy = true;
+    gp_setting->FromYamlFile(gtest_src_dir / "../../config/surface_mapping_3d_lidar.yaml");
+    ASSERT_EQ(gp_setting->sensor_gp->range_sensor_frame_type, "lidar");
+    const auto lidar_frame_setting = std::dynamic_pointer_cast<erl::geometry::LidarFrame3D::Setting>(gp_setting->sensor_gp->range_sensor_frame);
+    std::cout << *gp_setting << std::endl;
     erl::sdf_mapping::GpOccSurfaceMapping3D gp(gp_setting);
 
     const Eigen::MatrixXd traj_matrix = erl::common::LoadEigenMatrixFromTextFile<double>(gtest_src_dir / "replica-hotel-0-traj.txt").transpose();

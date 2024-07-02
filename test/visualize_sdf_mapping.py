@@ -51,7 +51,7 @@ def run_sdf_mapping(filename):
     config_dir = os.path.join(os.path.dirname(os.path.dirname(__file__)), "config")
 
     surf_mapping_setting = GpOccSurfaceMapping2D.Setting()
-    surf_mapping_setting.from_yaml_file(os.path.join(config_dir, "surface_mapping.yaml"))
+    surf_mapping_setting.from_yaml_file(os.path.join(config_dir, "surface_mapping_2d.yaml"))
     surface_mapping = GpOccSurfaceMapping2D(surf_mapping_setting)
 
     sdf_mapping_setting = GpSdfMapping2D.Setting()

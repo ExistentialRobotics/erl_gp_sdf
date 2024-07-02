@@ -6,7 +6,7 @@
 
 #include "erl_common/eigen.hpp"
 #include "erl_common/yaml.hpp"
-#include "erl_gaussian_process/lidar_gp_1d.hpp"
+#include "erl_gaussian_process/lidar_gp_2d.hpp"
 #include "erl_gaussian_process/noisy_input_gp.hpp"
 #include "erl_geometry/ray_marching.hpp"
 
@@ -60,7 +60,7 @@ namespace erl::sdf_mapping::gpis {
             std::shared_ptr<ComputeVariance> compute_variance = std::make_shared<ComputeVariance>();   // parameters used by GpisMap2D::compute_variance.
             std::shared_ptr<UpdateMapPoints> update_map_points = std::make_shared<UpdateMapPoints>();  // parameters used by GpisMap2D::update_map_points.
             std::shared_ptr<UpdateGpSdf> update_gp_sdf = std::make_shared<UpdateGpSdf>();              // parameters used by GpisMap2D::update_gp_sdf.
-            std::shared_ptr<gaussian_process::LidarGaussianProcess1D::Setting> gp_theta = std::make_shared<gaussian_process::LidarGaussianProcess1D::Setting>();
+            std::shared_ptr<gaussian_process::LidarGaussianProcess2D::Setting> gp_theta = std::make_shared<gaussian_process::LidarGaussianProcess2D::Setting>();
             std::shared_ptr<gaussian_process::NoisyInputGaussianProcess::Setting> gp_sdf =
                 std::make_shared<gaussian_process::NoisyInputGaussianProcess::Setting>();
             std::shared_ptr<IncrementalQuadtree::Setting> quadtree = std::make_shared<IncrementalQuadtree::Setting>();
@@ -70,7 +70,7 @@ namespace erl::sdf_mapping::gpis {
     protected:
         std::shared_ptr<Setting> m_setting_;
         TestBuffer m_test_buffer_;                                              // buffer for test data processing.
-        std::shared_ptr<gaussian_process::LidarGaussianProcess1D> m_gp_theta_;  // the GP of regression between angle and mapped distance
+        std::shared_ptr<gaussian_process::LidarGaussianProcess2D> m_gp_theta_;  // the GP of regression between angle and mapped distance
 
         // structure for storing, updating the map
         std::shared_ptr<IncrementalQuadtree> m_quadtree_ = nullptr;
@@ -87,7 +87,7 @@ namespace erl::sdf_mapping::gpis {
 
         virtual ~GpisMapBase2D() = default;
 
-        [[nodiscard]] std::shared_ptr<gaussian_process::LidarGaussianProcess1D>
+        [[nodiscard]] std::shared_ptr<gaussian_process::LidarGaussianProcess2D>
         GetGpTheta() const {
             return m_gp_theta_;
         }
@@ -98,10 +98,7 @@ namespace erl::sdf_mapping::gpis {
         }
 
         bool
-        Update(
-            const Eigen::Ref<const Eigen::VectorXd> &angles,
-            const Eigen::Ref<const Eigen::VectorXd> &distances,
-            const Eigen::Ref<const Eigen::Matrix23d> &pose);
+        Update(const Eigen::Matrix2d &rotation, const Eigen::Vector2d &translation, Eigen::VectorXd ranges);
 
         virtual bool
         Test(
@@ -340,7 +337,7 @@ struct YAML::convert<erl::sdf_mapping::gpis::GpisMapBase2D::Setting> {
         *setting.compute_variance = node["compute_variance"].as<GpisMapBase2D::Setting::ComputeVariance>();
         *setting.update_map_points = node["update_map_points"].as<GpisMapBase2D::Setting::UpdateMapPoints>();
         *setting.update_gp_sdf = node["update_gp_sdf"].as<GpisMapBase2D::Setting::UpdateGpSdf>();
-        *setting.gp_theta = node["gp_theta"].as<erl::gaussian_process::LidarGaussianProcess1D::Setting>();
+        *setting.gp_theta = node["gp_theta"].as<erl::gaussian_process::LidarGaussianProcess2D::Setting>();
         *setting.gp_sdf = node["gp_sdf"].as<erl::gaussian_process::NoisyInputGaussianProcess::Setting>();
         *setting.quadtree = node["quadtree"].as<IncrementalQuadtree::Setting>();
         *setting.test_query = node["test_query"].as<GpisMapBase2D::Setting::TestQuery>();
