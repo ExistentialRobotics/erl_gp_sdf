@@ -180,7 +180,7 @@ namespace erl::sdf_mapping::gpis {
             const Eigen::Ref<const Eigen::MatrixXd> &mat_x_train,
             const Eigen::Ref<const Eigen::VectorXd> &vec_y_train,
             const Eigen::Ref<const Eigen::MatrixXd> &mat_grad_train,
-            const Eigen::Ref<const Eigen::VectorXb> &vec_grad_flag,
+            const Eigen::Ref<const Eigen::VectorXl> &vec_grad_flag,
             const Eigen::Ref<const Eigen::VectorXd> &vec_sigma_x,
             const Eigen::Ref<const Eigen::VectorXd> &vec_sigma_y,
             const Eigen::Ref<const Eigen::VectorXd> &vec_sigma_grad) = 0;

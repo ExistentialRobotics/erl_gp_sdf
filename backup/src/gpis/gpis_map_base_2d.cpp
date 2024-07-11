@@ -439,7 +439,7 @@ namespace erl::sdf_mapping::gpis {
 
         long num_nodes;
         std::vector<std::shared_ptr<GpisNode2D>> nodes;
-        Eigen::VectorXb grad_flag;
+        Eigen::VectorXl grad_flag;
 
         for (int i = start_idx; i < end_idx; ++i) {
             if (m_clusters_to_update_[i] == nullptr) {
