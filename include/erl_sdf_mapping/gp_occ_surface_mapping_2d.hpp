@@ -63,6 +63,7 @@ namespace erl::sdf_mapping {
             const Eigen::Ref<const Eigen::Vector2d> &translation,
             const Eigen::Ref<const Eigen::MatrixXd> &ranges) override;
 
+    protected:
         void
         UpdateMapPoints();
 
@@ -72,7 +73,6 @@ namespace erl::sdf_mapping {
         void
         AddNewMeasurement();
 
-    protected:
         void
         RecordChangedKey(const geometry::QuadtreeKey &key) {
             ERL_DEBUG_ASSERT(m_quadtree_ != nullptr, "Quadtree is not initialized.");

@@ -51,11 +51,6 @@ namespace erl::sdf_mapping {
             return m_octree_;
         }
 
-        std::shared_ptr<gaussian_process::RangeSensorGaussianProcess3D>
-        GetSensorGp() {
-            return m_sensor_gp_;
-        }
-
         [[nodiscard]] double
         GetSensorNoise() const override {
             return m_setting_->sensor_gp->sensor_range_var;
@@ -67,6 +62,7 @@ namespace erl::sdf_mapping {
             const Eigen::Ref<const Eigen::Vector3d> &translation,
             const Eigen::Ref<const Eigen::MatrixXd> &ranges) override;
 
+    protected:
         void
         UpdateMapPoints();
 
@@ -76,7 +72,6 @@ namespace erl::sdf_mapping {
         void
         AddNewMeasurement();
 
-    protected:
         void
         RecordChangedKey(const geometry::OctreeKey &key) {
             ERL_DEBUG_ASSERT(m_octree_ != nullptr, "octree is nullptr.");

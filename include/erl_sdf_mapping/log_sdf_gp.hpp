@@ -22,9 +22,6 @@ namespace erl::sdf_mapping {
         Eigen::VectorXd m_vec_log_alpha_ = {};
 
     public:
-        LogSdfGaussianProcess()
-            : LogSdfGaussianProcess(std::make_shared<Setting>()) {}
-
         explicit LogSdfGaussianProcess(std::shared_ptr<Setting> setting)
             : NoisyInputGaussianProcess(setting),
               m_setting_(std::move(setting)) {

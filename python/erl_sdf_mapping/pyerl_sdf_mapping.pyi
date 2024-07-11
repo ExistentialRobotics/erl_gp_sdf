@@ -10,7 +10,6 @@ from erl_geometry import QuadtreeKey
 from erl_geometry import QuadtreeKeyRay
 from erl_geometry import OccupancyQuadtreeNode
 from erl_geometry import Aabb2D
-from . import gpis
 
 __all__ = [
     "LogSdfGaussianProcess",
@@ -56,6 +55,7 @@ class SurfaceMappingQuadtree:
         use_change_detection: bool
         use_aabb_limit: bool
         aabb: Aabb2D
+
     @overload
     def __init__(self, resolution: float) -> None: ...
     @overload
@@ -310,6 +310,7 @@ class GpOccSurfaceMapping2D(AbstractSurfaceMapping2D):
             max_adjust_tries: int
             max_bayes_position_var: float
             max_bayes_gradient_var: float
+
         gp_theta: LogSdfGaussianProcess.Setting
         compute_variance: ComputeVariance
         update_map_points: UpdateMapPoints
@@ -318,6 +319,7 @@ class GpOccSurfaceMapping2D(AbstractSurfaceMapping2D):
         perturb_delta: float
         zero_gradient_threshold: float
         update_occupancy: bool
+
     @overload
     def __init__(self): ...
     @overload
@@ -334,6 +336,7 @@ class GpSdfMapping2D:
             compute_covariance: bool
             recompute_variance: bool
             softmax_temperature: float
+
         num_threads: int
         update_hz: float
         gp_sdf_area_scale: float
@@ -343,6 +346,7 @@ class GpSdfMapping2D:
         train_gp_immediately: bool
         gp_sdf: GpSdfMapping2D.Setting
         test_query: TestQuery
+
     def __init__(self, surface_mapping: AbstractSurfaceMapping2D, setting: Setting): ...
     @property
     def setting(self) -> Setting: ...
@@ -354,9 +358,7 @@ class GpSdfMapping2D:
         distances: npt.NDArray[np.float64],
         pose: npt.NDArray[np.float64],
     ) -> bool: ...
-    def test(
-        self: GpSdfMapping2D, xy: npt.NDArray[np.float64]
-    ) -> Tuple[
+    def test(self: GpSdfMapping2D, xy: npt.NDArray[np.float64]) -> Tuple[
         Optional[npt.NDArray[np.float64]],  # sdf
         Optional[npt.NDArray[np.float64]],  # sdf gradient
         Optional[npt.NDArray[np.float64]],  # variance
