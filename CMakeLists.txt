@@ -11,7 +11,7 @@ if (NOT COMMAND erl_project_setup)
 endif ()
 erl_project_setup(
         ${PROJECT_NAME}
-        ERL_PACKAGES erl_common erl_gaussian_process erl_geometry
+        ERL_PACKAGES erl_common erl_gaussian_process
         CATKIN_COMPONENTS roscpp std_msgs sensor_msgs tf2_ros tf2_eigen cv_bridge message_generation
         CATKIN_DEPENDS roscpp std_msgs sensor_msgs tf2_ros tf2_eigen cv_bridge message_runtime
 )
