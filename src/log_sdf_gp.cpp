@@ -20,34 +20,33 @@ namespace erl::sdf_mapping {
 
         // Compute kernel matrix
         const auto [ktrain_rows, ktrain_cols] = NoisyInputGaussianProcess::m_kernel_->ComputeKtrainWithGradient(  // gpis
-            m_mat_k_train_,                                                                                       // buffer of mat_ktrain
-            m_mat_x_train_.topLeftCorner(m_x_dim_, m_num_train_samples_),                                         // mat_x_train
-            m_vec_grad_flag_.head(m_num_train_samples_),                                                          // vec_grad_flag
-            m_vec_var_x_.head(m_num_train_samples_),                                                              // vec_var_x
-            m_vec_var_h_.head(m_num_train_samples_),                                                              // vec_var_h
-            m_vec_var_grad_.head(m_num_train_samples_));                                                          // vec_var_grad
-        const auto mat_ktrain = m_mat_k_train_.topLeftCorner(ktrain_rows, ktrain_cols);                           // square matrix
-        const auto [log_ktrain_rows, log_ktrain_cols] = m_kernel_->ComputeKtrain(                                 // log-gpis
-            m_mat_log_k_train_,                                                                                   // buffer of mat_log_ktrain
-            m_mat_x_train_.topLeftCorner(m_x_dim_, m_num_train_samples_),                                         // mat_x_train
-            m_vec_var_h_.head(m_num_train_samples_));                                                             // vec_var_h
-        const auto mat_log_ktrain = m_mat_log_k_train_.topLeftCorner(log_ktrain_rows, log_ktrain_cols);           // square matrix
+            m_mat_x_train_,
+            m_num_train_samples_,
+            m_vec_grad_flag_,
+            m_vec_var_x_,
+            m_vec_var_h_,
+            m_vec_var_grad_,
+            m_mat_k_train_);
+        const auto [log_ktrain_rows, log_ktrain_cols] = m_kernel_->ComputeKtrain(  // log-gpis
+            m_mat_x_train_,
+            m_vec_var_h_,
+            m_num_train_samples_,
+            m_mat_log_k_train_);
 
         // Compute log-sdf mapping
         const auto vec_alpha = m_vec_alpha_.head(ktrain_rows);        // h and gradient of h
         auto vec_log_alpha = m_vec_log_alpha_.head(log_ktrain_rows);  // log mapping of h
-        // vec_log_alpha[i] = std::exp(-m_setting_->log_lambda * vec_alpha[i]), but vec_alpha[i] may be nonzero
         for (long i = 0; i < m_num_train_samples_; ++i) { vec_log_alpha[i] = 1.0; }
 
         // Compute cholesky decomposition and alpha
-        auto &&mat_l = m_mat_l_.topLeftCorner(ktrain_rows, ktrain_cols);                   // square matrix, lower triangular
-        mat_l = mat_ktrain.llt().matrixL();                                                // gpis, Ktrain = L * L^T
-        mat_l.triangularView<Eigen::Lower>().solveInPlace(vec_alpha);                      // Ktrain^-1 = L^-T * L^-1
-        mat_l.transpose().triangularView<Eigen::Upper>().solveInPlace(vec_alpha);          // alpha = Ktrain^-1 * [h, dh/dx_1, ..., dh/dx_dim]
-        auto &&mat_log_l = m_mat_log_l_.topLeftCorner(log_ktrain_rows, log_ktrain_cols);   // square matrix, lower triangular
-        mat_log_l = mat_log_ktrain.llt().matrixL();                                        // log-gpis, logKtrain = logL * logL^T
-        mat_log_l.triangularView<Eigen::Lower>().solveInPlace(vec_log_alpha);              // logKtrain^-1 = logL^-T * logL^-1
-        mat_log_l.transpose().triangularView<Eigen::Upper>().solveInPlace(vec_log_alpha);  // log_alpha = logKtrain^-1 * log(-lambda * h)
+        auto &&mat_l = m_mat_l_.topLeftCorner(ktrain_rows, ktrain_cols);                                 // square matrix, lower triangular
+        mat_l = m_mat_k_train_.topLeftCorner(ktrain_rows, ktrain_cols).llt().matrixL();                  // gpis, Ktrain = L * L^T
+        mat_l.triangularView<Eigen::Lower>().solveInPlace(vec_alpha);                                    // Ktrain^-1 = L^-T * L^-1
+        mat_l.transpose().triangularView<Eigen::Upper>().solveInPlace(vec_alpha);                        // alpha = Ktrain^-1 * [h, dh/dx_1, ..., dh/dx_dim]
+        auto &&mat_log_l = m_mat_log_l_.topLeftCorner(log_ktrain_rows, log_ktrain_cols);                 // square matrix, lower triangular
+        mat_log_l = m_mat_log_k_train_.topLeftCorner(log_ktrain_rows, log_ktrain_cols).llt().matrixL();  // log-gpis, logKtrain = logL * logL^T
+        mat_log_l.triangularView<Eigen::Lower>().solveInPlace(vec_log_alpha);                            // logKtrain^-1 = logL^-T * logL^-1
+        mat_log_l.transpose().triangularView<Eigen::Upper>().solveInPlace(vec_log_alpha);                // log_alpha = logKtrain^-1 * log(-lambda * h)
 
         m_trained_ = true;
     }
@@ -74,10 +73,14 @@ namespace erl::sdf_mapping {
         double f_threshold = std::exp(-m_setting_->log_lambda * std::abs(m_setting_->edf_threshold));
 
         const auto [ktest_min_rows, ktest_min_cols] = covariance::Covariance::GetMinimumKtestSize(m_num_train_samples_, m_num_train_samples_with_grad_, dim, n);
-        Eigen::MatrixXd ktest(ktest_min_rows, ktest_min_cols);  // (dim of train samples, dim of test queries)
-        auto mat_x_train = m_mat_x_train_.topLeftCorner(m_x_dim_, m_num_train_samples_);
-        auto vec_grad_flag1 = m_vec_grad_flag_.head(m_num_train_samples_);
-        const auto [ktest_rows, ktest_cols] = NoisyInputGaussianProcess::m_kernel_->ComputeKtestWithGradient(ktest, mat_x_train, vec_grad_flag1, mat_x_test);
+        Eigen::MatrixXd ktest(ktest_min_rows, ktest_min_cols);                                                 // (dim of train samples, dim of test queries)
+        const auto [ktest_rows, ktest_cols] = NoisyInputGaussianProcess::m_kernel_->ComputeKtestWithGradient(  //
+            m_mat_x_train_,
+            m_num_train_samples_,
+            m_vec_grad_flag_,
+            mat_x_test,
+            n,
+            ktest);
         ERL_DEBUG_ASSERT(
             (ktest_rows == ktest_min_rows) && (ktest_cols == ktest_min_cols),
             "output_size = ({}, {}), it should be ({}, {}).",
@@ -88,8 +91,14 @@ namespace erl::sdf_mapping {
 
         const auto [log_ktest_min_rows, log_ktest_min_cols] = covariance::Covariance::GetMinimumKtestSize(m_num_train_samples_, 0, dim, n);
         Eigen::MatrixXd log_ktest(log_ktest_min_rows, log_ktest_min_cols);  // (dim of train samples, dim of test queries)
-        Eigen::VectorXb vec_grad_flag2 = Eigen::VectorXb::Constant(m_num_train_samples_, false);
-        const auto [log_ktest_rows, log_ktest_cols] = m_kernel_->ComputeKtestWithGradient(log_ktest, mat_x_train, vec_grad_flag2, mat_x_test);
+        Eigen::VectorXl vec_grad_flag2 = Eigen::VectorXl::Constant(m_num_train_samples_, false);
+        const auto [log_ktest_rows, log_ktest_cols] = m_kernel_->ComputeKtestWithGradient(  //
+            m_mat_x_train_,
+            m_num_train_samples_,
+            vec_grad_flag2,
+            mat_x_test,
+            n,
+            log_ktest);
         ERL_DEBUG_ASSERT(
             (log_ktest_rows == log_ktest_min_rows) && (log_ktest_cols == log_ktest_min_cols),
             "output_size = ({}, {}), it should be ({}, {}).",

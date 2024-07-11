@@ -22,8 +22,7 @@ sensor_gp:
             alpha: 1
             scale: 0.5
             scale_mix: 1
-            weights:
-              [ ]
+            weights: [ ]
         auto_normalize: false
     mapping:
         type: kInverseSqrt

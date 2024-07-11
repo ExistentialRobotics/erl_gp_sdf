@@ -16,7 +16,7 @@ update_map_points:
     min_position_var: 0.001
     min_gradient_var: 0.001
 cluster_level: 2
-perturb_delta: 0.01
+perturb_delta: 0.05
 zero_gradient_threshold: 1.0000000000000001e-15
 update_occupancy: true
 sensor_gp:
@@ -50,7 +50,7 @@ sensor_gp:
             alpha: 1
             scale: 0.5
             scale_mix: 1
-            weights: []
+            weights: [ ]
         auto_normalize: false
     mapping:
         type: kInverseSqrt
@@ -66,5 +66,5 @@ octree:
     use_change_detection: false
     use_aabb_limit: false
     aabb:
-        center: [0, 0, 0]
-        half_sizes: [0, 0, 0]
+        center: [ 0, 0, 0 ]
+        half_sizes: [ 0, 0, 0 ]

@@ -5,6 +5,7 @@
 
 #include "erl_common/yaml.hpp"
 #include "erl_geometry/abstract_surface_mapping_2d.hpp"
+#include "erl_geometry/kdtree_eigen_adaptor.hpp"
 
 #include <memory>
 #include <queue>
@@ -30,13 +31,18 @@ namespace erl::sdf_mapping {
 
         using QuadtreeKeyGpMap = std::unordered_map<geometry::QuadtreeKey, std::shared_ptr<Gp>, geometry::QuadtreeKey::KeyHash>;
         using Setting = GpSdfMappingSetting;
+        using SurfaceData = geometry::SurfaceMappingQuadtreeNode::SurfaceData;
 
     private:
         std::shared_ptr<Setting> m_setting_ = std::make_shared<Setting>();
         std::mutex m_mutex_;
         std::shared_ptr<geometry::AbstractSurfaceMapping2D> m_surface_mapping_ = nullptr;       // for getting surface points, racing condition.
         std::vector<geometry::QuadtreeKey> m_clusters_to_update_ = {};                          // stores clusters that are to be updated by UpdateGpThread.
+        std::vector<std::shared_ptr<SurfaceData>> m_candidate_surface_points_ = {};             // for updating GPs
+        std::shared_ptr<geometry::KdTree2d> m_kd_tree_candidate_surface_points_ = nullptr;      // for searching candidate surface points
         QuadtreeKeyGpMap m_gp_map_ = {};                                                        // for getting GP from Quadtree key, racing condition.
+        std::vector<std::pair<geometry::Aabb2D, std::shared_ptr<Gp>>> m_candidate_gps_ = {};    // for testing
+        std::shared_ptr<geometry::KdTree2d> m_kd_tree_candidate_gps_ = nullptr;                 // for searching candidate GPs
         std::vector<std::vector<std::pair<double, std::shared_ptr<Gp>>>> m_query_to_gps_ = {};  // for testing, racing condition
         std::vector<std::array<std::shared_ptr<Gp>, 2>> m_query_used_gps_ = {};                 // for testing, racing condition
         std::list<std::shared_ptr<Gp>> m_new_gps_ = {};                                         // caching new GPs to be moved into m_gps_to_train_
@@ -156,6 +162,11 @@ namespace erl::sdf_mapping {
             return m_query_used_gps_;
         }
 
+        const QuadtreeKeyGpMap&
+        GetGpMap() const {
+            return m_gp_map_;
+        }
+
     private:
         void
         UpdateGps(double time_budget);
@@ -166,6 +177,8 @@ namespace erl::sdf_mapping {
         void
         TrainGps();
 
+        void
+        SearchCandidateGps(const Eigen::Ref<const Eigen::Matrix2Xd>& positions_in);
         void
         TrainGpThread(uint32_t thread_idx, std::size_t start_idx, std::size_t end_idx) const;
 

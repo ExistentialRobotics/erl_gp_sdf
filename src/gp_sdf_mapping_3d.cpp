@@ -16,7 +16,7 @@ namespace erl::sdf_mapping {
         const Eigen::Ref<const Eigen::MatrixXd> &ranges) {
 
         if (m_setting_->log_timing) {
-            std::lock_guard<std::mutex> lock(m_log_mutex_);
+            std::lock_guard lock(m_log_mutex_);
             if (m_last_position_.has_value()) {
                 const Eigen::Vector3d delta = translation - m_last_position_.value();
                 m_travel_distance_ += delta.norm();
@@ -34,18 +34,18 @@ namespace erl::sdf_mapping {
         std::chrono::high_resolution_clock::time_point t0, t1;
         double dt;
         {
-            std::lock_guard<std::mutex> lock(m_mutex_);
+            std::lock_guard lock(m_mutex_);
             t0 = std::chrono::high_resolution_clock::now();
             success = m_surface_mapping_->Update(rotation, translation, ranges);
             t1 = std::chrono::high_resolution_clock::now();
-            dt = std::chrono::duration<double, std::micro>(t1 - t0).count();
+            dt = std::chrono::duration<double, std::milli>(t1 - t0).count();
             if (m_setting_->log_timing) { m_train_log_file_ << "," << dt; }  // surface_mapping_time
-            ERL_INFO("Surface mapping update time: {:f} us.", dt);
+            ERL_INFO("Surface mapping update time: {:f} ms.", dt);
         }
-        time_budget -= dt;
+        time_budget -= dt * 1e3;  // us
 
         if (success) {
-            std::lock_guard<std::mutex> lock(m_mutex_);
+            std::lock_guard lock(m_mutex_);
             t0 = std::chrono::high_resolution_clock::now();
             UpdateGps(time_budget);
             t1 = std::chrono::high_resolution_clock::now();
@@ -72,6 +72,14 @@ namespace erl::sdf_mapping {
         Eigen::Matrix3Xd &gradients_out,
         Eigen::Matrix4Xd &variances_out,
         Eigen::Matrix6Xd &covariances_out) {
+
+        {
+            std::lock_guard lock(m_mutex_);
+            if (m_gp_map_.empty()) {
+                ERL_WARN("No GPs available for testing.");
+                return false;
+            }
+        }
 
         if (positions_in.cols() == 0) {
             ERL_WARN("No query positions provided.");
@@ -107,23 +115,34 @@ namespace erl::sdf_mapping {
         std::size_t start_idx, end_idx;
 
         if (m_setting_->log_timing) {
-            std::lock_guard<std::mutex> lock(m_log_mutex_);
+            std::lock_guard lock(m_log_mutex_);
             m_test_log_file_ << m_travel_distance_;
         }
 
         std::chrono::high_resolution_clock::time_point t0, t1;
         double dt;
         {
-            std::lock_guard<std::mutex> lock(m_mutex_);  // CRITICAL SECTION
-            // Search GPs for each query position
-            t0 = std::chrono::high_resolution_clock::now();
-            m_query_to_gps_.clear();
-            m_query_to_gps_.resize(num_queries);  // allocate memory for n threads, collected GPs will be locked for testing
+            std::lock_guard lock(m_mutex_);  // CRITICAL SECTION
             {
                 double x, y, z;
                 m_surface_mapping_->GetOctree()->GetMetricMin(x, y, z);  // trigger the octree to update its metric min/max
             }
 
+            // If we iterate through the octree for each query position separately, it takes too much CPU time.
+            // Instead, we collect all GPs in the area of all query positions and then assign them to the query positions.
+            // Some query positions may not have any GPs from m_candidate_gps_. We need to search for them separately.
+            // We are sure that m_candidate_gps_ are not empty because m_gp_map_ is not empty.
+            // Experiments show that this can reduce the search time by at most 50%.
+            // For 15k crowded query positions, the search time is reduced from ~60ms to ~30ms.
+            // Another important trick is to use a KdTree to search for candidate GPs for each query position.
+            // Knn search is much faster and the result is sorted by distance.
+            // Experiments show that this knn search can reduce the search time further to 2ms.
+            SearchCandidateGps(positions_in);
+
+            // Search GPs for each query position
+            t0 = std::chrono::high_resolution_clock::now();
+            m_query_to_gps_.clear();
+            m_query_to_gps_.resize(num_queries);  // allocate memory for n threads, collected GPs will be locked for testing
             if (num_queries == 1) {
                 SearchGpThread(0, 0, 1);  // save time on thread creation
             } else {
@@ -138,9 +157,9 @@ namespace erl::sdf_mapping {
                 threads.clear();
             }
             t1 = std::chrono::high_resolution_clock::now();
-            dt = std::chrono::duration<double, std::micro>(t1 - t0).count();
+            dt = std::chrono::duration<double, std::milli>(t1 - t0).count();
             if (m_setting_->log_timing) { m_test_log_file_ << "," << dt; }  // gp_search_time
-            ERL_INFO("Search GPs: {:f} us", dt);
+            ERL_INFO("Search GPs: {:f} ms", dt);
 
             // Train any updated GPs
             if (!m_new_gps_.empty()) {
@@ -180,9 +199,9 @@ namespace erl::sdf_mapping {
             threads.clear();
         }
         t1 = std::chrono::high_resolution_clock::now();
-        dt = std::chrono::duration<double, std::micro>(t1 - t0).count();
+        dt = std::chrono::duration<double, std::milli>(t1 - t0).count();
         if (m_setting_->log_timing) { m_test_log_file_ << "," << dt; }  // gp_test_time
-        ERL_INFO("Test GPs: {:f} us", dt);
+        ERL_INFO("Test GPs: {:f} ms", dt);
 
         m_test_buffer_.DisconnectBuffers();
 
@@ -213,15 +232,7 @@ namespace erl::sdf_mapping {
         const double area_half_size = cluster_size * m_setting_->gp_sdf_area_scale / 2;
         geometry::OctreeKeySet affected_clusters(changed_clusters);
         for (const auto &cluster_key: changed_clusters) {
-            double x, y, z;
-            octree->KeyToCoord(cluster_key, cluster_depth, x, y, z);
-            for (auto it = octree->BeginLeafInAabb(
-                          x - area_half_size,
-                          y - area_half_size,
-                          z - area_half_size,
-                          x + area_half_size,
-                          y + area_half_size,
-                          z + area_half_size),
+            for (auto it = octree->BeginLeafInAabb(geometry::Aabb3D(octree->KeyToCoord(cluster_key, cluster_depth), area_half_size)),
                       end = octree->EndLeafInAabb();
                  it != end;
                  ++it) {
@@ -235,14 +246,34 @@ namespace erl::sdf_mapping {
         threads.reserve(num_threads);
         m_clusters_to_update_.clear();
         m_clusters_to_update_.insert(m_clusters_to_update_.end(), affected_clusters.begin(), affected_clusters.end());
+        // create GPs for new clusters, compute AABB of all clusters to be updated
+        Eigen::Vector3d search_area_aabb_min = Eigen::Vector3d::Constant(3, std::numeric_limits<double>::max());
+        Eigen::Vector3d search_area_aabb_max = Eigen::Vector3d::Constant(3, std::numeric_limits<double>::lowest());
         for (auto &cluster_key: m_clusters_to_update_) {
             auto [it, inserted] = m_gp_map_.try_emplace(cluster_key, std::make_shared<Gp>());
-            Eigen::Vector3d &gp_position = it->second->position;
-            octree->KeyToCoord(cluster_key, cluster_depth, gp_position);
-            it->second->half_size = area_half_size;
+            if (inserted) {
+                octree->KeyToCoord(cluster_key, cluster_depth, it->second->position);
+                it->second->half_size = area_half_size;
+            }
+            Eigen::Vector3d aabb_min = it->second->position.array() - area_half_size;
+            Eigen::Vector3d aabb_max = it->second->position.array() + area_half_size;
+            search_area_aabb_min = search_area_aabb_min.cwiseMin(aabb_min);
+            search_area_aabb_max = search_area_aabb_max.cwiseMax(aabb_max);
         }
-        std::size_t batch_size = m_clusters_to_update_.size() / num_threads;
-        std::size_t left_over = m_clusters_to_update_.size() - batch_size * num_threads;
+        // collect surface data in the area
+        m_candidate_surface_points_.clear();
+        for (auto it = octree->BeginLeafInAabb(geometry::Aabb3D(search_area_aabb_min, search_area_aabb_max)), end = octree->EndLeafInAabb(); it != end; ++it) {
+            auto surface_data = it->GetSurfaceData();
+            if (surface_data == nullptr) { continue; }  // no surface data in the node
+            m_candidate_surface_points_.emplace_back(surface_data);
+        }
+        // build kdtree of surface points
+        Eigen::Matrix3Xd surface_points(3, m_candidate_surface_points_.size());
+        for (long i = 0; i < static_cast<long>(m_candidate_surface_points_.size()); ++i) { surface_points.col(i) = m_candidate_surface_points_[i]->position; }
+        m_kd_tree_candidate_surface_points_ = std::make_shared<geometry::KdTree3d>(std::move(surface_points));
+        // create threads to update GPs
+        const std::size_t batch_size = m_clusters_to_update_.size() / num_threads;
+        const std::size_t left_over = m_clusters_to_update_.size() - batch_size * num_threads;
         std::size_t end_idx = 0;
         for (uint32_t thread_idx = 0; thread_idx < num_threads; ++thread_idx) {
             std::size_t start_idx = end_idx;
@@ -265,9 +296,9 @@ namespace erl::sdf_mapping {
             if (it->second->gp != nullptr && !it->second->gp->IsTrained()) { m_new_gps_.push_front(it->second); }
         }
         auto t1 = std::chrono::high_resolution_clock::now();
-        auto dt = std::chrono::duration<double, std::micro>(t1 - t0).count();
-        ERL_INFO("Update GPs' training data: {:f} us.", dt);
-        time_budget -= dt;
+        auto dt = std::chrono::duration<double, std::milli>(t1 - t0).count();
+        ERL_INFO("Update GPs' training data: {:f} ms.", dt);
+        time_budget -= dt * 1e3;  // us
 
         // train as many new GPs as possible within the time limit
         if (time_budget <= m_train_gp_time_) {  // no time left for training
@@ -298,13 +329,13 @@ namespace erl::sdf_mapping {
         const auto octree = m_surface_mapping_->GetOctree();
         if (octree == nullptr) { return; }
         const double sensor_noise = m_surface_mapping_->GetSensorNoise();
-
         const uint32_t cluster_depth = octree->GetTreeDepth() - m_surface_mapping_->GetClusterLevel();
         const double cluster_size = octree->GetNodeSize(cluster_depth);
         const double aabb_half_size = cluster_size * m_setting_->gp_sdf_area_scale / 2.;
 
-        std::vector<std::pair<double, std::shared_ptr<geometry::SurfaceMappingOctreeNode::SurfaceData>>> surface_data_vec;
-        surface_data_vec.reserve(1024);
+        std::vector<std::pair<double, std::shared_ptr<SurfaceData>>> surface_data_vec;
+        const auto max_num_samples = static_cast<std::size_t>(m_setting_->gp_sdf->max_num_samples);
+        surface_data_vec.reserve(max_num_samples);
         for (uint32_t i = start_idx; i < end_idx; ++i) {
             auto &cluster_key = m_clusters_to_update_[i];
             // get the GP of the cluster
@@ -320,27 +351,18 @@ namespace erl::sdf_mapping {
             if (gp->gp == nullptr) { gp->gp = std::make_shared<LogSdfGaussianProcess>(m_setting_->gp_sdf); }
 
             // collect surface data in the area
-            const Eigen::Vector3d cluster_center = octree->KeyToCoord(cluster_key, cluster_depth);
-            surface_data_vec.clear();
-            for (auto it = octree->BeginLeafInAabb(geometry::Aabb3D(cluster_center.array() - aabb_half_size, cluster_center.array() + aabb_half_size)),
-                      end = octree->EndLeafInAabb();
-                 it != end;
-                 ++it) {  // iterate through all leaf nodes in the area
-                auto surface_data = it->GetSurfaceData();
-                if (surface_data == nullptr) { continue; }  // no surface data in the node
-                surface_data_vec.emplace_back((cluster_center - surface_data->position).norm(), surface_data);
-            }
-
-            if (surface_data_vec.empty()) {
-                gp->active = false;  // deactivate the GP if there is no training data
+            std::vector<nanoflann::ResultItem<long>> indices_dists;
+            m_kd_tree_candidate_surface_points_->RadiusSearch(gp->position, aabb_half_size, indices_dists, true);
+            if (indices_dists.empty()) {  // no surface data in the area
+                gp->active = false;       // deactivate the GP if there is no training data
                 gp->num_train_samples = 0;
                 continue;
             }
-
-            // sort surface data by distance
-            std::sort(surface_data_vec.begin(), surface_data_vec.end(), [](const auto &a, const auto &b) { return a.first < b.first; });
-            if (surface_data_vec.size() > static_cast<std::size_t>(m_setting_->gp_sdf->max_num_samples)) {
-                surface_data_vec.resize(m_setting_->gp_sdf->max_num_samples);
+            surface_data_vec.clear();
+            for (const auto &result_item: indices_dists) {
+                const auto &surface_data = m_candidate_surface_points_[result_item.first];
+                surface_data_vec.emplace_back(std::sqrt(result_item.second), surface_data);
+                if (surface_data_vec.size() >= max_num_samples) { break; }
             }
 
             // prepare data for GP training
@@ -351,7 +373,7 @@ namespace erl::sdf_mapping {
             Eigen::VectorXd &vec_var_x = gp->gp->GetTrainInputSamplesVarianceBuffer();
             Eigen::VectorXd &vec_var_y = gp->gp->GetTrainOutputValueSamplesVarianceBuffer();
             Eigen::VectorXd &vec_var_grad = gp->gp->GetTrainOutputGradientSamplesVarianceBuffer();
-            Eigen::VectorXb &vec_grad_flag = gp->gp->GetTrainGradientFlagsBuffer();
+            Eigen::VectorXl &vec_grad_flag = gp->gp->GetTrainGradientFlagsBuffer();
             long count = 0;
             for (auto &[distance, surface_data]: surface_data_vec) {
                 mat_x.col(count) = surface_data->position;
@@ -381,68 +403,135 @@ namespace erl::sdf_mapping {
         const auto t0 = std::chrono::high_resolution_clock::now();
         const uint32_t n = m_gps_to_train_.size();
         if (n == 0) { return; }
-        uint32_t num_threads = std::min(n, std::thread::hardware_concurrency());
-        num_threads = std::min(num_threads, m_setting_->num_threads);
-        std::vector<std::thread> threads;
-        threads.reserve(num_threads);
-        const std::size_t batch_size = n / num_threads;
-        const std::size_t leftover = n - batch_size * num_threads;
-        std::size_t start_idx = 0;
-        for (uint32_t thread_idx = 0; thread_idx < num_threads; thread_idx++) {
-            std::size_t end_idx = start_idx + batch_size;
-            if (thread_idx < leftover) { ++end_idx; }
-            threads.emplace_back(&GpSdfMapping3D::TrainGpThread, this, thread_idx, start_idx, end_idx);
-            start_idx = end_idx;
-        }
-        for (auto &thread: threads) { thread.join(); }
+#pragma omp parallel for default(none) shared(n)
+        for (uint32_t i = 0; i < n; ++i) { m_gps_to_train_[i]->Train(); }
         m_gps_to_train_.clear();
         const auto t1 = std::chrono::high_resolution_clock::now();
-        const double time = std::chrono::duration<double, std::micro>(t1 - t0).count() / static_cast<double>(n);
+        double time = std::chrono::duration<double, std::micro>(t1 - t0).count();
+        ERL_INFO("Training GPs time: {} ms.", time / 1e3);
+        time /= static_cast<double>(n);
         m_train_gp_time_ = m_train_gp_time_ * 0.1 + time * 0.9;
         ERL_INFO("Per GP training time: {:f} us.", m_train_gp_time_);
     }
 
     void
-    GpSdfMapping3D::TrainGpThread(const uint32_t thread_idx, const std::size_t start_idx, const std::size_t end_idx) const {
-        (void) thread_idx;
-        for (std::size_t i = start_idx; i < end_idx; ++i) { m_gps_to_train_[i]->Train(); }
+    GpSdfMapping3D::SearchCandidateGps(const Eigen::Ref<const Eigen::Matrix3Xd> &positions_in) {
+        const auto t0 = std::chrono::high_resolution_clock::now();
+        const double search_area_half_size = m_setting_->test_query->search_area_half_size;
+        const auto octree = m_surface_mapping_->GetOctree();
+        const uint32_t cluster_depth = octree->GetTreeDepth() - m_surface_mapping_->GetClusterLevel();
+        const double cluster_half_size = octree->GetNodeSize(cluster_depth) / 2;
+        const geometry::Aabb3D octree_aabb = octree->GetMetricAabb();
+        geometry::Aabb3D query_aabb(
+            positions_in.rowwise().minCoeff().array() - search_area_half_size,
+            positions_in.rowwise().maxCoeff().array() + search_area_half_size);
+        geometry::Aabb3D intersection = query_aabb.Intersection(octree_aabb);
+        m_candidate_gps_.clear();
+        while (intersection.sizes().prod() > 0) {
+            // search the octree for clusters in the search area
+            for (auto it = octree->BeginTreeInAabb(intersection, cluster_depth), end = octree->EndTreeInAabb(); it != end; ++it) {
+                if (it->GetDepth() != cluster_depth) { continue; }  // not a cluster node
+                auto it_gp = m_gp_map_.find(it.GetIndexKey());      // get the GP of the cluster
+                if (it_gp == m_gp_map_.end()) { continue; }         // no gp for this cluster
+                const auto gp = it_gp->second;                      // get the GP of the cluster
+                if (!gp->active) { continue; }                      // gp is inactive (e.g. due to no training data)
+                gp->locked_for_test = true;                         // lock the GP for testing
+                m_candidate_gps_.emplace_back(geometry::Aabb3D(gp->position, cluster_half_size), gp);
+            }
+            if (!m_candidate_gps_.empty()) { break; }  // found at least one GP
+            // double the size of query_aabb
+            query_aabb = geometry::Aabb3D(query_aabb.center, 2.0 * query_aabb.half_sizes);
+            geometry::Aabb3D new_intersection = query_aabb.Intersection(octree_aabb);
+            if ((intersection.min() == new_intersection.min()) && (intersection.max() == new_intersection.max())) { break; }  // intersection did not change
+            intersection = std::move(new_intersection);
+        }
+        // build kdtree of candidate GPs
+        Eigen::Matrix3Xd positions(3, m_candidate_gps_.size());
+        for (std::size_t i = 0; i < m_candidate_gps_.size(); ++i) { positions.col(static_cast<long>(i)) = m_candidate_gps_[i].second->position; }
+        m_kd_tree_candidate_gps_ = std::make_shared<geometry::KdTree3d>(std::move(positions));
+        const auto t1 = std::chrono::high_resolution_clock::now();
+        const double dt = std::chrono::duration<double, std::milli>(t1 - t0).count();
+        ERL_INFO("{} candidate GPs found.", m_candidate_gps_.size());
+        ERL_INFO("Search candidate GPs: {:f} ms", dt);
     }
 
     void
     GpSdfMapping3D::SearchGpThread(uint32_t thread_idx, std::size_t start_idx, std::size_t end_idx) {
         (void) thread_idx;
         if (m_surface_mapping_ == nullptr) { return; }
-        auto octree = m_surface_mapping_->GetOctree();
-        uint32_t cluster_level = m_surface_mapping_->GetClusterLevel();
-        uint32_t cluster_depth = octree->GetTreeDepth() - cluster_level;
+
+        const auto octree = m_surface_mapping_->GetOctree();
+        const uint32_t cluster_level = m_surface_mapping_->GetClusterLevel();
+        const uint32_t cluster_depth = octree->GetTreeDepth() - cluster_level;
+        const geometry::Aabb3D octree_aabb = octree->GetMetricAabb();
+
         for (uint32_t i = start_idx; i < end_idx; ++i) {
-            const Eigen::Vector3d position = m_test_buffer_.positions->col(i);
+            const Eigen::Vector3d test_position = m_test_buffer_.positions->col(i);
             std::vector<std::pair<double, std::shared_ptr<Gp>>> &gps = m_query_to_gps_[i];
+            gps.clear();
             gps.reserve(16);
+
             double search_area_half_size = m_setting_->test_query->search_area_half_size;
-            Eigen::Vector3d tree_min, tree_max;
-            octree->GetMetricMinMax(tree_min.x(), tree_min.y(), tree_min.z(), tree_max.x(), tree_max.y(), tree_max.z());
-            geometry::Aabb3D octree_aabb(tree_min, tree_max);
-            geometry::Aabb3D search_aabb(position, search_area_half_size);
+            geometry::Aabb3D search_aabb(test_position, search_area_half_size);
             geometry::Aabb3D intersection = octree_aabb.Intersection(search_aabb);
-            while (intersection.sizes().prod() > 0) {
+
+            // search gps from the common buffer at first to save time
+            // use kdtree to search for 32 nearest GPs
+            if (m_kd_tree_candidate_gps_ != nullptr) {
+                Eigen::VectorXl indicies = Eigen::VectorXl::Constant(32, -1);
+                Eigen::VectorXd squared_distances(32);
+                m_kd_tree_candidate_gps_->Knn(32, test_position, indicies, squared_distances);
+                for (long j = 0; j < 32; ++j) {
+                    const long &index = indicies[j];
+                    if (index < 0) { break; }  // no more GPs
+                    const auto &[cluster_aabb, gp] = m_candidate_gps_[index];
+                    if (!cluster_aabb.intersects(intersection)) { continue; }
+                    gps.emplace_back(std::sqrt(squared_distances[j]), gp);
+                    if (gps.size() >= 16) { break; }  // found enough GPs
+                }
+            } else {
+                // no kdtree, search all GPs in the common buffer, which is slow
+                gps.reserve(m_candidate_gps_.size());  // request more memory
+                for (const auto &[cluster_aabb, gp]: m_candidate_gps_) {
+                    if (!cluster_aabb.intersects(intersection)) { continue; }
+                    gps.emplace_back((gp->position - test_position).norm(), gp);
+                }
+            }
+
+            if (gps.empty()) {                    // no gp found
+                if (!m_candidate_gps_.empty()) {  // common buffer is not empty
+                    search_area_half_size *= 2;   // double search area size
+                    search_aabb = geometry::Aabb3D(test_position, search_area_half_size);
+                    geometry::Aabb3D new_intersection = octree_aabb.Intersection(search_aabb);
+                    // intersection did not change, no need to search again
+                    if ((intersection.min() == new_intersection.min()) && (intersection.max() == new_intersection.max())) { continue; }
+                    // update intersection
+                    intersection = std::move(new_intersection);
+                }
+            } else {
+                continue;  // found at least one gp
+            }
+
+            while (gps.empty() && intersection.sizes().prod() > 0) {
                 // search the octree for clusters in the search area
                 for (auto it = octree->BeginTreeInAabb(intersection, cluster_depth), end = octree->EndTreeInAabb(); it != end; ++it) {
                     if (it->GetDepth() != cluster_depth) { continue; }  // not a cluster node
-                    geometry::OctreeKey cluster_key = it.GetIndexKey();
-                    auto it_gp = m_gp_map_.find(cluster_key);
+                    auto it_gp = m_gp_map_.find(it.GetIndexKey());
                     if (it_gp == m_gp_map_.end()) { continue; }  // no gp for this cluster
-                    if (!it_gp->second->active) { continue; }    // gp is inactive (e.g. due to no training data)
-                    const Eigen::Vector3d cluster_center = octree->KeyToCoord(cluster_key, cluster_depth);
-                    it_gp->second->locked_for_test = true;  // lock the GP for testing
-                    gps.emplace_back((cluster_center - position).norm(), it_gp->second);
+                    const auto gp = it_gp->second;
+                    if (!gp->active) { continue; }  // gp is inactive (e.g. due to no training data)
+                    gp->locked_for_test = true;     // lock the GP for testing
+                    gps.emplace_back((gp->position - test_position).norm(), gp);
                 }
                 if (!gps.empty()) { break; }  // found at least one gp
-                search_area_half_size *= 2;   // double search area size
-                search_aabb = geometry::Aabb3D(position, search_area_half_size);
+
+                search_area_half_size *= 2;  // double search area size
+                search_aabb = geometry::Aabb3D(test_position, search_area_half_size);
                 geometry::Aabb3D new_intersection = octree_aabb.Intersection(search_aabb);
-                if ((intersection.min() == new_intersection.min()) && (intersection.max() == new_intersection.max())) { break; }  // intersection did not change
-                intersection = new_intersection;
+                // intersection did not change, no need to search again
+                if ((intersection.min() == new_intersection.min()) && (intersection.max() == new_intersection.max())) { break; }
+                // update intersection
+                intersection = std::move(new_intersection);
             }
         }
     }

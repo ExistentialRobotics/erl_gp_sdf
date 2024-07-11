@@ -75,9 +75,11 @@ TEST(GpSdfMapping3D, LiDAR) {
     long animation_cnt = 0;
     const Eigen::MatrixX<Eigen::Vector3d> &ray_dirs_frame = lidar.GetRayDirectionsInFrame();
     Eigen::Matrix4d last_pose = Eigen::Matrix4d::Identity();
-    auto callback = [&](erl::geometry::Open3dVisualizerWrapper *wrapper, open3d::visualization::Visualizer *) -> bool {
-        if (wp_idx >= traj_matrix.cols()) {
+    auto callback = [&](erl::geometry::Open3dVisualizerWrapper *wrapper, open3d::visualization::Visualizer *vis) -> bool {
+        // if (wp_idx >= traj_matrix.cols()) {
+        if (wp_idx >= 100) {
             wrapper->SetAnimationCallback(nullptr);  // stop calling this callback
+            vis->Close();                            // close the window
             return false;
         }
 
@@ -85,6 +87,7 @@ TEST(GpSdfMapping3D, LiDAR) {
         const Eigen::Matrix4d pose = traj_matrix.col(wp_idx).reshaped(4, 4).transpose();
         const Eigen::Matrix3d rotation = pose.topLeftCorner<3, 3>();
         const Eigen::Vector3d translation = pose.topRightCorner<3, 1>();
+        ERL_INFO("wp_idx: {}", wp_idx);
         wp_idx += STRIDE;
 
         Eigen::MatrixXd ranges;
@@ -194,4 +197,15 @@ TEST(GpSdfMapping3D, LiDAR) {
 
     visualizer.SetAnimationCallback(callback);
     visualizer.Show();
+
+    long max_gp_size = 0;
+    long mean_gp_size = 0;
+    long gp_cnt = 0;
+    for (const auto &[key, local_gp]: gp.GetGpMap()) {
+        max_gp_size = std::max(local_gp->num_train_samples, max_gp_size);
+        mean_gp_size += local_gp->num_train_samples;
+        ++gp_cnt;
+    }
+    mean_gp_size /= gp_cnt;
+    ERL_INFO("max_gp_size: {}, mean_gp_size: {}", max_gp_size, mean_gp_size);
 }

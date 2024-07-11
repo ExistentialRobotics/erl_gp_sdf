@@ -5,6 +5,7 @@
 
 #include "erl_common/yaml.hpp"
 #include "erl_geometry/abstract_surface_mapping_3d.hpp"
+#include "erl_geometry/kdtree_eigen_adaptor.hpp"
 
 #include <memory>
 #include <queue>
@@ -30,13 +31,18 @@ namespace erl::sdf_mapping {
 
         using OctreeKeyGpMap = std::unordered_map<geometry::OctreeKey, std::shared_ptr<Gp>, geometry::OctreeKey::KeyHash>;
         using Setting = GpSdfMappingSetting;
+        using SurfaceData = geometry::SurfaceMappingOctreeNode::SurfaceData;
 
     private:
         std::shared_ptr<Setting> m_setting_ = std::make_shared<Setting>();
         std::mutex m_mutex_;
         std::shared_ptr<geometry::AbstractSurfaceMapping3D> m_surface_mapping_ = nullptr;       // for getting surface points, racing condition.
         std::vector<geometry::OctreeKey> m_clusters_to_update_ = {};                            // stores clusters that are to be updated by UpdateGpThread.
+        std::vector<std::shared_ptr<SurfaceData>> m_candidate_surface_points_ = {};             // for updating GPs
+        std::shared_ptr<geometry::KdTree3d> m_kd_tree_candidate_surface_points_ = nullptr;      // for searching candidate surface points
         OctreeKeyGpMap m_gp_map_ = {};                                                          // for getting GP from Octree key, racing condition.
+        std::vector<std::pair<geometry::Aabb3D, std::shared_ptr<Gp>>> m_candidate_gps_ = {};    // for testing
+        std::shared_ptr<geometry::KdTree3d> m_kd_tree_candidate_gps_ = nullptr;                 // for searching candidate GPs
         std::vector<std::vector<std::pair<double, std::shared_ptr<Gp>>>> m_query_to_gps_ = {};  // for testing, racing condition
         std::vector<std::array<std::shared_ptr<Gp>, 2>> m_query_used_gps_ = {};                 // for testing, racing condition
         std::list<std::shared_ptr<Gp>> m_new_gps_ = {};                                         // caching new GPs to be moved into m_gps_to_train_
@@ -158,6 +164,11 @@ namespace erl::sdf_mapping {
             return m_query_used_gps_;
         }
 
+        const OctreeKeyGpMap&
+        GetGpMap() const {
+            return m_gp_map_;
+        }
+
     private:
         void
         UpdateGps(double time_budget);
@@ -169,7 +180,7 @@ namespace erl::sdf_mapping {
         TrainGps();
 
         void
-        TrainGpThread(uint32_t thread_idx, std::size_t start_idx, std::size_t end_idx) const;
+        SearchCandidateGps(const Eigen::Ref<const Eigen::Matrix3Xd>& positions_in);
 
         void
         SearchGpThread(uint32_t thread_idx, std::size_t start_idx, std::size_t end_idx);
