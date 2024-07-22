@@ -18,7 +18,7 @@ BindGpSdfMapping2D(const py::module &m) {
         .def_readonly("gp", &GpSdfMapping2D::Gp::gp)
         .def("train", &GpSdfMapping2D::Gp::Train);
 
-    sdf_mapping.def(py::init<std::shared_ptr<AbstractSurfaceMapping2D>, std::shared_ptr<GpSdfMappingSetting>>(), py::arg("surface_mapping"), py::arg("setting"))
+    sdf_mapping.def(py::init<std::shared_ptr<AbstractSurfaceMapping2D>, std::shared_ptr<GpSdfMappingBaseSetting>>(), py::arg("surface_mapping"), py::arg("setting"))
         .def_property_readonly("setting", &GpSdfMapping2D::GetSetting)
         .def_property_readonly("surface_mapping", &GpSdfMapping2D::GetSurfaceMapping)
         .def("update", &GpSdfMapping2D::Update, py::arg("rotation"), py::arg("translation"), py::arg("ranges"))

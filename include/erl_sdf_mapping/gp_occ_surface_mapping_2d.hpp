@@ -63,6 +63,21 @@ namespace erl::sdf_mapping {
             const Eigen::Ref<const Eigen::Vector2d> &translation,
             const Eigen::Ref<const Eigen::MatrixXd> &ranges) override;
 
+        [[nodiscard]] bool
+        operator==(const AbstractSurfaceMapping2D &other) const override;
+
+        [[nodiscard]] bool
+        Write(const std::string &filename) const override;
+
+        [[nodiscard]] bool
+        Write(std::ostream &s) const override;
+
+        [[nodiscard]] bool
+        Read(const std::string &filename) override;
+
+        [[nodiscard]] bool
+        Read(std::istream &s) override;
+
     protected:
         void
         UpdateMapPoints();
@@ -98,6 +113,8 @@ namespace erl::sdf_mapping {
             double &var_position,
             double &var_gradient) const;
     };
+
+    ERL_REGISTER_SURFACE_MAPPING(GpOccSurfaceMapping2D);
 }  // namespace erl::sdf_mapping
 
 // ReSharper disable CppInconsistentNaming

@@ -34,7 +34,7 @@ PrintStatusOfGpisMap(const GPisMap &gpis_map, std::ostream &os = std::cout) {
 TEST(ERL_SDF_MAPPING, GpisMap2D) {
     std::filesystem::path path = __FILE__;
     path = path.parent_path() / "double/train.dat";
-    auto train_data_loader = erl::geometry::GazeboRoom::TrainDataLoader(path.string().c_str());
+    auto train_data_loader = erl::geometry::GazeboRoom2D::TrainDataLoader(path.string().c_str());
 
     GPisMap gpm;
     erl::sdf_mapping::gpis::GpisMap2D gpis_map;
@@ -337,7 +337,7 @@ TEST(ERL_SDF_MAPPING, GpisMap2D) {
 
     // Check Test
     path = path.parent_path() / "test.dat";
-    auto df = erl::geometry::GazeboRoom::TestDataFrame(path.string().c_str());
+    auto df = erl::geometry::GazeboRoom2D::TestDataFrame(path.string().c_str());
     Eigen::VectorXd distance_ans(df.positions.cols()), distance_variance_ans(df.positions.cols());
     Eigen::Matrix2Xd gradient_ans(2, df.positions.cols()), gradient_variance_ans(2, df.positions.cols());
     double t_test_ans, t_test_gt;

@@ -1,10 +1,11 @@
 #pragma once
 #include "erl_common/yaml.hpp"
+#include "erl_geometry/abstract_surface_mapping.hpp"
 
 namespace erl::sdf_mapping {
-    struct GpOccSurfaceMappingBaseSetting : public common::Yamlable<GpOccSurfaceMappingBaseSetting> {
+    struct GpOccSurfaceMappingBaseSetting : public common::OverrideYamlable<geometry::AbstractSurfaceMapping::Setting, GpOccSurfaceMappingBaseSetting> {
 
-        struct ComputeVariance : public Yamlable<ComputeVariance> {
+        struct ComputeVariance : public common::Yamlable<ComputeVariance> {
             double zero_gradient_position_var = 1.;  // position variance to use when the estimated gradient is almost zero.
             double zero_gradient_gradient_var = 1.;  // gradient variance to use when the estimated gradient is almost zero.
             double min_distance_var = 1.;            // minimum distance variance.
@@ -14,7 +15,7 @@ namespace erl::sdf_mapping {
             double max_gradient_var = 1.;            // maximum gradient variance.
         };
 
-        struct UpdateMapPoints : public Yamlable<UpdateMapPoints> {
+        struct UpdateMapPoints : public common::Yamlable<UpdateMapPoints> {
             double min_observable_occ = -0.1;     // points of OCC smaller than this value is considered unobservable, i.e. inside the object.
             double max_surface_abs_occ = 0.02;    // maximum absolute value of surface points' OCC, which should be zero ideally.
             double max_valid_gradient_var = 0.5;  // maximum valid gradient variance, above this threshold, it won't be used for the Bayes Update.

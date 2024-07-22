@@ -54,6 +54,199 @@ namespace erl::sdf_mapping {
         return true;
     }
 
+    bool
+    GpOccSurfaceMapping2D::operator==(const AbstractSurfaceMapping2D &other) const {
+        const auto *other_ptr = dynamic_cast<const GpOccSurfaceMapping2D *>(&other);
+        if (other_ptr == nullptr) { return false; }
+        if (m_setting_ == nullptr && other_ptr->m_setting_ != nullptr) { return false; }
+        if (m_setting_ != nullptr && (other_ptr->m_setting_ == nullptr || *m_setting_ != *other_ptr->m_setting_)) { return false; }
+        if (m_sensor_gp_ == nullptr && other_ptr->m_sensor_gp_ != nullptr) { return false; }
+        if (m_sensor_gp_ != nullptr && (other_ptr->m_sensor_gp_ == nullptr || *m_sensor_gp_ != *other_ptr->m_sensor_gp_)) { return false; }
+        if (m_quadtree_ == nullptr && other_ptr->m_quadtree_ != nullptr) { return false; }
+        if (m_quadtree_ != nullptr && (other_ptr->m_quadtree_ == nullptr || *m_quadtree_ != *other_ptr->m_quadtree_)) { return false; }
+        if (m_xy_perturb_ != other_ptr->m_xy_perturb_) { return false; }
+        if (m_changed_keys_ != other_ptr->m_changed_keys_) { return false; }
+        return true;
+    }
+
+    bool
+    GpOccSurfaceMapping2D::Write(const std::string &filename) const {
+        ERL_INFO("Writing GpOccSurfaceMapping2D to file: {}", filename);
+        std::filesystem::create_directories(std::filesystem::path(filename).parent_path());
+        std::ofstream file(filename, std::ios_base::out | std::ios_base::binary);
+        if (!file.is_open()) {
+            ERL_WARN("Failed to open file: {}", filename);
+            return false;
+        }
+
+        const bool success = Write(file);
+        file.close();
+        return success;
+    }
+
+    static const std::string kFileHeader = "# erl::sdf_mapping::GpOccSurfaceMapping2D";
+
+    bool
+    GpOccSurfaceMapping2D::Write(std::ostream &s) const {
+        s << kFileHeader << std::endl  //
+          << "# (feel free to add / change comments, but leave the first line as it is!)" << std::endl
+          << "setting" << std::endl;
+        // write setting
+        if (!m_setting_->Write(s)) {
+            ERL_WARN("Failed to write setting.");
+            return false;
+        }
+        // write data
+        s << "sensor_gp" << std::endl;
+        if (!m_sensor_gp_->Write(s)) {
+            ERL_WARN("Failed to write sensor_gp.");
+            return false;
+        }
+        s << "quadtree " << (m_quadtree_ != nullptr) << std::endl;
+        if (m_quadtree_ != nullptr) {
+            if (!m_quadtree_->Write(s)) {
+                ERL_WARN("Failed to write quadtree.");
+                return false;
+            }
+        }
+        s << "xy_perturb" << std::endl;
+        if (!common::SaveEigenMatrixToBinaryStream(s, m_xy_perturb_)) {
+            ERL_WARN("Failed to write xy_perturb.");
+            return false;
+        }
+        s << "changed_keys " << m_changed_keys_.size() << std::endl;
+        for (const geometry::QuadtreeKey &key: m_changed_keys_) {
+            s.write(reinterpret_cast<const char *>(&key[0]), sizeof(key[0]));
+            s.write(reinterpret_cast<const char *>(&key[1]), sizeof(key[1]));
+        }
+        s << "end_of_GpOccSurfaceMapping2D" << std::endl;
+        return s.good();
+    }
+
+    bool
+    GpOccSurfaceMapping2D::Read(const std::string &filename) {
+        ERL_INFO("Reading GpOccSurfaceMapping2D from file: {}", std::filesystem::absolute(filename));
+        std::ifstream file(filename.c_str(), std::ios_base::in | std::ios_base::binary);
+        if (!file.is_open()) {
+            ERL_WARN("Failed to open file: {}", filename.c_str());
+            return false;
+        }
+
+        const bool success = Read(file);
+        file.close();
+        return success;
+    }
+
+    bool
+    GpOccSurfaceMapping2D::Read(std::istream &s) {
+        if (!s.good()) {
+            ERL_WARN("Input stream is not ready for reading");
+            return false;
+        }
+
+        // check if the first line is valid
+        std::string line;
+        std::getline(s, line);
+        if (line.compare(0, kFileHeader.length(), kFileHeader) != 0) {  // check if the first line is valid
+            ERL_WARN("Header does not start with \"{}\"", kFileHeader.c_str());
+            return false;
+        }
+
+        auto skip_line = [&s]() {
+            char c;
+            do { c = static_cast<char>(s.get()); } while (s.good() && c != '\n');
+        };
+
+        static const char *tokens[] = {
+            "setting",
+            "sensor_gp",
+            "quadtree",
+            "xy_perturb",
+            "changed_keys",
+            "end_of_GpOccSurfaceMapping2D",
+        };
+
+        // read data
+        std::string token;
+        int token_idx = 0;
+        while (s.good()) {
+            s >> token;
+            if (token.compare(0, 1, "#") == 0) {
+                skip_line();  // comment line, skip forward until end of line
+                continue;
+            }
+            // non-comment line
+            if (token != tokens[token_idx]) {
+                ERL_WARN("Expected token {}, got {}.", tokens[token_idx], token);  // check token
+                return false;
+            }
+            // reading state machine
+            switch (token_idx) {
+                case 0: {  // setting
+                    skip_line();
+                    if (!m_setting_->Read(s)) {
+                        ERL_WARN("Failed to read setting.");
+                        return false;
+                    }
+                    break;
+                }
+                case 1: {  // sensor_gp
+                    skip_line();
+                    m_sensor_gp_ = std::make_shared<gaussian_process::LidarGaussianProcess2D>(m_setting_->sensor_gp);
+                    if (!m_sensor_gp_->Read(s)) {
+                        ERL_WARN("Failed to read sensor_gp.");
+                        return false;
+                    }
+                    break;
+                }
+                case 2: {  // quadtree
+                    bool has_quadtree;
+                    s >> has_quadtree;
+                    skip_line();
+                    if (has_quadtree) {
+                        m_quadtree_ = std::make_shared<geometry::SurfaceMappingQuadtree>(m_setting_->quadtree);
+                        if (!m_quadtree_->LoadData(s)) {
+                            ERL_WARN("Failed to read quadtree.");
+                            return false;
+                        }
+                    }
+                    break;
+                }
+                case 3: {  // xy_perturb
+                    skip_line();
+                    if (!common::LoadEigenMatrixFromBinaryStream(s, m_xy_perturb_)) {
+                        ERL_WARN("Failed to read xy_perturb.");
+                        return false;
+                    }
+                    break;
+                }
+                case 4: {  // changed_keys
+                    size_t num_keys;
+                    s >> num_keys;
+                    skip_line();
+                    m_changed_keys_.reserve(num_keys);
+                    for (size_t i = 0; i < num_keys; ++i) {
+                        geometry::QuadtreeKey key;
+                        s.read(reinterpret_cast<char *>(&key[0]), sizeof(key[0]));
+                        s.read(reinterpret_cast<char *>(&key[1]), sizeof(key[1]));
+                        m_changed_keys_.insert(key);
+                    }
+                    break;
+                }
+                case 5: {  // end_of_GpOccSurfaceMapping2D
+                    skip_line();
+                    return true;
+                }
+                default: {  // should not reach here
+                    ERL_FATAL("Internal error, should not reach here.");
+                }
+            }
+            ++token_idx;
+        }
+        ERL_WARN("Failed to read GpOccSurfaceMapping2D. Truncated file?");
+        return false;  // should not reach here
+    }
+
     void
     GpOccSurfaceMapping2D::UpdateMapPoints() {
         if (m_quadtree_ == nullptr || !m_sensor_gp_->IsTrained()) { return; }
@@ -238,54 +431,48 @@ namespace erl::sdf_mapping {
         if (m_quadtree_ == nullptr) { m_quadtree_ = std::make_shared<geometry::SurfaceMappingQuadtree>(m_setting_->quadtree); }
 
         const auto sensor_frame = m_sensor_gp_->GetLidarFrame();
-
         const std::vector<long> &hit_ray_indices = sensor_frame->GetHitRayIndices();
         const std::vector<Eigen::Vector2d> &points_local = sensor_frame->GetEndPointsInFrame();
-        const std::vector<Eigen::Vector2d> &directions_frame = sensor_frame->GetRayDirectionsInFrame();
-
-        const long num_hit_rays = sensor_frame->GetNumHitRays();
-        Eigen::VectorXd angles_local(num_hit_rays);
-        for (long i = 0; i < num_hit_rays; ++i) {
-            const Eigen::Vector2d &direction = directions_frame[hit_ray_indices[i]];
-            angles_local[i] = std::atan2(direction[1], direction[0]);
-        }
-        Eigen::VectorXd predicted_ranges(num_hit_rays);
-        Eigen::VectorXd predicted_ranges_var(num_hit_rays);
-        if (!m_sensor_gp_->Test(angles_local, true, predicted_ranges, predicted_ranges_var, true, true)) { return; }
-        Eigen::VectorXb invalid = (predicted_ranges_var.array() > m_setting_->sensor_gp->max_valid_range_var) ||       //
-                                  (predicted_ranges.array() < m_setting_->sensor_gp->lidar_frame->valid_range_min) ||  //
-                                  (predicted_ranges.array() > m_setting_->sensor_gp->lidar_frame->valid_range_max);
-
-        Eigen::VectorXd occ_mean_values(num_hit_rays);
-        std::vector<Eigen::Vector2d> gradients_local(num_hit_rays);
-#pragma omp parallel for default(none) shared(num_hit_rays, hit_ray_indices, points_local, invalid, occ_mean_values, gradients_local)
-        for (long i = 0; i < num_hit_rays; ++i) {
-            if (invalid[i]) { continue; }
-            if (!ComputeGradient2(points_local[hit_ray_indices[i]], gradients_local[i], occ_mean_values[i])) { invalid[i] = true; }
-        }
-
         const std::vector<Eigen::Vector2d> &hit_points = sensor_frame->GetHitPointsWorld();
+        const long num_hit_rays = sensor_frame->GetNumHitRays();
         const Eigen::VectorXd &ranges = sensor_frame->GetRanges();
         const double min_position_var = m_setting_->update_map_points.min_position_var;
         const double min_gradient_var = m_setting_->update_map_points.min_gradient_var;
-        for (long i = 0; i < num_hit_rays; ++i) {
-            if (invalid[i]) { continue; }
 
+        // collect new measurements
+        // if we iterate over the hit rays directly, some computations are unnecessary
+        std::vector<std::tuple<geometry::QuadtreeKey, long, long, geometry::SurfaceMappingQuadtreeNode *, bool, double, Eigen::Vector2d>> new_measurements;
+        new_measurements.reserve(num_hit_rays);
+        geometry::QuadtreeKeySet new_measurement_keys;
+        new_measurement_keys.reserve(num_hit_rays);
+        for (long i = 0; i < num_hit_rays; ++i) {
             const Eigen::Vector2d &hit_point = hit_points[i];
-            geometry::QuadtreeKey key = m_quadtree_->CoordToKey(hit_point.x(), hit_point.y());
+            geometry::QuadtreeKey key = m_quadtree_->CoordToKey(hit_point);
+            if (!new_measurement_keys.insert(key).second) { continue; }                 // the key is already in the set
             geometry::SurfaceMappingQuadtreeNode *node = m_quadtree_->InsertNode(key);  // insert the node
             if (node == nullptr) { continue; }                                          // failed to insert the node
             if (node->GetSurfaceData() != nullptr) { continue; }                        // the node is already occupied
+            new_measurements.emplace_back(key, i, hit_ray_indices[i], node, false, 0.0, Eigen::Vector2d::Zero());
+        }
+
+        const auto num_new_measurements = static_cast<long>(new_measurements.size());
+#pragma omp parallel for default(none) shared(num_new_measurements, new_measurements, points_local)
+        for (long i = 0; i < num_new_measurements; ++i) {
+            auto &[key, hit_idx, idx, node, invalid_flag, occ_mean, gradient_local] = new_measurements[i];
+            invalid_flag = !ComputeGradient2(points_local[idx], gradient_local, occ_mean);
+        }
+
+        for (long i = 0; i < num_new_measurements; ++i) {
+            auto &[key, hit_idx, idx, node, invalid_flag, occ_mean, gradient_local] = new_measurements[i];
+            if (invalid_flag) { continue; }
+            if (node->GetSurfaceData() != nullptr) { continue; }  // the node is already occupied by previous new measurement
 
             double var_position, var_gradient;
-            const long idx = hit_ray_indices[i];
-            const Eigen::Vector2d &xy_local = points_local[idx];
-            ComputeVariance(xy_local, gradients_local[i], ranges[idx], 0, std::fabs(occ_mean_values[i]), 0, true, var_position, var_gradient);
+            ComputeVariance(points_local[idx], gradient_local, ranges[idx], 0, std::fabs(occ_mean), 0, true, var_position, var_gradient);
             var_position = std::max(var_position, min_position_var);
             var_gradient = std::max(var_gradient, min_gradient_var);
 
-            Eigen::Vector2d grad_global = sensor_frame->FrameToWorldSo2(gradients_local[i]);
-            node->SetSurfaceData(hit_point, std::move(grad_global), var_position, var_gradient);
+            node->SetSurfaceData(hit_points[hit_idx], sensor_frame->FrameToWorldSo2(gradient_local), var_position, var_gradient);
             RecordChangedKey(key);
         }
     }
@@ -331,11 +518,17 @@ namespace erl::sdf_mapping {
         occ_mean = 0.;
         gradient.setZero();
 
+        const double valid_range_min = m_setting_->sensor_gp->lidar_frame->valid_range_min;
+        const double valid_range_max = m_setting_->sensor_gp->lidar_frame->valid_range_max;
         for (int j = 0; j < 4; ++j) {
             double distance;
             Eigen::Scalard angle;
             Cartesian2Polar(xy_local + m_xy_perturb_.col(j), distance, angle[0]);
-            if (Eigen::Scalard distance_pred, var; !m_sensor_gp_->ComputeOcc(angle, distance, distance_pred, var, occ[j])) { return false; }
+            if (Eigen::Scalard distance_pred, var;                                         //
+                !m_sensor_gp_->ComputeOcc(angle, distance, distance_pred, var, occ[j]) ||  //
+                distance_pred[0] < valid_range_min || distance_pred[0] > valid_range_max) {
+                return false;
+            }
             occ_mean += occ[j];
         }
 

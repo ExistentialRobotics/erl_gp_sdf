@@ -28,7 +28,7 @@ TEST(ERL_SDF_MAPPING, LogGpisMap2D) {
     int cnt = 0;
     std::stringstream ss;
     const char *train_dat_file = "double/train.dat";
-    auto train_data_loader = erl::geometry::GazeboRoom::TrainDataLoader((dir_path / train_dat_file).c_str());
+    auto train_data_loader = erl::geometry::GazeboRoom2D::TrainDataLoader((dir_path / train_dat_file).c_str());
     for (auto df: train_data_loader) {
         ss.str(std::string());
         ss << "LogGpisMap2D-Train[" << cnt << ']';
@@ -40,7 +40,7 @@ TEST(ERL_SDF_MAPPING, LogGpisMap2D) {
     t_train_ans /= static_cast<double>(train_data_loader.size());
 
     const char *test_dat_file = "double/test.dat";
-    auto df = erl::geometry::GazeboRoom::TestDataFrame((dir_path / test_dat_file).c_str());
+    auto df = erl::geometry::GazeboRoom2D::TestDataFrame((dir_path / test_dat_file).c_str());
     Eigen::VectorXd distance_ans, distance_variance_ans;
     Eigen::Matrix2Xd gradient_ans, gradient_variance_ans;
     // gradient_variance_ans;

@@ -22,16 +22,18 @@ update_occupancy: true
 sensor_gp:
     row_group_size: 10
     row_overlap_size: 3
-    row_margin: 0
+    row_margin: &row_margin 0
     col_group_size: 10
     col_overlap_size: 3
-    col_margin: 0
+    col_margin: &col_margin 0
     init_variance: 1000000
     sensor_range_var: 0.01
     max_valid_range_var: 0.10000000000000001
     occ_test_temperature: 30
     range_sensor_frame_type: lidar
     range_sensor_frame:
+        row_margin: *row_margin
+        col_margin: *col_margin
         valid_range_min: 0.20000000000000001
         valid_range_max: 30
         discontinuity_factor: 10

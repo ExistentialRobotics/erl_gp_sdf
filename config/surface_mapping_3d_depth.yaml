@@ -1,0 +1,77 @@
+compute_variance:
+    zero_gradient_position_var: 1
+    zero_gradient_gradient_var: 1
+    min_distance_var: 1
+    max_distance_var: 100
+    position_var_alpha: 0.01
+    min_gradient_var: 0.01
+    max_gradient_var: 1
+update_map_points:
+    min_observable_occ: -0.10000000000000001
+    max_surface_abs_occ: 0.02
+    max_valid_gradient_var: 0.5
+    max_adjust_tries: 10
+    max_bayes_position_var: 1
+    max_bayes_gradient_var: 0.59999999999999998
+    min_position_var: 0.001
+    min_gradient_var: 0.001
+cluster_level: 2
+perturb_delta: 0.05
+zero_gradient_threshold: 1.0000000000000001e-15
+update_occupancy: true
+sensor_gp:
+    row_group_size: 6
+    row_overlap_size: 2
+    row_margin: &row_margin 0
+    col_group_size: 6
+    col_overlap_size: 2
+    col_margin: &col_margin 0
+    init_variance: 1000000
+    sensor_range_var: 0.01
+    max_valid_range_var: 0.10000000000000001
+    occ_test_temperature: 30
+    range_sensor_frame_type: depth
+    range_sensor_frame:
+        row_margin: *row_margin
+        col_margin: *col_margin
+        valid_range_min: 0.20000000000000001
+        valid_range_max: 30
+        discontinuity_factor: 10
+        rolling_diff_discount: 0.90000000000000002
+        min_partition_size: 5
+        camera_to_optical: # should be identity if camera pose contains the transformation
+            - [ 1, 0, 0, 0 ]
+            - [ 0, 1, 0, 0 ]
+            - [ 0, 0, 1, 0 ]
+            - [ 0, 0, 0, 1 ]
+        image_height: 480
+        image_width: 640
+        camera_fx: 525
+        camera_fy: 525
+        camera_cx: 319.5
+        camera_cy: 239.5
+    gp:
+        kernel_type: OrnsteinUhlenbeck2D
+        kernel:
+            x_dim: 2
+            alpha: 1
+            scale: 0.5
+            scale_mix: 1
+            weights: [ ]
+        auto_normalize: false
+    mapping:
+        type: kInverseSqrt
+        scale: 1
+octree:
+    resolution: 0.10000000000000001
+    tree_depth: 16
+    log_odd_min: -2
+    log_odd_max: 3.5
+    log_odd_hit: 0.850000024
+    log_odd_miss: -0.400000006
+    log_odd_occ_threshold: 0
+    use_change_detection: false
+    use_aabb_limit: false
+    aabb:
+        center: [ 0, 0, 0 ]
+        half_sizes: [ 0, 0, 0 ]

@@ -1,20 +1,28 @@
 #pragma once
 
-#include "gp_sdf_mapping_setting.hpp"
+#include "gp_sdf_mapping_base_setting.hpp"
 #include "log_sdf_gp.hpp"
 
+#include "erl_common/template_helper.hpp"
 #include "erl_common/yaml.hpp"
 #include "erl_geometry/abstract_surface_mapping_3d.hpp"
 #include "erl_geometry/kdtree_eigen_adaptor.hpp"
 
+#include <boost/heap/d_ary_heap.hpp>
+
 #include <memory>
-#include <queue>
+#include <vector>
 
 namespace erl::sdf_mapping {
 
     class GpSdfMapping3D {
 
     public:
+        struct Setting : public common::OverrideYamlable<GpSdfMappingBaseSetting, Setting> {
+            std::string surface_mapping_type = "GpOccSurfaceMapping3D";
+            std::shared_ptr<geometry::AbstractSurfaceMapping3D::Setting> surface_mapping = nullptr;
+        };
+
         struct Gp {
             bool active = false;
             std::atomic_bool locked_for_test = false;
@@ -23,29 +31,69 @@ namespace erl::sdf_mapping {
             double half_size = 0;
             std::shared_ptr<LogSdfGaussianProcess> gp = {};
 
+            [[nodiscard]] std::size_t
+            GetMemoryUsage() const {
+                std::size_t memory_usage = sizeof(Gp);
+                if (gp != nullptr) { memory_usage += gp->GetMemoryUsage(); }
+                return memory_usage;
+            }
+
             void
             Train() const {
                 gp->Train(num_train_samples);
             }
+
+            [[nodiscard]] bool
+            operator==(const Gp& other) const;
+
+            [[nodiscard]] bool
+            operator!=(const Gp& other) const {
+                return !(*this == other);
+            }
+
+            [[nodiscard]] bool
+            Write(std::ostream& s) const;
+
+            [[nodiscard]] bool
+            Read(std::istream& s, const std::shared_ptr<LogSdfGaussianProcess::Setting>& setting);
         };
 
         using OctreeKeyGpMap = std::unordered_map<geometry::OctreeKey, std::shared_ptr<Gp>, geometry::OctreeKey::KeyHash>;
-        using Setting = GpSdfMappingSetting;
         using SurfaceData = geometry::SurfaceMappingOctreeNode::SurfaceData;
 
     private:
+        struct PriorityQueueItem {
+            long time_stamp = 0;
+            geometry::OctreeKey key{};
+        };
+
+        template<typename T>
+        struct Greater {
+            [[nodiscard]] bool
+            operator()(const T& lhs, const T& rhs) const {
+                return lhs.time_stamp > rhs.time_stamp;
+            }
+        };
+
+        using PriorityQueue = boost::heap::d_ary_heap<
+            PriorityQueueItem,
+            boost::heap::mutable_<true>,
+            boost::heap::stable<true>,
+            boost::heap::arity<8>,
+            boost::heap::compare<Greater<PriorityQueueItem>>>;
+        using OctreeKeyPqMap = std::unordered_map<geometry::OctreeKey, PriorityQueue::handle_type, geometry::OctreeKey::KeyHash>;
+
         std::shared_ptr<Setting> m_setting_ = std::make_shared<Setting>();
         std::mutex m_mutex_;
         std::shared_ptr<geometry::AbstractSurfaceMapping3D> m_surface_mapping_ = nullptr;       // for getting surface points, racing condition.
         std::vector<geometry::OctreeKey> m_clusters_to_update_ = {};                            // stores clusters that are to be updated by UpdateGpThread.
-        std::vector<std::shared_ptr<SurfaceData>> m_candidate_surface_points_ = {};             // for updating GPs
-        std::shared_ptr<geometry::KdTree3d> m_kd_tree_candidate_surface_points_ = nullptr;      // for searching candidate surface points
         OctreeKeyGpMap m_gp_map_ = {};                                                          // for getting GP from Octree key, racing condition.
         std::vector<std::pair<geometry::Aabb3D, std::shared_ptr<Gp>>> m_candidate_gps_ = {};    // for testing
         std::shared_ptr<geometry::KdTree3d> m_kd_tree_candidate_gps_ = nullptr;                 // for searching candidate GPs
         std::vector<std::vector<std::pair<double, std::shared_ptr<Gp>>>> m_query_to_gps_ = {};  // for testing, racing condition
-        std::vector<std::array<std::shared_ptr<Gp>, 2>> m_query_used_gps_ = {};                 // for testing, racing condition
-        std::list<std::shared_ptr<Gp>> m_new_gps_ = {};                                         // caching new GPs to be moved into m_gps_to_train_
+        std::vector<std::array<std::shared_ptr<Gp>, 4>> m_query_used_gps_ = {};                 // for testing, racing condition
+        OctreeKeyPqMap m_new_gp_keys_ = {};                                                     // caching keys of new GPs to be moved into m_gps_to_train_
+        PriorityQueue m_new_gp_queue_;                                                          // ordering new GPs, smaller time_stamp first
         std::vector<std::shared_ptr<Gp>> m_gps_to_train_ = {};                                  // for training SDF GPs, racing condition in Update() and Test()
         double m_train_gp_time_ = 10;                                                           // us
         std::mutex m_log_mutex_;                                                                // for logging
@@ -75,65 +123,16 @@ namespace erl::sdf_mapping {
                 Eigen::Matrix3Xd& gradients_out,
                 Eigen::Matrix4Xd& variances_out,
                 Eigen::Matrix6Xd& covariances_out,
-                const bool compute_covariance) {
-
-                positions = nullptr;
-                distances = nullptr;
-                gradients = nullptr;
-                variances = nullptr;
-                covariances = nullptr;
-                const long n = positions_in.cols();
-                if (n == 0) return false;
-
-                distances_out.resize(n);
-                gradients_out.resize(3, n);
-                variances_out.resize(4, n);
-                if (compute_covariance) { covariances_out.resize(6, n); }
-                this->positions = std::make_unique<Eigen::Ref<const Eigen::Matrix3Xd>>(positions_in);
-                this->distances = std::make_unique<Eigen::Ref<Eigen::VectorXd>>(distances_out);
-                this->gradients = std::make_unique<Eigen::Ref<Eigen::Matrix3Xd>>(gradients_out);
-                this->variances = std::make_unique<Eigen::Ref<Eigen::Matrix4Xd>>(variances_out);
-                this->covariances = std::make_unique<Eigen::Ref<Eigen::Matrix6Xd>>(covariances_out);
-                return true;
-            }
+                bool compute_covariance);
 
             void
-            DisconnectBuffers() {
-                positions = nullptr;
-                distances = nullptr;
-                gradients = nullptr;
-                variances = nullptr;
-                covariances = nullptr;
-            }
+            DisconnectBuffers();
         };
 
         TestBuffer m_test_buffer_ = {};
 
     public:
-        explicit GpSdfMapping3D(std::shared_ptr<geometry::AbstractSurfaceMapping3D> surface_mapping, std::shared_ptr<Setting> setting = nullptr)
-            : m_setting_(std::move(setting)),
-              m_surface_mapping_(std::move(surface_mapping)) {
-            if (m_setting_ == nullptr) { m_setting_ = std::make_shared<Setting>(); }
-            ERL_ASSERTM(m_surface_mapping_ != nullptr, "surface_mapping is nullptr.");
-
-            // get log dir from env
-            if (m_setting_->log_timing) {
-                char* log_dir_env = std::getenv("LOG_DIR");
-                const std::filesystem::path log_dir = log_dir_env == nullptr ? std::filesystem::current_path() : std::filesystem::path(log_dir_env);
-                const std::filesystem::path train_log_file_name = log_dir / "gp_sdf_mapping_3d_train.csv";
-                const std::filesystem::path test_log_file_name = log_dir / "gp_sdf_mapping_3d_test.csv";
-                if (std::filesystem::exists(train_log_file_name)) { std::filesystem::remove(train_log_file_name); }
-                if (std::filesystem::exists(test_log_file_name)) { std::filesystem::remove(test_log_file_name); }
-                m_train_log_file_.open(train_log_file_name);
-                m_test_log_file_.open(test_log_file_name);
-                ERL_WARN_COND(!m_train_log_file_.is_open(), ("Failed to open " + train_log_file_name.string()).c_str());
-                ERL_WARN_COND(!m_test_log_file_.is_open(), ("Failed to open " + test_log_file_name.string()).c_str());
-                m_train_log_file_ << "travel_distance,surf_mapping_time(us),gp_data_update_time(us),gp_delay_cnt,"
-                                  << "gp_train_time(us),total_gp_update_time(ms),total_update_time(ms)" << std::endl
-                                  << std::flush;
-                m_test_log_file_ << "travel_distance,gp_search_time(us),gp_train_time(us),gp_test_time(us),total_test_time(ms)" << std::endl << std::flush;
-            }
-        }
+        explicit GpSdfMapping3D(std::shared_ptr<Setting> setting);
 
         [[nodiscard]] std::shared_ptr<const Setting>
         GetSetting() const {
@@ -145,13 +144,13 @@ namespace erl::sdf_mapping {
             return m_surface_mapping_;
         }
 
-        bool
+        [[nodiscard]] bool
         Update(
             const Eigen::Ref<const Eigen::Matrix3d>& rotation,
             const Eigen::Ref<const Eigen::Vector3d>& translation,
             const Eigen::Ref<const Eigen::MatrixXd>& ranges);
 
-        bool
+        [[nodiscard]] bool
         Test(
             const Eigen::Ref<const Eigen::Matrix3Xd>& positions_in,
             Eigen::VectorXd& distances_out,
@@ -159,7 +158,7 @@ namespace erl::sdf_mapping {
             Eigen::Matrix4Xd& variances_out,
             Eigen::Matrix6Xd& covariances_out);
 
-        const std::vector<std::array<std::shared_ptr<Gp>, 2>>&
+        const std::vector<std::array<std::shared_ptr<Gp>, 4>>&
         GetUsedGps() const {
             return m_query_used_gps_;
         }
@@ -168,6 +167,26 @@ namespace erl::sdf_mapping {
         GetGpMap() const {
             return m_gp_map_;
         }
+
+        [[nodiscard]] bool
+        operator==(const GpSdfMapping3D& other) const;
+
+        [[nodiscard]] bool
+        operator!=(const GpSdfMapping3D& other) const {
+            return !(*this == other);
+        }
+
+        [[nodiscard]] bool
+        Write(const std::string& filename) const;
+
+        [[nodiscard]] bool
+        Write(std::ostream& s) const;
+
+        [[nodiscard]] bool
+        Read(const std::string& filename);
+
+        [[nodiscard]] bool
+        Read(std::istream& s);
 
     private:
         void
@@ -189,3 +208,29 @@ namespace erl::sdf_mapping {
         TestGpThread(uint32_t thread_idx, std::size_t start_idx, std::size_t end_idx);
     };
 }  // namespace erl::sdf_mapping
+
+// ReSharper disable CppInconsistentNaming
+template<>
+struct YAML::convert<erl::sdf_mapping::GpSdfMapping3D::Setting> {
+    static Node
+    encode(const erl::sdf_mapping::GpSdfMapping3D::Setting& rhs) {
+        Node node = convert<erl::sdf_mapping::GpSdfMappingBaseSetting>::encode(rhs);
+        node["surface_mapping_type"] = rhs.surface_mapping_type;
+        node["surface_mapping"] = rhs.surface_mapping->AsYamlNode();
+        return node;
+    }
+
+    static bool
+    decode(const Node& node, erl::sdf_mapping::GpSdfMapping3D::Setting& rhs) {
+        if (!convert<erl::sdf_mapping::GpSdfMappingBaseSetting>::decode(node, rhs)) { return false; }
+        rhs.surface_mapping_type = node["surface_mapping_type"].as<std::string>();
+        rhs.surface_mapping = erl::geometry::AbstractSurfaceMapping::Setting::Create(rhs.surface_mapping_type);
+        if (rhs.surface_mapping == nullptr) {
+            ERL_WARN("Failed to decode surface_mapping of type: {}", rhs.surface_mapping_type);
+            return false;
+        }
+        return rhs.surface_mapping->FromYamlNode(node["surface_mapping"]);
+    }
+};
+
+// ReSharper restore CppInconsistentNaming

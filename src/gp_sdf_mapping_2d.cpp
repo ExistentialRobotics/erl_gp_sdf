@@ -8,13 +8,204 @@
 namespace erl::sdf_mapping {
 
     bool
+    GpSdfMapping2D::Gp::operator==(const Gp &other) const {
+        if (active != other.active) { return false; }
+        if (locked_for_test.load() != other.locked_for_test.load()) { return false; }
+        if (num_train_samples != other.num_train_samples) { return false; }
+        if (position != other.position) { return false; }
+        if (half_size != other.half_size) { return false; }
+        if (gp == nullptr && other.gp != nullptr) { return false; }
+        if (gp != nullptr && (other.gp == nullptr || *gp != *other.gp)) { return false; }
+        return true;
+    }
+
+    static const std::string kFileHeaderGp = "# erl::sdf_mapping::GpSdfMapping2D::Gp";
+
+    bool
+    GpSdfMapping2D::Gp::Write(std::ostream &s) const {
+        s << kFileHeaderGp << std::endl  //
+          << "# (feel free to add / change comments, but leave the first line as it is!)" << std::endl;
+        s << "active " << active << std::endl
+          << "locked_for_test " << locked_for_test.load() << std::endl
+          << "num_train_samples " << num_train_samples << std::endl;
+        s << "position" << std::endl;
+        if (!common::SaveEigenMatrixToBinaryStream(s, position)) { return false; }
+        s << "half_size" << std::endl;
+        s.write(reinterpret_cast<const char *>(&half_size), sizeof(half_size));
+        s << "gp " << (gp != nullptr) << std::endl;
+        if (gp != nullptr && !gp->Write(s)) { return false; }
+        s << "end_of_GpSdfMapping2D::Gp" << std::endl;
+        return s.good();
+    }
+
+    bool
+    GpSdfMapping2D::Gp::Read(std::istream &s, const std::shared_ptr<LogSdfGaussianProcess::Setting> &setting) {
+        if (!s.good()) {
+            ERL_WARN("Input stream is not ready for reading");
+            return false;
+        }
+
+        // check if the first line is valid
+        std::string line;
+        std::getline(s, line);
+        if (line.compare(0, kFileHeaderGp.length(), kFileHeaderGp) != 0) {  // check if the first line is valid
+            ERL_WARN("Header does not start with \"{}\"", kFileHeaderGp.c_str());
+            return false;
+        }
+
+        auto skip_line = [&s]() {
+            char c;
+            do { c = static_cast<char>(s.get()); } while (s.good() && c != '\n');
+        };
+
+        static const char *tokens[] = {
+            "active",
+            "locked_for_test",
+            "num_train_samples",
+            "position",
+            "half_size",
+            "gp",
+            "end_of_GpSdfMapping2D::Gp",
+        };
+
+        // read data
+        std::string token;
+        int token_idx = 0;
+        while (s.good()) {
+            s >> token;
+            if (token.compare(0, 1, "#") == 0) {
+                skip_line();  // comment line, skip forward until end of line
+                continue;
+            }
+            // non-comment line
+            if (token != tokens[token_idx]) {
+                ERL_WARN("Expected token {}, got {}.", tokens[token_idx], token);  // check token
+                return false;
+            }
+            // reading state machine
+            switch (token_idx) {
+                case 0: {
+                    s >> active;
+                    break;
+                }
+                case 1: {
+                    bool locked;
+                    s >> locked;
+                    locked_for_test.store(locked);
+                    break;
+                }
+                case 2: {
+                    s >> num_train_samples;
+                    break;
+                }
+                case 3: {
+                    skip_line();
+                    if (!common::LoadEigenMatrixFromBinaryStream(s, position)) {
+                        ERL_WARN("Failed to read position.");
+                        return false;
+                    }
+                    break;
+                }
+                case 4: {
+                    skip_line();
+                    s.read(reinterpret_cast<char *>(&half_size), sizeof(half_size));
+                    break;
+                }
+                case 5: {
+                    bool has_gp;
+                    s >> has_gp;
+                    if (has_gp) {
+                        skip_line();
+                        if (gp == nullptr) { gp = std::make_shared<LogSdfGaussianProcess>(setting); }
+                        if (!gp->Read(s)) { return false; }
+                    }
+                    break;
+                }
+                case 6: {
+                    skip_line();
+                    return true;
+                }
+                default: {  // should not reach here
+                    ERL_FATAL("Internal error, should not reach here.");
+                }
+            }
+            ++token_idx;
+        }
+        ERL_WARN("Failed to read GpSdfMapping2D::Gp. Truncated file?");
+        return false;  // should not reach here
+    }
+
+    bool
+    GpSdfMapping2D::TestBuffer::ConnectBuffers(
+        const Eigen::Ref<const Eigen::Matrix2Xd> &positions_in,
+        Eigen::VectorXd &distances_out,
+        Eigen::Matrix2Xd &gradients_out,
+        Eigen::Matrix3Xd &variances_out,
+        Eigen::Matrix3Xd &covariances_out,
+        const bool compute_covariance) {
+        positions = nullptr;
+        distances = nullptr;
+        gradients = nullptr;
+        variances = nullptr;
+        covariances = nullptr;
+        const long n = positions_in.cols();
+        if (n == 0) return false;
+        distances_out.resize(n);
+        gradients_out.resize(2, n);
+        variances_out.resize(3, n);
+        if (compute_covariance) { covariances_out.resize(3, n); }
+        this->positions = std::make_unique<Eigen::Ref<const Eigen::Matrix2Xd>>(positions_in);
+        this->distances = std::make_unique<Eigen::Ref<Eigen::VectorXd>>(distances_out);
+        this->gradients = std::make_unique<Eigen::Ref<Eigen::Matrix2Xd>>(gradients_out);
+        this->variances = std::make_unique<Eigen::Ref<Eigen::Matrix3Xd>>(variances_out);
+        this->covariances = std::make_unique<Eigen::Ref<Eigen::Matrix3Xd>>(covariances_out);
+        return true;
+    }
+
+    void
+    GpSdfMapping2D::TestBuffer::DisconnectBuffers() {
+        positions = nullptr;
+        distances = nullptr;
+        gradients = nullptr;
+        variances = nullptr;
+        covariances = nullptr;
+    }
+
+    GpSdfMapping2D::GpSdfMapping2D(std::shared_ptr<Setting> setting)
+        : m_setting_(NotNull(std::move(setting), "setting is nullptr.")),
+          m_surface_mapping_(geometry::AbstractSurfaceMapping::CreateSurfaceMapping<geometry::AbstractSurfaceMapping2D>(
+              m_setting_->surface_mapping_type,
+              m_setting_->surface_mapping)) {
+        ERL_ASSERTM(m_surface_mapping_ != nullptr, "surface_mapping is nullptr.");
+        // get log dir from env
+        if (m_setting_->log_timing) {
+            char *log_dir_env = std::getenv("LOG_DIR");
+            const std::filesystem::path log_dir = log_dir_env == nullptr ? std::filesystem::current_path() : std::filesystem::path(log_dir_env);
+            const std::filesystem::path train_log_file_name = log_dir / "gp_sdf_mapping_2d_train.csv";
+            const std::filesystem::path test_log_file_name = log_dir / "gp_sdf_mapping_2d_test.csv";
+            if (std::filesystem::exists(train_log_file_name)) { std::filesystem::remove(train_log_file_name); }
+            if (std::filesystem::exists(test_log_file_name)) { std::filesystem::remove(test_log_file_name); }
+            m_train_log_file_.open(train_log_file_name);
+            m_test_log_file_.open(test_log_file_name);
+            ERL_WARN_COND(!m_train_log_file_.is_open(), ("Failed to open " + train_log_file_name.string()).c_str());
+            ERL_WARN_COND(!m_test_log_file_.is_open(), ("Failed to open " + test_log_file_name.string()).c_str());
+            m_train_log_file_ << "travel_distance,surf_mapping_time(us),gp_data_update_time(us),gp_delay_cnt,"
+                              << "gp_train_time(us),total_gp_update_time(ms),total_update_time(ms)" << std::endl
+                              << std::flush;
+            m_test_log_file_ << "travel_distance,gp_search_time(us),gp_train_time(us),gp_test_time(us),total_test_time(ms)" << std::endl << std::flush;
+        }
+    }
+
+    bool
     GpSdfMapping2D::Update(
         const Eigen::Ref<const Eigen::Matrix2d> &rotation,
         const Eigen::Ref<const Eigen::Vector2d> &translation,
         const Eigen::Ref<const Eigen::MatrixXd> &ranges) {
 
+        ERL_TRACY_FRAME_MARK_START();
+
         if (m_setting_->log_timing) {
-            std::lock_guard<std::mutex> lock(m_log_mutex_);
+            std::lock_guard lock(m_log_mutex_);
             if (m_last_position_.has_value()) {
                 const Eigen::Vector2d delta = translation - m_last_position_.value();
                 m_travel_distance_ += delta.norm();
@@ -39,28 +230,44 @@ namespace erl::sdf_mapping {
             dt = std::chrono::duration<double, std::milli>(t1 - t0).count();
             if (m_setting_->log_timing) { m_train_log_file_ << "," << dt; }  // surface_mapping_time
             ERL_INFO("Surface mapping update time: {:f} ms.", dt);
+            ERL_TRACY_PLOT("surface_mapping_update_time (ms)", dt);
         }
         time_budget -= dt * 1e3;  // us
 
+        t0 = std::chrono::high_resolution_clock::now();
         if (success) {
             std::lock_guard lock(m_mutex_);
-            t0 = std::chrono::high_resolution_clock::now();
             UpdateGps(time_budget);
-            t1 = std::chrono::high_resolution_clock::now();
-            dt = std::chrono::duration<double, std::milli>(t1 - t0).count();
-            ERL_INFO("GP update time: {:f} ms.", dt);
+        }
+        t1 = std::chrono::high_resolution_clock::now();
+        dt = std::chrono::duration<double, std::milli>(t1 - t0).count();
+        ERL_INFO("GP update time: {:f} ms.", dt);
+        ERL_TRACY_PLOT("gp_update_time (ms)", dt);
 
-            if (m_setting_->log_timing) {
-                m_train_log_file_ << "," << dt;  // total_gp_update_time
-                dt = std::chrono::duration<double, std::milli>(t1 - t_start).count();
-                m_train_log_file_ << "," << dt << std::endl << std::flush;  // total_update_time
-            }
+        ERL_TRACY_PLOT("m_gp_map_.size()", static_cast<long>(m_gp_map_.size()));
+        ERL_TRACY_PLOT("m_new_gp_keys_.size()", static_cast<long>(m_new_gp_keys_.size()));
+        ERL_TRACY_PLOT("m_new_gp_queue_.size()", static_cast<long>(m_new_gp_queue_.size()));
+        ERL_TRACY_PLOT("m_gps_to_train_.size()", static_cast<long>(m_gps_to_train_.size()));
+        ERL_TRACY_PLOT_CONFIG("m_gp_map_.memory_usage", tracy::PlotFormatType::Memory, true, true, 0);
+        ERL_TRACY_PLOT("m_gp_map_.memory_usage", static_cast<long>([&]() {
+                           std::size_t gps_memory_usage = 0;
+                           for (const auto &[key, gp]: m_gp_map_) {
+                               gps_memory_usage += sizeof(key);
+                               gps_memory_usage += sizeof(gp);
+                               if (gp != nullptr) { gps_memory_usage += gp->GetMemoryUsage(); }
+                           }
+                           return gps_memory_usage;
+                       }()));
 
-            return true;
+        if (m_setting_->log_timing) {
+            m_train_log_file_ << "," << dt;  // total_gp_update_time
+            dt = std::chrono::duration<double, std::milli>(t1 - t_start).count();
+            m_train_log_file_ << "," << dt << std::endl << std::flush;  // total_update_time
         }
 
-        if (m_setting_->log_timing) { m_train_log_file_ << std::endl; }
-        return false;
+        ERL_TRACY_FRAME_MARK_END();
+
+        return success;
     }
 
     bool
@@ -151,7 +358,7 @@ namespace erl::sdf_mapping {
             ERL_INFO("Search GPs: {:f} ms", dt);
 
             // Train any updated GPs
-            if (!m_new_gps_.empty()) {
+            if (!m_new_gp_queue_.empty()) {
                 t0 = std::chrono::high_resolution_clock::now();
                 std::unordered_set<std::shared_ptr<Gp>> new_gps;
                 for (auto &gps: m_query_to_gps_) {
@@ -172,6 +379,7 @@ namespace erl::sdf_mapping {
         }
 
         // Compute the inference result for each query position
+        m_query_used_gps_.clear();
         m_query_used_gps_.resize(num_queries);
         t0 = std::chrono::high_resolution_clock::now();
         if (num_queries == 1) {
@@ -207,40 +415,282 @@ namespace erl::sdf_mapping {
         return true;
     }
 
+    bool
+    GpSdfMapping2D::operator==(const GpSdfMapping2D &other) const {
+        if (m_setting_ == nullptr && other.m_setting_ != nullptr) { return false; }
+        if (m_setting_ != nullptr && (other.m_setting_ == nullptr || *m_setting_ != *other.m_setting_)) { return false; }
+        if (m_surface_mapping_ == nullptr && other.m_surface_mapping_ != nullptr) { return false; }
+        if (m_surface_mapping_ != nullptr && (other.m_surface_mapping_ == nullptr || *m_surface_mapping_ != *other.m_surface_mapping_)) { return false; }
+        if (m_gp_map_.size() != other.m_gp_map_.size()) { return false; }
+        for (const auto &[key, gp]: m_gp_map_) {
+            auto it = other.m_gp_map_.find(key);
+            if (it == other.m_gp_map_.end()) { return false; }
+            const auto &[other_key, other_gp] = *it;
+            if (gp == nullptr && other_gp != nullptr) { return false; }
+            if (gp != nullptr && (other_gp == nullptr || *gp != *other_gp)) { return false; }
+        }
+        if (m_train_gp_time_ != other.m_train_gp_time_) { return false; }
+        if (m_travel_distance_ != other.m_travel_distance_) { return false; }
+        if (m_last_position_ != other.m_last_position_) { return false; }
+        return true;
+    }
+
+    bool
+    GpSdfMapping2D::Write(const std::string &filename) const {
+        ERL_INFO("Writing GpSdfMapping2D to file: {}", filename);
+        std::filesystem::create_directories(std::filesystem::path(filename).parent_path());
+        std::ofstream file(filename, std::ios_base::out | std::ios_base::binary);
+        if (!file.is_open()) {
+            ERL_WARN("Failed to open file: {}", filename);
+            return false;
+        }
+
+        const bool success = Write(file);
+        file.close();
+        return success;
+    }
+
+    static const std::string kFileHeader = "# erl::sdf_mapping::GpSdfMapping2D";
+
+    bool
+    GpSdfMapping2D::Write(std::ostream &s) const {
+        s << kFileHeader << std::endl  //
+          << "# (feel free to add / change comments, but leave the first line as it is!)" << std::endl
+          << "setting" << std::endl;
+        // write setting
+        if (!m_setting_->Write(s)) {
+            ERL_WARN("Failed to write setting.");
+            return false;
+        }
+        // write data
+        s << "surface_mapping " << (m_surface_mapping_ != nullptr) << std::endl;
+        if (m_surface_mapping_ != nullptr && !m_surface_mapping_->Write(s)) {
+            ERL_WARN("Failed to write surface mapping.");
+            return false;
+        }
+        // m_clusters_to_update_ is temporary data.
+        // m_candidate_surface_points_ is temporary data.
+        // m_kd_tree_candidate_surface_points_ is temporary data.
+        s << "gp_map " << m_gp_map_.size() << std::endl;
+        for (const auto &[key, gp]: m_gp_map_) {
+            s.write(reinterpret_cast<const char *>(&key[0]), sizeof(key[0]));
+            s.write(reinterpret_cast<const char *>(&key[1]), sizeof(key[1]));
+            const bool gp_exists = gp != nullptr;
+            s.write(reinterpret_cast<const char *>(&gp_exists), sizeof(gp_exists));
+            if (gp_exists && !gp->Write(s)) {
+                ERL_WARN("Failed to write GP.");
+                return false;
+            }
+        }
+        // m_candidate_gps_ is temporary data.
+        // m_kd_tree_candidate_gps_ is temporary data.
+        // m_query_to_gps_ is temporary data.
+        // m_query_used_gps_ is temporary data.
+        // m_new_gps_ is temporary data.
+        // m_gps_to_train_ is temporary data.
+        s << "train_gp_time" << std::endl;
+        s.write(reinterpret_cast<const char *>(&m_train_gp_time_), sizeof(m_train_gp_time_));
+        s << "travel_distance" << std::endl;
+        s.write(reinterpret_cast<const char *>(&m_travel_distance_), sizeof(m_travel_distance_));
+        s << "last_position " << m_last_position_.has_value() << std::endl;
+        if (m_last_position_.has_value()) {
+            if (!common::SaveEigenMatrixToBinaryStream(s, m_last_position_.value())) {
+                ERL_WARN("Failed to write last_position.");
+                return false;
+            }
+        }
+        // m_train_log_file_ is temporary data.
+        // m_test_log_file_ is temporary data.
+        s << "end_of_GpSdfMapping2D" << std::endl;
+        return s.good();
+    }
+
+    bool
+    GpSdfMapping2D::Read(const std::string &filename) {
+        ERL_INFO("Reading GpSdfMapping2D from file: {}", std::filesystem::absolute(filename));
+        std::ifstream file(filename.c_str(), std::ios_base::in | std::ios_base::binary);
+        if (!file.is_open()) {
+            ERL_WARN("Failed to open file: {}", filename.c_str());
+            return false;
+        }
+
+        const bool success = Read(file);
+        file.close();
+        return success;
+    }
+
+    bool
+    GpSdfMapping2D::Read(std::istream &s) {
+        if (!s.good()) {
+            ERL_WARN("Input stream is not ready for reading");
+            return false;
+        }
+
+        // check if the first line is valid
+        std::string line;
+        std::getline(s, line);
+        if (line.compare(0, kFileHeader.length(), kFileHeader) != 0) {  // check if the first line is valid
+            ERL_WARN("Header does not start with \"{}\"", kFileHeader.c_str());
+            return false;
+        }
+
+        auto skip_line = [&s]() {
+            char c;
+            do { c = static_cast<char>(s.get()); } while (s.good() && c != '\n');
+        };
+
+        static const char *tokens[] = {
+            "setting",
+            "surface_mapping",
+            "gp_map",
+            "train_gp_time",
+            "travel_distance",
+            "last_position",
+            "end_of_GpSdfMapping2D",
+        };
+
+        // read data
+        std::string token;
+        int token_idx = 0;
+        while (s.good()) {
+            s >> token;
+            if (token.compare(0, 1, "#") == 0) {
+                skip_line();  // comment line, skip forward until end of line
+                continue;
+            }
+            // non-comment line
+            if (token != tokens[token_idx]) {
+                ERL_WARN("Expected token {}, got {}.", tokens[token_idx], token);  // check token
+                return false;
+            }
+            // reading state machine
+            switch (token_idx) {
+                case 0: {         // setting
+                    skip_line();  // skip the line to read the bindary data section
+                    if (!m_setting_->Read(s)) {
+                        ERL_WARN("Failed to read setting.");
+                        return false;
+                    }
+                    break;
+                }
+                case 1: {  // surface_mapping
+                    bool has_surface_mapping;
+                    s >> has_surface_mapping;
+                    skip_line();
+                    if (has_surface_mapping) {
+                        if (m_surface_mapping_ == nullptr) {
+                            m_surface_mapping_ = geometry::AbstractSurfaceMapping::CreateSurfaceMapping<geometry::AbstractSurfaceMapping2D>(  //
+                                m_setting_->surface_mapping_type,
+                                m_setting_->surface_mapping);
+                        }
+                        if (!m_surface_mapping_->Read(s)) {
+                            ERL_WARN("Failed to read surface mapping.");
+                            return false;
+                        }
+                    }
+                    break;
+                }
+                case 2: {  // gp_map
+                    uint32_t num_gps;
+                    s >> num_gps;
+                    skip_line();
+                    for (uint32_t i = 0; i < num_gps; ++i) {
+                        geometry::QuadtreeKey key;
+                        s.read(reinterpret_cast<char *>(&key[0]), sizeof(key[0]));
+                        s.read(reinterpret_cast<char *>(&key[1]), sizeof(key[1]));
+                        auto [it, inserted] = m_gp_map_.try_emplace(key, nullptr);
+                        if (!inserted) {
+                            ERL_WARN("Duplicate GP key: ({}, {}).", key[0], key[1]);
+                            return false;
+                        }
+                        bool has_gp;
+                        s.read(reinterpret_cast<char *>(&has_gp), sizeof(has_gp));
+                        if (has_gp) {
+                            it->second = std::make_shared<Gp>();
+                            if (!it->second->Read(s, m_setting_->gp_sdf)) {
+                                ERL_WARN("Failed to read GP.");
+                                return false;
+                            }
+                        }
+                    }
+                    break;
+                }
+                case 3: {  // train_gp_time
+                    skip_line();
+                    s.read(reinterpret_cast<char *>(&m_train_gp_time_), sizeof(m_train_gp_time_));
+                    break;
+                }
+                case 4: {  // travel_distance
+                    skip_line();
+                    s.read(reinterpret_cast<char *>(&m_travel_distance_), sizeof(m_travel_distance_));
+                    break;
+                }
+                case 5: {  // last_position
+                    bool has_last_position;
+                    s >> has_last_position;
+                    skip_line();
+                    if (has_last_position) {
+                        if (!common::LoadEigenMatrixFromBinaryStream(s, m_last_position_.emplace())) {
+                            ERL_WARN("Failed to read last_position.");
+                            return false;
+                        }
+                    }
+                    break;
+                }
+                case 6: {  // end_of_GpSdfMapping2D
+                    skip_line();
+                    return true;
+                }
+                default: {  // should not reach here
+                    ERL_FATAL("Internal error, should not reach here.");
+                }
+            }
+            ++token_idx;
+        }
+        ERL_WARN("Failed to read GpSdfMapping2D. Truncated file?");
+        return false;  // should not reach here
+    }
+
     void
     GpSdfMapping2D::UpdateGps(double time_budget) {
         ERL_ASSERTM(m_setting_->gp_sdf_area_scale > 1, "GP area scale must be greater than 1");
 
-        auto t0 = std::chrono::high_resolution_clock::now();
         // add affected clusters
-        geometry::QuadtreeKeySet changed_clusters = m_surface_mapping_->GetChangedClusters();
-        uint32_t cluster_level = m_surface_mapping_->GetClusterLevel();
-        std::shared_ptr<geometry::SurfaceMappingQuadtree> quadtree = m_surface_mapping_->GetQuadtree();
-        uint32_t cluster_depth = quadtree->GetTreeDepth() - cluster_level;
-        double cluster_size = quadtree->GetNodeSize(cluster_depth);
-        double area_half_size = cluster_size * m_setting_->gp_sdf_area_scale / 2;
+        auto t0 = std::chrono::high_resolution_clock::now();
+        auto t_start = t0;
+        const geometry::QuadtreeKeySet changed_clusters = m_surface_mapping_->GetChangedClusters();
+        const uint32_t cluster_level = m_surface_mapping_->GetClusterLevel();
+        const std::shared_ptr<geometry::SurfaceMappingQuadtree> quadtree = m_surface_mapping_->GetQuadtree();
+        const uint32_t cluster_depth = quadtree->GetTreeDepth() - cluster_level;
+        const double cluster_size = quadtree->GetNodeSize(cluster_depth);
+        const double area_half_size = cluster_size * m_setting_->gp_sdf_area_scale / 2;
         geometry::QuadtreeKeySet affected_clusters(changed_clusters);
         for (const auto &cluster_key: changed_clusters) {
-            for (auto it = quadtree->BeginLeafInAabb(geometry::Aabb2D(quadtree->KeyToCoord(cluster_key, cluster_depth), area_half_size)),
-                      end = quadtree->EndLeafInAabb();
+            for (auto it = quadtree->BeginTreeInAabb(geometry::Aabb2D(quadtree->KeyToCoord(cluster_key, cluster_depth), area_half_size), cluster_depth),
+                      end = quadtree->EndTreeInAabb();
                  it != end;
                  ++it) {
+                if (it->GetDepth() != cluster_depth) { continue; }
                 affected_clusters.insert(quadtree->AdjustKeyToDepth(it.GetKey(), cluster_depth));
             }
         }
-
-        // update GPs in affected clusters
-        uint32_t num_threads = std::min(m_setting_->num_threads, std::thread::hardware_concurrency());
-        std::vector<std::thread> threads;
-        threads.reserve(num_threads);
         m_clusters_to_update_.clear();
         m_clusters_to_update_.insert(m_clusters_to_update_.end(), affected_clusters.begin(), affected_clusters.end());
-        // create GPs for new clusters, compute AABB of all clusters to be updated
+        auto t1 = std::chrono::high_resolution_clock::now();
+        auto dt = std::chrono::duration<double, std::milli>(t1 - t0).count();
+        ERL_INFO("Collecte {} -> {} affected clusters: {} ms.", changed_clusters.size(), affected_clusters.size(), dt);
+
+        // update GPs in affected clusters
+        /// create GPs for new clusters, compute AABB of all clusters to be updated
+        t0 = std::chrono::high_resolution_clock::now();
         Eigen::Vector2d search_area_aabb_min = Eigen::Vector2d::Constant(2, std::numeric_limits<double>::max());
         Eigen::Vector2d search_area_aabb_max = Eigen::Vector2d::Constant(2, std::numeric_limits<double>::lowest());
+        long cnt_new_gps = 0;
         for (auto &cluster_key: m_clusters_to_update_) {
-            auto [it, inserted] = m_gp_map_.try_emplace(cluster_key, std::make_shared<Gp>());
+            auto [it, inserted] = m_gp_map_.try_emplace(cluster_key, nullptr);
             if (inserted) {
+                ++cnt_new_gps;
+                it->second = std::make_shared<Gp>();
                 quadtree->KeyToCoord(cluster_key, cluster_depth, it->second->position);
                 it->second->half_size = area_half_size;
             }
@@ -249,19 +699,15 @@ namespace erl::sdf_mapping {
             search_area_aabb_min = search_area_aabb_min.cwiseMin(aabb_min);
             search_area_aabb_max = search_area_aabb_max.cwiseMax(aabb_max);
         }
-        // collect surface data in the area
-        m_candidate_surface_points_.clear();
-        for (auto it = quadtree->BeginLeafInAabb(geometry::Aabb2D(search_area_aabb_min, search_area_aabb_max)), end = quadtree->EndLeafInAabb(); it != end;
-             ++it) {
-            auto surface_data = it->GetSurfaceData();
-            if (surface_data == nullptr) { continue; }  // no surface data in the node
-            m_candidate_surface_points_.emplace_back(surface_data);
-        }
-        // build kdtree of surface points
-        Eigen::Matrix2Xd surface_points(2, m_candidate_surface_points_.size());
-        for (long i = 0; i < static_cast<long>(m_candidate_surface_points_.size()); ++i) { surface_points.col(i) = m_candidate_surface_points_[i]->position; }
-        m_kd_tree_candidate_surface_points_ = std::make_shared<geometry::KdTree2d>(std::move(surface_points));
-        // create threads to udpate GPs
+        t1 = std::chrono::high_resolution_clock::now();
+        dt = std::chrono::duration<double, std::milli>(t1 - t0).count();
+        ERL_INFO("{} new GP(s) created, {} ms.", cnt_new_gps, dt);
+
+        /// create threads to update GPs
+        t0 = std::chrono::high_resolution_clock::now();
+        uint32_t num_threads = std::min(m_setting_->num_threads, std::thread::hardware_concurrency());
+        std::vector<std::thread> threads;
+        threads.reserve(num_threads);
         const std::size_t batch_size = m_clusters_to_update_.size() / num_threads;
         const std::size_t left_over = m_clusters_to_update_.size() - batch_size * num_threads;
         std::size_t end_idx = 0;
@@ -272,50 +718,62 @@ namespace erl::sdf_mapping {
             threads.emplace_back(&GpSdfMapping2D::UpdateGpThread, this, thread_idx, start_idx, end_idx);
         }
         for (uint32_t thread_idx = 0; thread_idx < num_threads; ++thread_idx) { threads[thread_idx].join(); }
+        threads.clear();
+        t1 = std::chrono::high_resolution_clock::now();
+        dt = std::chrono::duration<double, std::milli>(t1 - t0).count();
+        ERL_INFO("Update GPs' training data: {:f} ms, {} GPs.", dt, m_clusters_to_update_.size());
 
-        if (m_setting_->train_gp_immediately) {  // new GPs are already trained in UpdateGpThread
-            auto t1 = std::chrono::high_resolution_clock::now();
-            auto dt = std::chrono::duration<double, std::micro>(t1 - t0).count();
-            ERL_INFO("Update GPs' training data: {:f} us.", dt);
-            return;
-        }
-
-        for (auto &cluster_key: m_clusters_to_update_) {
-            auto it = m_gp_map_.find(cluster_key);
-            if (it == m_gp_map_.end() || !it->second->active) { continue; }  // GP does not exist or deactivated (e.g. due to no training data)
-            if (it->second->gp != nullptr && !it->second->gp->IsTrained()) { m_new_gps_.push_front(it->second); }
-        }
-        auto t1 = std::chrono::high_resolution_clock::now();
-        auto dt = std::chrono::duration<double, std::milli>(t1 - t0).count();
-        ERL_INFO("Update GPs' training data: {:f} ms.", dt);
-        time_budget -= dt * 1e3;  // us
-
-        // train as many new GPs as possible within the time limit
-        if (time_budget <= m_train_gp_time_) {  // no time left for training
-            ERL_INFO("{} GP(s) not trained yet due to time limit.", m_new_gps_.size());
-            return;
-        }
-
-        auto max_num_gps_to_train = static_cast<std::size_t>(std::floor(time_budget / m_train_gp_time_));
-        max_num_gps_to_train = std::min(max_num_gps_to_train, m_new_gps_.size());
-        std::unordered_set<std::shared_ptr<Gp>> gps_to_train;
-        while (!m_new_gps_.empty() && gps_to_train.size() < max_num_gps_to_train) {
-            if (auto maybe_new_gp = m_new_gps_.front(); maybe_new_gp->active && maybe_new_gp->gp != nullptr && !maybe_new_gp->gp->IsTrained()) {
-                gps_to_train.insert(maybe_new_gp);
+        if (!m_setting_->train_gp_immediately) {
+            t0 = std::chrono::high_resolution_clock::now();
+            for (auto &cluster_key: m_clusters_to_update_) {
+                auto it = m_gp_map_.find(cluster_key);
+                if (it == m_gp_map_.end() || !it->second->active) { continue; }  // GP does not exist or deactivated (e.g. due to no training data)
+                if (it->second->gp != nullptr && !it->second->gp->IsTrained()) {
+                    auto time_stamp = std::chrono::high_resolution_clock::now().time_since_epoch().count();
+                    if (m_new_gp_keys_.find(cluster_key) == m_new_gp_keys_.end()) {
+                        m_new_gp_keys_.insert({cluster_key, m_new_gp_queue_.push({time_stamp, cluster_key})});
+                    } else {
+                        auto &heap_key = m_new_gp_keys_.at(cluster_key);
+                        (*heap_key).time_stamp = time_stamp;
+                        m_new_gp_queue_.increase(heap_key);
+                    }
+                }
             }
-            m_new_gps_.pop_front();
-        }
-        m_gps_to_train_.clear();
-        m_gps_to_train_.insert(m_gps_to_train_.end(), gps_to_train.begin(), gps_to_train.end());
-        TrainGps();
-        ERL_INFO("{} GP(s) not trained yet due to time limit.", m_new_gps_.size());
+            t1 = std::chrono::high_resolution_clock::now();
+            dt = std::chrono::duration<double, std::milli>(t1 - t0).count();
+            ERL_INFO("Collect GPs to train: {} ms.", dt);
 
-        m_train_log_file_ << "," << dt << "," << m_new_gps_.size() << "," << m_train_gp_time_;
+            dt = std::chrono::duration<double, std::milli>(t1 - t_start).count();
+            time_budget -= dt * 1e3;  // us
+
+            // train as many new GPs as possible within the time limit
+            if (time_budget > m_train_gp_time_) {
+                auto max_num_gps_to_train = static_cast<std::size_t>(std::floor(time_budget / m_train_gp_time_));
+                max_num_gps_to_train = std::min(max_num_gps_to_train, m_new_gp_queue_.size());
+                m_gps_to_train_.clear();
+                while (!m_new_gp_queue_.empty() && m_gps_to_train_.size() < max_num_gps_to_train) {
+                    geometry::QuadtreeKey cluster_key = m_new_gp_queue_.top().key;
+                    m_new_gp_queue_.pop();
+                    m_new_gp_keys_.erase(cluster_key);
+                    auto it = m_gp_map_.find(cluster_key);
+                    auto gp = it->second;
+                    if (it == m_gp_map_.end() || !gp->active) { continue; }  // GP does not exist or deactivated (e.g. due to no training data)
+                    if (gp->gp != nullptr && !gp->gp->IsTrained()) { m_gps_to_train_.push_back(gp); }
+                }
+                TrainGps();
+            }
+            ERL_INFO("{} GP(s) not trained yet due to time limit.", m_new_gp_queue_.size());
+        }
+
+        dt = std::chrono::duration<double, std::milli>(std::chrono::high_resolution_clock::now() - t_start).count();
+        m_train_log_file_ << "," << dt << "," << m_new_gp_queue_.size() << "," << m_train_gp_time_;
     }
 
     void
     GpSdfMapping2D::UpdateGpThread(const uint32_t thread_idx, const std::size_t start_idx, const std::size_t end_idx) {
+        ERL_TRACY_SET_THREAD_NAME(fmt::format("{}:{}", __PRETTY_FUNCTION__, thread_idx).c_str());
         (void) thread_idx;
+
         const auto quadtree = m_surface_mapping_->GetQuadtree();
         if (quadtree == nullptr) { return; }
         const double sensor_noise = m_surface_mapping_->GetSensorNoise();
@@ -341,19 +799,22 @@ namespace erl::sdf_mapping {
             if (gp->gp == nullptr) { gp->gp = std::make_shared<LogSdfGaussianProcess>(m_setting_->gp_sdf); }
 
             // collect surface data in the area
-            std::vector<nanoflann::ResultItem<long>> indices_dists;
-            m_kd_tree_candidate_surface_points_->RadiusSearch(gp->position, aabb_half_size, indices_dists, true);
-            if (indices_dists.empty()) {  // no surface data in the area
-                gp->active = false;       // deactivate the GP if there is no training data
+            surface_data_vec.clear();
+            for (auto it = quadtree->BeginLeafInAabb(geometry::Aabb2D(quadtree->KeyToCoord(cluster_key, cluster_depth), aabb_half_size)),
+                      end = quadtree->EndLeafInAabb();
+                 it != end;
+                 ++it) {
+                auto surface_data = it->GetSurfaceData();
+                if (surface_data == nullptr) { continue; }  // no surface data in the node
+                surface_data_vec.emplace_back((gp->position - surface_data->position).norm(), surface_data);
+                if (surface_data_vec.size() >= max_num_samples) { break; }
+            }
+            if (surface_data_vec.empty()) {  // no surface data in the area
+                gp->active = false;          // deactivate the GP if there is no training data
                 gp->num_train_samples = 0;
                 continue;
             }
-            surface_data_vec.clear();
-            for (const auto &result_item: indices_dists) {
-                const auto &surface_data = m_candidate_surface_points_[result_item.first];
-                surface_data_vec.emplace_back(std::sqrt(result_item.second), surface_data);
-                if (surface_data_vec.size() >= max_num_samples) { break; }
-            }
+            std::sort(surface_data_vec.begin(), surface_data_vec.end(), [](const auto &a, const auto &b) { return a.first < b.first; });
 
             // prepare data for GP training
             gp->gp->Reset(static_cast<long>(surface_data_vec.size()), 2);
@@ -436,9 +897,11 @@ namespace erl::sdf_mapping {
             intersection = std::move(new_intersection);
         }
         // build kdtree of candidate GPs
-        Eigen::Matrix2Xd positions(2, m_candidate_gps_.size());
-        for (std::size_t i = 0; i < m_candidate_gps_.size(); ++i) { positions.col(static_cast<long>(i)) = m_candidate_gps_[i].second->position; }
-        m_kd_tree_candidate_gps_ = std::make_shared<geometry::KdTree2d>(std::move(positions));
+        if (!m_candidate_gps_.empty()) {
+            Eigen::Matrix2Xd positions(2, m_candidate_gps_.size());
+            for (std::size_t i = 0; i < m_candidate_gps_.size(); ++i) { positions.col(static_cast<long>(i)) = m_candidate_gps_[i].second->position; }
+            m_kd_tree_candidate_gps_ = std::make_shared<geometry::KdTree2d>(std::move(positions));
+        }
         const auto t1 = std::chrono::high_resolution_clock::now();
         const double dt = std::chrono::duration<double, std::milli>(t1 - t0).count();
         ERL_INFO("{} candidate GPs found.", m_candidate_gps_.size());
@@ -447,12 +910,13 @@ namespace erl::sdf_mapping {
 
     void
     GpSdfMapping2D::SearchGpThread(uint32_t thread_idx, std::size_t start_idx, std::size_t end_idx) {
+        ERL_TRACY_SET_THREAD_NAME(fmt::format("{}:{}", __PRETTY_FUNCTION__, thread_idx).c_str());
         (void) thread_idx;
-        if (m_surface_mapping_ == nullptr) { return; }
 
-        auto quadtree = m_surface_mapping_->GetQuadtree();
-        uint32_t cluster_level = m_surface_mapping_->GetClusterLevel();
-        uint32_t cluster_depth = quadtree->GetTreeDepth() - cluster_level;
+        if (m_surface_mapping_ == nullptr) { return; }
+        const auto quadtree = m_surface_mapping_->GetQuadtree();
+        const uint32_t cluster_level = m_surface_mapping_->GetClusterLevel();
+        const uint32_t cluster_depth = quadtree->GetTreeDepth() - cluster_level;
         const geometry::Aabb2D quadtree_aabb = quadtree->GetMetricAabb();
 
         for (uint32_t i = start_idx; i < end_idx; ++i) {
@@ -528,9 +992,10 @@ namespace erl::sdf_mapping {
 
     void
     GpSdfMapping2D::TestGpThread(uint32_t thread_idx, std::size_t start_idx, std::size_t end_idx) {
+        ERL_TRACY_SET_THREAD_NAME(fmt::format("{}:{}", __PRETTY_FUNCTION__, thread_idx).c_str());
         (void) thread_idx;
-        if (m_surface_mapping_ == nullptr) { return; }
 
+        if (m_surface_mapping_ == nullptr) { return; }
         std::vector<size_t> idx;
         constexpr int max_tries = 4;
         Eigen::Matrix3Xd fs(3, max_tries);          // f, fGrad1, fGrad2
@@ -541,6 +1006,13 @@ namespace erl::sdf_mapping {
         std::vector<std::pair<long, long>> tested_idx;
         tested_idx.reserve(max_tries);
 
+        const bool recompute_variance = m_setting_->test_query->recompute_variance;
+        const bool compute_covariance = m_setting_->test_query->compute_covariance;
+        const bool use_nearest_only = m_setting_->test_query->use_nearest_only;
+        const double max_test_valid_distance_var = m_setting_->test_query->max_test_valid_distance_var;
+        const double softmax_temperature = m_setting_->test_query->softmax_temperature;
+        const double offset_distance = m_setting_->offset_distance;
+
         for (uint32_t i = start_idx; i < end_idx; ++i) {
             double &distance_out = (*m_test_buffer_.distances)[i];
             auto gradient_out = m_test_buffer_.gradients->col(i);
@@ -550,7 +1022,7 @@ namespace erl::sdf_mapping {
             gradient_out.setZero();
 
             variances.setConstant(1e6);
-            if (m_setting_->test_query->compute_covariance) { covariance.setConstant(1e6); }
+            if (compute_covariance) { covariance.setConstant(1e6); }
 
             auto &gps = m_query_to_gps_[i];
             if (gps.empty()) { continue; }
@@ -571,8 +1043,8 @@ namespace erl::sdf_mapping {
                 Eigen::Ref<Eigen::VectorXd> var = variances.col(cnt);  // var_distance, var_gradient_x, var_gradient_y
                 auto &gp = gps[j].second->gp;
 
-                if (m_setting_->test_query->recompute_variance) {
-                    if (m_setting_->test_query->compute_covariance) {
+                if (recompute_variance) {
+                    if (compute_covariance) {
                         gp->Test(position, f, no_variance, covariance.col(cnt));
                     } else {
                         gp->Test(position, f, no_variance, no_covariance);
@@ -596,7 +1068,7 @@ namespace erl::sdf_mapping {
                     double var_theta = 0;
                     for (long k = 0; k < num_samples; ++k) {
                         const double d = (mat_x.col(k) - predicted_surf_position).norm();
-                        weight[k] = std::max(1.e-6, std::exp(-d * m_setting_->test_query->softmax_temperature));
+                        weight[k] = std::max(1.e-6, std::exp(-d * softmax_temperature));
                         weight_sum += weight[k];
 
                         var_sdf += weight[k] * vec_x_var[k];
@@ -611,13 +1083,13 @@ namespace erl::sdf_mapping {
                     var_sdf /= weight_sum;
                     var_theta /= weight_sum;
 
-                    double theta0 = std::atan2(grad.y(), grad.x());
-                    double sin_theta0 = std::sin(theta0);
-                    double cos_theta0 = std::cos(theta0);
+                    const double theta0 = std::atan2(grad.y(), grad.x());
+                    const double sin_theta0 = std::sin(theta0);
+                    const double cos_theta0 = std::cos(theta0);
                     var_grad_x = var_theta * sin_theta0 * sin_theta0;
                     var_grad_y = var_theta * cos_theta0 * cos_theta0;
                 } else {
-                    if (m_setting_->test_query->compute_covariance) {
+                    if (compute_covariance) {
                         gp->Test(position, f, var, covariance.col(cnt));
                     } else {
                         gp->Test(position, f, var, no_covariance);
@@ -626,8 +1098,8 @@ namespace erl::sdf_mapping {
                 }
 
                 tested_idx.emplace_back(cnt++, j);
-                if (m_setting_->test_query->use_nearest_only) { break; }
-                if ((!need_weighted_sum) && (idx.size() > 1) && (var[0] > m_setting_->test_query->max_test_valid_distance_var)) { need_weighted_sum = true; }
+                if (use_nearest_only) { break; }
+                if ((!need_weighted_sum) && (idx.size() > 1) && (var[0] > max_test_valid_distance_var)) { need_weighted_sum = true; }
                 if ((!need_weighted_sum) || (cnt >= max_tries)) { break; }
             }
 
@@ -640,55 +1112,55 @@ namespace erl::sdf_mapping {
 
             // store the result
             if (need_weighted_sum) {
-                if (m_test_buffer_.Size() == 1) { ERL_INFO("SDF1: {:f}, SDF2: {:f}", fs(0, tested_idx[0].first), fs(0, tested_idx[1].first)); }
+                if (m_test_buffer_.Size() == 1) { ERL_DEBUG("SDF1: {:f}, SDF2: {:f}", fs(0, tested_idx[0].first), fs(0, tested_idx[1].first)); }
 
-                if (variances(0, tested_idx[0].first) < m_setting_->test_query->max_test_valid_distance_var) {
+                if (variances(0, tested_idx[0].first) < max_test_valid_distance_var) {
                     auto j = tested_idx[0].first;
                     // column j is the result
                     distance_out = fs(0, j);
                     gradient_out << fs.col(j).tail<2>();
                     variance_out << variances.col(j);
-                    if (m_setting_->test_query->compute_covariance) { m_test_buffer_.covariances->col(i) = covariance.col(j); }
+                    if (compute_covariance) { m_test_buffer_.covariances->col(i) = covariance.col(j); }
                     m_query_used_gps_[i][0] = gps[tested_idx[0].second].second;
                     m_query_used_gps_[i][1] = nullptr;
                 } else {
                     // pick the best two results to do weighted sum
-                    long j_1 = tested_idx[0].first;
-                    long j_2 = tested_idx[1].first;
-                    double w_1 = variances(0, j_1) - m_setting_->test_query->max_test_valid_distance_var;
-                    double w_2 = variances(0, j_2) - m_setting_->test_query->max_test_valid_distance_var;
-                    double w_12 = w_1 + w_2;
+                    long j1 = tested_idx[0].first;
+                    long j2 = tested_idx[1].first;
+                    double w1 = variances(0, j1) - m_setting_->test_query->max_test_valid_distance_var;
+                    double w2 = variances(0, j2) - m_setting_->test_query->max_test_valid_distance_var;
+                    double w12 = w1 + w2;
                     // clang-format off
-                    distance_out = (fs(0, j_1) * w_2 + fs(0, j_2) * w_1) / w_12;
-                    gradient_out << (fs(1, j_1) * w_2 + fs(1, j_2) * w_1) / w_12,
-                                    (fs(2, j_1) * w_2 + fs(2, j_2) * w_1) / w_12;
+                    distance_out = (fs(0, j1) * w2 + fs(0, j2) * w1) / w12;
+                    gradient_out << (fs(1, j1) * w2 + fs(1, j2) * w1) / w12,
+                                    (fs(2, j1) * w2 + fs(2, j2) * w1) / w12;
                     variance_out <<
-                        (variances(0, j_1) * w_2 + variances(0, j_2) * w_1) / w_12,
-                        (variances(1, j_1) * w_2 + variances(1, j_2) * w_1) / w_12,
-                        (variances(2, j_1) * w_2 + variances(2, j_2) * w_1) / w_12;
-                    if (m_setting_->test_query->compute_covariance) {
+                        (variances(0, j1) * w2 + variances(0, j2) * w1) / w12,
+                        (variances(1, j1) * w2 + variances(1, j2) * w1) / w12,
+                        (variances(2, j1) * w2 + variances(2, j2) * w1) / w12;
+                    if (compute_covariance) {
                         m_test_buffer_.covariances->col(i) <<
-                            (covariance(0, j_1) * w_2 + covariance(0, j_2) * w_1) / w_12,
-                            (covariance(1, j_1) * w_2 + covariance(1, j_2) * w_1) / w_12,
-                            (covariance(2, j_1) * w_2 + covariance(2, j_2) * w_1) / w_12;
+                            (covariance(0, j1) * w2 + covariance(0, j2) * w1) / w12,
+                            (covariance(1, j1) * w2 + covariance(1, j2) * w1) / w12,
+                            (covariance(2, j1) * w2 + covariance(2, j2) * w1) / w12;
                     }
                     // clang-format on
                     m_query_used_gps_[i][0] = gps[tested_idx[0].second].second;
                     m_query_used_gps_[i][1] = gps[tested_idx[1].second].second;
                 }
             } else {
-                if (m_test_buffer_.Size() == 1) { ERL_INFO("SDF1: {}", fs(0, tested_idx[0].first)); }
+                if (m_test_buffer_.Size() == 1) { ERL_DEBUG("SDF1: {}", fs(0, tested_idx[0].first)); }
 
                 // the first column is the result
                 distance_out = fs(0, 0);
                 gradient_out << fs(1, 0), fs(2, 0);
                 variance_out << variances.col(0);
-                if (m_setting_->test_query->compute_covariance) { m_test_buffer_.covariances->col(i) = covariance.col(0); }
+                if (compute_covariance) { m_test_buffer_.covariances->col(i) = covariance.col(0); }
                 m_query_used_gps_[i][0] = gps[tested_idx[0].second].second;
                 m_query_used_gps_[i][1] = nullptr;
             }
 
-            distance_out -= m_setting_->offset_distance;
+            distance_out -= offset_distance;
             gradient_out.normalize();
         }
     }

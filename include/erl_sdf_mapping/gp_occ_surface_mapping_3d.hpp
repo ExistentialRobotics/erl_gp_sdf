@@ -36,6 +36,11 @@ namespace erl::sdf_mapping {
             return m_setting_;
         }
 
+        [[nodiscard]] std::shared_ptr<const gaussian_process::RangeSensorGaussianProcess3D>
+        GetSensorGp() const {
+            return m_sensor_gp_;
+        }
+
         geometry::OctreeKeySet
         GetChangedClusters() override {
             return m_changed_keys_;
@@ -61,6 +66,21 @@ namespace erl::sdf_mapping {
             const Eigen::Ref<const Eigen::Matrix3d> &rotation,
             const Eigen::Ref<const Eigen::Vector3d> &translation,
             const Eigen::Ref<const Eigen::MatrixXd> &ranges) override;
+
+        [[nodiscard]] bool
+        operator==(const AbstractSurfaceMapping3D &other) const override;
+
+        [[nodiscard]] bool
+        Write(const std::string &filename) const override;
+
+        [[nodiscard]] bool
+        Write(std::ostream &s) const override;
+
+        [[nodiscard]] bool
+        Read(const std::string &filename) override;
+
+        [[nodiscard]] bool
+        Read(std::istream &s) override;
 
     protected:
         void
@@ -96,6 +116,8 @@ namespace erl::sdf_mapping {
             double &var_position,
             double &var_gradient) const;
     };
+
+    ERL_REGISTER_SURFACE_MAPPING(GpOccSurfaceMapping3D);
 }  // namespace erl::sdf_mapping
 
 // ReSharper disable CppInconsistentNaming
