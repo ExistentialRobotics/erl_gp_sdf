@@ -1,7 +1,7 @@
 num_threads: 64
-update_hz: 20
+update_hz: 10
 log_timing: true
-gp_sdf_area_scale: 2
+gp_sdf_area_scale: 3
 offset_distance: 0.08
 max_valid_gradient_var: 0.001
 invalid_position_var: 0.005
@@ -11,13 +11,13 @@ gp_sdf:
     kernel:
         x_dim: 3
         alpha: 1
-        scale: 2.0
+        scale: 3.0
         scale_mix: 1
         weights: [ ]
     log_lambda: 40
-    edf_threshold: 0.1
+    edf_threshold: 0.05
     unify_scale: false
-    max_num_samples: 192   # max dataset size
+    max_num_samples: 96   # max dataset size
 test_query:
     max_test_valid_distance_var: 0.02
     search_area_half_size: 2

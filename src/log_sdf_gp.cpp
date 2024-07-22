@@ -11,6 +11,7 @@ namespace erl::sdf_mapping {
         if (m_setting_->max_num_samples <= 0 || m_setting_->kernel->x_dim <= 0) { AllocateMemory2(max_num_samples, x_dim); }
         if (m_setting_->unify_scale) {
             m_setting_->kernel->scale = std::sqrt(3.) / m_setting_->log_lambda;
+            // we don't need to reconstruct NoisyInputGaussianProcess::m_kernel_ since it shares the same kernel setting
             m_kernel_ = covariance::Covariance::CreateCovariance(m_setting_->kernel_type, m_setting_->kernel);
         } else {
             const auto kernel_setting = std::make_shared<covariance::Covariance::Setting>(*m_setting_->kernel);  // copy kernel setting
@@ -359,6 +360,14 @@ namespace erl::sdf_mapping {
                 }
                 case 4: {  // end_of_LogSdfGaussianProcess
                     skip_line();
+                    if (m_setting_->unify_scale) {
+                        m_setting_->kernel->scale = std::sqrt(3.) / m_setting_->log_lambda;
+                        m_kernel_ = covariance::Covariance::CreateCovariance(m_setting_->kernel_type, m_setting_->kernel);
+                    } else {
+                        const auto kernel_setting = std::make_shared<covariance::Covariance::Setting>(*m_setting_->kernel);  // copy kernel setting
+                        kernel_setting->scale = std::sqrt(3.) / m_setting_->log_lambda;
+                        m_kernel_ = covariance::Covariance::CreateCovariance(m_setting_->kernel_type, kernel_setting);
+                    }
                     return true;
                 }
                 default: {

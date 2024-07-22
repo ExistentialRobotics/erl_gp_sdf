@@ -22,13 +22,14 @@ struct Options {
     std::string mesh_file = kProjectRootDir / "data" / "replica-hotel-0.ply";       // mesh file
     std::string traj_file = kProjectRootDir / "data" / "replica-hotel-0-traj.txt";  // trajectory file
     std::string sdf_mapping_config_file = kProjectRootDir / "config" / "sdf_mapping_3d_lidar.yaml";
+    std::string sdf_mapping_bin_file;
     long stride = 1;
     long max_frames = std::numeric_limits<long>::max();
     double test_res = 0.02;
     long test_xs = 150;
     long test_ys = 100;
     bool test_whole_map_at_end = false;  // test the whole map at the end
-    double test_z = 0.7;                 // test z for the whole map
+    double test_z = 0.0;                 // test z for the whole map
     double image_resize_scale = 10;      // image resize scale
     bool test_io = false;
     bool hold = false;
@@ -143,6 +144,11 @@ TEST(GpSdfMapping3D, Build_Save_Load) {
 
     // prepare the mapping
     erl::sdf_mapping::GpSdfMapping3D sdf_mapping(sdf_mapping_setting);
+    bool skip_training = false;
+    if (!g_options.sdf_mapping_bin_file.empty() && std::filesystem::exists(g_options.sdf_mapping_bin_file)) {
+        ERL_ASSERTM(sdf_mapping.Read(g_options.sdf_mapping_bin_file), "Failed to read from file: {}", g_options.sdf_mapping_bin_file);
+        skip_training = true;
+    }
     const auto surface_mapping = std::dynamic_pointer_cast<erl::sdf_mapping::GpOccSurfaceMapping3D>(sdf_mapping.GetSurfaceMapping());
 
     // prepare the visualizer
@@ -191,7 +197,7 @@ TEST(GpSdfMapping3D, Build_Save_Load) {
             return false;
         }
 
-        if (wp_idx >= max_wp_idx) {
+        if (skip_training || wp_idx >= max_wp_idx) {
             animation_ended = true;
             if (g_options.test_whole_map_at_end) {
                 erl::common::GridMapInfo2D grid_map_info(
@@ -221,7 +227,7 @@ TEST(GpSdfMapping3D, Build_Save_Load) {
                 cv::imshow("sdf_sign_whole_map", img_sdf_sign);
                 cv::waitKey(1);
             }
-            if (g_options.test_io) {
+            if (!skip_training && g_options.test_io) {
                 const erl::common::BlockTimer<std::chrono::milliseconds> timer("IO");
                 (void) timer;
                 const auto filename = test_output_dir / "gp_sdf_mapping_3d.bin";
@@ -416,6 +422,11 @@ main(int argc, char *argv[]) {
                 "sdf-mapping-config-file",
                 po::value<std::string>(&g_options.sdf_mapping_config_file)->default_value(g_options.sdf_mapping_config_file)->value_name("file"),
                 "SDF mapping config file"
+            )
+            (
+                "sdf-mapping-bin-file",
+                po::value<std::string>(&g_options.sdf_mapping_bin_file)->default_value(g_options.sdf_mapping_bin_file)->value_name("file"),
+                "SDF mapping bin file"
             )
             ("stride", po::value<long>(&g_options.stride)->default_value(g_options.stride)->value_name("stride"), "stride")
             ("max-frames", po::value<long>(&g_options.max_frames)->default_value(g_options.max_frames)->value_name("frames"), "max number of frames to process")

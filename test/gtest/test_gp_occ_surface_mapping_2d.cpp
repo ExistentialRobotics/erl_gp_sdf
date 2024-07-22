@@ -163,7 +163,7 @@ TEST(GpOccSurfaceMapping2D, Build_Save_Load) {
             const auto &angles = train_angles.back();
             const Eigen::VectorXd &ranges = train_ranges.back();
             for (long k = 0; k < num_rays; k++) {
-                if (std::isnan(ranges[k]) || std::isinf(ranges[k])) { continue; }
+                if (!std::isfinite(ranges[k])) { continue; }
                 double angle = angles[k];
                 double range = ranges[k];
                 Eigen::Vector2d point = pose * Eigen::Vector3d(range * std::cos(angle), range * std::sin(angle), 1);

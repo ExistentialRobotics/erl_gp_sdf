@@ -1,5 +1,5 @@
 #include "erl_common/pybind11.hpp"
-#include "erl_sdf_mapping/gp_sdf_mapping_setting.hpp"
+#include "erl_sdf_mapping/gp_sdf_mapping_base_setting.hpp"
 
 void
 BindGpSdfMappingSetting(const py::module &m) {

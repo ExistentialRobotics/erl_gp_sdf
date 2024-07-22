@@ -18,7 +18,7 @@ BindGpSdfMapping2D(const py::module &m) {
         .def_readonly("gp", &GpSdfMapping2D::Gp::gp)
         .def("train", &GpSdfMapping2D::Gp::Train);
 
-    sdf_mapping.def(py::init<std::shared_ptr<AbstractSurfaceMapping2D>, std::shared_ptr<GpSdfMappingBaseSetting>>(), py::arg("surface_mapping"), py::arg("setting"))
+    sdf_mapping.def(py::init<std::shared_ptr<GpSdfMapping2D::Setting>>(), py::arg("setting"))
         .def_property_readonly("setting", &GpSdfMapping2D::GetSetting)
         .def_property_readonly("surface_mapping", &GpSdfMapping2D::GetSurfaceMapping)
         .def("update", &GpSdfMapping2D::Update, py::arg("rotation"), py::arg("translation"), py::arg("ranges"))
@@ -33,5 +33,9 @@ BindGpSdfMapping2D(const py::module &m) {
                 }
                 return py::make_tuple(py::none(), py::none(), py::none(), py::none());
             },
-            py::arg("positions"));
+            py::arg("positions"))
+        .def("__eq__", &GpSdfMapping2D::operator==)
+        .def("__ne__", &GpSdfMapping2D::operator!=)
+        .def("write", py::overload_cast<const std::string &>(&GpSdfMapping2D::Write, py::const_), py::arg("filename"))
+        .def("read", py::overload_cast<const std::string &>(&GpSdfMapping2D::Read), py::arg("filename"));
 }

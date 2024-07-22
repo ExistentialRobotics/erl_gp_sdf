@@ -444,6 +444,12 @@ namespace erl::sdf_mapping {
             if (gp == nullptr && other_gp != nullptr) { return false; }
             if (gp != nullptr && (other_gp == nullptr || *gp != *other_gp)) { return false; }
         }
+        if (m_new_gp_keys_.size() != other.m_new_gp_keys_.size()) { return false; }
+        for (const auto &[key, handle]: m_new_gp_keys_) {
+            const auto it = other.m_new_gp_keys_.find(key);
+            if (it == other.m_new_gp_keys_.end()) { return false; }
+            if ((*handle).time_stamp != (*it->second).time_stamp) { return false; }
+        }
         if (m_train_gp_time_ != other.m_train_gp_time_) { return false; }
         if (m_travel_distance_ != other.m_travel_distance_) { return false; }
         if (m_last_position_ != other.m_last_position_) { return false; }
@@ -484,8 +490,6 @@ namespace erl::sdf_mapping {
             return false;
         }
         // m_clusters_to_update_ is temporary data.
-        // m_candidate_surface_points_ is temporary data.
-        // m_kd_tree_candidate_surface_points_ is temporary data.
         s << "gp_map " << m_gp_map_.size() << std::endl;
         for (const auto &[key, gp]: m_gp_map_) {
             s.write(reinterpret_cast<const char *>(&key[0]), sizeof(key[0]));
@@ -502,7 +506,14 @@ namespace erl::sdf_mapping {
         // m_kd_tree_candidate_gps_ is temporary data.
         // m_query_to_gps_ is temporary data.
         // m_query_used_gps_ is temporary data.
-        // m_new_gps_ is temporary data.
+        s << "new_gp_keys " << m_new_gp_keys_.size() << std::endl;
+        for (const auto &[key, handle]: m_new_gp_keys_) {
+            s.write(reinterpret_cast<const char *>(&key[0]), sizeof(key[0]));
+            s.write(reinterpret_cast<const char *>(&key[1]), sizeof(key[1]));
+            s.write(reinterpret_cast<const char *>(&key[2]), sizeof(key[2]));
+            s.write(reinterpret_cast<const char *>(&(*handle).time_stamp), sizeof((*handle).time_stamp));
+        }
+        // m_new_gp_queue_ can be reconstructed from m_new_gp_keys_.
         // m_gps_to_train_ is temporary data.
         s << "train_gp_time" << std::endl;
         s.write(reinterpret_cast<const char *>(&m_train_gp_time_), sizeof(m_train_gp_time_));
@@ -559,6 +570,7 @@ namespace erl::sdf_mapping {
             "setting",
             "surface_mapping",
             "gp_map",
+            "new_gp_keys",
             "train_gp_time",
             "travel_distance",
             "last_position",
@@ -632,17 +644,32 @@ namespace erl::sdf_mapping {
                     }
                     break;
                 }
-                case 3: {  // train_gp_time
+                case 3: {  // new_gp_keys
+                    uint32_t num_new_gp_keys;
+                    s >> num_new_gp_keys;
+                    skip_line();
+                    for (uint32_t i = 0; i < num_new_gp_keys; ++i) {
+                        geometry::OctreeKey key;
+                        s.read(reinterpret_cast<char *>(&key[0]), sizeof(key[0]));
+                        s.read(reinterpret_cast<char *>(&key[1]), sizeof(key[1]));
+                        s.read(reinterpret_cast<char *>(&key[2]), sizeof(key[2]));
+                        long time_stamp;
+                        s.read(reinterpret_cast<char *>(&time_stamp), sizeof(time_stamp));
+                        m_new_gp_keys_.insert({key, m_new_gp_queue_.push({time_stamp, key})});
+                    }
+                    break;
+                }
+                case 4: {  // train_gp_time
                     skip_line();
                     s.read(reinterpret_cast<char *>(&m_train_gp_time_), sizeof(m_train_gp_time_));
                     break;
                 }
-                case 4: {  // travel_distance
+                case 5: {  // travel_distance
                     skip_line();
                     s.read(reinterpret_cast<char *>(&m_travel_distance_), sizeof(m_travel_distance_));
                     break;
                 }
-                case 5: {  // last_position
+                case 6: {  // last_position
                     bool has_last_position;
                     s >> has_last_position;
                     skip_line();
@@ -654,7 +681,7 @@ namespace erl::sdf_mapping {
                     }
                     break;
                 }
-                case 6: {  // end_of_GpSdfMapping3D
+                case 7: {  // end_of_GpSdfMapping3D
                     skip_line();
                     return true;
                 }
@@ -700,8 +727,6 @@ namespace erl::sdf_mapping {
         // update GPs in affected clusters
         /// create GPs for new clusters, compute AABB of all clusters to be updated
         t0 = std::chrono::high_resolution_clock::now();
-        Eigen::Vector3d search_area_aabb_min = Eigen::Vector3d::Constant(3, std::numeric_limits<double>::max());
-        Eigen::Vector3d search_area_aabb_max = Eigen::Vector3d::Constant(3, std::numeric_limits<double>::lowest());
         long cnt_new_gps = 0;
         for (auto &cluster_key: m_clusters_to_update_) {
             auto [it, inserted] = m_gp_map_.try_emplace(cluster_key, nullptr);
@@ -711,10 +736,6 @@ namespace erl::sdf_mapping {
                 octree->KeyToCoord(cluster_key, cluster_depth, it->second->position);
                 it->second->half_size = area_half_size;
             }
-            Eigen::Vector3d aabb_min = it->second->position.array() - area_half_size;
-            Eigen::Vector3d aabb_max = it->second->position.array() + area_half_size;
-            search_area_aabb_min = search_area_aabb_min.cwiseMin(aabb_min);
-            search_area_aabb_max = search_area_aabb_max.cwiseMax(aabb_max);
         }
         t1 = std::chrono::high_resolution_clock::now();
         dt = std::chrono::duration<double, std::milli>(t1 - t0).count();
@@ -824,7 +845,6 @@ namespace erl::sdf_mapping {
                 auto surface_data = it->GetSurfaceData();
                 if (surface_data == nullptr) { continue; }  // no surface data in the node
                 surface_data_vec.emplace_back((gp->position - surface_data->position).norm(), surface_data);
-                if (surface_data_vec.size() >= max_num_samples) { break; }
             }
             if (surface_data_vec.empty()) {  // no surface data in the area
                 gp->active = false;          // deactivate the GP if there is no training data
@@ -832,6 +852,7 @@ namespace erl::sdf_mapping {
                 continue;
             }
             std::sort(surface_data_vec.begin(), surface_data_vec.end(), [](const auto &a, const auto &b) { return a.first < b.first; });
+            if (surface_data_vec.size() > static_cast<std::size_t>(max_num_samples)) { surface_data_vec.resize(max_num_samples); }
 
             // prepare data for GP training
             gp->gp->Reset(static_cast<long>(surface_data_vec.size()), 3);

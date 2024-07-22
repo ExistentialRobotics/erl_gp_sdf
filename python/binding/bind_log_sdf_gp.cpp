@@ -12,7 +12,8 @@ BindLogSdfGaussianProcess(const py::module &m) {
     py::class_<T::Setting, ParentT::Setting, std::shared_ptr<T::Setting>>(py_log_noisy_input_gp, "Setting")
         .def(py::init<>())
         .def_readwrite("log_lambda", &T::Setting::log_lambda)
-        .def_readwrite("edf_threshold", &T::Setting::edf_threshold);
+        .def_readwrite("edf_threshold", &T::Setting::edf_threshold)
+        .def_readwrite("unify_scale", &T::Setting::unify_scale);
 
     py_log_noisy_input_gp.def(py::init<std::shared_ptr<T::Setting>>(), py::arg("setting").none(false))
         .def_property_readonly("setting", &T::GetSetting)

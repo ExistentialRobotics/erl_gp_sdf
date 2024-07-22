@@ -18,7 +18,7 @@ BindGpSdfMapping3D(const py::module &m) {
         .def_readonly("gp", &GpSdfMapping3D::Gp::gp)
         .def("train", &GpSdfMapping3D::Gp::Train);
 
-    sdf_mapping.def(py::init<std::shared_ptr<AbstractSurfaceMapping3D>, std::shared_ptr<GpSdfMappingBaseSetting>>(), py::arg("surface_mapping"), py::arg("setting"))
+    sdf_mapping.def(py::init<std::shared_ptr<GpSdfMapping3D::Setting>>(), py::arg("setting"))
         .def_property_readonly("setting", &GpSdfMapping3D::GetSetting)
         .def_property_readonly("surface_mapping", &GpSdfMapping3D::GetSurfaceMapping)
         .def("update", &GpSdfMapping3D::Update, py::arg("rotation"), py::arg("translation"), py::arg("ranges"))
@@ -35,5 +35,9 @@ BindGpSdfMapping3D(const py::module &m) {
                 }
                 return py::make_tuple(distances, gradients, variances_out, covariances_out);
             },
-            py::arg("positions"));
+            py::arg("positions"))
+        .def("__eq__", &GpSdfMapping3D::operator==)
+        .def("__ne__", &GpSdfMapping3D::operator!=)
+        .def("write", py::overload_cast<const std::string &>(&GpSdfMapping3D::Write, py::const_), py::arg("filename"))
+        .def("read", py::overload_cast<const std::string &>(&GpSdfMapping3D::Read), py::arg("filename"));
 }

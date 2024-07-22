@@ -11,7 +11,7 @@
 #include <boost/heap/d_ary_heap.hpp>
 
 #include <memory>
-#include <queue>
+#include <vector>
 
 namespace erl::sdf_mapping {
 
