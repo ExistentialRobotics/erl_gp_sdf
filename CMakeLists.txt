@@ -33,7 +33,7 @@ erl_catkin_package(
 ########################
 # define the libraries #
 ########################
-file(GLOB SRC_FILES src/*.cpp src/gpis/*.cpp)
+file(GLOB SRC_FILES src/*.cpp)
 add_library(${PROJECT_NAME} SHARED ${SRC_FILES})
 add_library(${PROJECT_NAME}::${PROJECT_NAME} ALIAS ${PROJECT_NAME})
 target_include_directories(${PROJECT_NAME}
@@ -70,19 +70,6 @@ erl_install(
 #######################################################################################################################
 # TEST
 #######################################################################################################################
-add_library(
-        gpis STATIC
-        test/gpis_map/src/covFnc.cpp
-        test/gpis_map/src/GPisMap.cpp
-        test/gpis_map/src/ObsGP.cpp
-        test/gpis_map/src/OnGpis.cpp
-        test/gpis_map/src/quadtree.cpp
-        test/gpis_map/src/strct.cpp
-)
-target_include_directories(gpis PUBLIC SYSTEM test/gpis_map/include ${catkin_INCLUDE_DIRS})
-target_link_libraries(gpis PUBLIC ${${PROJECT_NAME}_ERL_PACKAGES} ${catkin_LIBRARIES})
-link_libraries(gpis)
-erl_set_gtest_args(test_gp_sdf_mapping_2d --visualize)
 erl_add_tests(
         LIBRARIES ${PROJECT_NAME}
 )

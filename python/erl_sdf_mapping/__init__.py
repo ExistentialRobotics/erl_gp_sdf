@@ -3,19 +3,14 @@ import erl_geometry as geometry
 import erl_gaussian_process as gaussian_process
 
 # import package modules
-from . import gpis
-from erl_sdf_mapping.pyerl_sdf_mapping import LogSdfGaussianProcess
-from erl_sdf_mapping.pyerl_sdf_mapping import AbstractSurfaceMapping2D
-from erl_sdf_mapping.pyerl_sdf_mapping import GpOccSurfaceMapping2D
-from erl_sdf_mapping.pyerl_sdf_mapping import GpSdfMapping2D
+from .pyerl_sdf_mapping import *
 
 __all__ = [
     "geometry",
     "gaussian_process",
-    "gpis",
-    "NoisyInputGaussianProcess",
     "LogSdfGaussianProcess",
-    "AbstractSurfaceMapping2D",
     "GpOccSurfaceMapping2D",
+    "GpOccSurfaceMapping3D",
     "GpSdfMapping2D",
+    "GpSdfMapping3D",
 ]

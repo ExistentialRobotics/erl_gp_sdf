@@ -27,7 +27,7 @@ namespace erl::sdf_mapping {
             bool active = false;
             std::atomic_bool locked_for_test = false;
             long num_train_samples = 0;
-            Eigen::Vector3d position;
+            Eigen::Vector3d position{};
             double half_size = 0;
             std::shared_ptr<LogSdfGaussianProcess> gp = {};
 
@@ -158,12 +158,12 @@ namespace erl::sdf_mapping {
             Eigen::Matrix4Xd& variances_out,
             Eigen::Matrix6Xd& covariances_out);
 
-        const std::vector<std::array<std::shared_ptr<Gp>, 4>>&
+        [[nodiscard]] const std::vector<std::array<std::shared_ptr<Gp>, 4>>&
         GetUsedGps() const {
             return m_query_used_gps_;
         }
 
-        const OctreeKeyGpMap&
+        [[nodiscard]] const OctreeKeyGpMap&
         GetGpMap() const {
             return m_gp_map_;
         }

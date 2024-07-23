@@ -13,7 +13,5 @@ BindGpOccSurfaceMapping2D(const py::module &m) {
         .def_readwrite("quadtree", &GpOccSurfaceMapping2D::Setting::quadtree);
 
     surface_mapping.def(py::init<const std::shared_ptr<GpOccSurfaceMapping2D::Setting> &>(), py::arg("setting"))
-        .def_property_readonly("setting", &GpOccSurfaceMapping2D::GetSetting)
-        .def_property_readonly("quadtree", &GpOccSurfaceMapping2D::GetQuadtree)
-        .def("update", &GpOccSurfaceMapping2D::Update, py::arg("rotation"), py::arg("translation"), py::arg("ranges"));
+        .def_property_readonly("setting", &GpOccSurfaceMapping2D::GetSetting);
 }

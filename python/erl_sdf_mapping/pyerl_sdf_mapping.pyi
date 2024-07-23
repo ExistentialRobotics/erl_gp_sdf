@@ -1,23 +1,23 @@
-from typing import overload
 from typing import Tuple
 from typing import Optional
-from typing import List
 import numpy as np
 import numpy.typing as npt
 from erl_common.yaml import YamlableBase
 from erl_gaussian_process import NoisyInputGaussianProcess
-from erl_geometry import QuadtreeKey
-from erl_geometry import QuadtreeKeyRay
-from erl_geometry import OccupancyQuadtreeNode
-from erl_geometry import Aabb2D
+from erl_geometry import AbstractSurfaceMapping
+from erl_geometry import AbstractSurfaceMapping2D
+from erl_geometry import AbstractSurfaceMapping3D
+from erl_geometry import SurfaceMappingQuadtree
+from erl_geometry import SurfaceMappingOctree
+from erl_gaussian_process import LidarGaussianProcess2D
+from erl_gaussian_process import RangeSensorGaussianProcess3D
 
 __all__ = [
     "LogSdfGaussianProcess",
-    "SurfaceMappingOctreeNode",
-    "SurfaceMappingQuadtree",
-    "AbstractSurfaceMapping2D",
     "GpOccSurfaceMapping2D",
+    "GpOccSurfaceMapping3D",
     "GpSdfMapping2D",
+    "GpSdfMapping3D",
 ]
 
 class LogSdfGaussianProcess(NoisyInputGaussianProcess):
@@ -41,322 +41,101 @@ class LogSdfGaussianProcess(NoisyInputGaussianProcess):
         self: LogSdfGaussianProcess, mat_x_test: npt.NDArray[np.float64]
     ) -> Tuple[npt.NDArray[np.float64], npt.NDArray[np.float64]]: ...
 
-class SurfaceMappingOctreeNode(OccupancyQuadtreeNode):
-    pass
+class GpOccSurfaceMappingBaseSetting(AbstractSurfaceMapping.Setting):
+    class ComputeVariance(YamlableBase):
+        zero_gradient_position_var: float
+        zero_gradient_gradient_var: float
+        min_distance_var: float
+        max_distance_var: float
+        position_var_alpha: float
+        min_gradient_var: float
+        max_gradient_var: float
 
-class SurfaceMappingQuadtree:
-    class Setting(YamlableBase):
-        log_odd_min: float
-        log_odd_max: float
-        probability_hit: float
-        probability_miss: float
-        probability_occupied: float
-        resolution: float
-        use_change_detection: bool
-        use_aabb_limit: bool
-        aabb: Aabb2D
+    class UpdateMapPoints(YamlableBase):
+        min_observable_occ: float
+        max_surface_abs_occ: float
+        max_valid_gradient_var: float
+        max_adjust_tries: int
+        max_bayes_position_var: float
+        max_bayes_gradient_var: float
+        min_position_var: float
+        min_gradient_var: float
 
-    @overload
-    def __init__(self, resolution: float) -> None: ...
-    @overload
-    def __init__(self, setting: Setting) -> None: ...
-    @property
-    def tree_type(self) -> str: ...
-    @property
-    def is_node_collapsible(self) -> bool: ...
-    def insert_point_cloud(
-        self,
-        points: npt.NDArray[np.float64],
-        sensor_origin: npt.NDArray[np.float64],
-        max_range: float,
-        parallel: bool,
-        lazy_eval: bool,
-        discretize: bool,
-    ) -> None: ...
-    def insert_point_cloud_rays(
-        self,
-        points: npt.NDArray[np.float64],
-        sensor_origin: npt.NDArray[np.float64],
-        max_range: float,
-        lazy_eval: bool,
-    ) -> None: ...
-    def insert_ray(self, sx: float, sy: float, ex: float, ey: float, max_range: float, lazy_eval: bool) -> None: ...
-    def cast_ray(
-        self, px: float, py: float, vx: float, vy: float, ignore_unknown: bool, max_range: float
-    ) -> Tuple[bool, float, float]: ...
-    @overload
-    def update_node(self, x: float, y: float, occupied: bool, lazy_eval: bool) -> SurfaceMappingOctreeNode: ...
-    @overload
-    def update_node(self, key: QuadtreeKey, occupied: bool, lazy_eval: bool) -> SurfaceMappingOctreeNode: ...
-    @overload
-    def update_node(self, x: float, y: float, log_odds_delta: float, lazy_eval: bool) -> SurfaceMappingOctreeNode: ...
-    @overload
-    def update_node(self, key: QuadtreeKey, log_odds_delta: float, lazy_eval: bool) -> SurfaceMappingOctreeNode: ...
-    def update_inner_occupancy(self) -> None: ...
-    def to_max_likelihood(self) -> None: ...
-    @property
-    def number_of_nodes(self) -> int: ...
-    resolution: float
-    @property
-    def max_tree_depth(self) -> int: ...
-    @property
-    def tree_key_offset(self) -> int: ...
-    @property
-    def metric_min(self) -> Tuple[float, float]: ...
-    @property
-    def metric_max(self) -> Tuple[float, float]: ...
-    @property
-    def metric_min_max(self) -> Tuple[Tuple[float, float], Tuple[float, float]]: ...
-    @property
-    def metric_size(self) -> Tuple[float, float]: ...
-    def get_node_size(self, depth: int) -> float: ...
-    @property
-    def number_of_leaf_nodes(self) -> int: ...
-    @property
-    def memory_usage(self) -> int: ...
-    @overload
-    def coord_to_key(self, coordinate: float) -> int: ...
-    @overload
-    def coord_to_key(self, coordinate: float, depth: int) -> int: ...
-    @overload
-    def coord_to_key(self, x: float, y: float) -> QuadtreeKey: ...
-    @overload
-    def coord_to_key(self, x: float, y: float, depth: int) -> QuadtreeKey: ...
-    @overload
-    def coord_to_key_checked(self, coordinate: float) -> Optional[int]: ...
-    @overload
-    def coord_to_key_checked(self, coordinate: float, depth: int) -> Optional[int]: ...
-    @overload
-    def coord_to_key_checked(self, x: float, y: float) -> Optional[QuadtreeKey]: ...
-    @overload
-    def coord_to_key_checked(self, x: float, y: float, depth: int) -> Optional[QuadtreeKey]: ...
-    @overload
-    def adjust_key_to_depth(self, key: int, depth: int) -> int: ...
-    @overload
-    def adjust_key_to_depth(self, key: QuadtreeKey, depth: int) -> QuadtreeKey: ...
-    def compute_common_ancestor_key(self, key1: QuadtreeKey, key2: QuadtreeKey) -> Tuple[QuadtreeKey, int]: ...
-    def compute_west_neighbor_key(self, key: QuadtreeKey, depth: int) -> Optional[QuadtreeKey]: ...
-    def compute_east_neighbor_key(self, key: QuadtreeKey, depth: int) -> Optional[QuadtreeKey]: ...
-    def compute_north_neighbor_key(self, key: QuadtreeKey, depth: int) -> Optional[QuadtreeKey]: ...
-    def compute_south_neighbor_key(self, key: QuadtreeKey, depth: int) -> Optional[QuadtreeKey]: ...
-    @overload
-    def key_to_coord(self, key: int) -> float: ...
-    @overload
-    def key_to_coord(self, key: int, depth: int) -> float: ...
-    @overload
-    def key_to_coord(self, key: QuadtreeKey) -> Tuple[float, float]: ...
-    @overload
-    def key_to_coord(self, key: QuadtreeKey, depth: int) -> Tuple[float, float]: ...
-    def compute_ray_keys(self, sx: float, sy: float, ex: float, ey: float) -> Optional[QuadtreeKeyRay]: ...
-    def compute_ray_coords(self, sx: float, sy: float, ex: float, ey: float) -> Optional[List[Tuple[float, float]]]: ...
-    def create_node_child(self, node: SurfaceMappingOctreeNode, child_index: int) -> SurfaceMappingOctreeNode: ...
-    def delete_node_child(self, node: SurfaceMappingOctreeNode, child_index: int) -> None: ...
-    def get_node_child(self, node: SurfaceMappingOctreeNode, child_index: int) -> SurfaceMappingOctreeNode: ...
-    def expand_node(self, node: SurfaceMappingOctreeNode) -> None: ...
-    def prune_node(self, node: SurfaceMappingOctreeNode) -> None: ...
-    @overload
-    def delete_node(self, x: float, y: float, depth: int) -> bool: ...
-    @overload
-    def delete_node(self, key: QuadtreeKey, depth: int) -> bool: ...
-    def clear(self) -> None: ...
-    def prune(self) -> None: ...
-    def expand(self) -> None: ...
-    @property
-    def root(self) -> SurfaceMappingOctreeNode: ...
-    @overload
-    def search(self, x: float, y: float) -> Tuple[Optional[SurfaceMappingOctreeNode], int]: ...
-    @overload
-    def search(self, key: QuadtreeKey) -> Tuple[Optional[SurfaceMappingOctreeNode], int]: ...
-    @overload
-    def insert_node(self, x: float, y: float, depth: int) -> Optional[SurfaceMappingOctreeNode]: ...
-    @overload
-    def insert_node(self, key: QuadtreeKey, depth: int) -> SurfaceMappingOctreeNode: ...
-
-    class IteratorBase:
-        def __eq__(self, other) -> bool: ...
-        def __ne__(self, other) -> bool: ...
-        def get(self) -> SurfaceMappingOctreeNode: ...
-        @property
-        def x(self) -> float: ...
-        @property
-        def y(self) -> float: ...
-        @property
-        def node_size(self) -> float: ...
-        @property
-        def depth(self) -> int: ...
-        @property
-        def key(self) -> QuadtreeKey: ...
-        @property
-        def index_key(self) -> QuadtreeKey: ...
-        def next(self) -> None: ...
-        @property
-        def is_end(self) -> bool: ...
-
-    class TreeIterator(IteratorBase): ...
-    class TreeInAabbIterator(IteratorBase): ...
-    class LeafIterator(IteratorBase): ...
-    class LeafOfNodeIterator(IteratorBase): ...
-    class LeafInAabbIterator(IteratorBase): ...
-    class LeafNeighborOnWestIterator(IteratorBase): ...
-    class LeafNeighborOnEastIterator(IteratorBase): ...
-    class LeafNeighborOnNorthIterator(IteratorBase): ...
-    class LeafNeighborOnSouthIterator(IteratorBase): ...
-    class LeafOnRayIterator(IteratorBase): ...
-    class OccupiedLeafOnRayIterator(IteratorBase): ...
-
-    def iter_leaf(self, max_depth: int = 0) -> LeafIterator: ...
-    def iter_leaf_of_node(self, node_key: QuadtreeKey, node_depth: int, max_depth: int = 0) -> LeafOfNodeIterator: ...
-    @overload
-    def iter_leaf_in_aabb(
-        self,
-        aabb_min_x: float,
-        aabb_min_y: float,
-        aabb_max_x: float,
-        aabb_max_y: float,
-        max_depth: int = 0,
-    ) -> LeafInAabbIterator: ...
-    @overload
-    def iter_leaf_in_aabb(
-        self,
-        aabb_min_key: QuadtreeKey,
-        aabb_max_key: QuadtreeKey,
-        max_depth: int = 0,
-    ) -> LeafInAabbIterator: ...
-    def iter_node(self, max_depth: int = 0) -> TreeIterator: ...
-    @overload
-    def iter_node_in_aabb(
-        self,
-        aabb_min_x: float,
-        aabb_min_y: float,
-        aabb_max_x: float,
-        aabb_max_y: float,
-        max_depth: int = 0,
-    ) -> TreeInAabbIterator: ...
-    @overload
-    def iter_node_in_aabb(
-        self,
-        aabb_min_key: QuadtreeKey,
-        aabb_max_key: QuadtreeKey,
-        max_depth: int = 0,
-    ) -> TreeInAabbIterator: ...
-    @overload
-    def iter_leaf_neighbor_on_west(self, x: float, y: float, max_leaf_depth: int = 0) -> LeafNeighborOnWestIterator: ...
-    @overload
-    def iter_leaf_neighbor_on_west(
-        self, key: QuadtreeKey, key_depth: int, max_leaf_depth: int = 0
-    ) -> LeafNeighborOnWestIterator: ...
-    @overload
-    def iter_leaf_neighbor_on_east(self, x: float, y: float, max_leaf_depth: int = 0) -> LeafNeighborOnEastIterator: ...
-    @overload
-    def iter_leaf_neighbor_on_east(
-        self, key: QuadtreeKey, key_depth: int, max_leaf_depth: int = 0
-    ) -> LeafNeighborOnEastIterator: ...
-    @overload
-    def iter_leaf_neighbor_on_north(
-        self, x: float, y: float, max_leaf_depth: int = 0
-    ) -> LeafNeighborOnNorthIterator: ...
-    @overload
-    def iter_leaf_neighbor_on_north(
-        self, key: QuadtreeKey, key_depth: int, max_leaf_depth: int = 0
-    ) -> LeafNeighborOnNorthIterator: ...
-    @overload
-    def iter_leaf_neighbor_on_south(
-        self, x: float, y: float, max_leaf_depth: int = 0
-    ) -> LeafNeighborOnSouthIterator: ...
-    @overload
-    def iter_leaf_neighbor_on_south(
-        self, key: QuadtreeKey, key_depth: int, max_leaf_depth: int = 0
-    ) -> LeafNeighborOnSouthIterator: ...
-    def iter_leaf_on_ray(
-        self,
-        px: float,
-        py: float,
-        vx: float,
-        vy: float,
-        max_range: float = -1,
-        bidirectional: bool = False,
-        max_leaf_depth: int = 0,
-    ) -> LeafOnRayIterator: ...
-    def iter_occupied_leaf_on_ray(
-        self,
-        px: float,
-        py: float,
-        vx: float,
-        vy: float,
-        max_range: float = -1,
-        bidirectional: bool = False,
-        max_leaf_depth: int = 0,
-    ) -> OccupiedLeafOnRayIterator: ...
-
-class AbstractSurfaceMapping2D:
-    @property
-    def quadtree(self) -> SurfaceMappingQuadtree: ...
+    compute_variance: ComputeVariance
+    update_map_points: UpdateMapPoints
+    cluster_level: int
+    perturb_delta: float
+    zero_gradient_threshold: float
+    update_occupancy: bool
 
 class GpOccSurfaceMapping2D(AbstractSurfaceMapping2D):
-    class Setting(YamlableBase):
-        class ComputeVariance(YamlableBase):
-            zero_gradient_position_var: float
-            zero_gradient_gradient_var: float
-            min_distance_var: float
-            max_distance_var: float
-            position_var_alpha: float
-            min_gradient_var: float
-            max_gradient_var: float
-
-        class UpdateMapPoints(YamlableBase):
-            min_observable_occ: float
-            max_surface_abs_occ: float
-            max_valid_gradient_var: float
-            max_adjust_tries: int
-            max_bayes_position_var: float
-            max_bayes_gradient_var: float
-
-        gp_theta: LogSdfGaussianProcess.Setting
-        compute_variance: ComputeVariance
-        update_map_points: UpdateMapPoints
+    class Setting(GpOccSurfaceMappingBaseSetting):
+        sensor_gp: LidarGaussianProcess2D.Setting
         quadtree: SurfaceMappingQuadtree.Setting
-        cluster_level: int
-        perturb_delta: float
-        zero_gradient_threshold: float
-        update_occupancy: bool
 
-    @overload
-    def __init__(self): ...
-    @overload
     def __init__(self, setting: Setting): ...
     @property
     def setting(self) -> Setting: ...
 
+class GpOccSurfaceMapping3D(AbstractSurfaceMapping3D):
+    class Setting(GpOccSurfaceMappingBaseSetting):
+        sensor_gp: RangeSensorGaussianProcess3D.Setting
+        octree: SurfaceMappingOctree.Setting
+
+    def __init__(self, setting: Setting): ...
+    @property
+    def setting(self) -> Setting: ...
+
+class GpSdfMappingBaseSetting(YamlableBase):
+    class TestQuery(YamlableBase):
+        max_test_valid_distance_var: float
+        search_area_half_size: float
+        use_nearest_only: bool
+        compute_covariance: bool
+        recompute_variance: bool
+        softmax_temperature: float
+
+    num_threads: int
+    update_hz: float
+    gp_sdf_area_scale: float
+    offset_distance: float
+    max_valid_gradient_var: float
+    invalid_position_var: float
+    train_gp_immediately: bool
+    gp_sdf: GpSdfMapping2D.Setting
+    test_query: TestQuery
+    log_timing: bool
+
 class GpSdfMapping2D:
-    class Setting(YamlableBase):
-        class TestQuery(YamlableBase):
-            max_test_valid_distance_var: float
-            search_area_half_size: float
-            use_nearest_only: bool
-            compute_covariance: bool
-            recompute_variance: bool
-            softmax_temperature: float
+    class Gp:
+        @property
+        def active(self) -> bool: ...
+        @property
+        def locked_for_test(self) -> bool: ...
+        @property
+        def num_train_samples(self) -> int: ...
+        @property
+        def position(self) -> npt.NDArray[np.float64]: ...
+        @property
+        def half_size(self) -> float: ...
+        @property
+        def gp(self) -> LogSdfGaussianProcess: ...
+        def train(self) -> None: ...
 
-        num_threads: int
-        update_hz: float
-        gp_sdf_area_scale: float
-        offset_distance: float
-        max_valid_gradient_var: float
-        invalid_position_var: float
-        train_gp_immediately: bool
-        gp_sdf: GpSdfMapping2D.Setting
-        test_query: TestQuery
+    class Setting(GpSdfMappingBaseSetting):
+        surface_mapping_type: str
+        surface_mapping: AbstractSurfaceMapping2D.Setting
 
-    def __init__(self, surface_mapping: AbstractSurfaceMapping2D, setting: Setting): ...
+    def __init__(self, setting: Setting): ...
     @property
     def setting(self) -> Setting: ...
     @property
     def surface_mapping(self) -> AbstractSurfaceMapping2D: ...
     def update(
         self: GpSdfMapping2D,
-        angles: npt.NDArray[np.float64],
-        distances: npt.NDArray[np.float64],
-        pose: npt.NDArray[np.float64],
+        rotation: npt.NDArray[np.float64],
+        translation: npt.NDArray[np.float64],
+        ranges: npt.NDArray[np.float64],
     ) -> bool: ...
     def test(self: GpSdfMapping2D, xy: npt.NDArray[np.float64]) -> Tuple[
         Optional[npt.NDArray[np.float64]],  # sdf
@@ -364,3 +143,34 @@ class GpSdfMapping2D:
         Optional[npt.NDArray[np.float64]],  # variance
         Optional[npt.NDArray[np.float64]],  # covariance
     ]: ...
+    def __eq__(self, other) -> bool: ...
+    def __ne__(self, other) -> bool: ...
+    def write(self, filename: str) -> bool: ...
+    def read(self, filename: str) -> bool: ...
+
+class GpSdfMapping3D:
+    class Setting(GpSdfMappingBaseSetting):
+        surface_mapping_type: str
+        surface_mapping: AbstractSurfaceMapping3D.Setting
+
+    def __init__(self, setting: Setting): ...
+    @property
+    def setting(self) -> Setting: ...
+    @property
+    def surface_mapping(self) -> AbstractSurfaceMapping3D: ...
+    def update(
+        self: GpSdfMapping3D,
+        rotation: npt.NDArray[np.float64],
+        translation: npt.NDArray[np.float64],
+        ranges: npt.NDArray[np.float64],
+    ) -> bool: ...
+    def test(self: GpSdfMapping3D, xyz: npt.NDArray[np.float64]) -> Tuple[
+        Optional[npt.NDArray[np.float64]],  # sdf
+        Optional[npt.NDArray[np.float64]],  # sdf gradient
+        Optional[npt.NDArray[np.float64]],  # variance
+        Optional[npt.NDArray[np.float64]],  # covariance
+    ]: ...
+    def __eq__(self, other) -> bool: ...
+    def __ne__(self, other) -> bool: ...
+    def write(self, filename: str) -> bool: ...
+    def read(self, filename: str) -> bool: ...

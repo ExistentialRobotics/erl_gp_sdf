@@ -6,7 +6,9 @@ BindGpOccSurfaceMappingBaseSetting(const py::module& m) {
     using namespace erl::common;
     using namespace erl::sdf_mapping;
 
-    py::class_<GpOccSurfaceMappingBaseSetting, YamlableBase, std::shared_ptr<GpOccSurfaceMappingBaseSetting>> setting(m, "GpOccSurfaceMappingBaseSetting");
+    py::class_<GpOccSurfaceMappingBaseSetting, erl::geometry::AbstractSurfaceMapping::Setting, std::shared_ptr<GpOccSurfaceMappingBaseSetting>> setting(
+        m,
+        "GpOccSurfaceMappingBaseSetting");
     py::class_<GpOccSurfaceMappingBaseSetting::ComputeVariance, YamlableBase, std::shared_ptr<GpOccSurfaceMappingBaseSetting::ComputeVariance>>(
         setting,
         "ComputeVariance")
