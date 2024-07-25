@@ -1,8 +1,8 @@
 num_threads: 64
 update_hz: 20
 log_timing: true
-gp_sdf_area_scale: 3  # should not be too small
-offset_distance: 0.08
+gp_sdf_area_scale: 4  # should not be too small
+offset_distance: 0.05 # control the wall thickness (reservedness)
 max_valid_gradient_var: 0.001
 invalid_position_var: 0.005
 train_gp_immediately: false
@@ -11,7 +11,7 @@ gp_sdf:
     kernel:
         x_dim: 3
         alpha: 1
-        scale: 3.0
+        scale: 2.0
         scale_mix: 1
         weights: [ ]
     log_lambda: 40

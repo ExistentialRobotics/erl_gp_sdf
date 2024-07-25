@@ -17,12 +17,12 @@ struct Options {
     std::string gazebo_train_file;
     std::string house_expo_map_file;
     std::string house_expo_traj_file;
-    std::string ros_bag_dat_file;
+    std::string ucsd_fah_2d_file;
     std::string surface_mapping_config_file;
     std::string output_dir;
-    bool use_gazebo_data = false;
-    bool use_house_expo_data = false;
-    bool use_ros_bag_data = false;
+    bool use_gazebo_room_2d = false;
+    bool use_house_expo_lidar_2d = false;
+    bool use_ucsd_fah_2d = false;
     bool visualize = false;
     bool test_io = false;
     bool hold = false;
@@ -40,22 +40,22 @@ TEST(GpOccSurfaceMapping2D, Build_Save_Load) {
     g_options.gazebo_train_file = (gtest_src_dir / "gazebo_train.dat").string();
     g_options.house_expo_map_file = (gtest_src_dir / "house_expo_room_1451.json").string();
     g_options.house_expo_traj_file = (gtest_src_dir / "house_expo_room_1451.csv").string();
-    g_options.ros_bag_dat_file = (gtest_src_dir / "ucsd_fah_2d.dat").string();
+    g_options.ucsd_fah_2d_file = (gtest_src_dir / "ucsd_fah_2d.dat").string();
     g_options.surface_mapping_config_file = (gtest_src_dir / "../../config/surface_mapping_2d.yaml").string();
     g_options.output_dir = (test_output_dir / "results").string();
 
-    ASSERT_TRUE(g_options.use_gazebo_data || g_options.use_house_expo_data || g_options.use_ros_bag_data)
+    ASSERT_TRUE(g_options.use_gazebo_room_2d || g_options.use_house_expo_lidar_2d || g_options.use_ucsd_fah_2d)
         << "Please specify one of --use-gazebo-data, --use-house-expo-data, --use-ros-bag-data.";
-    if (g_options.use_gazebo_data) {
+    if (g_options.use_gazebo_room_2d) {
         ASSERT_TRUE(std::filesystem::exists(g_options.gazebo_train_file)) << "Gazebo train data file " << g_options.gazebo_train_file << " does not exist.";
     }
-    if (g_options.use_house_expo_data) {
+    if (g_options.use_house_expo_lidar_2d) {
         ASSERT_TRUE(std::filesystem::exists(g_options.house_expo_map_file)) << "HouseExpo map file " << g_options.house_expo_map_file << " does not exist.";
         ASSERT_TRUE(std::filesystem::exists(g_options.house_expo_traj_file))
             << "HouseExpo trajectory file " << g_options.house_expo_traj_file << " does not exist.";
     }
-    if (g_options.use_ros_bag_data) {
-        ASSERT_TRUE(std::filesystem::exists(g_options.ros_bag_dat_file)) << "ROS bag dat file " << g_options.ros_bag_dat_file << " does not exist.";
+    if (g_options.use_ucsd_fah_2d) {
+        ASSERT_TRUE(std::filesystem::exists(g_options.ucsd_fah_2d_file)) << "ROS bag dat file " << g_options.ucsd_fah_2d_file << " does not exist.";
     }
     std::filesystem::create_directories(g_options.output_dir);
 
@@ -69,7 +69,7 @@ TEST(GpOccSurfaceMapping2D, Build_Save_Load) {
     Eigen::Vector2i map_padding(10, 10);
     Eigen::Matrix2Xd cur_traj;
 
-    if (g_options.use_gazebo_data) {
+    if (g_options.use_gazebo_room_2d) {
         auto train_data_loader = erl::geometry::GazeboRoom2D::TrainDataLoader(g_options.gazebo_train_file.c_str());
         max_update_cnt = static_cast<long>(train_data_loader.size() - g_options.init_frame) / g_options.stride + 1;
         train_angles.reserve(max_update_cnt);
@@ -104,7 +104,7 @@ TEST(GpOccSurfaceMapping2D, Build_Save_Load) {
         train_ranges.resize(cnt);
         train_poses.resize(cnt);
         cur_traj.conservativeResize(2, cnt);
-    } else if (g_options.use_house_expo_data) {
+    } else if (g_options.use_house_expo_lidar_2d) {
         erl::geometry::HouseExpoMap house_expo_map(g_options.house_expo_map_file.c_str(), 0.2);
         map_min = house_expo_map.GetMeterSpace()->GetSurface()->vertices.rowwise().minCoeff();
         map_max = house_expo_map.GetMeterSpace()->GetSurface()->vertices.rowwise().maxCoeff();
@@ -140,8 +140,8 @@ TEST(GpOccSurfaceMapping2D, Build_Save_Load) {
         train_ranges.resize(cnt);
         train_poses.resize(cnt);
         cur_traj.conservativeResize(2, cnt);
-    } else if (g_options.use_ros_bag_data) {
-        Eigen::MatrixXd ros_bag_data = erl::common::LoadEigenMatrixFromBinaryFile<double, Eigen::Dynamic, Eigen::Dynamic>(g_options.ros_bag_dat_file);
+    } else if (g_options.use_ucsd_fah_2d) {
+        Eigen::MatrixXd ros_bag_data = erl::common::LoadEigenMatrixFromBinaryFile<double, Eigen::Dynamic, Eigen::Dynamic>(g_options.ucsd_fah_2d_file);
         // prepare buffer
         max_update_cnt = (ros_bag_data.cols() - g_options.init_frame) / g_options.stride + 1;
         train_angles.reserve(max_update_cnt);
@@ -319,9 +319,9 @@ main(int argc, char *argv[]) {
         // clang-format off
         desc.add_options()
             ("help", "produce help message")
-            ("use-gazebo-data", po::bool_switch(&g_options.use_gazebo_data)->default_value(g_options.use_gazebo_data), "Use Gazebo data")
-            ("use-house-expo-data", po::bool_switch(&g_options.use_house_expo_data)->default_value(g_options.use_house_expo_data), "Use HouseExpo data")
-            ("use-ros-bag-data", po::bool_switch(&g_options.use_ros_bag_data)->default_value(g_options.use_ros_bag_data), "Use ROS bag data")
+            ("use-gazebo-data", po::bool_switch(&g_options.use_gazebo_room_2d)->default_value(g_options.use_gazebo_room_2d), "Use Gazebo data")
+            ("use-house-expo-data", po::bool_switch(&g_options.use_house_expo_lidar_2d)->default_value(g_options.use_house_expo_lidar_2d), "Use HouseExpo data")
+            ("use-ros-bag-data", po::bool_switch(&g_options.use_ucsd_fah_2d)->default_value(g_options.use_ucsd_fah_2d), "Use ROS bag data")
             ("stride", po::value<int>(&g_options.stride)->default_value(g_options.stride), "stride for running the sequence")
             ("map-resolution", po::value<double>(&g_options.map_resolution)->default_value(g_options.map_resolution), "Map resolution")
             ("surf-normal-scale", po::value<double>(&g_options.surf_normal_scale)->default_value(g_options.surf_normal_scale), "Surface normal scale")
@@ -344,7 +344,7 @@ main(int argc, char *argv[]) {
                 "Gazebo train data file"
             )(
                 "ros-bag-dat-file",
-                po::value<std::string>(&g_options.ros_bag_dat_file)->default_value(g_options.ros_bag_dat_file)->value_name("file"),
+                po::value<std::string>(&g_options.ucsd_fah_2d_file)->default_value(g_options.ucsd_fah_2d_file)->value_name("file"),
                 "ROS bag dat file"
             )(
                 "surface-mapping-config-file",

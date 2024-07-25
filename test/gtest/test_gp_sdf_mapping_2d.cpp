@@ -1,4 +1,5 @@
 #include "erl_common/csv.hpp"
+#include "erl_common/pangolin_plotter_image.hpp"
 #include "erl_common/pangolin_plotter_time_series_2d.hpp"
 #include "erl_common/progress_bar.hpp"
 #include "erl_common/random.hpp"
@@ -22,12 +23,12 @@ struct Options {
     std::string gazebo_train_file = kProjectRootDir / "data" / "gazebo_train.dat";
     std::string house_expo_map_file = kProjectRootDir / "data" / "house_expo_room_1451.json";
     std::string house_expo_traj_file = kProjectRootDir / "data" / "house_expo_room_1451.csv";
-    std::string ros_bag_dat_file = kProjectRootDir / "data" / "ucsd_fah_2d.dat";
+    std::string ucsd_fah_2d_file = kProjectRootDir / "data" / "ucsd_fah_2d.dat";
     std::string sdf_mapping_config_file = kProjectRootDir / "config" / "sdf_mapping_2d.yaml";
     std::string output_dir;
-    bool use_gazebo_data = false;
-    bool use_house_expo_data = false;
-    bool use_ros_bag_data = false;
+    bool use_gazebo_room_2d = false;
+    bool use_house_expo_lidar_2d = false;
+    bool use_ucsd_fah_2d = false;
     bool visualize = false;
     bool test_io = false;
     bool hold = false;
@@ -71,18 +72,18 @@ TEST(GpSdfMapping2D, Build_Save_Load) {
 
     g_options.output_dir = (test_output_dir / "results").string();
 
-    ASSERT_TRUE(g_options.use_gazebo_data || g_options.use_house_expo_data || g_options.use_ros_bag_data)
-        << "Please specify one of --use-gazebo-data, --use-house-expo-data, --use-ros-bag-data.";
-    if (g_options.use_gazebo_data) {
+    ASSERT_TRUE(g_options.use_gazebo_room_2d || g_options.use_house_expo_lidar_2d || g_options.use_ucsd_fah_2d)
+        << "Please specify one of --use-gazebo-room-2d, --use-house-expo-lidar-2d, --use-ucsd-fah-2d.";
+    if (g_options.use_gazebo_room_2d) {
         ASSERT_TRUE(std::filesystem::exists(g_options.gazebo_train_file)) << "Gazebo train data file " << g_options.gazebo_train_file << " does not exist.";
     }
-    if (g_options.use_house_expo_data) {
+    if (g_options.use_house_expo_lidar_2d) {
         ASSERT_TRUE(std::filesystem::exists(g_options.house_expo_map_file)) << "HouseExpo map file " << g_options.house_expo_map_file << " does not exist.";
         ASSERT_TRUE(std::filesystem::exists(g_options.house_expo_traj_file))
             << "HouseExpo trajectory file " << g_options.house_expo_traj_file << " does not exist.";
     }
-    if (g_options.use_ros_bag_data) {
-        ASSERT_TRUE(std::filesystem::exists(g_options.ros_bag_dat_file)) << "ROS bag dat file " << g_options.ros_bag_dat_file << " does not exist.";
+    if (g_options.use_ucsd_fah_2d) {
+        ASSERT_TRUE(std::filesystem::exists(g_options.ucsd_fah_2d_file)) << "ROS bag dat file " << g_options.ucsd_fah_2d_file << " does not exist.";
     }
     std::filesystem::create_directories(g_options.output_dir);
 
@@ -101,7 +102,7 @@ TEST(GpSdfMapping2D, Build_Save_Load) {
     ERL_ASSERTM(sdf_mapping_setting->FromYamlFile(g_options.sdf_mapping_config_file), "Failed to load config file: {}", g_options.sdf_mapping_config_file);
     sdf_mapping_setting->test_query->compute_covariance = true;
 
-    if (g_options.use_gazebo_data) {
+    if (g_options.use_gazebo_room_2d) {
         auto train_data_loader = erl::geometry::GazeboRoom2D::TrainDataLoader(g_options.gazebo_train_file);
         map_min = erl::geometry::GazeboRoom2D::kMapMin;
         map_max = erl::geometry::GazeboRoom2D::kMapMax;
@@ -130,7 +131,7 @@ TEST(GpSdfMapping2D, Build_Save_Load) {
         train_ranges.resize(cnt);
         train_poses.resize(cnt);
         cur_traj.conservativeResize(2, cnt);
-    } else if (g_options.use_house_expo_data) {
+    } else if (g_options.use_house_expo_lidar_2d) {
         auto lidar_setting = std::make_shared<erl::geometry::Lidar2D::Setting>();
         lidar_setting->num_lines = 720;
         erl::geometry::HouseExpoMapLidar2D house_expo_map(g_options.house_expo_map_file, g_options.house_expo_traj_file, 0.2, lidar_setting, true, 0.01);
@@ -159,8 +160,8 @@ TEST(GpSdfMapping2D, Build_Save_Load) {
         train_ranges.resize(cnt);
         train_poses.resize(cnt);
         cur_traj.conservativeResize(2, cnt);
-    } else if (g_options.use_ros_bag_data) {
-        erl::geometry::UcsdFah2D ucsd_fah(g_options.ros_bag_dat_file);
+    } else if (g_options.use_ucsd_fah_2d) {
+        erl::geometry::UcsdFah2D ucsd_fah(g_options.ucsd_fah_2d_file);
         tic = ucsd_fah.GetTimeStep();
         map_min = erl::geometry::UcsdFah2D::kMapMin;
         map_max = erl::geometry::UcsdFah2D::kMapMax;
@@ -188,7 +189,7 @@ TEST(GpSdfMapping2D, Build_Save_Load) {
         train_poses.resize(cnt);
         cur_traj.conservativeResize(2, cnt);
     } else {
-        std::cerr << "Please specify one of --use-gazebo-data, --use-house-expo-data, --use-ros-bag-data." << std::endl;
+        std::cerr << "Please specify one of --use-gazebo-room-2d, --use-house-expo-lidar-2d, --use-ucsd-fah-2d." << std::endl;
         return;
     }
     max_update_cnt = cur_traj.cols();
@@ -261,22 +262,11 @@ TEST(GpSdfMapping2D, Build_Save_Load) {
     auto grid_map_info = drawer->GetGridMapInfo();
 
     // pangolin
-    // pangolin::WindowInterface *pangolin_plotter_window = nullptr;
-    // pangolin::View *pangolin_plotter_view = nullptr;
-    // std::shared_ptr<pangolin::DataLog> pangolin_sdf_log = nullptr;
-    // std::shared_ptr<pangolin::Plotter> pangolin_sdf_plotter;
-    // // pangolin::View *pangolin_sdf_plotter_view = nullptr;
-    // std::shared_ptr<pangolin::DataLog> pangolin_grad_log = nullptr;
-    // std::shared_ptr<pangolin::Plotter> pangolin_grad_plotter;
-    // pangolin::View *pangolin_grad_plotter_view = nullptr;
-
     std::shared_ptr<erl::common::PangolinWindow> pangolin_plotter_window;
     std::shared_ptr<erl::common::PangolinPlotterTimeSeries2D> plotter_sdf;
     std::shared_ptr<erl::common::PangolinPlotterTimeSeries2D> plotter_grad;
-
-    pangolin::WindowInterface *pangolin_map_window = nullptr;
-    pangolin::View *pangolin_map_view = nullptr;
-    std::shared_ptr<pangolin::GlTexture> pangolin_texture = nullptr;
+    std::shared_ptr<erl::common::PangolinWindow> pangolin_map_window;
+    std::shared_ptr<erl::common::PangolinPlotterImage> pangolin_plotter_map;
     if (g_options.visualize) {
         pangolin_plotter_window = std::make_shared<erl::common::PangolinWindow>(g_window_name + ": curves", 1280, 960);
         pangolin_plotter_window->GetDisplay("main").SetLayout(pangolin::LayoutEqualVertical);
@@ -300,10 +290,8 @@ TEST(GpSdfMapping2D, Build_Save_Load) {
             pangolin::Colour{0.1f, 0.1f, 0.1f, 1.0f}  // bg_color
         );
 
-        pangolin_map_window = &pangolin::CreateWindowAndBind(g_window_name + ": map", img.cols, img.rows);
-        glEnable(GL_DEPTH_TEST);
-        pangolin_map_view = &(pangolin::Display("cam").SetBounds(0, 1.0, 0, 1.0, static_cast<float>(img.cols) / static_cast<float>(img.rows)));
-        pangolin_texture = std::make_shared<pangolin::GlTexture>(img.cols, img.rows, GL_RGBA, false, 0, GL_RGBA, GL_UNSIGNED_BYTE);
+        pangolin_map_window = std::make_shared<erl::common::PangolinWindow>(g_window_name + ": map", img.cols, img.rows);
+        pangolin_plotter_map = std::make_shared<erl::common::PangolinPlotterImage>(pangolin_map_window, img.rows, img.cols, GL_RGBA, GL_UNSIGNED_BYTE);
     }
 
     // save video
@@ -316,7 +304,7 @@ TEST(GpSdfMapping2D, Build_Save_Load) {
         video_frame = cv::Mat(std::max(img.rows, 960), img.cols + 1280, CV_8UC3, cv::Scalar(0));
     }
     const std::string bin_file = g_options.output_dir + "/gp_sdf_mapping_2d.bin";
-    double t_ms = 0;
+    double t = 0;
     for (long i = 0; i < max_update_cnt; i++) {
         const auto &[rotation, translation] = train_poses[i];
         const Eigen::VectorXd &ranges = train_ranges[i];
@@ -325,7 +313,7 @@ TEST(GpSdfMapping2D, Build_Save_Load) {
         auto t1 = std::chrono::high_resolution_clock::now();
         auto dt = std::chrono::duration<double, std::milli>(t1 - t0).count();
         ERL_INFO("Update time: {:f} ms.", dt);
-        t_ms += dt;
+        t += tic;
 
         if (g_options.visualize) {
             bool pixel_based = true;
@@ -392,23 +380,15 @@ TEST(GpSdfMapping2D, Build_Save_Load) {
             // draw fps
             cv::putText(img, std::to_string(1000.0 / dt), cv::Point(10, 30), cv::FONT_HERSHEY_SIMPLEX, 1, cv::Scalar(0, 255, 0, 255), 2);
 
-            if (pangolin_plotter_window != nullptr && pangolin_map_window != nullptr && pangolin_map_view != nullptr) {
-                pangolin_map_window->MakeCurrent();                  // make current context
-                pangolin::BindToContext(g_window_name + ": map");    // bind context
-                pangolin_map_view->Activate();                       // activate view to draw in this area
-                pangolin_map_window->ProcessEvents();                // process events like mouse and keyboard inputs
-                glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);  // clear entire window
-                // glColor4f(1.0, 1.0, 1.0, 1.0);
-                pangolin_texture->Upload(img.data, GL_BGRA, GL_UNSIGNED_BYTE);
-                pangolin_texture->RenderToViewportFlipY();
-                pangolin::FinishFrame();
-                pangolin_map_window->RemoveCurrent();
+            if (pangolin_map_window != nullptr && pangolin_plotter_map != nullptr) {
+                pangolin_plotter_map->Update(img);
 
-                pangolin_plotter_window->Activate(true);
-                auto t = static_cast<float>(t_ms / 1000.0);
-                plotter_sdf->Append(t, {static_cast<float>(distance[0]), static_cast<float>(std::abs(distance[0])), static_cast<float>(variances(0, 0))});
+                // pangolin_plotter_window->Activate(true);
+                plotter_sdf->Append(
+                    static_cast<float>(t),
+                    {static_cast<float>(distance[0]), static_cast<float>(std::abs(distance[0])), static_cast<float>(variances(0, 0))});
                 plotter_grad->Append(
-                    t,
+                    static_cast<float>(t),
                     {static_cast<float>(gradient(0, 0)),
                      static_cast<float>(gradient(1, 0)),
                      static_cast<float>(variances(1, 0)),
@@ -438,7 +418,7 @@ TEST(GpSdfMapping2D, Build_Save_Load) {
         }
     }
 
-    ERL_INFO("Average update time: {:f} ms.", t_ms / static_cast<double>(max_update_cnt));
+    ERL_INFO("Average update time: {:f} ms.", t / static_cast<double>(max_update_cnt));
     if (g_options.save_video) {
         video_writer->release();
         ERL_INFO("Saved surface mapping video to {}.", video_path.c_str());
@@ -459,21 +439,19 @@ TEST(GpSdfMapping2D, Build_Save_Load) {
     ERL_INFO("Test time: {:f} ms for {} points, {:f} us per point.", dt, positions_in.cols(), t_per_point);
 
     EXPECT_TRUE(success) << "Failed to test SDF estimation at the end.";
+    ERL_ASSERT(surface_mapping->GetQuadtree()->WriteBinary("tree.bt"));
+    ERL_ASSERT(surface_mapping->GetQuadtree()->Write("tree.ot"));
 
+    std::shared_ptr<erl::common::PangolinWindow> pangolin_sdf_image_window;
+    std::shared_ptr<erl::common::PangolinWindow> pangolin_sdf_var_image_window;
+    std::shared_ptr<erl::common::PangolinPlotterImage> pangolin_plotter_sdf_image;
+    std::shared_ptr<erl::common::PangolinPlotterImage> pangolin_plotter_sdf_var_image;
     if (success && g_options.visualize) {
         Eigen::MatrixXd sdf_out_mat = distances_out.reshaped(grid_map_info->Height(), grid_map_info->Width());
         double min_distance = distances_out.minCoeff();
         double max_distance = distances_out.maxCoeff();
         ERL_INFO("min distance: {:f}, max distance: {:f}.", min_distance, max_distance);
-        Eigen::MatrixX8U inf_mask = Eigen::MatrixX8U::Constant(sdf_out_mat.rows(), sdf_out_mat.cols(), 255);
-        for (int i = 0; i < sdf_out_mat.rows(); i++) {
-            for (int j = 0; j < sdf_out_mat.cols(); j++) {
-                if (std::isinf(sdf_out_mat(i, j))) {
-                    inf_mask(i, j) = 0;
-                    sdf_out_mat(i, j) = min_distance * 10.0;
-                }
-            }
-        }
+
         max_distance = sdf_out_mat.maxCoeff();
         Eigen::MatrixX8U distances_out_mat_normalized = ((sdf_out_mat.array() - min_distance) / (max_distance - min_distance) * 255).cast<uint8_t>();
         cv::Mat src, dst;
@@ -483,27 +461,10 @@ TEST(GpSdfMapping2D, Build_Save_Load) {
         cv::cvtColor(dst, dst, cv::COLOR_BGR2BGRA);
         cv::addWeighted(dst, 0.5, img, 0.5, 0.0, dst);
 
-        cv::Mat inf_mask_mat;
-        cv::eigen2cv(inf_mask, inf_mask_mat);
-        cv::flip(inf_mask_mat, inf_mask_mat, 0);  // flip along y axis
-        pangolin::CreateWindowAndBind(g_window_name + ": sdf_inf_mask", inf_mask_mat.cols, inf_mask_mat.rows);
-        glEnable(GL_DEPTH_TEST);
-        pangolin::ImageView sdf_inf_mask_img_view("sdf_inf_mask");
-        pangolin::DisplayBase().AddDisplay(
-            sdf_inf_mask_img_view.SetBounds(0, 1.0, 0, 1.0, static_cast<float>(inf_mask_mat.cols) / static_cast<float>(inf_mask_mat.rows)));
-        pangolin::TypedImage inf_mask_img(inf_mask_mat.cols, inf_mask_mat.rows, pangolin::PixelFormatFromString("GRAY8"));
-        std::copy_n(inf_mask_mat.data, inf_mask_mat.cols * inf_mask_mat.rows, inf_mask_img.ptr);
-        sdf_inf_mask_img_view.SetImage(inf_mask_img);
-        pangolin::FinishFrame();
-
-        pangolin::CreateWindowAndBind(g_window_name + ": sdf", dst.cols, dst.rows);
-        glEnable(GL_DEPTH_TEST);
-        pangolin::ImageView sdf_img_view("sdf");
-        pangolin::DisplayBase().AddDisplay(sdf_img_view.SetBounds(0, 1.0, 0, 1.0, static_cast<float>(dst.cols) / static_cast<float>(dst.rows)));
-        pangolin::TypedImage sdf_img(dst.cols, dst.rows, pangolin::PixelFormatFromString("BGRA32"));
-        std::copy_n(dst.data, dst.cols * dst.rows * 4, sdf_img.ptr);
-        sdf_img_view.SetImage(sdf_img);
-        pangolin::FinishFrame();
+        pangolin_sdf_image_window = std::make_shared<erl::common::PangolinWindow>(g_window_name + ": sdf", dst.cols, dst.rows);
+        pangolin_plotter_sdf_image =
+            std::make_shared<erl::common::PangolinPlotterImage>(pangolin_sdf_image_window, dst.rows, dst.cols, GL_RGBA, GL_UNSIGNED_BYTE);
+        pangolin_plotter_sdf_image->Update(dst);
 
         Eigen::MatrixXd sdf_variances_mat = variances_out.row(0).reshaped(grid_map_info->Height(), grid_map_info->Width());
         double min_variance = sdf_variances_mat.minCoeff();
@@ -515,29 +476,31 @@ TEST(GpSdfMapping2D, Build_Save_Load) {
         cv::cvtColor(dst, dst, cv::COLOR_BGR2BGRA);
         cv::addWeighted(dst, 0.5, img, 0.5, 0.0, dst);
 
-        pangolin::CreateWindowAndBind(g_window_name + ": sdf_variances", dst.cols, dst.rows);
-        glEnable(GL_DEPTH_TEST);
-        pangolin::ImageView sdf_variances_img_view("sdf_variances");
-        pangolin::DisplayBase().AddDisplay(sdf_variances_img_view.SetBounds(0, 1.0, 0, 1.0, static_cast<float>(dst.cols) / static_cast<float>(dst.rows)));
-        pangolin::TypedImage variances_img(dst.cols, dst.rows, pangolin::PixelFormatFromString("BGRA32"));
-        std::copy_n(dst.data, dst.cols * dst.rows * 4, variances_img.ptr);
-        sdf_variances_img_view.SetImage(variances_img);
-        pangolin::FinishFrame();
+        pangolin_sdf_var_image_window = std::make_shared<erl::common::PangolinWindow>(g_window_name + ": sdf_variances", dst.cols, dst.rows);
+        pangolin_plotter_sdf_var_image =
+            std::make_shared<erl::common::PangolinPlotterImage>(pangolin_sdf_var_image_window, dst.rows, dst.cols, GL_RGBA, GL_UNSIGNED_BYTE);
+        pangolin_plotter_sdf_var_image->Update(dst);
     }
 
-    surface_mapping->GetQuadtree()->WriteBinary("tree.bt");
-    ERL_ASSERT(surface_mapping->GetQuadtree()->Write("tree.ot"));
-    if (g_options.hold) {
+    auto process_event = [&]() {
+        if (pangolin_plotter_window != nullptr) { pangolin_plotter_window->GetWindow().ProcessEvents(); }
+        if (pangolin_map_window != nullptr) { pangolin_plotter_map->Render(); }
+        if (pangolin_sdf_image_window != nullptr) { pangolin_plotter_sdf_image->Render(); }
+        if (pangolin_sdf_var_image_window != nullptr) { pangolin_plotter_sdf_var_image->Render(); }
+    };
+
+    if (g_options.visualize && g_options.hold) {
         std::cout << "Press any key to exit." << std::endl;
         while (!pangolin::ShouldQuit()) {
             std::this_thread::sleep_for(std::chrono::milliseconds(10));
-            pangolin_plotter_window->Activate();
+            process_event();
         }
     } else {
         t0 = std::chrono::high_resolution_clock::now();
         double wait_time = 10.0;
         while (std::chrono::duration<double>(std::chrono::high_resolution_clock::now() - t0).count() < wait_time && !pangolin::ShouldQuit()) {
             std::this_thread::sleep_for(std::chrono::milliseconds(10));
+            process_event();
         }
     }
 }
@@ -551,9 +514,9 @@ main(int argc, char *argv[]) {
         // clang-format off
         desc.add_options()
             ("help", "produce help message")
-            ("use-gazebo-data", po::bool_switch(&g_options.use_gazebo_data)->default_value(g_options.use_gazebo_data), "Use Gazebo data")
-            ("use-house-expo-data", po::bool_switch(&g_options.use_house_expo_data)->default_value(g_options.use_house_expo_data), "Use HouseExpo data")
-            ("use-ros-bag-data", po::bool_switch(&g_options.use_ros_bag_data)->default_value(g_options.use_ros_bag_data), "Use ROS bag data")
+            ("use-gazebo-room-2d", po::bool_switch(&g_options.use_gazebo_room_2d)->default_value(g_options.use_gazebo_room_2d), "Use Gazebo data")
+            ("use-house-expo-lidar-2d", po::bool_switch(&g_options.use_house_expo_lidar_2d)->default_value(g_options.use_house_expo_lidar_2d), "Use HouseExpo data")
+            ("use-ucsd-fah-2d", po::bool_switch(&g_options.use_ucsd_fah_2d)->default_value(g_options.use_ucsd_fah_2d), "Use ROS bag data")
             ("stride", po::value<int>(&g_options.stride)->default_value(g_options.stride), "stride for running the sequence")
             ("map-resolution", po::value<double>(&g_options.map_resolution)->default_value(g_options.map_resolution), "Map resolution")
             ("surf-normal-scale", po::value<double>(&g_options.surf_normal_scale)->default_value(g_options.surf_normal_scale), "Surface normal scale")
@@ -576,8 +539,8 @@ main(int argc, char *argv[]) {
                 po::value<std::string>(&g_options.gazebo_train_file)->default_value(g_options.gazebo_train_file)->value_name("file"),
                 "Gazebo train data file"
             )(
-                "ros-bag-dat-file",
-                po::value<std::string>(&g_options.ros_bag_dat_file)->default_value(g_options.ros_bag_dat_file)->value_name("file"),
+                "ucsd-fah-2d-file",
+                po::value<std::string>(&g_options.ucsd_fah_2d_file)->default_value(g_options.ucsd_fah_2d_file)->value_name("file"),
                 "ROS bag dat file"
             )(
                 "sdf-mapping-config-file",

@@ -151,6 +151,14 @@ namespace erl::sdf_mapping {
             const Eigen::Ref<const Eigen::MatrixXd>& ranges);
 
         [[nodiscard]] bool
+        Test(const Eigen::Ref<const Eigen::Matrix3Xd>& positions, Eigen::VectorXd& distances_out) {
+            Eigen::Matrix3Xd gradients;
+            Eigen::Matrix4Xd variances;
+            Eigen::Matrix6Xd covariances;
+            return Test(positions, distances_out, gradients, variances, covariances);
+        }
+
+        [[nodiscard]] bool
         Test(
             const Eigen::Ref<const Eigen::Matrix3Xd>& positions_in,
             Eigen::VectorXd& distances_out,
