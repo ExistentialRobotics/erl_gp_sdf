@@ -1,4 +1,12 @@
+# 2024-07-24
+
+- Update README.md
+- Update test/gtest/README.md
+- Update test/pytest/README.md
+- Clean up code
+
 # 2024-07-22
+
 - Add support to save and load mapping
 - Add ==operator and !=operator
 - Add test cases for GpSdfMapping3D
