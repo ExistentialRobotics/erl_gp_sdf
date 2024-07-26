@@ -68,3 +68,6 @@ test_gp_sdf_mapping_3d --gtest_filter=GpSdfMapping3D.Build_Save_Load \
 ![](assets/test_gp_sdf_mapping_replica_lidar.png)
 
 [SDF Checkpoint](https://drive.google.com/file/d/106SZjY4xzPJWYWYkD4LjINdxmUadlABV/view?usp=sharing) is provided.
+
+360 LiDAR is also tested with the corresponding config [file](../../config/sdf_mapping_3d_lidar_360.yaml). And the
+SDF Checkpoint is [here](https://drive.google.com/file/d/135hlITMUeMNLi42VgdIteQmb2YK2m1y5/view?usp=sharing).

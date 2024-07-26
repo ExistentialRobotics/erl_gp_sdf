@@ -730,12 +730,11 @@ namespace erl::sdf_mapping {
         long cnt_new_gps = 0;
         for (auto &cluster_key: m_clusters_to_update_) {
             auto [it, inserted] = m_gp_map_.try_emplace(cluster_key, nullptr);
-            if (inserted) {
-                ++cnt_new_gps;
-                it->second = std::make_shared<Gp>();
-                octree->KeyToCoord(cluster_key, cluster_depth, it->second->position);
-                it->second->half_size = area_half_size;
-            }
+            if (!inserted) { continue; }
+            ++cnt_new_gps;
+            it->second = std::make_shared<Gp>();
+            octree->KeyToCoord(cluster_key, cluster_depth, it->second->position);
+            it->second->half_size = area_half_size;
         }
         t1 = std::chrono::high_resolution_clock::now();
         dt = std::chrono::duration<double, std::milli>(t1 - t0).count();
@@ -888,10 +887,11 @@ namespace erl::sdf_mapping {
 
     void
     GpSdfMapping3D::TrainGps() {
-        ERL_INFO("Training {} GPs ...", m_gps_to_train_.size());
-        const auto t0 = std::chrono::high_resolution_clock::now();
         const uint32_t n = m_gps_to_train_.size();
         if (n == 0) { return; }
+
+        ERL_INFO("Training {} GPs ...", n);
+        const auto t0 = std::chrono::high_resolution_clock::now();
 #pragma omp parallel for default(none) shared(n)
         for (uint32_t i = 0; i < n; ++i) { m_gps_to_train_[i]->Train(); }
         m_gps_to_train_.clear();
