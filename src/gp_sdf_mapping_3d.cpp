@@ -208,6 +208,7 @@ namespace erl::sdf_mapping {
         const Eigen::Ref<const Eigen::Vector3d> &translation,
         const Eigen::Ref<const Eigen::MatrixXd> &ranges) {
 
+        ++m_num_update_calls_;
         ERL_TRACY_FRAME_MARK_START();
 
         if (m_setting_->log_timing) {
@@ -283,6 +284,9 @@ namespace erl::sdf_mapping {
         Eigen::Matrix3Xd &gradients_out,
         Eigen::Matrix4Xd &variances_out,
         Eigen::Matrix6Xd &covariances_out) {
+
+        ++m_num_test_calls_;
+        m_num_test_positions_ += positions_in.cols();
 
         {
             std::lock_guard lock(m_mutex_);
@@ -528,6 +532,9 @@ namespace erl::sdf_mapping {
         }
         // m_train_log_file_ is temporary data.
         // m_test_log_file_ is temporary data.
+        s << "num_update_calls " << m_num_update_calls_ << std::endl;
+        s << "num_test_calls " << m_num_test_calls_ << std::endl;
+        s << "num_test_positions " << m_num_test_positions_ << std::endl;
         s << "end_of_GpSdfMapping3D" << std::endl;
         return s.good();
     }
@@ -574,6 +581,9 @@ namespace erl::sdf_mapping {
             "train_gp_time",
             "travel_distance",
             "last_position",
+            "num_update_calls",
+            "num_test_calls",
+            "num_test_positions",
             "end_of_GpSdfMapping3D",
         };
 
@@ -681,7 +691,19 @@ namespace erl::sdf_mapping {
                     }
                     break;
                 }
-                case 7: {  // end_of_GpSdfMapping3D
+                case 7: {  // num_update_calls
+                    s >> m_num_update_calls_;
+                    break;
+                }
+                case 8: {  // num_test_calls
+                    s >> m_num_test_calls_;
+                    break;
+                }
+                case 9: {  // num_test_positions
+                    s >> m_num_test_positions_;
+                    break;
+                }
+                case 10: {  // end_of_GpSdfMapping3D
                     skip_line();
                     return true;
                 }

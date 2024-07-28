@@ -1,5 +1,8 @@
 #include "erl_sdf_mapping/gp_sdf_mapping_2d.hpp"
 
+#include "erl_common/angle_utils.hpp"
+#include "erl_common/tracy.hpp"
+
 #include <algorithm>
 #include <chrono>
 #include <thread>
@@ -143,6 +146,7 @@ namespace erl::sdf_mapping {
         Eigen::Matrix3Xd &variances_out,
         Eigen::Matrix3Xd &covariances_out,
         const bool compute_covariance) {
+
         positions = nullptr;
         distances = nullptr;
         gradients = nullptr;
@@ -150,6 +154,7 @@ namespace erl::sdf_mapping {
         covariances = nullptr;
         const long n = positions_in.cols();
         if (n == 0) return false;
+
         distances_out.resize(n);
         gradients_out.resize(2, n);
         variances_out.resize(3, n);
@@ -177,6 +182,7 @@ namespace erl::sdf_mapping {
               m_setting_->surface_mapping_type,
               m_setting_->surface_mapping)) {
         ERL_ASSERTM(m_surface_mapping_ != nullptr, "surface_mapping is nullptr.");
+
         // get log dir from env
         if (m_setting_->log_timing) {
             char *log_dir_env = std::getenv("LOG_DIR");
@@ -202,6 +208,7 @@ namespace erl::sdf_mapping {
         const Eigen::Ref<const Eigen::Vector2d> &translation,
         const Eigen::Ref<const Eigen::MatrixXd> &ranges) {
 
+        ++m_num_update_calls_;
         ERL_TRACY_FRAME_MARK_START();
 
         if (m_setting_->log_timing) {
@@ -277,6 +284,9 @@ namespace erl::sdf_mapping {
         Eigen::Matrix2Xd &gradients_out,
         Eigen::Matrix3Xd &variances_out,
         Eigen::Matrix3Xd &covariances_out) {
+
+        ++m_num_test_calls_;
+        m_num_test_positions_ += positions_in.cols();
 
         {
             std::lock_guard lock(m_mutex_);
@@ -511,6 +521,9 @@ namespace erl::sdf_mapping {
         }
         // m_train_log_file_ is temporary data.
         // m_test_log_file_ is temporary data.
+        s << "num_update_calls " << m_num_update_calls_ << std::endl;
+        s << "num_test_calls " << m_num_test_calls_ << std::endl;
+        s << "num_test_positions " << m_num_test_positions_ << std::endl;
         s << "end_of_GpSdfMapping2D" << std::endl;
         return s.good();
     }
@@ -557,6 +570,9 @@ namespace erl::sdf_mapping {
             "train_gp_time",
             "travel_distance",
             "last_position",
+            "num_update_calls",
+            "num_test_calls",
+            "num_test_positions",
             "end_of_GpSdfMapping2D",
         };
 
@@ -662,7 +678,19 @@ namespace erl::sdf_mapping {
                     }
                     break;
                 }
-                case 7: {  // end_of_GpSdfMapping2D
+                case 7: {  // num_update_calls
+                    s >> m_num_update_calls_;
+                    break;
+                }
+                case 8: {  // num_test_calls
+                    s >> m_num_test_calls_;
+                    break;
+                }
+                case 9: {  // num_test_positions
+                    s >> m_num_test_positions_;
+                    break;
+                }
+                case 10: {  // end_of_GpSdfMapping3D
                     skip_line();
                     return true;
                 }
@@ -678,7 +706,7 @@ namespace erl::sdf_mapping {
 
     void
     GpSdfMapping2D::UpdateGps(double time_budget) {
-        ERL_ASSERTM(m_setting_->gp_sdf_area_scale > 1, "GP area scale must be greater than 1");
+        ERL_DEBUG_ASSERT(m_setting_->gp_sdf_area_scale > 1, "GP area scale must be greater than 1");
 
         // add affected clusters
         auto t0 = std::chrono::high_resolution_clock::now();
@@ -711,12 +739,11 @@ namespace erl::sdf_mapping {
         long cnt_new_gps = 0;
         for (auto &cluster_key: m_clusters_to_update_) {
             auto [it, inserted] = m_gp_map_.try_emplace(cluster_key, nullptr);
-            if (inserted) {
-                ++cnt_new_gps;
-                it->second = std::make_shared<Gp>();
-                quadtree->KeyToCoord(cluster_key, cluster_depth, it->second->position);
-                it->second->half_size = area_half_size;
-            }
+            if (!inserted) { continue; }
+            ++cnt_new_gps;
+            it->second = std::make_shared<Gp>();
+            quadtree->KeyToCoord(cluster_key, cluster_depth, it->second->position);
+            it->second->half_size = area_half_size;
         }
         t1 = std::chrono::high_resolution_clock::now();
         dt = std::chrono::duration<double, std::milli>(t1 - t0).count();
@@ -1016,7 +1043,7 @@ namespace erl::sdf_mapping {
         (void) thread_idx;
 
         if (m_surface_mapping_ == nullptr) { return; }
-        std::vector<size_t> idx;
+        std::vector<std::size_t> gp_indices;
         constexpr int max_tries = 4;
         Eigen::Matrix3Xd fs(3, max_tries);          // f, fGrad1, fGrad2
         Eigen::Matrix3Xd variances(3, max_tries);   // variances of f, fGrad1, fGrad2
@@ -1047,17 +1074,17 @@ namespace erl::sdf_mapping {
             auto &gps = m_query_to_gps_[i];
             if (gps.empty()) { continue; }
 
-            const auto &position = m_test_buffer_.positions->col(i);
-            idx.resize(gps.size());
-            std::iota(idx.begin(), idx.end(), 0);
+            const Eigen::Vector2d position = m_test_buffer_.positions->col(i);
+            gp_indices.resize(gps.size());
+            std::iota(gp_indices.begin(), gp_indices.end(), 0);
             if (gps.size() > 1) {
-                std::stable_sort(idx.begin(), idx.end(), [&gps](const size_t i1, const size_t i2) { return gps[i1].first < gps[i2].first; });
+                std::stable_sort(gp_indices.begin(), gp_indices.end(), [&gps](const size_t i1, const size_t i2) { return gps[i1].first < gps[i2].first; });
             }
 
             tested_idx.clear();
             bool need_weighted_sum = false;
             long cnt = 0;
-            for (auto &j: idx) {
+            for (std::size_t &j: gp_indices) {
                 // call selected GPs for inference
                 Eigen::Ref<Eigen::Vector3d> f = fs.col(cnt);           // distance, gradient_x, gradient_y
                 Eigen::Ref<Eigen::VectorXd> var = variances.col(cnt);  // var_distance, var_gradient_x, var_gradient_y
@@ -1119,7 +1146,7 @@ namespace erl::sdf_mapping {
 
                 tested_idx.emplace_back(cnt++, j);
                 if (use_nearest_only) { break; }
-                if ((!need_weighted_sum) && (idx.size() > 1) && (var[0] > max_test_valid_distance_var)) { need_weighted_sum = true; }
+                if ((!need_weighted_sum) && (gp_indices.size() > 1) && (var[0] > max_test_valid_distance_var)) { need_weighted_sum = true; }
                 if ((!need_weighted_sum) || (cnt >= max_tries)) { break; }
             }
 
@@ -1145,11 +1172,11 @@ namespace erl::sdf_mapping {
                     m_query_used_gps_[i][1] = nullptr;
                 } else {
                     // pick the best two results to do weighted sum
-                    long j1 = tested_idx[0].first;
-                    long j2 = tested_idx[1].first;
-                    double w1 = variances(0, j1) - m_setting_->test_query->max_test_valid_distance_var;
-                    double w2 = variances(0, j2) - m_setting_->test_query->max_test_valid_distance_var;
-                    double w12 = w1 + w2;
+                    const long j1 = tested_idx[0].first;
+                    const long j2 = tested_idx[1].first;
+                    const double w1 = variances(0, j1) - m_setting_->test_query->max_test_valid_distance_var;
+                    const double w2 = variances(0, j2) - m_setting_->test_query->max_test_valid_distance_var;
+                    const double w12 = w1 + w2;
                     // clang-format off
                     distance_out = (fs(0, j1) * w2 + fs(0, j2) * w1) / w12;
                     gradient_out << (fs(1, j1) * w2 + fs(1, j2) * w1) / w12,
@@ -1173,7 +1200,7 @@ namespace erl::sdf_mapping {
 
                 // the first column is the result
                 distance_out = fs(0, 0);
-                gradient_out << fs(1, 0), fs(2, 0);
+                gradient_out << fs.col(0).tail<2>();
                 variance_out << variances.col(0);
                 if (compute_covariance) { m_test_buffer_.covariances->col(i) = covariance.col(0); }
                 m_query_used_gps_[i][0] = gps[tested_idx[0].second].second;

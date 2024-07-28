@@ -27,7 +27,7 @@ namespace erl::sdf_mapping {
             bool active = false;
             std::atomic_bool locked_for_test = false;
             long num_train_samples = 0;
-            Eigen::Vector2d position;
+            Eigen::Vector2d position{};
             double half_size = 0;
             std::shared_ptr<LogSdfGaussianProcess> gp = {};
 
@@ -99,8 +99,11 @@ namespace erl::sdf_mapping {
         std::mutex m_log_mutex_;                                                                // for logging
         double m_travel_distance_ = 0;                                                          // for logging
         std::optional<Eigen::Vector2d> m_last_position_ = std::nullopt;                         // for logging
-        std::ofstream m_train_log_file_;
-        std::ofstream m_test_log_file_;
+        std::ofstream m_train_log_file_;                                                        // for logging
+        std::ofstream m_test_log_file_;                                                         // for logging
+        std::size_t m_num_update_calls_ = 0;                                                    // for logging
+        std::size_t m_num_test_calls_ = 0;                                                      // for logging
+        std::size_t m_num_test_positions_ = 0;                                                  // for logging
 
         // for testing
         struct TestBuffer {
@@ -166,14 +169,29 @@ namespace erl::sdf_mapping {
             Eigen::Matrix3Xd& variances_out,
             Eigen::Matrix3Xd& covariances_out);
 
-        const std::vector<std::array<std::shared_ptr<Gp>, 2>>&
+        [[nodiscard]] const std::vector<std::array<std::shared_ptr<Gp>, 2>>&
         GetUsedGps() const {
             return m_query_used_gps_;
         }
 
-        const QuadtreeKeyGpMap&
+        [[nodiscard]] const QuadtreeKeyGpMap&
         GetGpMap() const {
             return m_gp_map_;
+        }
+
+        [[nodiscard]] std::size_t
+        GetNumUpdateCalls() const {
+            return m_num_update_calls_;
+        }
+
+        [[nodiscard]] std::size_t
+        GetNumTestCalls() const {
+            return m_num_test_calls_;
+        }
+
+        [[nodiscard]] std::size_t
+        GetNumTestPositions() const {
+            return m_num_test_positions_;
         }
 
         [[nodiscard]] bool

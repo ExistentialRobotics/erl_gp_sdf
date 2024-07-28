@@ -40,6 +40,9 @@ BindGpSdfMapping2D(const py::module &m) {
                 return py::make_tuple(py::none(), py::none(), py::none(), py::none());
             },
             py::arg("positions"))
+        .def_property_readonly("num_update_calls", &T::GetNumUpdateCalls)
+        .def_property_readonly("num_test_calls", &T::GetNumTestCalls)
+        .def_property_readonly("num_test_positions", &T::GetNumTestPositions)
         .def("__eq__", &T::operator==)
         .def("__ne__", &T::operator!=)
         .def("write", py::overload_cast<const std::string &>(&T::Write, py::const_), py::arg("filename"))
