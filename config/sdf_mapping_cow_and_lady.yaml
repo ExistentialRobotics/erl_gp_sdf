@@ -2,7 +2,7 @@ num_threads: 64
 update_hz: 10
 log_timing: true
 gp_sdf_area_scale: 3
-offset_distance: 0.05
+offset_distance: 0.08
 max_valid_gradient_var: 0.001
 invalid_position_var: 0.005
 train_gp_immediately: false

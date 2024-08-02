@@ -9,7 +9,8 @@ namespace erl::sdf_mapping {
         struct TestQuery : public Yamlable<TestQuery> {
             double max_test_valid_distance_var = 0.4;  // maximum distance variance of prediction.
             double search_area_half_size = 4.8;
-            bool use_nearest_only = false;    // if true, only the nearest point will be used for prediction.
+            int num_neighbor_gps = 4;         // number of neighbors used for prediction.
+            bool use_smallest = false;        // if true, use the smallest sdf for prediction.
             bool compute_covariance = false;  // if true, compute covariance of prediction.
             bool recompute_variance = true;   // if true, compute variance using different method.
             double softmax_temperature = 10.;
@@ -37,7 +38,8 @@ struct YAML::convert<erl::sdf_mapping::GpSdfMappingBaseSetting::TestQuery> {
         Node node;
         node["max_test_valid_distance_var"] = rhs.max_test_valid_distance_var;
         node["search_area_half_size"] = rhs.search_area_half_size;
-        node["use_nearest_only"] = rhs.use_nearest_only;
+        node["num_neighbor_gps"] = rhs.num_neighbor_gps;
+        node["use_smallest"] = rhs.use_smallest;
         node["compute_covariance"] = rhs.compute_covariance;
         node["recompute_variance"] = rhs.recompute_variance;
         node["softmax_temperature"] = rhs.softmax_temperature;
@@ -49,7 +51,8 @@ struct YAML::convert<erl::sdf_mapping::GpSdfMappingBaseSetting::TestQuery> {
         if (!node.IsMap()) { return false; }
         rhs.max_test_valid_distance_var = node["max_test_valid_distance_var"].as<double>();
         rhs.search_area_half_size = node["search_area_half_size"].as<double>();
-        rhs.use_nearest_only = node["use_nearest_only"].as<bool>();
+        rhs.num_neighbor_gps = node["num_neighbor_gps"].as<int>();
+        rhs.use_smallest = node["use_smallest"].as<bool>();
         rhs.compute_covariance = node["compute_covariance"].as<bool>();
         rhs.recompute_variance = node["recompute_variance"].as<bool>();
         rhs.softmax_temperature = node["softmax_temperature"].as<double>();

@@ -1,8 +1,8 @@
 num_threads: 64
-update_hz: 10
+update_hz: 20
 log_timing: true
-gp_sdf_area_scale: 3
-offset_distance: 0.05
+gp_sdf_area_scale: 3  # should not be too small
+offset_distance: 0.05 # control the wall thickness (reservedness)
 max_valid_gradient_var: 0.001
 invalid_position_var: 0.005
 train_gp_immediately: false
@@ -11,7 +11,7 @@ gp_sdf:
     kernel:
         x_dim: 3
         alpha: 1
-        scale: 3.0
+        scale: 2.0
         scale_mix: 1
         weights: [ ]
     log_lambda: 40
@@ -24,7 +24,7 @@ test_query:
     num_neighbor_gps: 8
     use_smallest: true
     compute_covariance: false  # whether to compute covariance
-    recompute_variance: false
+    recompute_variance: true
     softmax_temperature: 5
 surface_mapping_type: GpOccSurfaceMapping3D
 surface_mapping:
@@ -50,17 +50,17 @@ surface_mapping:
     zero_gradient_threshold: 1.0000000000000001e-15
     update_occupancy: true
     sensor_gp:
-        row_group_size: 6
-        row_overlap_size: 2
+        row_group_size: 10
+        row_overlap_size: 3
         row_margin: &row_margin 0
-        col_group_size: 6
-        col_overlap_size: 2
+        col_group_size: 10
+        col_overlap_size: 3
         col_margin: &col_margin 0
         init_variance: 1000000
         sensor_range_var: 0.01
         max_valid_range_var: 0.10000000000000001
         occ_test_temperature: 30
-        range_sensor_frame_type: depth
+        range_sensor_frame_type: lidar
         range_sensor_frame:
             row_margin: *row_margin
             col_margin: *col_margin
@@ -69,17 +69,12 @@ surface_mapping:
             discontinuity_factor: 10
             rolling_diff_discount: 0.90000000000000002
             min_partition_size: 5
-            camera_to_optical: # should be identity if camera pose contains the transformation
-                - [ 1, 0, 0, 0 ]
-                - [ 0, 1, 0, 0 ]
-                - [ 0, 0, 1, 0 ]
-                - [ 0, 0, 0, 1 ]
-            image_height: 480
-            image_width: 640
-            camera_fx: 525
-            camera_fy: 525
-            camera_cx: 319.5
-            camera_cy: 239.5
+            azimuth_min: -3.1415926535897931
+            azimuth_max: 3.1415926535897931
+            elevation_min: -0.26179938775
+            elevation_max: 0.26179938775
+            num_azimuth_lines: 360
+            num_elevation_lines: 15
         gp:
             kernel_type: OrnsteinUhlenbeck2D
             kernel:

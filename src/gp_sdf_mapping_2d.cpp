@@ -1043,22 +1043,23 @@ namespace erl::sdf_mapping {
         (void) thread_idx;
 
         if (m_surface_mapping_ == nullptr) { return; }
-        std::vector<std::size_t> gp_indices;
-        constexpr int max_tries = 4;
-        Eigen::Matrix3Xd fs(3, max_tries);          // f, fGrad1, fGrad2
-        Eigen::Matrix3Xd variances(3, max_tries);   // variances of f, fGrad1, fGrad2
-        Eigen::Matrix3Xd covariance(3, max_tries);  // covariances of (fGrad1,f), (fGrad2,f), (fGrad2, fGrad1)
-        Eigen::MatrixXd no_variance;
-        Eigen::MatrixXd no_covariance;
-        std::vector<std::pair<long, long>> tested_idx;
-        tested_idx.reserve(max_tries);
 
         const bool recompute_variance = m_setting_->test_query->recompute_variance;
         const bool compute_covariance = m_setting_->test_query->compute_covariance;
-        const bool use_nearest_only = m_setting_->test_query->use_nearest_only;
+        const int num_neighbor_gps = m_setting_->test_query->num_neighbor_gps;
+        const bool use_smallest = m_setting_->test_query->use_smallest;
         const double max_test_valid_distance_var = m_setting_->test_query->max_test_valid_distance_var;
         const double softmax_temperature = m_setting_->test_query->softmax_temperature;
         const double offset_distance = m_setting_->offset_distance;
+
+        std::vector<std::size_t> gp_indices;
+        Eigen::Matrix3Xd fs(3, num_neighbor_gps);          // f, fGrad1, fGrad2
+        Eigen::Matrix3Xd variances(3, num_neighbor_gps);   // variances of f, fGrad1, fGrad2
+        Eigen::Matrix3Xd covariance(3, num_neighbor_gps);  // covariances of (fGrad1,f), (fGrad2,f), (fGrad2, fGrad1)
+        Eigen::MatrixXd no_variance;
+        Eigen::MatrixXd no_covariance;
+        std::vector<std::pair<long, long>> tested_idx;
+        tested_idx.reserve(num_neighbor_gps);
 
         for (uint32_t i = start_idx; i < end_idx; ++i) {
             double &distance_out = (*m_test_buffer_.distances)[i];
@@ -1080,6 +1081,7 @@ namespace erl::sdf_mapping {
             if (gps.size() > 1) {
                 std::stable_sort(gp_indices.begin(), gp_indices.end(), [&gps](const size_t i1, const size_t i2) { return gps[i1].first < gps[i2].first; });
             }
+            gp_indices.resize(std::min(gps.size(), static_cast<std::size_t>(num_neighbor_gps)));
 
             tested_idx.clear();
             bool need_weighted_sum = false;
@@ -1145,13 +1147,22 @@ namespace erl::sdf_mapping {
                 }
 
                 tested_idx.emplace_back(cnt++, j);
-                if (use_nearest_only) { break; }
-                if ((!need_weighted_sum) && (gp_indices.size() > 1) && (var[0] > max_test_valid_distance_var)) { need_weighted_sum = true; }
-                if ((!need_weighted_sum) || (cnt >= max_tries)) { break; }
+                if (!use_smallest) {
+                    if ((!need_weighted_sum) && (gp_indices.size() > 1) && (var[0] > max_test_valid_distance_var)) { need_weighted_sum = true; }
+                    if (!need_weighted_sum) { break; }
+                }
+            }
+
+            if (use_smallest && tested_idx.size() > 1) {
+                std::sort(tested_idx.begin(), tested_idx.end(), [&](auto a, auto b) -> bool { return fs(0, a.first) < fs(0, b.first); });
+                need_weighted_sum = false;
+                fs.col(0) = fs.col(tested_idx[0].first);
+                variances.col(0) = variances.col(tested_idx[0].first);
+                if (compute_covariance) { covariance.col(0) = covariance.col(tested_idx[0].first); }
             }
 
             // sort the results by distance variance
-            if (tested_idx.size() > 1 && need_weighted_sum) {
+            if (need_weighted_sum && tested_idx.size() > 1) {
                 std::stable_sort(tested_idx.begin(), tested_idx.end(), [&](auto a, auto b) -> bool { return variances(0, a.first) < variances(0, b.first); });
                 // the first two results have different signs, pick the one with smaller variance
                 if (fs(0, tested_idx[0].first) * fs(0, tested_idx[1].first) < 0) { need_weighted_sum = false; }

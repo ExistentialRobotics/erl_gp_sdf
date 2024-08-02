@@ -1,8 +1,8 @@
 num_threads: 64
 update_hz: 60
 log_timing: true
-gp_sdf_area_scale: 3
-offset_distance: 0.05
+gp_sdf_area_scale: 3    # should be larger than 2x max sdf when use_smallest is false: 7
+offset_distance: 0.08
 max_valid_gradient_var: 0.001
 invalid_position_var: 0.005
 train_gp_immediately: false
@@ -20,9 +20,9 @@ gp_sdf:
     max_num_samples: 256   # max dataset size
 test_query:
     max_test_valid_distance_var: 0.2
-    search_area_half_size: 2
+    search_area_half_size: 3  # should be around max sdf
     num_neighbor_gps: 4
-    use_smallest: false
+    use_smallest: true  # use the smallest distance as the prediction
     compute_covariance: false  # whether to compute covariance
     recompute_variance: true
     softmax_temperature: 5

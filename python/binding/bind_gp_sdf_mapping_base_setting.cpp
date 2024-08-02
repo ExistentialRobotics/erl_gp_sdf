@@ -10,7 +10,8 @@ BindGpSdfMappingSetting(const py::module &m) {
     py::class_<GpSdfMappingBaseSetting::TestQuery, YamlableBase, std::shared_ptr<GpSdfMappingBaseSetting::TestQuery>>(sdf_mapping_setting, "TestQuery")
         .def_readwrite("max_test_valid_distance_var", &GpSdfMappingBaseSetting::TestQuery::max_test_valid_distance_var)
         .def_readwrite("search_area_half_size", &GpSdfMappingBaseSetting::TestQuery::search_area_half_size)
-        .def_readwrite("use_nearest_only", &GpSdfMappingBaseSetting::TestQuery::use_nearest_only)
+        .def_readwrite("num_neighbor_gps", &GpSdfMappingBaseSetting::TestQuery::num_neighbor_gps)
+        .def_readwrite("use_smallest", &GpSdfMappingBaseSetting::TestQuery::use_smallest)
         .def_readwrite("compute_covariance", &GpSdfMappingBaseSetting::TestQuery::compute_covariance)
         .def_readwrite("recompute_variance", &GpSdfMappingBaseSetting::TestQuery::recompute_variance)
         .def_readwrite("softmax_temperature", &GpSdfMappingBaseSetting::TestQuery::softmax_temperature);

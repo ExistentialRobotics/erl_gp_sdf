@@ -32,6 +32,7 @@ struct Options {
     bool visualize = false;
     bool test_io = false;
     bool hold = false;
+    bool interactive = false;
     bool save_video = false;
     int stride = 1;
     double map_resolution = 0.025;
@@ -64,6 +65,48 @@ DrawGp(
     Eigen::Matrix2Xi used_surface_points_px = grid_map_info->MeterToPixelForPoints(used_surface_points);
     for (long j = 0; j < used_surface_points.cols(); j++) {
         cv::circle(img, cv::Point(used_surface_points_px(0, j), used_surface_points_px(1, j)), 3, data_color, -1);
+    }
+}
+
+struct OpenCvUserData {
+    std::shared_ptr<erl::common::GridMapInfo2D> grid_map_info;
+    erl::sdf_mapping::GpSdfMapping2D *sdf_mapping;
+    cv::Mat img;
+};
+
+void
+OpenCvMouseCallback(int event, int x, int y, int flags, void *userdata) {
+    if (event == cv::EVENT_LBUTTONDOWN) {
+        OpenCvUserData *data = static_cast<OpenCvUserData *>(userdata);
+        Eigen::Vector2d position = data->grid_map_info->PixelToMeterForPoints(Eigen::Vector2i(x, y));
+        ERL_INFO("Clicked at [{:f}, {:f}].", position.x(), position.y());
+        Eigen::VectorXd distance(1);
+        Eigen::Matrix2Xd gradient(2, 1);
+        Eigen::Matrix3Xd variances(3, 1);
+        Eigen::Matrix3Xd covariances(3, 1);
+        if (data->sdf_mapping->Test(position, distance, gradient, variances, covariances)) {
+            ERL_INFO(
+                "SDF at [{:f}, {:f}]: {:f}, grad: [{:f}, {:f}], var: {:f}.",
+                position.x(),
+                position.y(),
+                distance[0],
+                gradient(0, 0),
+                gradient(1, 0),
+                variances(0, 0));
+            cv::Mat img = data->img.clone();
+            const auto radius = static_cast<int>(std::abs(distance[0]) / data->grid_map_info->Resolution(0));
+            cv::Mat circle_layer(img.rows, img.cols, CV_8UC4, cv::Scalar(0));
+            cv::Mat circle_mask(img.rows, img.cols, CV_8UC1, cv::Scalar(0));
+            cv::circle(circle_mask, cv::Point2i(x, y), radius, cv::Scalar(255), cv::FILLED);
+            cv::circle(circle_layer, cv::Point2i(x, y), radius, cv::Scalar(0, 255, 0, 25), cv::FILLED);
+            cv::add(img * 0.5, circle_layer * 0.5, img, circle_mask);
+            auto &[gp1, gp2] = data->sdf_mapping->GetUsedGps()[0];
+            if (gp1 != nullptr) { DrawGp(img, gp1, data->grid_map_info); }
+            if (gp2 != nullptr) { DrawGp(img, gp2, data->grid_map_info); }
+            cv::imshow(g_window_name, img);
+        } else {
+            ERL_WARN("Failed to test SDF estimation at [{:f}, {:f}].", position.x(), position.y());
+        }
     }
 }
 
@@ -492,16 +535,45 @@ TEST(GpSdfMapping2D, Build_Save_Load) {
     if (g_options.visualize && g_options.hold) {
         std::cout << "Press any key to exit." << std::endl;
         while (!pangolin::ShouldQuit()) {
-            std::this_thread::sleep_for(std::chrono::milliseconds(10));
+            std::this_thread::sleep_for(std::chrono::milliseconds(100));
             process_event();
         }
     } else {
         t0 = std::chrono::high_resolution_clock::now();
         double wait_time = 10.0;
         while (std::chrono::duration<double>(std::chrono::high_resolution_clock::now() - t0).count() < wait_time && !pangolin::ShouldQuit()) {
-            std::this_thread::sleep_for(std::chrono::milliseconds(10));
+            std::this_thread::sleep_for(std::chrono::milliseconds(100));
             process_event();
         }
+    }
+
+    pangolin::QuitAll();
+
+    if (g_options.interactive) {
+
+        if (!drawer_connected) {
+            drawer->SetQuadtree(surface_mapping->GetQuadtree());
+            drawer_connected = true;
+        }
+        img.setTo(cv::Scalar(128, 128, 128, 255));
+        arrowed_lines.clear();
+        if (update_occupancy) {
+            drawer->DrawLeaves(img);
+        } else {
+            drawer->DrawTree(img);
+        }
+        for (auto &[position_px_cv, arrow_end_px]: arrowed_lines) {
+            cv::arrowedLine(img, position_px_cv, arrow_end_px, cv::Scalar(0, 0, 255, 255), 1, 8, 0, 0.1);
+        }
+
+        OpenCvUserData data;
+        data.img = img;
+        data.grid_map_info = grid_map_info;
+        data.sdf_mapping = &sdf_mapping;
+
+        cv::imshow(g_window_name, img);
+        cv::setMouseCallback(g_window_name, OpenCvMouseCallback, &data);
+        while (cv::waitKey(0) != 27) {}  // wait for ESC key
     }
 }
 
@@ -526,6 +598,7 @@ main(int argc, char *argv[]) {
             ("save-video", po::bool_switch(&g_options.save_video)->default_value(g_options.save_video), "Save the mapping video")
             ("output-dir", po::value<std::string>(&g_options.output_dir)->default_value(g_options.output_dir)->value_name("dir"), "Output directory")
             ("hold", po::bool_switch(&g_options.hold)->default_value(g_options.hold), "Hold the test until a key is pressed")
+            ("interactive", po::bool_switch(&g_options.interactive)->default_value(g_options.interactive), "Interactive mode")
             (
                 "house-expo-map-file",
                 po::value<std::string>(&g_options.house_expo_map_file)->default_value(g_options.house_expo_map_file)->value_name("file"),

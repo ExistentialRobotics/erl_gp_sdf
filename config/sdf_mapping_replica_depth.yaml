@@ -11,7 +11,7 @@ gp_sdf:
     kernel:
         x_dim: 3
         alpha: 1
-        scale: 3.0
+        scale: 2.0
         scale_mix: 1
         weights: [ ]
     log_lambda: 40

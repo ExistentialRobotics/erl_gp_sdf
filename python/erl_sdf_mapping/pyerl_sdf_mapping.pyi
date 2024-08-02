@@ -90,7 +90,8 @@ class GpSdfMappingBaseSetting(YamlableBase):
     class TestQuery(YamlableBase):
         max_test_valid_distance_var: float
         search_area_half_size: float
-        use_nearest_only: bool
+        num_neighbor_gps: int
+        use_smallest: bool
         compute_covariance: bool
         recompute_variance: bool
         softmax_temperature: float

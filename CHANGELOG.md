@@ -1,3 +1,7 @@
+# 2024-08-02
+
+- Implement: set number of neighbor GPs and option to use smallest SDF as prediction
+
 # 2024-07-28
 
 - Add statics of update calls, test calls, and test positions
