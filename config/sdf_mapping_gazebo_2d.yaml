@@ -1,8 +1,8 @@
 num_threads: 64
 update_hz: 60
 log_timing: true
-gp_sdf_area_scale: 3    # should be larger than 2x max sdf when use_smallest is false: 7
-offset_distance: 0.08
+gp_sdf_area_scale: 5    # should be larger than 2x max sdf when use_smallest is false: 7
+offset_distance: 0.01
 max_valid_gradient_var: 0.001
 invalid_position_var: 0.005
 train_gp_immediately: false

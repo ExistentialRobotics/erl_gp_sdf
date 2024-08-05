@@ -1,27 +1,26 @@
-from erl_sdf_mapping import GpSdfMapping3D
 import argparse
+
+import cv2
 import numpy as np
 import open3d as o3d
-import cv2
+
+from erl_sdf_mapping import GpSdfMapping3D
 
 
 def main():
     parser = argparse.ArgumentParser()
-    parser.add_argument("--sdf-mapping-config-file", type=str, required=True)
     parser.add_argument("--sdf-mapping-bin-file", type=str, required=True)
     parser.add_argument("--mesh-file", type=str, required=True)
     parser.add_argument("--resolution", type=float, default=0.01)
     parser.add_argument("-z", type=float, default=0.0)
     args = parser.parse_args()
 
-    sdf_mapping_config_file = args.sdf_mapping_config_file
     sdf_mapping_bin_file = args.sdf_mapping_bin_file
     mesh_file = args.mesh_file
     resolution = args.resolution
     z = args.z
 
     sdf_mapping_setting = GpSdfMapping3D.Setting()
-    sdf_mapping_setting.from_yaml_file(sdf_mapping_config_file)
     sdf_mapping_setting.log_timing = False  # Disable timing log
 
     sdf_mapping = GpSdfMapping3D(sdf_mapping_setting)

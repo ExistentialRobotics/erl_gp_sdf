@@ -70,14 +70,14 @@ DrawGp(
 
 struct OpenCvUserData {
     std::shared_ptr<erl::common::GridMapInfo2D> grid_map_info;
-    erl::sdf_mapping::GpSdfMapping2D *sdf_mapping;
+    erl::sdf_mapping::GpSdfMapping2D *sdf_mapping = nullptr;
     cv::Mat img;
 };
 
 void
-OpenCvMouseCallback(int event, int x, int y, int flags, void *userdata) {
+OpenCvMouseCallback(const int event, const int x, const int y, int /*flags*/, void *userdata) {
     if (event == cv::EVENT_LBUTTONDOWN) {
-        OpenCvUserData *data = static_cast<OpenCvUserData *>(userdata);
+        auto *data = static_cast<OpenCvUserData *>(userdata);
         Eigen::Vector2d position = data->grid_map_info->PixelToMeterForPoints(Eigen::Vector2i(x, y));
         ERL_INFO("Clicked at [{:f}, {:f}].", position.x(), position.y());
         Eigen::VectorXd distance(1);
@@ -494,6 +494,15 @@ TEST(GpSdfMapping2D, Build_Save_Load) {
         double min_distance = distances_out.minCoeff();
         double max_distance = distances_out.maxCoeff();
         ERL_INFO("min distance: {:f}, max distance: {:f}.", min_distance, max_distance);
+
+        img.setTo(cv::Scalar(128, 128, 128, 255));
+        drawer_setting->border_color = drawer_setting->occupied_color;
+        arrowed_lines.clear();
+        if (update_occupancy) {
+            drawer->DrawLeaves(img);
+        } else {
+            drawer->DrawTree(img);
+        }
 
         max_distance = sdf_out_mat.maxCoeff();
         Eigen::MatrixX8U distances_out_mat_normalized = ((sdf_out_mat.array() - min_distance) / (max_distance - min_distance) * 255).cast<uint8_t>();
