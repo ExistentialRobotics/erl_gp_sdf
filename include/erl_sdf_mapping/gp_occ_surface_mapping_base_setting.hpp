@@ -3,7 +3,7 @@
 #include "erl_geometry/abstract_surface_mapping.hpp"
 
 namespace erl::sdf_mapping {
-    struct GpOccSurfaceMappingBaseSetting : public common::OverrideYamlable<geometry::AbstractSurfaceMapping::Setting, GpOccSurfaceMappingBaseSetting> {
+    struct GpOccSurfaceMappingBaseSetting : public common::Yamlable<GpOccSurfaceMappingBaseSetting, geometry::AbstractSurfaceMapping::Setting> {
 
         struct ComputeVariance : public common::Yamlable<ComputeVariance> {
             double zero_gradient_position_var = 1.;  // position variance to use when the estimated gradient is almost zero.

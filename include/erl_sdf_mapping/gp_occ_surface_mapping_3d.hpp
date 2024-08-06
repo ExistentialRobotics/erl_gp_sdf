@@ -14,7 +14,7 @@ namespace erl::sdf_mapping {
     public:
         using SensorGp = gaussian_process::RangeSensorGaussianProcess3D;
 
-        struct Setting : common::OverrideYamlable<GpOccSurfaceMappingBaseSetting, Setting> {
+        struct Setting : common::Yamlable<Setting, GpOccSurfaceMappingBaseSetting> {
             std::shared_ptr<SensorGp::Setting> sensor_gp = std::make_shared<SensorGp::Setting>();
             std::shared_ptr<geometry::SurfaceMappingOctree::Setting> octree = std::make_shared<geometry::SurfaceMappingOctree::Setting>();
         };

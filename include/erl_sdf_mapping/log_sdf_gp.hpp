@@ -9,7 +9,7 @@ namespace erl::sdf_mapping {
     class LogSdfGaussianProcess : public gaussian_process::NoisyInputGaussianProcess {
 
     public:
-        struct Setting : public common::OverrideYamlable<NoisyInputGaussianProcess::Setting, Setting> {
+        struct Setting : public common::Yamlable<Setting, NoisyInputGaussianProcess::Setting> {
             double log_lambda = 40.0;
             double edf_threshold = 0.1;
             bool unify_scale = true;  // make gpis and log_sdf_gp have the same scale

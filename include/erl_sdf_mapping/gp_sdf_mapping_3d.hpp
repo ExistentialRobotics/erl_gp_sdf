@@ -18,7 +18,7 @@ namespace erl::sdf_mapping {
     class GpSdfMapping3D {
 
     public:
-        struct Setting : public common::OverrideYamlable<GpSdfMappingBaseSetting, Setting> {
+        struct Setting : public common::Yamlable<Setting, GpSdfMappingBaseSetting> {
             std::string surface_mapping_type = "GpOccSurfaceMapping3D";
             std::shared_ptr<geometry::AbstractSurfaceMapping3D::Setting> surface_mapping = nullptr;
         };
