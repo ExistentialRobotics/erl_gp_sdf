@@ -35,7 +35,7 @@
     ```bash
     cd /path/to/your/workspace
     mkdir build && cd build
-    cmake .. -DCMAKE_BUILD_TYPE=Release
+    cmake .. -DCMAKE_BUILD_TYPE=Release -DERL_BUILD_TEST=OFF
     make -j`nproc`
     ```
 5. Or build your workspace (With ROS Noetic)

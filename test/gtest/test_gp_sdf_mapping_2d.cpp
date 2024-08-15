@@ -306,14 +306,14 @@ TEST(GpSdfMapping2D, Build_Save_Load) {
 
     // pangolin
     std::shared_ptr<erl::common::PangolinWindow> pangolin_plotter_window;
-    std::shared_ptr<erl::common::PangolinPlotterTimeSeries2D> plotter_sdf;
-    std::shared_ptr<erl::common::PangolinPlotterTimeSeries2D> plotter_grad;
+    std::shared_ptr<erl::common::PangolinPlotterCurve2D> plotter_sdf;
+    std::shared_ptr<erl::common::PangolinPlotterCurve2D> plotter_grad;
     std::shared_ptr<erl::common::PangolinWindow> pangolin_map_window;
     std::shared_ptr<erl::common::PangolinPlotterImage> pangolin_plotter_map;
     if (g_options.visualize) {
         pangolin_plotter_window = std::make_shared<erl::common::PangolinWindow>(g_window_name + ": curves", 1280, 960);
         pangolin_plotter_window->GetDisplay("main").SetLayout(pangolin::LayoutEqualVertical);
-        plotter_sdf = std::make_shared<erl::common::PangolinPlotterTimeSeries2D>(
+        plotter_sdf = std::make_shared<erl::common::PangolinPlotterCurve2D>(
             pangolin_plotter_window,
             "SDF",
             std::vector<std::string>{"t", "SDF", "EDF", "var(SDF)"},
@@ -322,7 +322,7 @@ TEST(GpSdfMapping2D, Build_Save_Load) {
             static_cast<float>(tic),  // dt
             0.05f);                   // dy
 
-        plotter_grad = std::make_shared<erl::common::PangolinPlotterTimeSeries2D>(
+        plotter_grad = std::make_shared<erl::common::PangolinPlotterCurve2D>(
             pangolin_plotter_window,
             "Gradient",
             std::vector<std::string>{"t", "gradX", "gradY", "var(gradX)", "var(gradY)"},
