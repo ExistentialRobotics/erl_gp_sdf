@@ -32,6 +32,26 @@ namespace erl::sdf_mapping {
         void
         Reset(long max_num_samples, long x_dim) override;
 
+        [[nodiscard]] std::shared_ptr<covariance::Covariance>
+        GetLogKernel() const {
+            return m_kernel_;
+        }
+
+        [[nodiscard]] Eigen::MatrixXd
+        GetLogKtrain() const {
+            return m_mat_log_k_train_;
+        }
+
+        [[nodiscard]] Eigen::MatrixXd
+        GetLogAlpha() const {
+            return m_vec_log_alpha_;
+        }
+
+        [[nodiscard]] Eigen::MatrixXd
+        GetLogCholeskyDecomposition() const {
+            return m_mat_log_l_;
+        }
+
         [[nodiscard]] std::size_t
         GetMemoryUsage() const override;
 

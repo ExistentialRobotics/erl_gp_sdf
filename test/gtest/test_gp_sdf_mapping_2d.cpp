@@ -1,8 +1,6 @@
-#include "erl_common/csv.hpp"
+#include "erl_common/pangolin_plotter_curve_2d.hpp"
 #include "erl_common/pangolin_plotter_image.hpp"
-#include "erl_common/pangolin_plotter_time_series_2d.hpp"
 #include "erl_common/progress_bar.hpp"
-#include "erl_common/random.hpp"
 #include "erl_common/test_helper.hpp"
 #include "erl_geometry/gazebo_room_2d.hpp"
 #include "erl_geometry/house_expo_map_lidar_2d.hpp"
@@ -560,10 +558,7 @@ TEST(GpSdfMapping2D, Build_Save_Load) {
 
     if (g_options.interactive) {
 
-        if (!drawer_connected) {
-            drawer->SetQuadtree(surface_mapping->GetQuadtree());
-            drawer_connected = true;
-        }
+        if (!drawer_connected) { drawer->SetQuadtree(surface_mapping->GetQuadtree()); }
         img.setTo(cv::Scalar(128, 128, 128, 255));
         arrowed_lines.clear();
         if (update_occupancy) {

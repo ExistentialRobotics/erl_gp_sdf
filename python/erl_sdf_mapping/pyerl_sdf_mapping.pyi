@@ -1,16 +1,20 @@
-from typing import Tuple
 from typing import Optional
+from typing import Tuple
+
 import numpy as np
 import numpy.typing as npt
 from erl_common.yaml import YamlableBase
+
+from erl_covariance import Covariance
+from erl_gaussian_process import LidarGaussianProcess2D
 from erl_gaussian_process import NoisyInputGaussianProcess
+from erl_gaussian_process import RangeSensorGaussianProcess3D
 from erl_geometry import AbstractSurfaceMapping
 from erl_geometry import AbstractSurfaceMapping2D
 from erl_geometry import AbstractSurfaceMapping3D
-from erl_geometry import SurfaceMappingQuadtree
+from erl_geometry import QuadtreeKey
 from erl_geometry import SurfaceMappingOctree
-from erl_gaussian_process import LidarGaussianProcess2D
-from erl_gaussian_process import RangeSensorGaussianProcess3D
+from erl_geometry import SurfaceMappingQuadtree
 
 __all__ = [
     "LogSdfGaussianProcess",
@@ -23,11 +27,23 @@ __all__ = [
 class LogSdfGaussianProcess(NoisyInputGaussianProcess):
     class Setting(NoisyInputGaussianProcess.Setting):
         log_lambda: float
+        edf_threshold: float
+        unify_scale: bool
 
         def __init__(self: LogSdfGaussianProcess.Setting): ...
 
     def __init__(self: LogSdfGaussianProcess, setting: Setting): ...
-    def reset(self: LogSdfGaussianProcess) -> None: ...
+    def reset(self: LogSdfGaussianProcess, max_num_samples: int, x_dim: int) -> None: ...
+    @property
+    def log_kernel(self: LogSdfGaussianProcess) -> Covariance: ...
+    @property
+    def log_k_train(self: LogSdfGaussianProcess) -> npt.NDArray[np.float64]: ...
+    @property
+    def log_alpha(self: LogSdfGaussianProcess) -> npt.NDArray[np.float64]: ...
+    @property
+    def log_cholesky_k_train(self: LogSdfGaussianProcess) -> npt.NDArray[np.float64]: ...
+    @property
+    def memory_usage(self: LogSdfGaussianProcess) -> int: ...
     def train(
         self: LogSdfGaussianProcess,
         mat_x_train: npt.NDArray[np.float64],
@@ -145,6 +161,10 @@ class GpSdfMapping2D:
         Optional[npt.NDArray[np.float64]],  # covariance
     ]: ...
     @property
+    def used_gps(self) -> list[tuple[GpSdfMapping2D.Gp, GpSdfMapping2D.Gp]]: ...
+    @property
+    def gps(self) -> dict[QuadtreeKey, GpSdfMapping2D.Gp]: ...
+    @property
     def num_update_calls(self) -> int: ...
     @property
     def num_test_calls(self) -> int: ...
@@ -156,6 +176,21 @@ class GpSdfMapping2D:
     def read(self, filename: str) -> bool: ...
 
 class GpSdfMapping3D:
+    class Gp:
+        @property
+        def active(self) -> bool: ...
+        @property
+        def locked_for_test(self) -> bool: ...
+        @property
+        def num_train_samples(self) -> int: ...
+        @property
+        def position(self) -> npt.NDArray[np.float64]: ...
+        @property
+        def half_size(self) -> float: ...
+        @property
+        def gp(self) -> LogSdfGaussianProcess: ...
+        def train(self) -> None: ...
+
     class Setting(GpSdfMappingBaseSetting):
         surface_mapping_type: str
         surface_mapping: AbstractSurfaceMapping3D.Setting
@@ -177,6 +212,10 @@ class GpSdfMapping3D:
         Optional[npt.NDArray[np.float64]],  # variance
         Optional[npt.NDArray[np.float64]],  # covariance
     ]: ...
+    @property
+    def used_gps(self) -> list[tuple[GpSdfMapping3D.Gp, GpSdfMapping3D.Gp]]: ...
+    @property
+    def gps(self) -> dict[QuadtreeKey, GpSdfMapping3D.Gp]: ...
     @property
     def num_update_calls(self) -> int: ...
     @property

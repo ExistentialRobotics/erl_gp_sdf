@@ -744,7 +744,7 @@ namespace erl::sdf_mapping {
         m_clusters_to_update_.insert(m_clusters_to_update_.end(), affected_clusters.begin(), affected_clusters.end());
         auto t1 = std::chrono::high_resolution_clock::now();
         auto dt = std::chrono::duration<double, std::milli>(t1 - t0).count();
-        ERL_INFO("Collecte {} -> {} affected clusters: {} ms.", changed_clusters.size(), affected_clusters.size(), dt);
+        ERL_INFO("Collect {} -> {} affected clusters: {} ms.", changed_clusters.size(), affected_clusters.size(), dt);
 
         // update GPs in affected clusters
         /// create GPs for new clusters, compute AABB of all clusters to be updated

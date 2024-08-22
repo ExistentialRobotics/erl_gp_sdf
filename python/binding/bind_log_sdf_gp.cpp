@@ -16,8 +16,13 @@ BindLogSdfGaussianProcess(const py::module &m) {
         .def_readwrite("unify_scale", &T::Setting::unify_scale);
 
     py_log_noisy_input_gp.def(py::init<std::shared_ptr<T::Setting>>(), py::arg("setting").none(false))
-        .def_property_readonly("setting", &T::GetSetting)
+        .def_property_readonly("setting", &T::GetSetting<T::Setting>)
         .def("reset", &T::Reset, py::arg("max_num_samples"), py::arg("x_dim"))
+        .def_property_readonly("log_kernel", &T::GetLogKernel)
+        .def_property_readonly("log_k_train", &T::GetLogKtrain)
+        .def_property_readonly("log_alpha", &T::GetLogAlpha)
+        .def_property_readonly("log_cholesky_k_train", &T::GetLogCholeskyDecomposition)
+        .def_property_readonly("memory_usage", &T::GetMemoryUsage)
         .def(
             "train",
             [](T &self,
