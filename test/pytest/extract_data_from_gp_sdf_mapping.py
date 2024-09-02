@@ -98,18 +98,17 @@ def main():
         gps_info.append(gp_info)
 
         # draw the area used to collect training samples
-        if dim == 2:
-            rect = patches.Rectangle(
-                (gp.position[0] - gp.half_size, gp.position[1] - gp.half_size),
-                2 * gp.half_size,
-                2 * gp.half_size,
-                linewidth=1,
-                edgecolor="k",
-                facecolor="none",
-            )
-            ax.add_patch(rect)
-            circ = patches.Circle((gp.position[0], gp.position[1]), radius=0.1, edgecolor="r", facecolor="r")
-            ax.add_patch(circ)
+        rect = patches.Rectangle(
+            (gp.position[0] - gp.half_size, gp.position[1] - gp.half_size),
+            2 * gp.half_size,
+            2 * gp.half_size,
+            linewidth=1,
+            edgecolor="k",
+            facecolor="none",
+        )
+        ax.add_patch(rect)
+        circ = patches.Circle((gp.position[0], gp.position[1]), radius=0.1, edgecolor="r", facecolor="r")
+        ax.add_patch(circ)
 
         # yaml_str = yaml.dump(gp_info)
         # print(yaml_str)
