@@ -20,6 +20,8 @@ namespace erl::sdf_mapping {
             std::shared_ptr<geometry::SurfaceMappingQuadtree::Setting> quadtree = std::make_shared<geometry::SurfaceMappingQuadtree::Setting>();
         };
 
+        inline static const volatile bool kSettingRegistered = common::YamlableBase::Register<Setting>();
+
     private:
         std::shared_ptr<Setting> m_setting_ = std::make_shared<Setting>();
         std::shared_ptr<gaussian_process::LidarGaussianProcess2D> m_sensor_gp_ = nullptr;  // the GP of regression between angle and mapped distance

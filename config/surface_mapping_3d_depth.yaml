@@ -30,7 +30,8 @@ sensor_gp:
     sensor_range_var: 0.01
     max_valid_range_var: 0.10000000000000001
     occ_test_temperature: 30
-    range_sensor_frame_type: depth
+    range_sensor_frame_type: erl::geometry::DepthFrame3D
+    range_sensor_frame_setting_type: erl::geometry::DepthFrame3D::Setting
     range_sensor_frame:
         row_margin: *row_margin
         col_margin: *col_margin
@@ -51,7 +52,7 @@ sensor_gp:
         camera_cx: 319.5
         camera_cy: 239.5
     gp:
-        kernel_type: OrnsteinUhlenbeck2D
+        kernel_type: erl::covariance::OrnsteinUhlenbeck<2l>
         kernel:
             x_dim: 2
             alpha: 1

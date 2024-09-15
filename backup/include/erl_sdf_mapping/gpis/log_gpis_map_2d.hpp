@@ -2,7 +2,7 @@
 
 #include "gpis_map_base_2d.hpp"
 
-#include "erl_sdf_mapping/log_sdf_gp.hpp"
+#include "erl_sdf_mapping/log_edf_gp.hpp"
 
 namespace erl::sdf_mapping::gpis {
 
@@ -10,7 +10,7 @@ namespace erl::sdf_mapping::gpis {
 
     public:
         struct Setting : public GpisMapBase2D::Setting {
-            Setting() { gp_sdf = std::make_shared<LogSdfGaussianProcess::Setting>(); }
+            Setting() { gp_sdf = std::make_shared<LogEdfGaussianProcess::Setting>(); }
         };
 
         explicit LogGpisMap2D(const std::shared_ptr<Setting> &setting)
@@ -32,7 +32,7 @@ namespace erl::sdf_mapping::gpis {
             const Eigen::Ref<const Eigen::VectorXd> &vec_sigma_y,
             const Eigen::Ref<const Eigen::VectorXd> &vec_sigma_grad) override {
 
-            auto gp = std::make_shared<LogSdfGaussianProcess>(std::dynamic_pointer_cast<LogSdfGaussianProcess::Setting>(m_setting_->gp_sdf));
+            auto gp = std::make_shared<LogEdfGaussianProcess>(std::dynamic_pointer_cast<LogEdfGaussianProcess::Setting>(m_setting_->gp_sdf));
             gp->Reset(mat_x_train.cols(), 2);
             gp->GetTrainInputSamplesBuffer() = mat_x_train;
             gp->GetTrainInputSamplesVarianceBuffer() = vec_sigma_x;
@@ -52,7 +52,7 @@ namespace erl::sdf_mapping::gpis {
             const Eigen::Ref<Eigen::Vector3d> vec_f_out,
             const Eigen::Ref<Eigen::Vector3d> vec_var_out) const override {
 
-            const auto gp = std::static_pointer_cast<const LogSdfGaussianProcess>(gp_ptr);
+            const auto gp = std::static_pointer_cast<const LogEdfGaussianProcess>(gp_ptr);
             Eigen::Matrix3Xd mat_cov_out;
             gp->Test(mat_x_test, vec_f_out, vec_var_out, mat_cov_out);
         }

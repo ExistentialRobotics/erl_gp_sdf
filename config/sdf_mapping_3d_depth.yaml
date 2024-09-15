@@ -7,8 +7,14 @@ max_valid_gradient_var: 0.001
 invalid_position_var: 0.005
 train_gp_immediately: false
 gp_sdf:
-    kernel_type: Matern32_3D
+    kernel_type: erl::covariance::Matern32<3l>
     kernel:
+        x_dim: 3
+        alpha: 1
+        scale: 3.0
+        scale_mix: 1
+        weights: [ ]
+    log_kernel:
         x_dim: 3
         alpha: 1
         scale: 3.0
@@ -16,7 +22,6 @@ gp_sdf:
         weights: [ ]
     log_lambda: 40
     edf_threshold: 0.05
-    unify_scale: false
     max_num_samples: 96   # max dataset size
 test_query:
     max_test_valid_distance_var: 0.02
@@ -26,7 +31,8 @@ test_query:
     compute_covariance: false  # whether to compute covariance
     recompute_variance: false
     softmax_temperature: 5
-surface_mapping_type: GpOccSurfaceMapping3D
+surface_mapping_type: erl::sdf_mapping::GpOccSurfaceMapping3D
+surface_mapping_setting_type: erl::sdf_mapping::GpOccSurfaceMapping3D::Setting
 surface_mapping:
     compute_variance:
         zero_gradient_position_var: 1
@@ -60,7 +66,8 @@ surface_mapping:
         sensor_range_var: 0.01
         max_valid_range_var: 0.10000000000000001
         occ_test_temperature: 30
-        range_sensor_frame_type: depth
+        range_sensor_frame_type: erl::geometry::DepthFrame3D
+        range_sensor_frame_setting_type: erl::geometry::DepthFrame3D::Setting
         range_sensor_frame:
             row_margin: *row_margin
             col_margin: *col_margin
@@ -81,7 +88,7 @@ surface_mapping:
             camera_cx: 319.5
             camera_cy: 239.5
         gp:
-            kernel_type: OrnsteinUhlenbeck2D
+            kernel_type: erl::covariance::OrnsteinUhlenbeck<2l>
             kernel:
                 x_dim: 2
                 alpha: 1

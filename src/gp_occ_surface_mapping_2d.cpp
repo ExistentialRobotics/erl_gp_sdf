@@ -1,5 +1,6 @@
 #include "erl_sdf_mapping/gp_occ_surface_mapping_2d.hpp"
 
+#include "erl_common/block_timer.hpp"
 #include "erl_common/clip.hpp"
 
 namespace erl::sdf_mapping {
@@ -17,12 +18,14 @@ namespace erl::sdf_mapping {
         const Eigen::Ref<const Eigen::MatrixXd> &ranges) {
 
         m_changed_keys_.clear();
-        auto t0 = std::chrono::high_resolution_clock::now();
-        (void) m_sensor_gp_->Train(rotation, translation, ranges, false);
-        auto t1 = std::chrono::high_resolution_clock::now();
-        auto dt = std::chrono::duration<double, std::milli>(t1 - t0).count();
-        ERL_INFO("GP theta training time: {:f} ms.", dt);
-        if (!m_sensor_gp_->IsTrained()) { return false; }
+
+        bool sensor_gp_trained = false;
+        const bool verbose_timer = common::Logging::GetLevel() <= common::Logging::Level::kInfo;
+        {
+            erl::common::BlockTimer<std::chrono::milliseconds> timer("Sensor GP training", nullptr, verbose_timer);
+            sensor_gp_trained = m_sensor_gp_->Train(rotation, translation, ranges, false);
+        }
+        if (!sensor_gp_trained) { return false; }
 
         const double d = m_setting_->perturb_delta;
         // clang-format off
@@ -31,25 +34,20 @@ namespace erl::sdf_mapping {
         // clang-format on
 
         if (m_setting_->update_occupancy) {
-            t0 = std::chrono::high_resolution_clock::now();
+            erl::common::BlockTimer<std::chrono::milliseconds> timer("Update occupancy", nullptr, verbose_timer);
             UpdateOccupancy();
-            t1 = std::chrono::high_resolution_clock::now();
-            dt = std::chrono::duration<double, std::milli>(t1 - t0).count();
-            ERL_INFO("Update occupancy time: {:f} ms.", dt);
         }
 
         // perform surface mapping
-        t0 = std::chrono::high_resolution_clock::now();
-        UpdateMapPoints();
-        t1 = std::chrono::high_resolution_clock::now();
-        dt = std::chrono::duration<double, std::milli>(t1 - t0).count();
-        ERL_INFO("Update map points time: {:f} ms.", dt);
+        {
+            erl::common::BlockTimer<std::chrono::milliseconds> timer("Update map points", nullptr, verbose_timer);
+            UpdateMapPoints();
+        }
 
-        t0 = std::chrono::high_resolution_clock::now();
-        AddNewMeasurement();
-        t1 = std::chrono::high_resolution_clock::now();
-        dt = std::chrono::duration<double, std::micro>(t1 - t0).count();
-        ERL_INFO("Add new measurement time: {:f} us.", dt);
+        {
+            erl::common::BlockTimer<std::chrono::milliseconds> timer("Add new measurement time", nullptr, verbose_timer);
+            AddNewMeasurement();
+        }
 
         return true;
     }
@@ -255,13 +253,9 @@ namespace erl::sdf_mapping {
         const Eigen::Vector2d &sensor_pos = sensor_frame->GetTranslationVector();
         const double max_sensor_range = sensor_frame->GetMaxValidRange();
         const geometry::Aabb2D observed_area(sensor_pos, max_sensor_range);
-        const Eigen::Vector2d &min_corner = observed_area.min();
-        const Eigen::Vector2d &max_corner = observed_area.max();
 
         std::vector<std::tuple<geometry::QuadtreeKey, geometry::SurfaceMappingQuadtreeNode *, std::optional<geometry::QuadtreeKey>>> nodes_in_aabb;
-        for (auto it = m_quadtree_->BeginLeafInAabb(min_corner.x(), min_corner.y(), max_corner.x(), max_corner.y()), end = m_quadtree_->EndLeafInAabb();
-             it != end;
-             ++it) {
+        for (auto it = m_quadtree_->BeginLeafInAabb(observed_area), end = m_quadtree_->EndLeafInAabb(); it != end; ++it) {
             nodes_in_aabb.emplace_back(it.GetKey(), *it, std::nullopt);
         }
 
@@ -283,9 +277,10 @@ namespace erl::sdf_mapping {
             const double cluster_half_size = m_setting_->quadtree->resolution * std::pow(2, cluster_level - 1);
             const double squared_dist_max = max_sensor_range * max_sensor_range + cluster_half_size * cluster_half_size * 2.0;
 
-            Eigen::Vector2d cluster_position;
-            m_quadtree_->KeyToCoord(node_key, m_quadtree_->GetTreeDepth() - cluster_level, cluster_position.x(), cluster_position.y());
-            if ((cluster_position - sensor_pos).squaredNorm() > squared_dist_max) { continue; }
+            if (const Eigen::Vector2d cluster_position = m_quadtree_->KeyToCoord(node_key, m_quadtree_->GetTreeDepth() - cluster_level);
+                (cluster_position - sensor_pos).squaredNorm() > squared_dist_max) {
+                continue;
+            }
 
             std::shared_ptr<geometry::SurfaceMappingQuadtreeNode::SurfaceData> surface_data = node->GetSurfaceData();
             if (surface_data == nullptr) { continue; }
@@ -359,7 +354,7 @@ namespace erl::sdf_mapping {
                 const double &old_y = grad_global_old.y();
                 const double &new_x = grad_global_new.x();
                 const double &new_y = grad_global_new.y();
-                const double angle_dist = std::atan2(old_x * new_y - old_y * new_x, old_x * new_x + old_y * new_y) * var_position_new / var_position_sum;
+                const double angle_dist = std::atan2(old_x * new_y - old_y * new_x, old_x * new_x + old_y * new_y) * var_gradient_new / var_gradient_sum;
                 const double sin = std::sin(angle_dist);
                 const double cos = std::cos(angle_dist);
                 // rotate grad_global_old by angle_dist
@@ -508,7 +503,6 @@ namespace erl::sdf_mapping {
         const double gradient_norm = gradient.norm();
         if (gradient_norm <= m_setting_->zero_gradient_threshold) { return false; }  // uncertain point, drop it
         gradient /= gradient_norm;
-
         return true;
     }
 
@@ -538,7 +532,6 @@ namespace erl::sdf_mapping {
         const double gradient_norm = gradient.norm();
         if (gradient_norm <= m_setting_->zero_gradient_threshold) { return false; }  // uncertain point, drop it
         gradient /= gradient_norm;
-
         return true;
     }
 

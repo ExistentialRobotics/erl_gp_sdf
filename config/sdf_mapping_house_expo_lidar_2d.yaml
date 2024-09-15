@@ -2,31 +2,31 @@ num_threads: 64
 update_hz: 60
 log_timing: true
 gp_sdf_area_scale: 3
-offset_distance: 0.08
-max_valid_gradient_var: 0.001
-invalid_position_var: 0.005
+max_valid_gradient_var: 0.1
+invalid_position_var: 1.0
 train_gp_immediately: false
 gp_sdf:
-    kernel_type: Matern32_2D
+    kernel_type: erl::covariance::Matern32<2l>
+    kernel_setting_type: erl::covariance::Covariance::Setting
     kernel:
         x_dim: 2
         alpha: 1
-        scale: 2.0
+        scale: 0.3
         scale_mix: 1
         weights: [ ]
     log_lambda: 40
-    edf_threshold: 0.1
-    unify_scale: true
     max_num_samples: 256   # max dataset size
+    no_gradient_observation: true
 test_query:
     max_test_valid_distance_var: 0.2
     search_area_half_size: 2
     num_neighbor_gps: 4
-    use_smallest: true
+    use_smallest: true  # use the smallest distance as the prediction
     compute_covariance: false  # whether to compute covariance
-    recompute_variance: true
-    softmax_temperature: 5
-surface_mapping_type: GpOccSurfaceMapping2D
+    use_gp_covariance: false
+    softmax_temperature: 10.0
+surface_mapping_type: erl::sdf_mapping::GpOccSurfaceMapping2D
+surface_mapping_setting_type: erl::sdf_mapping::GpOccSurfaceMapping2D::Setting
 surface_mapping:
     sensor_gp:
         group_size: 26  # number of points in each group, including the overlap ones
@@ -46,7 +46,7 @@ surface_mapping:
             rolling_diff_discount: 0.9
             min_partition_size: 5
         gp:
-            kernel_type: OrnsteinUhlenbeck1D
+            kernel_type: erl::covariance::OrnsteinUhlenbeck<1l>
             kernel:
                 x_dim: 1
                 alpha: 1
@@ -85,12 +85,8 @@ surface_mapping:
         use_change_detection: false
         use_aabb_limit: false
         aabb:
-            center:
-                - 0
-                - 0
-            half_sizes:
-                - 0
-                - 0
+            center: [ 0, 0 ]
+            half_sizes: [ 0, 0 ]
     cluster_level: 4
     perturb_delta: 0.001  # this makes the SDF prediction more smooth over time
     zero_gradient_threshold: 1.0e-10

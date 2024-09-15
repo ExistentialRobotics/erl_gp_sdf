@@ -6,16 +6,19 @@ max_valid_gradient_var: 0.1
 invalid_position_var: 1.0
 train_gp_immediately: false
 gp_sdf:
-    kernel_type: erl::covariance::Matern32<2l>
-    kernel_setting_type: erl::covariance::Covariance::Setting
+    kernel_type: erl::covariance::ReducedRankMatern32<2l>
+    kernel_setting_type: erl::covariance::ReducedRankCovariance::Setting
     kernel:
         x_dim: 2
         alpha: 1
         scale: 0.3
         scale_mix: 1
         weights: [ ]
-    log_lambda: 40
-    max_num_samples: 256   # max dataset size
+        num_basis: [ 50, 50 ]
+        boundaries: [ 8, 8 ]
+        accumulated: true
+    log_lambda: 2.5
+    max_num_samples: 512   # max dataset size
     no_gradient_observation: true
 test_query:
     max_test_valid_distance_var: 0.2
@@ -85,9 +88,13 @@ surface_mapping:
         use_change_detection: false
         use_aabb_limit: false
         aabb:
-            center: [ 0, 0 ]
-            half_sizes: [ 0, 0 ]
-    cluster_level: 3
+            center:
+                - 0
+                - 0
+            half_sizes:
+                - 0
+                - 0
+    cluster_level: 5
     perturb_delta: 0.001  # this makes the SDF prediction more smooth over time
     zero_gradient_threshold: 1.0e-10
     update_occupancy: true

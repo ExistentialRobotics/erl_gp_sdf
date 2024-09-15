@@ -1,13 +1,13 @@
 #include "erl_common/pybind11.hpp"
-#include "erl_sdf_mapping/log_sdf_gp.hpp"
+#include "erl_sdf_mapping/log_edf_gp.hpp"
 
 void
 BindLogSdfGaussianProcess(const py::module &m) {
 
     using ParentT = erl::gaussian_process::NoisyInputGaussianProcess;
-    using T = erl::sdf_mapping::LogSdfGaussianProcess;
+    using T = erl::sdf_mapping::LogEdfGaussianProcess;
 
-    auto py_log_noisy_input_gp = py::class_<T, ParentT, std::shared_ptr<T>>(m, "LogSdfGaussianProcess");
+    auto py_log_noisy_input_gp = py::class_<T, ParentT, std::shared_ptr<T>>(m, "LogEdfGaussianProcess");
 
     py::class_<T::Setting, ParentT::Setting, std::shared_ptr<T::Setting>>(py_log_noisy_input_gp, "Setting")
         .def(py::init<>())

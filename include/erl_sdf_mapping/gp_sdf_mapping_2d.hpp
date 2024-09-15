@@ -1,8 +1,9 @@
 #pragma once
 
 #include "gp_sdf_mapping_base_setting.hpp"
-#include "log_sdf_gp.hpp"
+#include "log_edf_gp.hpp"
 
+#include "erl_common/csv.hpp"
 #include "erl_common/template_helper.hpp"
 #include "erl_common/yaml.hpp"
 #include "erl_geometry/abstract_surface_mapping_2d.hpp"
@@ -19,9 +20,12 @@ namespace erl::sdf_mapping {
 
     public:
         struct Setting : public common::Yamlable<Setting, GpSdfMappingBaseSetting> {
-            std::string surface_mapping_type = "GpOccSurfaceMapping2D";
+            std::string surface_mapping_type = "erl::sdf_mapping::GpOccSurfaceMapping2D";
+            std::string surface_mapping_setting_type = "erl::sdf_mapping::GpOccSurfaceMapping2D::Setting";
             std::shared_ptr<geometry::AbstractSurfaceMapping2D::Setting> surface_mapping = nullptr;
         };
+
+        inline static const volatile bool kSettingRegistered = common::YamlableBase::Register<Setting>();
 
         struct Gp {
             bool active = false;
@@ -29,7 +33,47 @@ namespace erl::sdf_mapping {
             long num_train_samples = 0;
             Eigen::Vector2d position{};
             double half_size = 0;
-            std::shared_ptr<LogSdfGaussianProcess> gp = {};
+            std::shared_ptr<LogEdfGaussianProcess> gp = {};
+
+            Gp() = default;
+
+            Gp(const Gp& other) {
+                active = other.active;
+                num_train_samples = other.num_train_samples;
+                position = other.position;
+                half_size = other.half_size;
+                if (other.gp != nullptr) { gp = std::make_shared<LogEdfGaussianProcess>(*other.gp); }
+            }
+
+            Gp(Gp&& other) noexcept {
+                active = other.active;
+                num_train_samples = other.num_train_samples;
+                position = other.position;
+                half_size = other.half_size;
+                gp = std::move(other.gp);
+            }
+
+            Gp&
+            operator=(const Gp& other) {
+                if (this == &other) { return *this; }
+                active = other.active;
+                num_train_samples = other.num_train_samples;
+                position = other.position;
+                half_size = other.half_size;
+                if (other.gp != nullptr) { gp = std::make_shared<LogEdfGaussianProcess>(*other.gp); }
+                return *this;
+            }
+
+            Gp&
+            operator=(Gp&& other) noexcept {
+                if (this == &other) { return *this; }
+                active = other.active;
+                num_train_samples = other.num_train_samples;
+                position = other.position;
+                half_size = other.half_size;
+                gp = std::move(other.gp);
+                return *this;
+            }
 
             [[nodiscard]] std::size_t
             GetMemoryUsage() const {
@@ -40,6 +84,7 @@ namespace erl::sdf_mapping {
 
             void
             Train() const {
+                gp->SetKernelCoordOrigin(position);
                 gp->Train(num_train_samples);
             }
 
@@ -55,7 +100,7 @@ namespace erl::sdf_mapping {
             Write(std::ostream& s) const;
 
             [[nodiscard]] bool
-            Read(std::istream& s, const std::shared_ptr<LogSdfGaussianProcess::Setting>& setting);
+            Read(std::istream& s, const std::shared_ptr<LogEdfGaussianProcess::Setting>& setting);
         };
 
         using QuadtreeKeyGpMap = std::unordered_map<geometry::QuadtreeKey, std::shared_ptr<Gp>, geometry::QuadtreeKey::KeyHash>;
@@ -92,15 +137,16 @@ namespace erl::sdf_mapping {
         std::shared_ptr<geometry::KdTree2d> m_kd_tree_candidate_gps_ = nullptr;                 // for searching candidate GPs
         std::vector<std::vector<std::pair<double, std::shared_ptr<Gp>>>> m_query_to_gps_ = {};  // for testing, racing condition
         std::vector<std::array<std::shared_ptr<Gp>, 2>> m_query_used_gps_ = {};                 // for testing, racing condition
+        Eigen::VectorXd m_query_signs_ = {};                                                    // sign of query positions
         QuadtreeKeyPqMap m_new_gp_keys_ = {};                                                   // caching keys of new GPs to be moved into m_gps_to_train_
         PriorityQueue m_new_gp_queue_;                                                          // ordering new GPs, smaller time_stamp first
         std::vector<std::shared_ptr<Gp>> m_gps_to_train_ = {};                                  // for training SDF GPs, racing condition in Update() and Test()
         double m_train_gp_time_ = 10;                                                           // us
         std::mutex m_log_mutex_;                                                                // for logging
+        common::SimpleCsv m_train_log_csv_;                                                     // for logging
+        common::SimpleCsv m_test_log_csv_;                                                      // for logging
         double m_travel_distance_ = 0;                                                          // for logging
         std::optional<Eigen::Vector2d> m_last_position_ = std::nullopt;                         // for logging
-        std::ofstream m_train_log_file_;                                                        // for logging
-        std::ofstream m_test_log_file_;                                                         // for logging
         std::size_t m_num_update_calls_ = 0;                                                    // for logging
         std::size_t m_num_test_calls_ = 0;                                                      // for logging
         std::size_t m_num_test_positions_ = 0;                                                  // for logging
@@ -242,6 +288,7 @@ struct YAML::convert<erl::sdf_mapping::GpSdfMapping2D::Setting> {
     encode(const erl::sdf_mapping::GpSdfMapping2D::Setting& rhs) {
         Node node = convert<erl::sdf_mapping::GpSdfMappingBaseSetting>::encode(rhs);
         node["surface_mapping_type"] = rhs.surface_mapping_type;
+        node["surface_mapping_setting_type"] = rhs.surface_mapping_setting_type;
         node["surface_mapping"] = rhs.surface_mapping->AsYamlNode();
         return node;
     }
@@ -250,9 +297,11 @@ struct YAML::convert<erl::sdf_mapping::GpSdfMapping2D::Setting> {
     decode(const Node& node, erl::sdf_mapping::GpSdfMapping2D::Setting& rhs) {
         if (!convert<erl::sdf_mapping::GpSdfMappingBaseSetting>::decode(node, rhs)) { return false; }
         rhs.surface_mapping_type = node["surface_mapping_type"].as<std::string>();
-        rhs.surface_mapping = erl::geometry::AbstractSurfaceMapping::Setting::Create(rhs.surface_mapping_type);
+        rhs.surface_mapping_setting_type = node["surface_mapping_setting_type"].as<std::string>();
+        using SettingBase = erl::geometry::AbstractSurfaceMapping2D::Setting;
+        rhs.surface_mapping = SettingBase::Setting::Create<SettingBase>(rhs.surface_mapping_setting_type);
         if (rhs.surface_mapping == nullptr) {
-            ERL_WARN("Failed to decode surface_mapping of type: {}", rhs.surface_mapping_type);
+            ERL_WARN("Failed to decode surface_mapping of type: {}", rhs.surface_mapping_setting_type);
             return false;
         }
         return rhs.surface_mapping->FromYamlNode(node["surface_mapping"]);

@@ -1,8 +1,7 @@
 #include "erl_sdf_mapping/gp_occ_surface_mapping_3d.hpp"
 
+#include "erl_common/block_timer.hpp"
 #include "erl_common/clip.hpp"
-
-#include <chrono>
 
 namespace erl::sdf_mapping {
 
@@ -13,13 +12,14 @@ namespace erl::sdf_mapping {
         const Eigen::Ref<const Eigen::MatrixXd> &ranges) {
 
         m_changed_keys_.clear();
-        auto t0 = std::chrono::high_resolution_clock::now();
-        (void) m_sensor_gp_->Train(rotation, translation, ranges);
-        auto t1 = std::chrono::high_resolution_clock::now();
-        auto dt = std::chrono::duration<double, std::milli>(t1 - t0).count();
-        ERL_INFO("Sensor GP training time: {} ms.", dt);
 
-        if (!m_sensor_gp_->IsTrained()) { return false; }
+        bool sensor_gp_trained = false;
+        const bool verbose_timer = common::Logging::GetLevel() <= common::Logging::Level::kInfo;
+        {
+            erl::common::BlockTimer<std::chrono::milliseconds> timer("Sensor GP training", nullptr, verbose_timer);
+            sensor_gp_trained = m_sensor_gp_->Train(rotation, translation, ranges);
+        }
+        if (!sensor_gp_trained) { return false; }
 
         const double d = m_setting_->perturb_delta;
         // clang-format off
@@ -29,25 +29,20 @@ namespace erl::sdf_mapping {
         // clang-format on
 
         if (m_setting_->update_occupancy) {
-            t0 = std::chrono::high_resolution_clock::now();
+            erl::common::BlockTimer<std::chrono::milliseconds> timer("Update occupancy", nullptr, verbose_timer);
             UpdateOccupancy();
-            t1 = std::chrono::high_resolution_clock::now();
-            dt = std::chrono::duration<double, std::milli>(t1 - t0).count();
-            ERL_INFO("Occupancy update time: {} ms.", dt);
         }
 
         // perform surface mapping
-        t0 = std::chrono::high_resolution_clock::now();
-        UpdateMapPoints();
-        t1 = std::chrono::high_resolution_clock::now();
-        dt = std::chrono::duration<double, std::milli>(t1 - t0).count();
-        ERL_INFO("Map points update time: {} ms.", dt);
+        {
+            erl::common::BlockTimer<std::chrono::milliseconds> timer("Update map points", nullptr, verbose_timer);
+            UpdateMapPoints();
+        }
 
-        t0 = std::chrono::high_resolution_clock::now();
-        AddNewMeasurement();
-        t1 = std::chrono::high_resolution_clock::now();
-        dt = std::chrono::duration<double, std::milli>(t1 - t0).count();
-        ERL_INFO("Add new measurement time: {} ms.", dt);
+        {
+            erl::common::BlockTimer<std::chrono::milliseconds> timer("Add new measurement time", nullptr, verbose_timer);
+            AddNewMeasurement();
+        }
 
         return true;
     }
@@ -511,7 +506,6 @@ namespace erl::sdf_mapping {
 
     bool
     GpOccSurfaceMapping3D::ComputeGradient2(const Eigen::Vector3d &xyz_local, Eigen::Vector3d &gradient, double &occ_mean) {
-
         double occ[6];
         occ_mean = 0;
         gradient.setZero();

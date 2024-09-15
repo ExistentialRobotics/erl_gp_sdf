@@ -61,7 +61,7 @@ ConvertDepthToImage(const Eigen::MatrixXd &ranges) {
 std::pair<cv::Mat, cv::Mat>
 ConvertSdfToImage(const Eigen::VectorXd &distances, const long rows, const long cols) {
     Eigen::MatrixXd sdf = distances.reshaped(rows, cols);
-    const Eigen::MatrixX8U sdf_sign = (sdf.array() > 0.0).cast<uint8_t>() * 255;
+    const Eigen::MatrixX8U sdf_sign = (sdf.array() >= 0.0).cast<uint8_t>() * 255;
     std::cout << "sdf.minCoeff(): " << sdf.minCoeff() << std::endl << "sdf.maxCoeff(): " << sdf.maxCoeff() << std::endl;
     sdf = (sdf.array() - sdf.minCoeff()) / (sdf.maxCoeff() - sdf.minCoeff()) * 255.0;
     const Eigen::MatrixX8U sdf_uint8 = sdf.cast<uint8_t>();
@@ -115,7 +115,7 @@ TEST(GpSdfMapping3D, Build_Save_Load) {
         ERL_ASSERTM(!mesh->vertices_.empty(), "Failed to load mesh file: {}", g_options.mesh_file);
         map_min = mesh->GetMinBound();
         map_max = mesh->GetMaxBound();
-        if (gp_surf_setting->sensor_gp->range_sensor_frame_type == "lidar") {
+        if (gp_surf_setting->sensor_gp->range_sensor_frame_type == demangle(typeid(erl::geometry::LidarFrame3D).name())) {
             const auto lidar_frame_setting = std::dynamic_pointer_cast<erl::geometry::LidarFrame3D::Setting>(gp_surf_setting->sensor_gp->range_sensor_frame);
             const auto lidar_setting = std::make_shared<erl::geometry::Lidar3D::Setting>();
             lidar_setting->azimuth_min = lidar_frame_setting->azimuth_min;
@@ -125,7 +125,7 @@ TEST(GpSdfMapping3D, Build_Save_Load) {
             lidar_setting->elevation_max = lidar_frame_setting->elevation_max;
             lidar_setting->num_elevation_lines = lidar_frame_setting->num_elevation_lines;
             range_sensor = std::make_shared<erl::geometry::Lidar3D>(lidar_setting, mesh->vertices_, mesh->triangles_);
-        } else if (gp_surf_setting->sensor_gp->range_sensor_frame_type == "depth") {
+        } else if (gp_surf_setting->sensor_gp->range_sensor_frame_type == demangle(typeid(erl::geometry::DepthFrame3D).name())) {
             const auto depth_frame_setting = std::dynamic_pointer_cast<erl::geometry::DepthFrame3D::Setting>(gp_surf_setting->sensor_gp->range_sensor_frame);
             const auto depth_camera_setting = std::make_shared<erl::geometry::DepthCamera3D::Setting>();
             depth_camera_setting->image_height = depth_frame_setting->image_height;

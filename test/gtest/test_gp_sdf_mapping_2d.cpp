@@ -84,23 +84,53 @@ OpenCvMouseCallback(const int event, const int x, const int y, int /*flags*/, vo
         Eigen::Matrix3Xd covariances(3, 1);
         if (data->sdf_mapping->Test(position, distance, gradient, variances, covariances)) {
             ERL_INFO(
-                "SDF at [{:f}, {:f}]: {:f}, grad: [{:f}, {:f}], var: {:f}.",
+                "SDF at [{:f}, {:f}]: {:f}, grad: [{:f}, {:f}], var: {}, cov: {}.",
                 position.x(),
                 position.y(),
                 distance[0],
                 gradient(0, 0),
                 gradient(1, 0),
-                variances(0, 0));
+                variances.col(0).transpose(),
+                covariances.col(0).transpose());
             cv::Mat img = data->img.clone();
-            const auto radius = static_cast<int>(std::abs(distance[0]) / data->grid_map_info->Resolution(0));
+
+            // draw sdf
+            auto radius = static_cast<int>(std::abs(distance[0]) / data->grid_map_info->Resolution(0));
             cv::Mat circle_layer(img.rows, img.cols, CV_8UC4, cv::Scalar(0));
             cv::Mat circle_mask(img.rows, img.cols, CV_8UC1, cv::Scalar(0));
             cv::circle(circle_mask, cv::Point2i(x, y), radius, cv::Scalar(255), cv::FILLED);
             cv::circle(circle_layer, cv::Point2i(x, y), radius, cv::Scalar(0, 255, 0, 25), cv::FILLED);
             cv::add(img * 0.5, circle_layer * 0.5, img, circle_mask);
+
+            // draw sdf variance
+            radius = static_cast<int>((std::sqrt(variances(0, 0)) + std::abs(distance[0])) / data->grid_map_info->Resolution(0));
+            cv::circle(img, cv::Point2i(x, y), radius, cv::Scalar(0, 0, 255, 25), 1);
+
+            // draw sdf gradient
+            Eigen::VectorXi grad_pixel = data->grid_map_info->MeterToPixelForVectors(gradient.col(0));
+            cv::arrowedLine(img, cv::Point(x, y), cv::Point(x + grad_pixel[0], y + grad_pixel[1]), cv::Scalar(255, 0, 0, 255), 1);
+
             auto &[gp1, gp2] = data->sdf_mapping->GetUsedGps()[0];
             if (gp1 != nullptr) { DrawGp(img, gp1, data->grid_map_info); }
             if (gp2 != nullptr) { DrawGp(img, gp2, data->grid_map_info); }
+
+            cv::putText(
+                img,
+                fmt::format(
+                    "SDF: {:.2f}, Var: {:.6f} | grad: [{:.6f}, {:.6f}], Var: [{:.6f}, {:.6f}], Std(theta): {:.6f}",
+                    distance[0],
+                    variances(0, 0),
+                    gradient(0, 0),
+                    gradient(1, 0),
+                    variances(1, 0),
+                    variances(2, 0),
+                    std::sqrt(variances(1, 0) + variances(2, 0)) * 180.0 / M_PI),
+                cv::Point(10, 20),
+                cv::FONT_HERSHEY_SIMPLEX,
+                0.5,
+                cv::Scalar(255, 255, 255, 255),
+                1);
+
             cv::imshow(g_window_name, img);
         } else {
             ERL_WARN("Failed to test SDF estimation at [{:f}, {:f}].", position.x(), position.y());
@@ -137,7 +167,7 @@ TEST(GpSdfMapping2D, Build_Save_Load) {
     Eigen::Vector2d map_resolution(g_options.map_resolution, g_options.map_resolution);
     Eigen::Vector2i map_padding(10, 10);
     Eigen::Matrix2Xd cur_traj;
-    double tic = 0.001;
+    double tic = 0.2;
 
     auto sdf_mapping_setting = std::make_shared<erl::sdf_mapping::GpSdfMapping2D::Setting>();
     ERL_ASSERTM(sdf_mapping_setting->FromYamlFile(g_options.sdf_mapping_config_file), "Failed to load config file: {}", g_options.sdf_mapping_config_file);
@@ -242,7 +272,7 @@ TEST(GpSdfMapping2D, Build_Save_Load) {
     surface_mapping_setting->sensor_gp->lidar_frame->angle_max = train_angles[0].maxCoeff();
     surface_mapping_setting->sensor_gp->lidar_frame->num_rays = train_ranges[0].size();
 
-    std::cout << *sdf_mapping_setting << std::endl;
+    std::cout << sdf_mapping_setting->AsYamlString() << std::endl;
 
     erl::sdf_mapping::GpSdfMapping2D sdf_mapping(sdf_mapping_setting);
     auto surface_mapping = std::dynamic_pointer_cast<erl::sdf_mapping::GpOccSurfaceMapping2D>(sdf_mapping.GetSurfaceMapping());
@@ -315,10 +345,10 @@ TEST(GpSdfMapping2D, Build_Save_Load) {
             pangolin_plotter_window,
             "SDF",
             std::vector<std::string>{"t", "SDF", "EDF", "var(SDF)"},
-            500,                      // number of points in the plot window
-            0.0f,                     // t0
-            static_cast<float>(tic),  // dt
-            0.05f);                   // dy
+            500,                              // number of points in the plot window
+            0.0f,                             // t0
+            static_cast<float>(tic) / 10.0f,  // dt
+            0.05f);                           // dy
 
         plotter_grad = std::make_shared<erl::common::PangolinPlotterCurve2D>(
             pangolin_plotter_window,
@@ -326,7 +356,7 @@ TEST(GpSdfMapping2D, Build_Save_Load) {
             std::vector<std::string>{"t", "gradX", "gradY", "var(gradX)", "var(gradY)"},
             500,                                      // number of points in the plot window
             0.0f,                                     // t0
-            static_cast<float>(tic),                  // dt
+            static_cast<float>(tic) / 10.0f,          // dt
             0.05f,                                    // dy
             pangolin::Colour{0.1f, 0.1f, 0.1f, 1.0f}  // bg_color
         );

@@ -19,6 +19,8 @@ namespace erl::sdf_mapping {
             std::shared_ptr<geometry::SurfaceMappingOctree::Setting> octree = std::make_shared<geometry::SurfaceMappingOctree::Setting>();
         };
 
+        inline static const volatile bool kSettingRegistered = common::YamlableBase::Register<Setting>();
+
     private:
         std::shared_ptr<Setting> m_setting_ = std::make_shared<Setting>();
         std::shared_ptr<gaussian_process::RangeSensorGaussianProcess3D> m_sensor_gp_ = nullptr;  // the GP of regression between angle and mapped distance
