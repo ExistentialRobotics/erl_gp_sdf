@@ -10,135 +10,6 @@
 #include <vector>
 
 namespace erl::sdf_mapping {
-
-    bool
-    GpSdfMapping3D::Gp::operator==(const Gp &other) const {
-        if (active != other.active) { return false; }
-        if (locked_for_test.load() != other.locked_for_test.load()) { return false; }
-        if (num_train_samples != other.num_train_samples) { return false; }
-        if (position != other.position) { return false; }
-        if (half_size != other.half_size) { return false; }
-        if (gp == nullptr && other.gp != nullptr) { return false; }
-        if (gp != nullptr && (other.gp == nullptr || *gp != *other.gp)) { return false; }
-        return true;
-    }
-
-    static const std::string kFileHeaderGp = "# erl::sdf_mapping::GpSdfMapping3D::Gp";
-
-    bool
-    GpSdfMapping3D::Gp::Write(std::ostream &s) const {
-        s << kFileHeaderGp << std::endl  //
-          << "# (feel free to add / change comments, but leave the first line as it is!)" << std::endl;
-        s << "active " << active << std::endl
-          << "locked_for_test " << locked_for_test.load() << std::endl
-          << "num_train_samples " << num_train_samples << std::endl;
-        s << "position" << std::endl;
-        if (!common::SaveEigenMatrixToBinaryStream(s, position)) { return false; }
-        s << "half_size" << std::endl;
-        s.write(reinterpret_cast<const char *>(&half_size), sizeof(half_size));
-        s << "gp " << (gp != nullptr) << std::endl;
-        if (gp != nullptr && !gp->Write(s)) { return false; }
-        s << "end_of_GpSdfMapping3D::Gp" << std::endl;
-        return s.good();
-    }
-
-    bool
-    GpSdfMapping3D::Gp::Read(std::istream &s, const std::shared_ptr<LogEdfGaussianProcess::Setting> &setting) {
-        if (!s.good()) {
-            ERL_WARN("Input stream is not ready for reading");
-            return false;
-        }
-
-        // check if the first line is valid
-        std::string line;
-        std::getline(s, line);
-        if (line.compare(0, kFileHeaderGp.length(), kFileHeaderGp) != 0) {  // check if the first line is valid
-            ERL_WARN("Header does not start with \"{}\"", kFileHeaderGp.c_str());
-            return false;
-        }
-
-        auto skip_line = [&s]() {
-            char c;
-            do { c = static_cast<char>(s.get()); } while (s.good() && c != '\n');
-        };
-
-        static const char *tokens[] = {
-            "active",
-            "locked_for_test",
-            "num_train_samples",
-            "position",
-            "half_size",
-            "gp",
-            "end_of_GpSdfMapping3D::Gp",
-        };
-
-        // read data
-        std::string token;
-        int token_idx = 0;
-        while (s.good()) {
-            s >> token;
-            if (token.compare(0, 1, "#") == 0) {
-                skip_line();  // comment line, skip forward until end of line
-                continue;
-            }
-            // non-comment line
-            if (token != tokens[token_idx]) {
-                ERL_WARN("Expected token {}, got {}.", tokens[token_idx], token);  // check token
-                return false;
-            }
-            // reading state machine
-            switch (token_idx) {
-                case 0: {
-                    s >> active;
-                    break;
-                }
-                case 1: {
-                    bool locked;
-                    s >> locked;
-                    locked_for_test.store(locked);
-                    break;
-                }
-                case 2: {
-                    s >> num_train_samples;
-                    break;
-                }
-                case 3: {
-                    skip_line();
-                    if (!common::LoadEigenMatrixFromBinaryStream(s, position)) {
-                        ERL_WARN("Failed to read position.");
-                        return false;
-                    }
-                    break;
-                }
-                case 4: {
-                    skip_line();
-                    s.read(reinterpret_cast<char *>(&half_size), sizeof(half_size));
-                    break;
-                }
-                case 5: {
-                    bool has_gp;
-                    s >> has_gp;
-                    if (has_gp) {
-                        skip_line();
-                        if (gp == nullptr) { gp = std::make_shared<LogEdfGaussianProcess>(setting); }
-                        if (!gp->Read(s)) { return false; }
-                    }
-                    break;
-                }
-                case 6: {
-                    skip_line();
-                    return true;
-                }
-                default: {  // should not reach here
-                    ERL_FATAL("Internal error, should not reach here.");
-                }
-            }
-            ++token_idx;
-        }
-        ERL_WARN("Failed to read GpSdfMapping3D::Gp. Truncated file?");
-        return false;  // should not reach here
-    }
-
     bool
     GpSdfMapping3D::TestBuffer::ConnectBuffers(
         const Eigen::Ref<const Eigen::Matrix3Xd> &positions_in,
@@ -177,7 +48,8 @@ namespace erl::sdf_mapping {
         covariances = nullptr;
     }
 
-    GpSdfMapping3D::GpSdfMapping3D(std::shared_ptr<Setting> setting)
+    GpSdfMapping3D::
+    GpSdfMapping3D(std::shared_ptr<Setting> setting)
         : m_setting_(NotNull(std::move(setting), "setting is nullptr.")),
           m_surface_mapping_(geometry::AbstractSurfaceMapping::CreateSurfaceMapping<geometry::AbstractSurfaceMapping3D>(
               m_setting_->surface_mapping_type,
@@ -405,7 +277,7 @@ namespace erl::sdf_mapping {
                 std::unordered_set<std::shared_ptr<Gp>> new_gps;
                 for (auto &gps: m_query_to_gps_) {
                     for (auto &[distance, gp]: gps) {
-                        if (gp->active && !gp->gp->IsTrained()) { new_gps.insert(gp); }
+                        if (gp->active && !gp->edf_gp->IsTrained()) { new_gps.insert(gp); }
                     }
                 }
                 m_gps_to_train_.clear();
@@ -413,14 +285,16 @@ namespace erl::sdf_mapping {
                 TrainGps();
             }
 
-            // collect the sign of query positions since the quadtree is not thread-safe
-            auto octree = m_surface_mapping_->GetOctree();
-            if (m_query_signs_.size() < num_queries) { m_query_signs_.resize(num_queries); }
+            if (m_setting_->use_occ_sign) {
+                // collect the sign of query positions since the quadtree is not thread-safe
+                const auto octree = m_surface_mapping_->GetOctree();
+                if (m_query_signs_.size() < num_queries) { m_query_signs_.resize(num_queries); }
 #pragma omp parallel for default(none) shared(octree, positions_in, num_queries)
-            for (uint32_t i = 0; i < num_queries; i++) {
-                const Eigen::Vector3d &position = positions_in.col(i);
-                const auto node = octree->Search(position.x(), position.y(), position.z());
-                m_query_signs_[i] = (node == nullptr || octree->IsNodeOccupied(node)) ? -1.0 : 1.0;
+                for (uint32_t i = 0; i < num_queries; i++) {
+                    const Eigen::Vector3d &position = positions_in.col(i);
+                    const auto node = octree->Search(position.x(), position.y(), position.z());
+                    m_query_signs_[i] = node == nullptr ? -1.0 : 1.0;
+                }
             }
         }
 
@@ -633,7 +507,7 @@ namespace erl::sdf_mapping {
             // reading state machine
             switch (token_idx) {
                 case 0: {         // setting
-                    skip_line();  // skip the line to read the bindary data section
+                    skip_line();  // skip the line to read the binary data section
                     if (!m_setting_->Read(s)) {
                         ERL_WARN("Failed to read setting.");
                         return false;
@@ -675,7 +549,7 @@ namespace erl::sdf_mapping {
                         s.read(reinterpret_cast<char *>(&has_gp), sizeof(has_gp));
                         if (has_gp) {
                             it->second = std::make_shared<Gp>();
-                            if (!it->second->Read(s, m_setting_->gp_sdf)) {
+                            if (!it->second->Read(s, m_setting_->edf_gp)) {
                                 ERL_WARN("Failed to read GP.");
                                 return false;
                             }
@@ -764,6 +638,7 @@ namespace erl::sdf_mapping {
         const double cluster_size = octree->GetNodeSize(cluster_depth);
         const double area_half_size = cluster_size * m_setting_->gp_sdf_area_scale / 2;
 
+        // add affected clusters
         {
             common::BlockTimer<std::chrono::milliseconds> timer("Collect affected clusters", &collect_clusters_time, verbose_timer);
             geometry::OctreeKeySet affected_clusters(changed_clusters);
@@ -821,7 +696,7 @@ namespace erl::sdf_mapping {
                 for (auto &cluster_key: m_clusters_to_update_) {
                     auto it = m_gp_map_.find(cluster_key);
                     if (it == m_gp_map_.end() || !it->second->active) { continue; }  // GP does not exist or deactivated (e.g. due to no training data)
-                    if (it->second->gp != nullptr && !it->second->gp->IsTrained()) {
+                    if (it->second->edf_gp != nullptr && !it->second->edf_gp->IsTrained()) {
                         auto time_stamp = std::chrono::high_resolution_clock::now().time_since_epoch().count();
                         if (m_new_gp_keys_.find(cluster_key) == m_new_gp_keys_.end()) {
                             m_new_gp_keys_.insert({cluster_key, m_new_gp_queue_.push({time_stamp, cluster_key})});
@@ -837,7 +712,7 @@ namespace erl::sdf_mapping {
             time_budget_us -= dt;
 
             // train as many new GPs as possible within the time limit
-            if (time_budget_us > m_train_gp_time_) {
+            if (time_budget_us > 2.0 * m_train_gp_time_) {
                 auto max_num_gps_to_train = static_cast<std::size_t>(std::floor(time_budget_us / m_train_gp_time_));
                 max_num_gps_to_train = std::min(max_num_gps_to_train, m_new_gp_queue_.size());
                 m_gps_to_train_.clear();
@@ -848,7 +723,7 @@ namespace erl::sdf_mapping {
                     auto it = m_gp_map_.find(cluster_key);
                     auto gp = it->second;
                     if (it == m_gp_map_.end() || !gp->active) { continue; }  // GP does not exist or deactivated (e.g. due to no training data)
-                    if (gp->gp != nullptr && !gp->gp->IsTrained()) { m_gps_to_train_.push_back(gp); }
+                    if (gp->edf_gp != nullptr && !gp->edf_gp->IsTrained()) { m_gps_to_train_.push_back(gp); }
                 }
                 TrainGps();
             }
@@ -878,11 +753,12 @@ namespace erl::sdf_mapping {
         const uint32_t cluster_depth = octree->GetTreeDepth() - m_surface_mapping_->GetClusterLevel();
         const double cluster_size = octree->GetNodeSize(cluster_depth);
         const double aabb_half_size = cluster_size * m_setting_->gp_sdf_area_scale / 2.;
+        const double offset_distance = m_setting_->offset_distance;
         const double max_valid_gradient_var = m_setting_->max_valid_gradient_var;
         const double invalid_position_var = m_setting_->invalid_position_var;
 
         std::vector<std::pair<double, std::shared_ptr<SurfaceData>>> surface_data_vec;
-        const auto max_num_samples = static_cast<std::size_t>(m_setting_->gp_sdf->max_num_samples);
+        const auto max_num_samples = static_cast<std::size_t>(m_setting_->edf_gp->max_num_samples);
         surface_data_vec.reserve(max_num_samples);
         for (uint32_t i = start_idx; i < end_idx; ++i) {
             auto &cluster_key = m_clusters_to_update_[i];
@@ -893,44 +769,21 @@ namespace erl::sdf_mapping {
                 const auto new_gp = std::make_shared<Gp>(*gp);  // copy the GP
                 gp = new_gp;
             }
-            gp->active = true;  // activate the GP
-            if (gp->gp == nullptr) { gp->gp = std::make_shared<LogEdfGaussianProcess>(m_setting_->gp_sdf); }
+            gp->Activate(m_setting_->edf_gp);
 
             // collect surface data in the area
             surface_data_vec.clear();
-            for (auto it = octree->BeginLeafInAabb(geometry::Aabb3D(octree->KeyToCoord(cluster_key, cluster_depth), aabb_half_size)),
-                      end = octree->EndLeafInAabb();
-                 it != end;
-                 ++it) {
+            const geometry::Aabb3D area(octree->KeyToCoord(cluster_key, cluster_depth), aabb_half_size);
+            for (auto it = octree->BeginLeafInAabb(area), end = octree->EndLeafInAabb(); it != end; ++it) {
                 auto surface_data = it->GetSurfaceData();
                 if (surface_data == nullptr) { continue; }  // no surface data in the node
                 surface_data_vec.emplace_back((gp->position - surface_data->position).norm(), surface_data);
             }
             if (surface_data_vec.empty()) {  // no surface data in the area
-                gp->active = false;          // deactivate the GP if there is no training data
-                gp->num_train_samples = 0;
+                gp->Deactivate();            // deactivate the GP if there is no training data
                 continue;
             }
-            std::sort(surface_data_vec.begin(), surface_data_vec.end(), [](const auto &a, const auto &b) { return a.first < b.first; });
-            if (surface_data_vec.size() > static_cast<std::size_t>(max_num_samples)) { surface_data_vec.resize(max_num_samples); }
-
-            // prepare data for GP training
-            gp->gp->Reset(static_cast<long>(surface_data_vec.size()), 3);
-            Eigen::MatrixXd &mat_x = gp->gp->GetTrainInputSamplesBuffer();
-            Eigen::VectorXd &vec_var_x = gp->gp->GetTrainInputSamplesVarianceBuffer();
-            Eigen::VectorXd &vec_var_y = gp->gp->GetTrainOutputValueSamplesVarianceBuffer();
-            long count = 0;
-            for (auto &[distance, surface_data]: surface_data_vec) {
-                mat_x.col(count) = surface_data->position;
-                vec_var_y[count] = sensor_noise;
-                vec_var_x[count] = surface_data->var_position;
-                if ((surface_data->var_normal > max_valid_gradient_var) ||                // invalid gradient
-                    (surface_data->normal.norm() < 0.9)) {                                // invalid normal
-                    vec_var_x[count] = std::max(vec_var_x[count], invalid_position_var);  // position is unreliable
-                }
-                if (++count >= mat_x.cols()) { break; }  // reached max_num_samples
-            }
-            gp->num_train_samples = count;
+            gp->LoadSurfaceData(surface_data_vec, offset_distance, sensor_noise, max_valid_gradient_var, invalid_position_var);
             if (m_setting_->train_gp_immediately) { gp->Train(); }
         }
     }
@@ -1087,7 +940,7 @@ namespace erl::sdf_mapping {
     }
 
     void
-    GpSdfMapping3D::TestGpThread(uint32_t thread_idx, std::size_t start_idx, std::size_t end_idx) {
+    GpSdfMapping3D::TestGpThread(const uint32_t thread_idx, const std::size_t start_idx, const std::size_t end_idx) {
         ERL_TRACY_SET_THREAD_NAME(fmt::format("{}:{}", __PRETTY_FUNCTION__, thread_idx).c_str());
         (void) thread_idx;
 
@@ -1098,7 +951,9 @@ namespace erl::sdf_mapping {
         const int num_neighbor_gps = m_setting_->test_query->num_neighbor_gps;
         const bool use_smallest = m_setting_->test_query->use_smallest;
         const double max_test_valid_distance_var = m_setting_->test_query->max_test_valid_distance_var;
-        const double softmax_temperature = m_setting_->test_query->softmax_temperature;
+        const double softmin_temperature = m_setting_->test_query->softmin_temperature;
+        const double offset_distance = m_setting_->offset_distance;
+        const bool use_occ_sign = m_setting_->use_occ_sign;
 
         std::vector<std::size_t> gp_indices;
         Eigen::Matrix4Xd fs(4, num_neighbor_gps);          // f, fGrad1, fGrad2, fGrad3
@@ -1135,110 +990,21 @@ namespace erl::sdf_mapping {
             long cnt = 0;
             for (std::size_t &j: gp_indices) {
                 // call selected GPs for inference
-                Eigen::Ref<Eigen::Vector4d> f = fs.col(cnt);           // distance, gradient_x, gradient_y, gradient_z
-                Eigen::Ref<Eigen::VectorXd> var = variances.col(cnt);  // var_distance, var_gradient_x, var_gradient_y, var_gradient_z
-                auto &gp = gps[j].second->gp;
-
-                if (use_gp_covariance) {
-                    if (compute_covariance) {
-                        gp->Test(test_position, f, var, covariance.col(cnt));
-                    } else {
-                        gp->Test(test_position, f, var, no_covariance);
-                    }
-                    if (f.tail<3>().norm() < 1.e-15) { continue; }  // invalid gradient, skip this GP
-                } else {
-                    gp->Test(test_position, f, no_variance, no_covariance);
-                    Eigen::Vector3d grad = f.tail<3>();
-                    if (grad.norm() <= 1.e-15) { continue; }  // invalid gradient, skip this GP
-                    // grad.normalize();
-                    // double grad_azimuth, grad_elevation;
-                    // common::DirectionToAzimuthElevation(grad, grad_azimuth, grad_elevation);
-
-                    auto &mat_x = gp->GetTrainInputSamplesBuffer();
-                    auto &vec_x_var = gp->GetTrainInputSamplesVarianceBuffer();
-                    const long num_samples = gp->GetNumTrainSamples();
-
-                    Eigen::VectorXd s(num_samples);
-                    double s_sum = 0;
-                    Eigen::VectorXd z_sdf(num_samples);
-                    Eigen::Matrix3Xd diff_z_sdf(3, num_samples);
-                    const Eigen::Matrix3d identity = Eigen::Matrix3d::Identity();
-                    // double weight_sum = 0;
-                    // double &var_sdf = var[0];
-                    // double &var_grad_x = var[1];
-                    // double &var_grad_y = var[2];
-                    // double &var_grad_z = var[3];
-                    // var_sdf = 0;
-                    // var_grad_x = 0;
-                    // var_grad_y = 0;
-                    // var_grad_z = 0;
-                    // double var_azimuth = 0;
-                    // double var_elevation = 0;
-                    for (long k = 0; k < num_samples; ++k) {
-                        const Eigen::Vector3d v = test_position - mat_x.col(k);
-                        const double d = v.norm();
-
-                        z_sdf[k] = d;
-                        s[k] = std::max(1.e-6, std::exp(-(d - f[0]) * softmax_temperature));
-                        s_sum += s[k];
-
-                        diff_z_sdf.col(k) = v / d;
-
-                        // var_sdf += weight[k] * vec_x_var[k];
-                        //
-                        // Eigen::Vector3d v = test_position - mat_x.col(k);
-                        // v.normalize();                             // warning: unchanged if v's norm is very small
-                        // if (v.squaredNorm() < 0.81) { continue; }  // invalid gradient, skip this sample
-                        // double v_azimuth, v_elevation;
-                        // common::DirectionToAzimuthElevation(v, v_azimuth, v_elevation);
-                        // const double diff_azimuth = std::fabs(v_azimuth - grad_azimuth);
-                        // const double diff_elevation = std::fabs(v_elevation - grad_elevation);
-                        // var_azimuth += weight[k] * diff_azimuth * diff_azimuth;
-                        // var_elevation += weight[k] * diff_elevation * diff_elevation;
-                    }
-
-                    // s /= s_sum;  // this line causes an extra for loop. replace it with the following line
-                    const double inv_s_sum = 1.0 / s_sum;
-
-                    const double sz_sdf = s.dot(z_sdf) * inv_s_sum;
-                    var[0] = 0.0;  // var_sdf
-                    Eigen::Matrix3d cov_grad = Eigen::Matrix3d::Zero();
-                    for (long k = 0; k < num_samples; ++k) {
-                        double w = s[k] * (sz_sdf + 1.0 - z_sdf[k]) * inv_s_sum;
-                        w = w * w * vec_x_var[k];
-                        var[0] += w;
-                        w = w / (z_sdf[k] * z_sdf[k]);
-                        const Eigen::Matrix3d diff_grad = (identity - diff_z_sdf.col(k) * diff_z_sdf.col(k).transpose()) * w;
-                        cov_grad += diff_grad;
-                    }
-
-                    var[1] = cov_grad(0, 0);  // var_grad_x
-                    var[2] = cov_grad(1, 1);  // var_grad_y
-                    var[3] = cov_grad(2, 2);  // var_grad_z
-                    if (compute_covariance) { covariance.col(cnt) << 0, 0, 0, cov_grad(1, 0), cov_grad(2, 0), cov_grad(2, 1); }
-
-                    // var_sdf /= weight_sum;
-                    // var_azimuth /= weight_sum;
-                    // var_elevation /= weight_sum;
-                    //
-                    // const double sin_azimuth = std::sin(grad_azimuth);
-                    // const double cos_azimuth = std::cos(grad_azimuth);
-                    // const double sin_elevation = std::sin(grad_elevation);
-                    // const double cos_elevation = std::cos(grad_elevation);
-                    // const double std_azimuth = std::sqrt(var_azimuth);
-                    // const double std_elevation = std::sqrt(var_elevation);
-                    // var_grad_x = sin_azimuth * cos_elevation * std_azimuth + cos_azimuth * sin_elevation * std_elevation;
-                    // var_grad_x *= var_grad_x;
-                    // var_grad_y = cos_azimuth * cos_elevation * std_azimuth - sin_azimuth * sin_elevation * std_elevation;
-                    // var_grad_y *= var_grad_y;
-                    // var_grad_z = cos_elevation * std_elevation;
-                    // var_grad_z *= var_grad_z;
+                if (!gps[j].second->Test(
+                        test_position,
+                        fs.col(cnt),
+                        variances.col(cnt),
+                        covariance.col(cnt),
+                        offset_distance,
+                        softmin_temperature,
+                        use_gp_covariance,
+                        compute_covariance)) {
+                    continue;
                 }
-                if (m_query_signs_[i] * f[0] < 0) { f *= -1.0; }  // add sign to the distance
 
                 tested_idx.emplace_back(cnt++, j);
                 if (!use_smallest) {
-                    if ((!need_weighted_sum) && (gp_indices.size() > 1) && (var[0] > max_test_valid_distance_var)) { need_weighted_sum = true; }
+                    if ((!need_weighted_sum) && (gp_indices.size() > 1) && (variances(0, cnt) > max_test_valid_distance_var)) { need_weighted_sum = true; }
                     if (!need_weighted_sum) { break; }
                 }
             }
@@ -1301,6 +1067,7 @@ namespace erl::sdf_mapping {
                 m_query_used_gps_[i][1] = nullptr;
             }
             gradient_out.normalize();
+            if (use_occ_sign && distance_out > 0 && m_query_signs_[i] < 0) { distance_out = -distance_out; }
         }
     }
 

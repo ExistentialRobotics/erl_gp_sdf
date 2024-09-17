@@ -1,7 +1,7 @@
 #pragma once
 
 #include "gp_sdf_mapping_base_setting.hpp"
-#include "log_edf_gp.hpp"
+#include "sdf_gp.hpp"
 
 #include "erl_common/csv.hpp"
 #include "erl_common/template_helper.hpp"
@@ -27,84 +27,9 @@ namespace erl::sdf_mapping {
 
         inline static const volatile bool kSettingRegistered = common::YamlableBase::Register<Setting>();
 
-        struct Gp {
-            bool active = false;
-            std::atomic_bool locked_for_test = false;
-            long num_train_samples = 0;
-            Eigen::Vector3d position{};
-            double half_size = 0;
-            std::shared_ptr<LogEdfGaussianProcess> gp = {};
-
-            Gp() = default;
-
-            Gp(const Gp& other) {
-                active = other.active;
-                num_train_samples = other.num_train_samples;
-                position = other.position;
-                half_size = other.half_size;
-                if (other.gp != nullptr) { gp = std::make_shared<LogEdfGaussianProcess>(*other.gp); }
-            }
-
-            Gp(Gp&& other) noexcept {
-                active = other.active;
-                num_train_samples = other.num_train_samples;
-                position = other.position;
-                half_size = other.half_size;
-                gp = std::move(other.gp);
-            }
-
-            Gp&
-            operator=(const Gp& other) {
-                if (this == &other) { return *this; }
-                active = other.active;
-                num_train_samples = other.num_train_samples;
-                position = other.position;
-                half_size = other.half_size;
-                if (other.gp != nullptr) { gp = std::make_shared<LogEdfGaussianProcess>(*other.gp); }
-                return *this;
-            }
-
-            Gp&
-            operator=(Gp&& other) noexcept {
-                if (this == &other) { return *this; }
-                active = other.active;
-                num_train_samples = other.num_train_samples;
-                position = other.position;
-                half_size = other.half_size;
-                gp = std::move(other.gp);
-                return *this;
-            }
-
-            [[nodiscard]] std::size_t
-            GetMemoryUsage() const {
-                std::size_t memory_usage = sizeof(Gp);
-                if (gp != nullptr) { memory_usage += gp->GetMemoryUsage(); }
-                return memory_usage;
-            }
-
-            void
-            Train() const {
-                gp->SetKernelCoordOrigin(position);
-                gp->Train(num_train_samples);
-            }
-
-            [[nodiscard]] bool
-            operator==(const Gp& other) const;
-
-            [[nodiscard]] bool
-            operator!=(const Gp& other) const {
-                return !(*this == other);
-            }
-
-            [[nodiscard]] bool
-            Write(std::ostream& s) const;
-
-            [[nodiscard]] bool
-            Read(std::istream& s, const std::shared_ptr<LogEdfGaussianProcess::Setting>& setting);
-        };
-
-        using OctreeKeyGpMap = std::unordered_map<geometry::OctreeKey, std::shared_ptr<Gp>, geometry::OctreeKey::KeyHash>;
         using SurfaceData = geometry::SurfaceMappingOctreeNode::SurfaceData;
+        using Gp = SdfGaussianProcess<3, SurfaceData>;
+        using OctreeKeyGpMap = std::unordered_map<geometry::OctreeKey, std::shared_ptr<Gp>, geometry::OctreeKey::KeyHash>;
 
     private:
         struct PriorityQueueItem {
@@ -181,7 +106,8 @@ namespace erl::sdf_mapping {
         TestBuffer m_test_buffer_ = {};
 
     public:
-        explicit GpSdfMapping3D(std::shared_ptr<Setting> setting);
+        explicit
+        GpSdfMapping3D(std::shared_ptr<Setting> setting);
 
         [[nodiscard]] std::shared_ptr<const Setting>
         GetSetting() const {

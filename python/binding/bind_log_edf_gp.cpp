@@ -2,7 +2,7 @@
 #include "erl_sdf_mapping/log_edf_gp.hpp"
 
 void
-BindLogSdfGaussianProcess(const py::module &m) {
+BindLogEdfGaussianProcess(const py::module &m) {
 
     using ParentT = erl::gaussian_process::NoisyInputGaussianProcess;
     using T = erl::sdf_mapping::LogEdfGaussianProcess;
@@ -11,17 +11,11 @@ BindLogSdfGaussianProcess(const py::module &m) {
 
     py::class_<T::Setting, ParentT::Setting, std::shared_ptr<T::Setting>>(py_log_noisy_input_gp, "Setting")
         .def(py::init<>())
-        .def_readwrite("log_lambda", &T::Setting::log_lambda)
-        .def_readwrite("edf_threshold", &T::Setting::edf_threshold)
-        .def_readwrite("unify_scale", &T::Setting::unify_scale);
+        .def_readwrite("log_lambda", &T::Setting::log_lambda);
 
     py_log_noisy_input_gp.def(py::init<std::shared_ptr<T::Setting>>(), py::arg("setting").none(false))
         .def_property_readonly("setting", &T::GetSetting<T::Setting>)
         .def("reset", &T::Reset, py::arg("max_num_samples"), py::arg("x_dim"))
-        .def_property_readonly("log_kernel", &T::GetLogKernel)
-        .def_property_readonly("log_k_train", &T::GetLogKtrain)
-        .def_property_readonly("log_alpha", &T::GetLogAlpha)
-        .def_property_readonly("log_cholesky_k_train", &T::GetLogCholeskyDecomposition)
         .def_property_readonly("memory_usage", &T::GetMemoryUsage)
         .def(
             "train",
@@ -61,7 +55,7 @@ BindLogSdfGaussianProcess(const py::module &m) {
                 mat_f_out.resize(dim + 1, n);
                 mat_var_out.resize(dim + 1, n);
                 mat_cov_out.resize(dim * (dim + 1) / 2, n);
-                self.Test(mat_x_test, mat_f_out, mat_var_out, mat_cov_out);
+                if (!self.Test(mat_x_test, mat_f_out, mat_var_out, mat_cov_out)) { return py::make_tuple(py::none(), py::none(), py::none()); }
                 return py::make_tuple(mat_f_out, mat_var_out, mat_cov_out);
             },
             py::arg("mat_x_test"));

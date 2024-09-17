@@ -2,35 +2,31 @@ num_threads: 64
 update_hz: 10
 log_timing: true
 gp_sdf_area_scale: 3
-offset_distance: 0.08
-max_valid_gradient_var: 0.001
-invalid_position_var: 0.005
+max_valid_gradient_var: 0.1
+invalid_position_var: 0.25
+offset_distance: 0.04
+use_occ_sign: false
 train_gp_immediately: false
-gp_sdf:
+edf_gp:
     kernel_type: erl::covariance::Matern32<3l>
+    kernel_setting_type: erl::covariance::Covariance::Setting
     kernel:
         x_dim: 3
         alpha: 1
-        scale: 3.0
-        scale_mix: 1
-        weights: [ ]
-    log_kernel:
-        x_dim: 3
-        alpha: 1
-        scale: 3.0
+        scale: 0.3
         scale_mix: 1
         weights: [ ]
     log_lambda: 40
-    edf_threshold: 0.05
     max_num_samples: 96   # max dataset size
+    no_gradient_observation: true
 test_query:
     max_test_valid_distance_var: 0.02
     search_area_half_size: 2
     num_neighbor_gps: 8
-    use_smallest: false
+    use_smallest: true
     compute_covariance: false  # whether to compute covariance
-    recompute_variance: false
-    softmax_temperature: 5
+    use_gp_covariance: false
+    softmin_temperature: 10.0
 surface_mapping_type: erl::sdf_mapping::GpOccSurfaceMapping3D
 surface_mapping_setting_type: erl::sdf_mapping::GpOccSurfaceMapping3D::Setting
 surface_mapping:
@@ -89,13 +85,14 @@ surface_mapping:
             camera_cy: 239.5
         gp:
             kernel_type: erl::covariance::OrnsteinUhlenbeck<2l>
+            kernel_setting_type: erl::covariance::Covariance::Setting
             kernel:
                 x_dim: 2
                 alpha: 1
                 scale: 0.5
                 scale_mix: 1
                 weights: [ ]
-            auto_normalize: false
+            max_num_samples: 40
         mapping:
             type: kInverseSqrt
             scale: 1

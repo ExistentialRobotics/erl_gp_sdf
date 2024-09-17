@@ -69,6 +69,9 @@ ConvertSdfToImage(const Eigen::VectorXd &distances, const long rows, const long 
     cv::eigen2cv(sdf_uint8, img_sdf);
     cv::applyColorMap(img_sdf, img_sdf, cv::COLORMAP_JET);
     cv::eigen2cv(sdf_sign, img_sdf_sign);
+    // for zero pixel in img_sdf_sign fill sdf_sign with zero
+    const cv::Mat mask = img_sdf_sign == 0;
+    img_sdf.setTo(0, mask);
     return {std::move(img_sdf), std::move(img_sdf_sign)};
 }
 
@@ -390,8 +393,8 @@ TEST(GpSdfMapping3D, Build_Save_Load) {
     long mean_gp_size = 0;
     long gp_cnt = 0;
     for (const auto &[key, local_gp]: sdf_mapping.GetGpMap()) {
-        max_gp_size = std::max(local_gp->num_train_samples, max_gp_size);
-        mean_gp_size += local_gp->num_train_samples;
+        max_gp_size = std::max(local_gp->num_edf_samples, max_gp_size);
+        mean_gp_size += local_gp->num_edf_samples;
         ++gp_cnt;
     }
     mean_gp_size /= gp_cnt;

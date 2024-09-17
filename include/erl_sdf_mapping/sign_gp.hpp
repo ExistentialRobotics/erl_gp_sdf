@@ -4,15 +4,15 @@
 #include "erl_geometry/surface_mapping_octree_node.hpp"
 #include "erl_geometry/surface_mapping_quadtree_node.hpp"
 
-#include <utility>
+#include <memory>
 
 namespace erl::sdf_mapping {
 
-    class LogEdfGaussianProcess : public gaussian_process::NoisyInputGaussianProcess {
+    class SignGaussianProcess : public gaussian_process::NoisyInputGaussianProcess {
 
     public:
         struct Setting : public common::Yamlable<Setting, NoisyInputGaussianProcess::Setting> {
-            double log_lambda = 40.0;
+            double offset_distance = 0.1;
         };
 
         inline static const volatile bool kSettingRegistered = common::YamlableBase::Register<Setting>();
@@ -22,20 +22,19 @@ namespace erl::sdf_mapping {
 
     public:
         explicit
-        LogEdfGaussianProcess(std::shared_ptr<Setting> setting)
+        SignGaussianProcess(std::shared_ptr<Setting> setting)
             : NoisyInputGaussianProcess([setting]() -> std::shared_ptr<Setting> {
-                  setting->kernel->scale = std::sqrt(3.) / setting->log_lambda;
-                  setting->no_gradient_observation = true;
+                  setting->no_gradient_observation = false;
                   return setting;
               }()),
               m_setting_(std::move(setting)) {}
 
-        LogEdfGaussianProcess(const LogEdfGaussianProcess &other) = default;
-        LogEdfGaussianProcess(LogEdfGaussianProcess &&other) = default;
-        LogEdfGaussianProcess &
-        operator=(const LogEdfGaussianProcess &other) = default;
-        LogEdfGaussianProcess &
-        operator=(LogEdfGaussianProcess &&other) = default;
+        SignGaussianProcess(const SignGaussianProcess &other) = default;
+        SignGaussianProcess(SignGaussianProcess &&other) = default;
+        SignGaussianProcess &
+        operator=(const SignGaussianProcess &other) = default;
+        SignGaussianProcess &
+        operator=(SignGaussianProcess &&other) = default;
 
         [[nodiscard]] std::size_t
         GetMemoryUsage() const override;
@@ -47,7 +46,6 @@ namespace erl::sdf_mapping {
         LoadSurfaceData(
             std::vector<std::pair<double, std::shared_ptr<SurfaceData2D>>> &surface_data_vec,
             const Eigen::Vector2d &coord_origin,
-            double offset_distance,
             double sensor_noise,
             double max_valid_gradient_var,
             double invalid_position_var);
@@ -56,7 +54,6 @@ namespace erl::sdf_mapping {
         LoadSurfaceData(
             std::vector<std::pair<double, std::shared_ptr<SurfaceData3D>>> &surface_data_vec,
             const Eigen::Vector3d &coord_origin,
-            double offset_distance,
             double sensor_noise,
             double max_valid_gradient_var,
             double invalid_position_var);
@@ -69,10 +66,10 @@ namespace erl::sdf_mapping {
             Eigen::Ref<Eigen::MatrixXd> mat_cov_out) const override;
 
         [[nodiscard]] bool
-        operator==(const LogEdfGaussianProcess &other) const;
+        operator==(const SignGaussianProcess &other) const;
 
         [[nodiscard]] bool
-        operator!=(const LogEdfGaussianProcess &other) const {
+        operator!=(const SignGaussianProcess &other) const {
             return !(*this == other);
         }
 
@@ -88,23 +85,24 @@ namespace erl::sdf_mapping {
         [[nodiscard]] bool
         Read(std::istream &s) override;
     };
+
 }  // namespace erl::sdf_mapping
 
 // ReSharper disable CppInconsistentNaming
 template<>
-struct YAML::convert<erl::sdf_mapping::LogEdfGaussianProcess::Setting> {
+struct YAML::convert<erl::sdf_mapping::SignGaussianProcess::Setting> {
     static Node
-    encode(const erl::sdf_mapping::LogEdfGaussianProcess::Setting &setting) {
+    encode(const erl::sdf_mapping::SignGaussianProcess::Setting &setting) {
         Node node = convert<erl::gaussian_process::NoisyInputGaussianProcess::Setting>::encode(setting);
-        node["log_lambda"] = setting.log_lambda;
+        node["offset_distance"] = setting.offset_distance;
         return node;
     }
 
     static bool
-    decode(const Node &node, erl::sdf_mapping::LogEdfGaussianProcess::Setting &setting) {
+    decode(const Node &node, erl::sdf_mapping::SignGaussianProcess::Setting &setting) {
         if (!node.IsMap()) { return false; }
         convert<erl::gaussian_process::NoisyInputGaussianProcess::Setting>::decode(node, setting);
-        setting.log_lambda = node["log_lambda"].as<double>();
+        setting.offset_distance = node["offset_distance"].as<double>();
         return true;
     }
 };  // namespace YAML

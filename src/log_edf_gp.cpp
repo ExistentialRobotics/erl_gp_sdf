@@ -11,25 +11,79 @@ namespace erl::sdf_mapping {
         return memory_usage;
     }
 
-    void
-    LogEdfGaussianProcess::Train(const long num_train_samples) {
-        m_vec_y_train_.setOnes(num_train_samples);
-        NoisyInputGaussianProcess::Train(num_train_samples);
+    long
+    LogEdfGaussianProcess::LoadSurfaceData(
+        std::vector<std::pair<double, std::shared_ptr<SurfaceData2D>>> &surface_data_vec,
+        const Eigen::Vector2d &coord_origin,
+        const double offset_distance,
+        const double sensor_noise,
+        const double max_valid_gradient_var,
+        const double invalid_position_var) {
+
+        SetKernelCoordOrigin(coord_origin);
+
+        const long max_num_samples = std::min(m_setting_->max_num_samples, static_cast<long>(surface_data_vec.size()));
+        Reset(max_num_samples, 2);
+
+        std::sort(surface_data_vec.begin(), surface_data_vec.end(), [](const auto &a, const auto &b) { return a.first < b.first; });
+
+        long count = 0;
+        for (auto &[distance, surface_data]: surface_data_vec) {
+            m_mat_x_train_.col(count) = surface_data->position - offset_distance * surface_data->normal;
+            m_vec_var_h_[count] = sensor_noise;
+            m_vec_var_x_[count] = surface_data->var_position;
+            if ((surface_data->var_normal > max_valid_gradient_var) ||                      // invalid gradient
+                (surface_data->normal.norm() < 0.9)) {                                      // invalid normal
+                m_vec_var_x_[count] = std::max(m_vec_var_x_[count], invalid_position_var);  // position is unreliable
+            }
+            if (++count >= m_mat_x_train_.cols()) { break; }  // reached max_num_samples
+        }
+        m_num_train_samples_ = count;
+        m_vec_y_train_.setOnes(m_num_train_samples_);
+        if (m_reduced_rank_kernel_) { UpdateKtrain(m_num_train_samples_); }
+        return count;
     }
 
-    void
+    long
+    LogEdfGaussianProcess::LoadSurfaceData(
+        std::vector<std::pair<double, std::shared_ptr<SurfaceData3D>>> &surface_data_vec,
+        const Eigen::Vector3d &coord_origin,
+        const double offset_distance,
+        const double sensor_noise,
+        const double max_valid_gradient_var,
+        const double invalid_position_var) {
+
+        SetKernelCoordOrigin(coord_origin);
+
+        const long max_num_samples = std::min(m_setting_->max_num_samples, static_cast<long>(surface_data_vec.size()));
+        Reset(max_num_samples, 3);
+
+        std::sort(surface_data_vec.begin(), surface_data_vec.end(), [](const auto &a, const auto &b) { return a.first < b.first; });
+        long count = 0;
+        for (auto &[distance, surface_data]: surface_data_vec) {
+            m_mat_x_train_.col(count) = surface_data->position - offset_distance * surface_data->normal;
+            m_vec_var_h_[count] = sensor_noise;
+            m_vec_var_x_[count] = surface_data->var_position;
+            if ((surface_data->var_normal > max_valid_gradient_var) ||                      // invalid gradient
+                (surface_data->normal.norm() < 0.9)) {                                      // invalid normal
+                m_vec_var_x_[count] = std::max(m_vec_var_x_[count], invalid_position_var);  // position is unreliable
+            }
+            if (++count >= m_mat_x_train_.cols()) { break; }  // reached max_num_samples
+        }
+        m_num_train_samples_ = count;
+        m_vec_y_train_.setOnes(m_num_train_samples_);
+        if (m_reduced_rank_kernel_) { UpdateKtrain(m_num_train_samples_); }
+        return count;
+    }
+
+    bool
     LogEdfGaussianProcess::Test(
         const Eigen::Ref<const Eigen::MatrixXd> &mat_x_test,
         Eigen::Ref<Eigen::MatrixXd> mat_f_out,
         Eigen::Ref<Eigen::MatrixXd> mat_var_out,
         Eigen::Ref<Eigen::MatrixXd> mat_cov_out) const {
 
-        if (!m_trained_) {
-            ERL_WARN("The model has not been trained.");
-            return;
-        }
-
-        NoisyInputGaussianProcess::Test(mat_x_test, mat_f_out, mat_var_out, mat_cov_out);
+        if (!NoisyInputGaussianProcess::Test(mat_x_test, mat_f_out, mat_var_out, mat_cov_out)) { return false; }
         const long dim = mat_x_test.rows();
         const long n = mat_x_test.cols();
         const double log_lambda = m_setting_->log_lambda;
@@ -51,6 +105,7 @@ namespace erl::sdf_mapping {
                 for (long j = 1; j <= dim; ++j) { f[j] /= norm; }  // gradient norm is always 1. https://en.wikipedia.org/wiki/Eikonal_equation
             }
         }
+        return true;
     }
 
     bool

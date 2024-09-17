@@ -16,7 +16,7 @@ namespace erl::sdf_mapping {
         bool sensor_gp_trained = false;
         const bool verbose_timer = common::Logging::GetLevel() <= common::Logging::Level::kInfo;
         {
-            erl::common::BlockTimer<std::chrono::milliseconds> timer("Sensor GP training", nullptr, verbose_timer);
+            common::BlockTimer<std::chrono::milliseconds> timer("Sensor GP training", nullptr, verbose_timer);
             sensor_gp_trained = m_sensor_gp_->Train(rotation, translation, ranges);
         }
         if (!sensor_gp_trained) { return false; }
@@ -29,18 +29,18 @@ namespace erl::sdf_mapping {
         // clang-format on
 
         if (m_setting_->update_occupancy) {
-            erl::common::BlockTimer<std::chrono::milliseconds> timer("Update occupancy", nullptr, verbose_timer);
+            common::BlockTimer<std::chrono::milliseconds> timer("Update occupancy", nullptr, verbose_timer);
             UpdateOccupancy();
         }
 
         // perform surface mapping
         {
-            erl::common::BlockTimer<std::chrono::milliseconds> timer("Update map points", nullptr, verbose_timer);
+            common::BlockTimer<std::chrono::milliseconds> timer("Update map points", nullptr, verbose_timer);
             UpdateMapPoints();
         }
 
         {
-            erl::common::BlockTimer<std::chrono::milliseconds> timer("Add new measurement time", nullptr, verbose_timer);
+            common::BlockTimer<std::chrono::milliseconds> timer("Add new measurement time", nullptr, verbose_timer);
             AddNewMeasurement();
         }
 

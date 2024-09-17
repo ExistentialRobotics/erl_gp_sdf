@@ -59,7 +59,7 @@ DrawGp(
     Eigen::Vector2i gp1_area_max_px = grid_map_info->MeterToPixelForPoints(gp1_area_max);
     cv::rectangle(img, cv::Point(gp1_area_min_px[0], gp1_area_min_px[1]), cv::Point(gp1_area_max_px[0], gp1_area_max_px[1]), rect_color, 2);
 
-    const Eigen::Matrix2Xd used_surface_points = gp1->gp->GetTrainInputSamplesBuffer().block(0, 0, 2, gp1->gp->GetNumTrainSamples());
+    const Eigen::Matrix2Xd used_surface_points = gp1->edf_gp->GetTrainInputSamplesBuffer().block(0, 0, 2, gp1->edf_gp->GetNumTrainSamples());
     Eigen::Matrix2Xi used_surface_points_px = grid_map_info->MeterToPixelForPoints(used_surface_points);
     for (long j = 0; j < used_surface_points.cols(); j++) {
         cv::circle(img, cv::Point(used_surface_points_px(0, j), used_surface_points_px(1, j)), 3, data_color, -1);
@@ -438,11 +438,11 @@ TEST(GpSdfMapping2D, Build_Save_Load) {
             auto &[gp1, gp2] = sdf_mapping.GetUsedGps()[0];
             if (gp1 != nullptr) {
                 DrawGp(img, gp1, grid_map_info, {0, 125, 255, 255}, {125, 255, 0, 255}, {255, 125, 0, 255});
-                ERL_INFO("GP1 at [{:f}, {:f}] has {} data points.", gp1->position.x(), gp1->position.y(), gp1->gp->GetNumTrainSamples());
+                ERL_INFO("GP1 at [{:f}, {:f}] has {} data points.", gp1->position.x(), gp1->position.y(), gp1->edf_gp->GetNumTrainSamples());
             }
             if (gp2 != nullptr) {
                 DrawGp(img, gp2, grid_map_info, {125, 125, 255, 255}, {125, 255, 125, 255}, {255, 125, 0, 255});
-                ERL_INFO("GP2 has {} data points.", gp2->gp->GetNumTrainSamples());
+                ERL_INFO("GP2 has {} data points.", gp2->edf_gp->GetNumTrainSamples());
             }
 
             // draw trajectory
@@ -514,8 +514,10 @@ TEST(GpSdfMapping2D, Build_Save_Load) {
     ERL_ASSERT(surface_mapping->GetQuadtree()->Write("tree.ot"));
 
     std::shared_ptr<erl::common::PangolinWindow> pangolin_sdf_image_window;
+    std::shared_ptr<erl::common::PangolinWindow> pangolin_sdf_sign_image_window;
     std::shared_ptr<erl::common::PangolinWindow> pangolin_sdf_var_image_window;
     std::shared_ptr<erl::common::PangolinPlotterImage> pangolin_plotter_sdf_image;
+    std::shared_ptr<erl::common::PangolinPlotterImage> pangolin_plotter_sdf_sign_image;
     std::shared_ptr<erl::common::PangolinPlotterImage> pangolin_plotter_sdf_var_image;
     if (success && g_options.visualize) {
         Eigen::MatrixXd sdf_out_mat = distances_out.reshaped(grid_map_info->Height(), grid_map_info->Width());
@@ -546,6 +548,18 @@ TEST(GpSdfMapping2D, Build_Save_Load) {
             std::make_shared<erl::common::PangolinPlotterImage>(pangolin_sdf_image_window, dst.rows, dst.cols, GL_RGBA, GL_UNSIGNED_BYTE);
         pangolin_plotter_sdf_image->Update(dst);
 
+        Eigen::MatrixX8U sdf_sign_mat(sdf_out_mat.rows(), sdf_out_mat.cols());
+        uint8_t *sdf_sign_mat_ptr = sdf_sign_mat.data();
+        const double *sdf_out_mat_ptr = sdf_out_mat.data();
+        for (int i = 0; i < sdf_out_mat.size(); ++i) { sdf_sign_mat_ptr[i] = sdf_out_mat_ptr[i] > 0 ? 255 : 0; }
+        cv::eigen2cv(sdf_sign_mat, src);
+        cv::flip(src, src, 0);  // flip along y axis
+        cv::cvtColor(src, dst, cv::COLOR_GRAY2BGRA);
+        pangolin_sdf_sign_image_window = std::make_shared<erl::common::PangolinWindow>(g_window_name + ": sdf_sign", src.cols, src.rows);
+        pangolin_plotter_sdf_sign_image =
+            std::make_shared<erl::common::PangolinPlotterImage>(pangolin_sdf_sign_image_window, src.rows, src.cols, GL_RGBA, GL_UNSIGNED_BYTE);
+        pangolin_plotter_sdf_sign_image->Update(dst);
+
         Eigen::MatrixXd sdf_variances_mat = variances_out.row(0).reshaped(grid_map_info->Height(), grid_map_info->Width());
         double min_variance = sdf_variances_mat.minCoeff();
         double max_variance = sdf_variances_mat.maxCoeff();
@@ -566,6 +580,7 @@ TEST(GpSdfMapping2D, Build_Save_Load) {
         if (pangolin_plotter_window != nullptr) { pangolin_plotter_window->GetWindow().ProcessEvents(); }
         if (pangolin_map_window != nullptr) { pangolin_plotter_map->Render(); }
         if (pangolin_sdf_image_window != nullptr) { pangolin_plotter_sdf_image->Render(); }
+        if (pangolin_sdf_sign_image_window != nullptr) { pangolin_plotter_sdf_sign_image->Render(); }
         if (pangolin_sdf_var_image_window != nullptr) { pangolin_plotter_sdf_var_image->Render(); }
     };
 

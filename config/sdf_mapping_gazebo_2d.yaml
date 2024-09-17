@@ -3,9 +3,11 @@ update_hz: 60
 log_timing: true
 gp_sdf_area_scale: 4    # should be larger than 2x max sdf when use_smallest is false: 7
 max_valid_gradient_var: 0.1
-invalid_position_var: 1.0
+invalid_position_var: 0.25
+offset_distance: 0.05
+use_occ_sign: true
 train_gp_immediately: false
-gp_sdf:
+edf_gp:
     kernel_type: erl::covariance::Matern32<2l>
     kernel_setting_type: erl::covariance::Covariance::Setting
     kernel:
@@ -24,7 +26,7 @@ test_query:
     use_smallest: true  # use the smallest distance as the prediction
     compute_covariance: true  # whether to compute covariance
     use_gp_covariance: false
-    softmax_temperature: 10.0
+    softmin_temperature: 10.0
 surface_mapping_type: erl::sdf_mapping::GpOccSurfaceMapping2D
 surface_mapping_setting_type: erl::sdf_mapping::GpOccSurfaceMapping2D::Setting
 surface_mapping:
@@ -47,13 +49,14 @@ surface_mapping:
             min_partition_size: 5
         gp:
             kernel_type: erl::covariance::OrnsteinUhlenbeck<1l>
+            kernel_setting_type: erl::covariance::Covariance::Setting
             kernel:
                 x_dim: 1
                 alpha: 1
                 scale: 0.5
                 scale_mix: 1
                 weights: [ ]
-            auto_normalize: false
+            max_num_samples: 64
         mapping:
             type: kInverseSqrt
             scale: 1

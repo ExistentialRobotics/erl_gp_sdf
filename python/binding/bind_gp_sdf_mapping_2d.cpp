@@ -13,10 +13,10 @@ BindGpSdfMapping2D(const py::module &m) {
     py::class_<T::Gp, std::shared_ptr<T::Gp>>(sdf_mapping, "Gp")
         .def_readonly("active", &T::Gp::active)
         .def_property_readonly("locked_for_test", [](const T::Gp &gp) { return gp.locked_for_test.load(); })
-        .def_readonly("num_train_samples", &T::Gp::num_train_samples)
+        .def_readonly("num_edf_samples", &T::Gp::num_edf_samples)
         .def_readonly("position", &T::Gp::position)
         .def_readonly("half_size", &T::Gp::half_size)
-        .def_readonly("gp", &T::Gp::gp)
+        .def_readonly("gp", &T::Gp::edf_gp)
         .def("train", &T::Gp::Train);
 
     py::class_<T::Setting, GpSdfMappingBaseSetting, std::shared_ptr<T::Setting>>(sdf_mapping, "Setting")
