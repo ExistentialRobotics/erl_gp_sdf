@@ -17,13 +17,14 @@ sensor_gp:
         min_partition_size: 5
     gp:
         kernel_type: erl::covariance::OrnsteinUhlenbeck<1l>
+        kernel_setting_type: erl::covariance::Covariance::Setting
         kernel:
             x_dim: 1
             alpha: 1
             scale: 0.5
             scale_mix: 1
             weights: [ ]
-        auto_normalize: false
+        max_num_samples: 360
     mapping:
         type: kInverseSqrt
         scale: 1
@@ -55,12 +56,8 @@ quadtree:
     use_change_detection: false
     use_aabb_limit: false
     aabb:
-        center:
-            - 0
-            - 0
-        half_sizes:
-            - 0
-            - 0
+        center: [ 0, 0 ]
+        half_sizes: [ 0, 0 ]
 cluster_level: 4
 perturb_delta: 0.001  # this makes the SDF prediction more smooth over time
 zero_gradient_threshold: 1.0e-10

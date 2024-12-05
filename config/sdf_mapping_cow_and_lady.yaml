@@ -97,7 +97,7 @@ surface_mapping:
             type: kInverseSqrt
             scale: 1
     octree:
-        resolution: 0.10000000000000001
+        resolution: 0.1
         tree_depth: 16
         log_odd_min: -2
         log_odd_max: 3.5

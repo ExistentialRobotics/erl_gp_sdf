@@ -154,7 +154,7 @@ TEST(GpOccSurfaceMapping3D, Build_Save_Load) {
             } else {
                 std::tie(rotation, translation) = poses[wp_idx];
                 ranges = range_sensor->Scan(rotation, translation);
-                std::tie(rotation, translation) = range_sensor->GetExtrinsicMatrix(rotation, translation);
+                std::tie(rotation, translation) = range_sensor->GetOpticalPose(rotation, translation);
             }
         }
         ERL_TRACY_PLOT("data loading (ms)", dt);

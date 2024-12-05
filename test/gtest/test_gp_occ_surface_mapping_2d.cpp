@@ -2,10 +2,11 @@
 #include "erl_common/progress_bar.hpp"
 #include "erl_common/random.hpp"
 #include "erl_common/test_helper.hpp"
-#include "erl_geometry/gazebo_room.hpp"
+#include "erl_geometry/gazebo_room_2d.hpp"
 #include "erl_geometry/house_expo_map.hpp"
 #include "erl_geometry/lidar_2d.hpp"
 #include "erl_geometry/occupancy_quadtree_drawer.hpp"
+#include "erl_geometry/ucsd_fah_2d.hpp"
 #include "erl_sdf_mapping/gp_occ_surface_mapping_2d.hpp"
 #include "erl_sdf_mapping/gp_sdf_mapping_2d.hpp"
 
@@ -33,15 +34,16 @@ struct Options {
 };
 
 static Options g_options;
+const std::filesystem::path kProjectRootDir = ERL_SDF_MAPPING_ROOT_DIR;
 
 TEST(GpOccSurfaceMapping2D, Build_Save_Load) {
     GTEST_PREPARE_OUTPUT_DIR();
 
-    g_options.gazebo_train_file = (gtest_src_dir / "gazebo_train.dat").string();
-    g_options.house_expo_map_file = (gtest_src_dir / "house_expo_room_1451.json").string();
-    g_options.house_expo_traj_file = (gtest_src_dir / "house_expo_room_1451.csv").string();
-    g_options.ucsd_fah_2d_file = (gtest_src_dir / "ucsd_fah_2d.dat").string();
-    g_options.surface_mapping_config_file = (gtest_src_dir / "../../config/surface_mapping_2d.yaml").string();
+    g_options.gazebo_train_file = kProjectRootDir / "data" / "gazebo_train.dat";
+    g_options.house_expo_map_file = kProjectRootDir / "data" / "house_expo_room_1451.json";
+    g_options.house_expo_traj_file = kProjectRootDir / "data" / "house_expo_room_1451.csv";
+    g_options.ucsd_fah_2d_file = kProjectRootDir / "data" / "ucsd_fah_2d.dat";
+    g_options.surface_mapping_config_file = kProjectRootDir / "config" / "surface_mapping_2d.yaml";
     g_options.output_dir = (test_output_dir / "results").string();
 
     ASSERT_TRUE(g_options.use_gazebo_room_2d || g_options.use_house_expo_lidar_2d || g_options.use_ucsd_fah_2d)
@@ -83,9 +85,9 @@ TEST(GpOccSurfaceMapping2D, Build_Save_Load) {
         for (int i = g_options.init_frame; i < static_cast<int>(train_data_loader.size()); i += g_options.stride, ++cnt) {
             auto &df = train_data_loader[i];
             train_angles.push_back(df.angles);
-            train_ranges.push_back(df.distances);
-            train_poses.emplace_back(df.pose_numpy.leftCols(2), df.pose_numpy.rightCols(1));
-            cur_traj.col(cnt) << df.pose_numpy.col(2);
+            train_ranges.push_back(df.ranges);
+            train_poses.emplace_back(df.rotation, df.translation);
+            cur_traj.col(cnt) << df.translation;
             const double &x = cur_traj(0, cnt);
             const double &y = cur_traj(1, cnt);
             if (x < map_min[0]) { map_min[0] = x; }
@@ -141,37 +143,26 @@ TEST(GpOccSurfaceMapping2D, Build_Save_Load) {
         train_poses.resize(cnt);
         cur_traj.conservativeResize(2, cnt);
     } else if (g_options.use_ucsd_fah_2d) {
-        Eigen::MatrixXd ros_bag_data = erl::common::LoadEigenMatrixFromBinaryFile<double, Eigen::Dynamic, Eigen::Dynamic>(g_options.ucsd_fah_2d_file);
+        erl::geometry::UcsdFah2D ucsd_fah(g_options.ucsd_fah_2d_file);
+        map_min = erl::geometry::UcsdFah2D::kMapMin;
+        map_max = erl::geometry::UcsdFah2D::kMapMax;
         // prepare buffer
-        max_update_cnt = (ros_bag_data.cols() - g_options.init_frame) / g_options.stride + 1;
+        max_update_cnt = (ucsd_fah.Size() - g_options.init_frame) / g_options.stride + 1;
         train_angles.reserve(max_update_cnt);
         train_ranges.reserve(max_update_cnt);
         train_poses.reserve(max_update_cnt);
         cur_traj.resize(2, max_update_cnt);
         // load data into buffer
-        long num_rays = (ros_bag_data.rows() - 7) / 2;
         auto bar_setting = std::make_shared<erl::common::ProgressBar::Setting>();
         bar_setting->total = max_update_cnt;
         const auto bar = erl::common::ProgressBar::Open(bar_setting, std::cout);
         long cnt = 0;
-        for (long i = g_options.init_frame; i < ros_bag_data.cols(); i += g_options.stride, cnt++) {
-            Eigen::Matrix23d pose = ros_bag_data.col(i).segment(1, 6).reshaped(2, 3);
-            cur_traj.col(cnt) << pose(0, 2), pose(1, 2);
-            train_angles.emplace_back(ros_bag_data.col(i).segment(7, num_rays));
-            train_ranges.emplace_back(ros_bag_data.col(i).segment(7 + num_rays, num_rays));
-            train_poses.emplace_back(pose.leftCols(2), pose.col(2));
-            const auto &angles = train_angles.back();
-            const Eigen::VectorXd &ranges = train_ranges.back();
-            for (long k = 0; k < num_rays; k++) {
-                if (!std::isfinite(ranges[k])) { continue; }
-                double angle = angles[k];
-                double range = ranges[k];
-                Eigen::Vector2d point = pose * Eigen::Vector3d(range * std::cos(angle), range * std::sin(angle), 1);
-                if (point[0] < map_min[0]) { map_min[0] = point[0]; }
-                if (point[0] > map_max[0]) { map_max[0] = point[0]; }
-                if (point[1] < map_min[1]) { map_min[1] = point[1]; }
-                if (point[1] > map_max[1]) { map_max[1] = point[1]; }
-            }
+        for (long i = g_options.init_frame; i < ucsd_fah.Size(); i += g_options.stride, ++cnt) {
+            auto [sequence_number, timestamp, header_timestamp, rotation, translation, angles, ranges] = ucsd_fah[i];
+            cur_traj.col(cnt) << translation;
+            train_angles.emplace_back(angles);
+            train_ranges.emplace_back(ranges);
+            train_poses.emplace_back(std::move(rotation), std::move(translation));
             bar->Update();
         }
         train_angles.resize(cnt);

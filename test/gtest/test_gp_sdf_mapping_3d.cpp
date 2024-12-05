@@ -177,7 +177,7 @@ TEST(GpSdfMapping3D, Build_Save_Load) {
     visualizer.AddGeometries(geometries);
 
     // prepare the test positions
-    Eigen::MatrixX<Eigen::Vector3d> positions(g_options.test_xs, g_options.test_ys);
+    Eigen::MatrixX<Eigen::Vector3d> positions(g_options.test_xs, g_options.test_ys);  // test position in the sensor frame
     const Eigen::Vector3d offset(
         -0.5 * g_options.test_res * static_cast<double>(g_options.test_xs),
         -0.5 * g_options.test_res * static_cast<double>(g_options.test_ys),
@@ -247,8 +247,8 @@ TEST(GpSdfMapping3D, Build_Save_Load) {
         }
 
         const auto t_start = std::chrono::high_resolution_clock::now();
-        Eigen::Matrix3d rotation, rotation_extrinsic;
-        Eigen::Vector3d translation, translation_extrinsic;
+        Eigen::Matrix3d rotation_sensor, rotation;
+        Eigen::Vector3d translation_sensor, translation;
         ERL_INFO("wp_idx: {}", wp_idx);
 
         cv::Mat depth_jet;
@@ -258,22 +258,21 @@ TEST(GpSdfMapping3D, Build_Save_Load) {
             const erl::common::BlockTimer<std::chrono::milliseconds> timer("data loading", &dt);
             (void) timer;
             if (g_options.use_cow_and_lady) {
-                // ReSharper disable once CppUseStructuredBinding
                 const auto frame = (*cow_and_lady)[wp_idx];
-                rotation_extrinsic = frame.rotation;
-                translation_extrinsic = frame.translation;
+                rotation = frame.rotation;
+                translation = frame.translation;
                 Eigen::Matrix4d pose = Eigen::Matrix4d::Identity();
-                pose.topLeftCorner<3, 3>() = rotation_extrinsic;
-                pose.topRightCorner<3, 1>() = translation_extrinsic;
-                pose = pose * erl::geometry::DepthCamera3D::kCameraToOptical.inverse();
-                rotation = pose.topLeftCorner<3, 3>();
-                translation = pose.topRightCorner<3, 1>();
+                pose.topLeftCorner<3, 3>() = rotation;
+                pose.topRightCorner<3, 1>() = translation;
+                pose = pose * erl::geometry::DepthCamera3D::kOpticalToCamera.inverse();
+                rotation_sensor = pose.topLeftCorner<3, 3>();
+                translation_sensor = pose.topRightCorner<3, 1>();
                 ranges = frame.depth;
                 depth_jet = frame.depth_jet;
             } else {
-                std::tie(rotation, translation) = poses[wp_idx];
-                ranges = range_sensor->Scan(rotation, translation);
-                std::tie(rotation_extrinsic, translation_extrinsic) = range_sensor->GetExtrinsicMatrix(rotation, translation);
+                std::tie(rotation_sensor, translation_sensor) = poses[wp_idx];
+                ranges = range_sensor->Scan(rotation_sensor, translation_sensor);
+                std::tie(rotation, translation) = range_sensor->GetOpticalPose(rotation_sensor, translation_sensor);
                 depth_jet = ConvertDepthToImage(ranges);
             }
         }
@@ -283,7 +282,8 @@ TEST(GpSdfMapping3D, Build_Save_Load) {
         {
             const erl::common::BlockTimer<std::chrono::milliseconds> timer("gp.Update", &dt);
             (void) timer;
-            ERL_WARN_COND(!sdf_mapping.Update(rotation_extrinsic, translation_extrinsic, ranges), "gp.Update failed.");
+            // provide ranges and frame pose in the world frame
+            ERL_WARN_COND(!sdf_mapping.Update(rotation, translation, ranges), "gp.Update failed.");
         }
         double gp_update_fps = 1000.0 / dt;
         ERL_TRACY_PLOT("gp_update (ms)", dt);
@@ -294,7 +294,7 @@ TEST(GpSdfMapping3D, Build_Save_Load) {
         for (long j = 0; j < positions.cols(); ++j) {
             for (long i = 0; i < positions.rows(); ++i) {
                 Eigen::Vector3d &position = positions(i, j);
-                positions_test.col(i + j * positions.rows()) = rotation * position + translation;
+                positions_test.col(i + j * positions.rows()) = rotation_sensor * position + translation_sensor;  // sensor frame to world frame
             }
         }
         Eigen::VectorXd distances(positions_test.cols());
@@ -331,8 +331,8 @@ TEST(GpSdfMapping3D, Build_Save_Load) {
         /// update the sensor mesh
         Eigen::Matrix4d last_pose_inv = last_pose.inverse();
         Eigen::Matrix4d cur_pose = Eigen::Matrix4d::Identity();
-        cur_pose.topLeftCorner<3, 3>() = rotation;
-        cur_pose.topRightCorner<3, 1>() = translation;
+        cur_pose.topLeftCorner<3, 3>() = rotation_sensor;
+        cur_pose.topRightCorner<3, 1>() = translation_sensor;
         Eigen::Matrix4d delta_pose = cur_pose * last_pose_inv;
         last_pose = cur_pose;
         mesh_sensor->Transform(delta_pose);
