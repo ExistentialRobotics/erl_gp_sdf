@@ -107,12 +107,12 @@ TEST(GpSdfMapping3D, Build_Save_Load) {
         map_min = cow_and_lady->GetMapMin();
         map_max = cow_and_lady->GetMapMax();
         const auto depth_frame_setting = std::make_shared<erl::geometry::DepthFrame3D::Setting>();
-        depth_frame_setting->image_height = erl::geometry::CowAndLady::kImageHeight;
-        depth_frame_setting->image_width = erl::geometry::CowAndLady::kImageWidth;
-        depth_frame_setting->camera_fx = erl::geometry::CowAndLady::kCameraFx;
-        depth_frame_setting->camera_fy = erl::geometry::CowAndLady::kCameraFy;
-        depth_frame_setting->camera_cx = erl::geometry::CowAndLady::kCameraCx;
-        depth_frame_setting->camera_cy = erl::geometry::CowAndLady::kCameraCy;
+        depth_frame_setting->camera_intrinsic->image_height = erl::geometry::CowAndLady::kImageHeight;
+        depth_frame_setting->camera_intrinsic->image_width = erl::geometry::CowAndLady::kImageWidth;
+        depth_frame_setting->camera_intrinsic->camera_fx = erl::geometry::CowAndLady::kCameraFx;
+        depth_frame_setting->camera_intrinsic->camera_fy = erl::geometry::CowAndLady::kCameraFy;
+        depth_frame_setting->camera_intrinsic->camera_cx = erl::geometry::CowAndLady::kCameraCx;
+        depth_frame_setting->camera_intrinsic->camera_cy = erl::geometry::CowAndLady::kCameraCy;
     } else {
         const auto mesh = open3d::io::CreateMeshFromFile(g_options.mesh_file);
         ERL_ASSERTM(!mesh->vertices_.empty(), "Failed to load mesh file: {}", g_options.mesh_file);
@@ -127,20 +127,21 @@ TEST(GpSdfMapping3D, Build_Save_Load) {
             lidar_setting->elevation_min = lidar_frame_setting->elevation_min;
             lidar_setting->elevation_max = lidar_frame_setting->elevation_max;
             lidar_setting->num_elevation_lines = lidar_frame_setting->num_elevation_lines;
-            range_sensor = std::make_shared<erl::geometry::Lidar3D>(lidar_setting, mesh->vertices_, mesh->triangles_);
+            range_sensor = std::make_shared<erl::geometry::Lidar3D>(lidar_setting);
         } else if (gp_surf_setting->sensor_gp->range_sensor_frame_type == demangle(typeid(erl::geometry::DepthFrame3D).name())) {
             const auto depth_frame_setting = std::dynamic_pointer_cast<erl::geometry::DepthFrame3D::Setting>(gp_surf_setting->sensor_gp->range_sensor_frame);
             const auto depth_camera_setting = std::make_shared<erl::geometry::DepthCamera3D::Setting>();
-            depth_camera_setting->image_height = depth_frame_setting->image_height;
-            depth_camera_setting->image_width = depth_frame_setting->image_width;
-            depth_camera_setting->camera_fx = depth_frame_setting->camera_fx;
-            depth_camera_setting->camera_fy = depth_frame_setting->camera_fy;
-            depth_camera_setting->camera_cx = depth_frame_setting->camera_cx;
-            depth_camera_setting->camera_cy = depth_frame_setting->camera_cy;
-            range_sensor = std::make_shared<erl::geometry::DepthCamera3D>(depth_camera_setting, mesh->vertices_, mesh->triangles_);
+            depth_camera_setting->image_height = depth_frame_setting->camera_intrinsic->image_height;
+            depth_camera_setting->image_width = depth_frame_setting->camera_intrinsic->image_width;
+            depth_camera_setting->camera_fx = depth_frame_setting->camera_intrinsic->camera_fx;
+            depth_camera_setting->camera_fy = depth_frame_setting->camera_intrinsic->camera_fy;
+            depth_camera_setting->camera_cx = depth_frame_setting->camera_intrinsic->camera_cx;
+            depth_camera_setting->camera_cy = depth_frame_setting->camera_intrinsic->camera_cy;
+            range_sensor = std::make_shared<erl::geometry::DepthCamera3D>(depth_camera_setting);
         } else {
             ERL_FATAL("Unknown range_sensor_frame_type: {}", gp_surf_setting->sensor_gp->range_sensor_frame_type);
         }
+        range_sensor->AddMesh(mesh->vertices_, mesh->triangles_);
         geometries.push_back(mesh);
         poses = erl::geometry::Trajectory::LoadSe3(g_options.traj_file, false);
     }
@@ -161,7 +162,7 @@ TEST(GpSdfMapping3D, Build_Save_Load) {
     erl::geometry::Open3dVisualizerWrapper visualizer(visualizer_setting);
     const auto mesh_sensor = open3d::geometry::TriangleMesh::CreateSphere(0.05);
     mesh_sensor->PaintUniformColor({1.0, 0.5, 0.0});
-    const auto mesh_sensor_xyz = erl::geometry::Open3dVisualizerWrapper::CreateAxisMesh(Eigen::Matrix4d::Identity());
+    const auto mesh_sensor_xyz = erl::geometry::CreateAxisMesh(Eigen::Matrix4d::Identity(), 0.1);
     const auto pcd_obs = std::make_shared<open3d::geometry::PointCloud>();
     const auto pcd_surf_points = std::make_shared<open3d::geometry::PointCloud>();
     const auto line_set_surf_normals = std::make_shared<open3d::geometry::LineSet>();
@@ -264,7 +265,7 @@ TEST(GpSdfMapping3D, Build_Save_Load) {
                 Eigen::Matrix4d pose = Eigen::Matrix4d::Identity();
                 pose.topLeftCorner<3, 3>() = rotation;
                 pose.topRightCorner<3, 1>() = translation;
-                pose = pose * erl::geometry::DepthCamera3D::kOpticalToCamera.inverse();
+                pose = pose * erl::geometry::DepthCamera3D::oTc.inverse();
                 rotation_sensor = pose.topLeftCorner<3, 3>();
                 translation_sensor = pose.topRightCorner<3, 1>();
                 ranges = frame.depth;
@@ -419,7 +420,8 @@ TEST(GpSdfMapping3D, Accuracy) {
     lidar_setting->elevation_min = -M_PI_2;
     lidar_setting->elevation_max = M_PI_2;
     lidar_setting->num_elevation_lines = 91;
-    const auto lidar = std::make_shared<erl::geometry::Lidar3D>(lidar_setting, mesh->vertices_, mesh->triangles_);
+    const auto lidar = std::make_shared<erl::geometry::Lidar3D>(lidar_setting);
+    lidar->AddMesh(mesh->vertices_, mesh->triangles_);
 
     const Eigen::Vector3d min_bound = mesh->GetMinBound();
     const Eigen::Vector3d max_bound = mesh->GetMaxBound();

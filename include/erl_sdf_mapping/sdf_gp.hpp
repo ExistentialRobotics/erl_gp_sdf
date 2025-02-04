@@ -93,7 +93,7 @@ namespace erl::sdf_mapping {
             edf_gp->Train(num_edf_samples);
         }
 
-        bool
+        [[nodiscard]] bool
         Test(
             const Eigen::Vector<double, Dim>& test_position,
             Eigen::Ref<Eigen::Vector<double, Dim + 1>> f,
@@ -125,9 +125,9 @@ namespace erl::sdf_mapping {
                 auto& vec_x_var = edf_gp->GetTrainInputSamplesVarianceBuffer();
                 const long num_samples = edf_gp->GetNumTrainSamples();
 
-                Eigen::VectorXd s(num_samples);
+                Eigen::VectorXd s(static_cast<int>(num_samples));
                 double s_sum = 0;
-                Eigen::VectorXd z_sdf(num_samples);
+                Eigen::VectorXd z_sdf(static_cast<int>(num_samples));
                 Eigen::Matrix<double, Dim, Eigen::Dynamic> diff_z_sdf(Dim, num_samples);
                 using SquareMatrix = Eigen::Matrix<double, Dim, Dim>;
                 const SquareMatrix identity = SquareMatrix::Identity();

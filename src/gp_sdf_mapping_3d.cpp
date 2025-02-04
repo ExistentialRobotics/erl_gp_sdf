@@ -48,8 +48,7 @@ namespace erl::sdf_mapping {
         covariances = nullptr;
     }
 
-    GpSdfMapping3D::
-    GpSdfMapping3D(std::shared_ptr<Setting> setting)
+    GpSdfMapping3D::GpSdfMapping3D(std::shared_ptr<Setting> setting)
         : m_setting_(NotNull(std::move(setting), "setting is nullptr.")),
           m_surface_mapping_(geometry::AbstractSurfaceMapping::CreateSurfaceMapping<geometry::AbstractSurfaceMapping3D>(
               m_setting_->surface_mapping_type,
@@ -106,8 +105,8 @@ namespace erl::sdf_mapping {
         const Eigen::Ref<const Eigen::MatrixXd> &ranges) {
 
         ++m_num_update_calls_;
-        ERL_TRACY_FRAME_MARK_START();
 
+        ERL_TRACY_FRAME_MARK_START();
         if (m_setting_->log_timing) {
             std::lock_guard lock(m_log_mutex_);
             if (m_last_position_.has_value()) {
@@ -127,11 +126,11 @@ namespace erl::sdf_mapping {
         {
             std::lock_guard lock(m_mutex_);
             {
-                common::BlockTimer<std::chrono::microseconds> timer("Surface mapping update", &surf_mapping_time, verbose_timer);
+                common::BlockTimer<std::chrono::milliseconds> timer("Surface mapping update", &surf_mapping_time, verbose_timer);
                 success = m_surface_mapping_->Update(rotation, translation, ranges);
             }
         }
-        time_budget_us -= surf_mapping_time;  // us
+        time_budget_us -= surf_mapping_time * 1000;  // us
 
         double total_gp_update_time = 0;
         if (success) {

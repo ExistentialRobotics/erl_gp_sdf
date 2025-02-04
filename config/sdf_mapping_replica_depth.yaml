@@ -51,17 +51,13 @@ surface_mapping:
             discontinuity_factor: 10
             rolling_diff_discount: 0.90000000000000002
             min_partition_size: 5
-            camera_to_optical: # should be identity if camera pose contains the transformation
-                - [ 1, 0, 0, 0 ]
-                - [ 0, 1, 0, 0 ]
-                - [ 0, 0, 1, 0 ]
-                - [ 0, 0, 0, 1 ]
-            image_height: 480
-            image_width: 640
-            camera_fx: 525
-            camera_fy: 525
-            camera_cx: 319.5
-            camera_cy: 239.5
+            camera_intrinsic:
+                image_height: 480
+                image_width: 640
+                camera_fx: 525
+                camera_fy: 525
+                camera_cx: 319.5
+                camera_cy: 239.5
         gp:
             kernel_type: erl::covariance::OrnsteinUhlenbeck<2l>
             kernel_setting_type: erl::covariance::Covariance::Setting
