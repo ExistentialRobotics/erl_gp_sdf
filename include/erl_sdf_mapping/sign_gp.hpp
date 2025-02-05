@@ -1,8 +1,8 @@
 #pragma once
 
+#include "surface_data_manager.hpp"
+
 #include "erl_gaussian_process/noisy_input_gp.hpp"
-#include "erl_geometry/surface_mapping_octree_node.hpp"
-#include "erl_geometry/surface_mapping_quadtree_node.hpp"
 
 #include <memory>
 
@@ -21,8 +21,7 @@ namespace erl::sdf_mapping {
         std::shared_ptr<Setting> m_setting_ = nullptr;
 
     public:
-        explicit
-        SignGaussianProcess(std::shared_ptr<Setting> setting)
+        explicit SignGaussianProcess(std::shared_ptr<Setting> setting)
             : NoisyInputGaussianProcess([setting]() -> std::shared_ptr<Setting> {
                   setting->no_gradient_observation = false;
                   return setting;
@@ -39,8 +38,8 @@ namespace erl::sdf_mapping {
         [[nodiscard]] std::size_t
         GetMemoryUsage() const override;
 
-        using SurfaceData2D = geometry::SurfaceMappingQuadtreeNode::SurfaceData;
-        using SurfaceData3D = geometry::SurfaceMappingOctreeNode::SurfaceData;
+        using SurfaceData2D = SurfaceDataManager<2>::SurfaceData;
+        using SurfaceData3D = SurfaceDataManager<3>::SurfaceData;
 
         long
         LoadSurfaceData(

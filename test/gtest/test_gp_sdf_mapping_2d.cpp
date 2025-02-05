@@ -39,11 +39,13 @@ struct Options {
 };
 
 static Options g_options;
+using SurfaceData = erl::sdf_mapping::SurfaceDataManager<2>::SurfaceData;
+using Gp = erl::sdf_mapping::SdfGaussianProcess<2, SurfaceData>;
 
 void
 DrawGp(
     cv::Mat &img,
-    const std::shared_ptr<erl::sdf_mapping::GpSdfMapping2D::Gp> &gp1,
+    const std::shared_ptr<Gp> &gp1,
     const std::shared_ptr<erl::common::GridMapInfo2D> &grid_map_info,
     const cv::Scalar &data_color = {0, 255, 125, 255},
     const cv::Scalar &pos_color = {125, 255, 0, 255},
@@ -277,7 +279,7 @@ TEST(GpSdfMapping2D, Build_Save_Load) {
     erl::sdf_mapping::GpSdfMapping2D sdf_mapping(sdf_mapping_setting);
     auto surface_mapping = std::dynamic_pointer_cast<erl::sdf_mapping::GpOccSurfaceMapping2D>(sdf_mapping.GetSurfaceMapping());
 
-    using OccupancyQuadtreeDrawer = erl::geometry::OccupancyQuadtreeDrawer<erl::geometry::SurfaceMappingQuadtree>;
+    using OccupancyQuadtreeDrawer = erl::geometry::OccupancyQuadtreeDrawer<erl::sdf_mapping::SurfaceMappingQuadtree>;
     auto drawer_setting = std::make_shared<OccupancyQuadtreeDrawer::Setting>();
     drawer_setting->area_min = map_min;
     drawer_setting->area_max = map_max;
@@ -287,7 +289,8 @@ TEST(GpSdfMapping2D, Build_Save_Load) {
     std::cout << "Quadtree Drawer Setting:" << std::endl << *drawer_setting << std::endl;
     auto drawer = std::make_shared<OccupancyQuadtreeDrawer>(drawer_setting);
     std::vector<std::pair<cv::Point, cv::Point>> arrowed_lines;
-    drawer->SetDrawTreeCallback([&](const OccupancyQuadtreeDrawer *self, cv::Mat &img, erl::geometry::SurfaceMappingQuadtree::TreeIterator &it) {
+    auto &surface_data_manager = surface_mapping->GetSurfaceDataManager();
+    drawer->SetDrawTreeCallback([&](const OccupancyQuadtreeDrawer *self, cv::Mat &img, erl::sdf_mapping::SurfaceMappingQuadtree::TreeIterator &it) {
         const uint32_t cluster_depth = surface_mapping->GetQuadtree()->GetTreeDepth() - surface_mapping->GetClusterLevel();
         const auto grid_map_info = self->GetGridMapInfo();
         if (it->GetDepth() == cluster_depth) {
@@ -296,21 +299,21 @@ TEST(GpSdfMapping2D, Build_Save_Load) {
             cv::circle(img, position_px_cv, 2, cv::Scalar(0, 0, 255, 255), -1);  // draw surface point
             return;
         }
-        if (it->GetSurfaceData() == nullptr) { return; }
-        Eigen::Vector2i position_px = grid_map_info->MeterToPixelForPoints(it->GetSurfaceData()->position);
+        if (!it->HasSurfaceData()) { return; }
+        Eigen::Vector2i position_px = grid_map_info->MeterToPixelForPoints(surface_data_manager[it->surface_data_index].position);
         cv::Point position_px_cv(position_px[0], position_px[1]);
         cv::circle(img, cv::Point(position_px[0], position_px[1]), 1, cv::Scalar(0, 0, 255, 255), -1);  // draw surface point
-        Eigen::Vector2i normal_px = grid_map_info->MeterToPixelForVectors(it->GetSurfaceData()->normal * g_options.surf_normal_scale);
+        Eigen::Vector2i normal_px = grid_map_info->MeterToPixelForVectors(surface_data_manager[it->surface_data_index].normal * g_options.surf_normal_scale);
         cv::Point arrow_end_px(position_px[0] + normal_px[0], position_px[1] + normal_px[1]);
         arrowed_lines.emplace_back(position_px_cv, arrow_end_px);
     });
-    drawer->SetDrawLeafCallback([&](const OccupancyQuadtreeDrawer *self, cv::Mat &img, erl::geometry::SurfaceMappingQuadtree::LeafIterator &it) {
-        if (it->GetSurfaceData() == nullptr) { return; }
+    drawer->SetDrawLeafCallback([&](const OccupancyQuadtreeDrawer *self, cv::Mat &img, erl::sdf_mapping::SurfaceMappingQuadtree::LeafIterator &it) {
+        if (!it->HasSurfaceData()) { return; }
         const auto grid_map_info = self->GetGridMapInfo();
-        Eigen::Vector2i position_px = grid_map_info->MeterToPixelForPoints(it->GetSurfaceData()->position);
+        Eigen::Vector2i position_px = grid_map_info->MeterToPixelForPoints(surface_data_manager[it->surface_data_index].position);
         cv::Point position_px_cv(position_px[0], position_px[1]);
         cv::circle(img, position_px_cv, 1, cv::Scalar(0, 0, 255, 255), -1);  // draw surface point
-        Eigen::Vector2i normal_px = grid_map_info->MeterToPixelForVectors(it->GetSurfaceData()->normal * g_options.surf_normal_scale);
+        Eigen::Vector2i normal_px = grid_map_info->MeterToPixelForVectors(surface_data_manager[it->surface_data_index].normal * g_options.surf_normal_scale);
         cv::Point arrow_end_px(position_px[0] + normal_px[0], position_px[1] + normal_px[1]);
         arrowed_lines.emplace_back(position_px_cv, arrow_end_px);
     });
@@ -521,6 +524,7 @@ TEST(GpSdfMapping2D, Build_Save_Load) {
     std::shared_ptr<erl::common::PangolinPlotterImage> pangolin_plotter_sdf_var_image;
     if (success && g_options.visualize) {
         Eigen::MatrixXd sdf_out_mat = distances_out.reshaped(grid_map_info->Height(), grid_map_info->Width());
+        // erl::common::SaveEigenMatrixToTextFile<double>("sdf_out.txt", sdf_out_mat);
         double min_distance = distances_out.minCoeff();
         double max_distance = distances_out.maxCoeff();
         ERL_INFO("min distance: {:f}, max distance: {:f}.", min_distance, max_distance);

@@ -1,23 +1,23 @@
 #pragma once
 
+#include "abstract_surface_mapping_2d.hpp"
 #include "gp_occ_surface_mapping_base_setting.hpp"
+#include "surface_mapping_quadtree.hpp"
 
 #include "erl_common/yaml.hpp"
 #include "erl_gaussian_process/lidar_gp_2d.hpp"
-#include "erl_geometry/abstract_surface_mapping_2d.hpp"
-#include "erl_geometry/surface_mapping_quadtree.hpp"
 
 #include <memory>
 
 namespace erl::sdf_mapping {
 
-    class GpOccSurfaceMapping2D : public geometry::AbstractSurfaceMapping2D {
+    class GpOccSurfaceMapping2D : public AbstractSurfaceMapping2D {
     public:
         using SensorGp = gaussian_process::LidarGaussianProcess2D;
 
         struct Setting : common::Yamlable<Setting, GpOccSurfaceMappingBaseSetting> {
             std::shared_ptr<SensorGp::Setting> sensor_gp = std::make_shared<SensorGp::Setting>();
-            std::shared_ptr<geometry::SurfaceMappingQuadtree::Setting> quadtree = std::make_shared<geometry::SurfaceMappingQuadtree::Setting>();
+            std::shared_ptr<SurfaceMappingQuadtree::Setting> quadtree = std::make_shared<SurfaceMappingQuadtree::Setting>();
         };
 
         inline static const volatile bool kSettingRegistered = common::YamlableBase::Register<Setting>();
@@ -25,7 +25,8 @@ namespace erl::sdf_mapping {
     private:
         std::shared_ptr<Setting> m_setting_ = std::make_shared<Setting>();
         std::shared_ptr<gaussian_process::LidarGaussianProcess2D> m_sensor_gp_ = nullptr;  // the GP of regression between angle and mapped distance
-        std::shared_ptr<geometry::SurfaceMappingQuadtree> m_quadtree_ = nullptr;
+        std::shared_ptr<SurfaceMappingQuadtree> m_quadtree_ = nullptr;
+        SurfaceDataManager<2> m_surface_data_manager_;
         Eigen::Matrix24d m_xy_perturb_ = {};
         geometry::QuadtreeKeySet m_changed_keys_ = {};
 
@@ -49,9 +50,14 @@ namespace erl::sdf_mapping {
             return m_setting_->cluster_level;
         }
 
-        std::shared_ptr<geometry::SurfaceMappingQuadtree>
+        std::shared_ptr<SurfaceMappingQuadtree>
         GetQuadtree() override {
             return m_quadtree_;
+        }
+
+        [[nodiscard]] const SurfaceDataManager<2> &
+        GetSurfaceDataManager() const override {
+            return m_surface_data_manager_;
         }
 
         [[nodiscard]] double

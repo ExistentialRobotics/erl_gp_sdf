@@ -1,12 +1,12 @@
 #pragma once
 
+#include "abstract_surface_mapping_2d.hpp"
 #include "gp_sdf_mapping_base_setting.hpp"
 #include "sdf_gp.hpp"
 
 #include "erl_common/csv.hpp"
 #include "erl_common/template_helper.hpp"
 #include "erl_common/yaml.hpp"
-#include "erl_geometry/abstract_surface_mapping_2d.hpp"
 #include "erl_geometry/kdtree_eigen_adaptor.hpp"
 
 #include <boost/heap/d_ary_heap.hpp>
@@ -19,24 +19,15 @@ namespace erl::sdf_mapping {
     class GpSdfMapping2D {
 
     public:
-        struct Setting : public common::Yamlable<Setting, GpSdfMappingBaseSetting> {
+        struct Setting : common::Yamlable<Setting, GpSdfMappingBaseSetting> {
             std::string surface_mapping_type = "erl::sdf_mapping::GpOccSurfaceMapping2D";
             std::string surface_mapping_setting_type = "erl::sdf_mapping::GpOccSurfaceMapping2D::Setting";
-            std::shared_ptr<geometry::AbstractSurfaceMapping2D::Setting> surface_mapping = nullptr;
+            std::shared_ptr<AbstractSurfaceMapping2D::Setting> surface_mapping = nullptr;
         };
 
         inline static const volatile bool kSettingRegistered = common::YamlableBase::Register<Setting>();
 
-        using SurfaceData = geometry::SurfaceMappingQuadtreeNode::SurfaceData;
-        using Gp = SdfGaussianProcess<2, SurfaceData>;
-        using QuadtreeKeyGpMap = std::unordered_map<geometry::QuadtreeKey, std::shared_ptr<Gp>, geometry::QuadtreeKey::KeyHash>;
-
     private:
-        struct PriorityQueueItem {
-            long time_stamp = 0;
-            geometry::QuadtreeKey key{};
-        };
-
         template<typename T>
         struct Greater {
             [[nodiscard]] bool
@@ -45,36 +36,41 @@ namespace erl::sdf_mapping {
             }
         };
 
+        using Key = geometry::QuadtreeKey;
+        using KeySet = geometry::QuadtreeKeySet;
+        using KeyVector = geometry::QuadtreeKeyVector;
+
+        struct PriorityQueueItem {
+            long time_stamp = 0;
+            Key key{};
+        };
+
         using PriorityQueue = boost::heap::d_ary_heap<
             PriorityQueueItem,
             boost::heap::mutable_<true>,
             boost::heap::stable<true>,
             boost::heap::arity<8>,
             boost::heap::compare<Greater<PriorityQueueItem>>>;
-        using QuadtreeKeyPqMap = std::unordered_map<geometry::QuadtreeKey, PriorityQueue::handle_type, geometry::QuadtreeKey::KeyHash>;
+        using KeyQueueMap = std::unordered_map<Key, PriorityQueue::handle_type, Key::KeyHash>;
+        using SurfaceData = SurfaceDataManager<2>::SurfaceData;
+        using Gp = SdfGaussianProcess<2, SurfaceData>;
+        using KeyGpMap = std::unordered_map<Key, std::shared_ptr<Gp>, Key::KeyHash>;
+        using KeyGpPair = std::pair<Key, std::shared_ptr<Gp>>;
 
         std::shared_ptr<Setting> m_setting_ = std::make_shared<Setting>();
         std::mutex m_mutex_;
-        std::shared_ptr<geometry::AbstractSurfaceMapping2D> m_surface_mapping_ = nullptr;       // for getting surface points, racing condition.
-        std::vector<geometry::QuadtreeKey> m_clusters_to_update_ = {};                          // stores clusters that are to be updated by UpdateGpThread.
-        QuadtreeKeyGpMap m_gp_map_ = {};                                                        // for getting GP from Quadtree key, racing condition.
-        std::vector<std::pair<geometry::Aabb2D, std::shared_ptr<Gp>>> m_candidate_gps_ = {};    // for testing
-        std::shared_ptr<geometry::KdTree2d> m_kd_tree_candidate_gps_ = nullptr;                 // for searching candidate GPs
-        std::vector<std::vector<std::pair<double, std::shared_ptr<Gp>>>> m_query_to_gps_ = {};  // for testing, racing condition
-        std::vector<std::array<std::shared_ptr<Gp>, 2>> m_query_used_gps_ = {};                 // for testing, racing condition
-        Eigen::VectorXd m_query_signs_ = {};                                                    // sign of query positions
-        QuadtreeKeyPqMap m_new_gp_keys_ = {};                                                   // caching keys of new GPs to be moved into m_gps_to_train_
-        PriorityQueue m_new_gp_queue_;                                                          // ordering new GPs, smaller time_stamp first
-        std::vector<std::shared_ptr<Gp>> m_gps_to_train_ = {};                                  // for training SDF GPs, racing condition in Update() and Test()
-        double m_train_gp_time_ = 10;                                                           // us
-        std::mutex m_log_mutex_;                                                                // for logging
-        common::SimpleCsv m_train_log_csv_;                                                     // for logging
-        common::SimpleCsv m_test_log_csv_;                                                      // for logging
-        double m_travel_distance_ = 0;                                                          // for logging
-        std::optional<Eigen::Vector2d> m_last_position_ = std::nullopt;                         // for logging
-        std::size_t m_num_update_calls_ = 0;                                                    // for logging
-        std::size_t m_num_test_calls_ = 0;                                                      // for logging
-        std::size_t m_num_test_positions_ = 0;                                                  // for logging
+        std::shared_ptr<AbstractSurfaceMapping2D> m_surface_mapping_ = nullptr;       // for getting surface points, racing condition.
+        KeyGpMap m_gp_map_ = {};                                                      // for getting GP from Quadtree key, racing condition.
+        KeyVector m_affected_clusters_ = {};                                          // stores clusters that are to be updated after a new observation
+        KeyQueueMap m_cluster_queue_keys_ = {};                                       // caching keys of clusters in the queue to be updated
+        PriorityQueue m_cluster_queue_;                                               // ordering clusters, smaller time_stamp first (FIFO)
+        std::vector<KeyGpPair> m_clusters_to_train_ = {};                             // stores clusters that are to be trained
+        std::vector<KeyGpPair> m_candidate_gps_ = {};                                 // for testing
+        std::shared_ptr<geometry::KdTree2d> m_kd_tree_candidate_gps_ = nullptr;       // for testing to search candidate GPs
+        std::vector<std::vector<std::pair<double, KeyGpPair>>> m_query_to_gps_ = {};  // for testing
+        std::vector<std::array<std::shared_ptr<Gp>, 2>> m_query_used_gps_ = {};       // for testing
+        Eigen::VectorXd m_query_signs_ = {};                                          // sign of query positions
+        double m_train_gp_time_ = 10;                                                 // us
 
         // for testing
         struct TestBuffer {
@@ -113,7 +109,7 @@ namespace erl::sdf_mapping {
             return m_setting_;
         }
 
-        [[nodiscard]] std::shared_ptr<geometry::AbstractSurfaceMapping2D>
+        [[nodiscard]] std::shared_ptr<AbstractSurfaceMapping2D>
         GetSurfaceMapping() const {
             return m_surface_mapping_;
         }
@@ -145,24 +141,9 @@ namespace erl::sdf_mapping {
             return m_query_used_gps_;
         }
 
-        [[nodiscard]] const QuadtreeKeyGpMap&
+        [[nodiscard]] const KeyGpMap&
         GetGpMap() const {
             return m_gp_map_;
-        }
-
-        [[nodiscard]] std::size_t
-        GetNumUpdateCalls() const {
-            return m_num_update_calls_;
-        }
-
-        [[nodiscard]] std::size_t
-        GetNumTestCalls() const {
-            return m_num_test_calls_;
-        }
-
-        [[nodiscard]] std::size_t
-        GetNumTestPositions() const {
-            return m_num_test_positions_;
         }
 
         [[nodiscard]] bool
@@ -187,13 +168,13 @@ namespace erl::sdf_mapping {
 
     private:
         void
-        UpdateGps(double time_budget);
-
-        void
-        UpdateGpThread(uint32_t thread_idx, std::size_t start_idx, std::size_t end_idx);
+        UpdateGps(double time_budget_us);
 
         void
         TrainGps();
+
+        void
+        TrainGpThread(uint32_t thread_idx, std::size_t start_idx, std::size_t end_idx);
 
         void
         SearchCandidateGps(const Eigen::Ref<const Eigen::Matrix2Xd>& positions_in);
@@ -223,8 +204,8 @@ struct YAML::convert<erl::sdf_mapping::GpSdfMapping2D::Setting> {
         if (!convert<erl::sdf_mapping::GpSdfMappingBaseSetting>::decode(node, rhs)) { return false; }
         rhs.surface_mapping_type = node["surface_mapping_type"].as<std::string>();
         rhs.surface_mapping_setting_type = node["surface_mapping_setting_type"].as<std::string>();
-        using SettingBase = erl::geometry::AbstractSurfaceMapping2D::Setting;
-        rhs.surface_mapping = SettingBase::Setting::Create<SettingBase>(rhs.surface_mapping_setting_type);
+        using SettingBase = erl::sdf_mapping::AbstractSurfaceMapping2D::Setting;
+        rhs.surface_mapping = SettingBase::Create<SettingBase>(rhs.surface_mapping_setting_type);
         if (rhs.surface_mapping == nullptr) {
             ERL_WARN("Failed to decode surface_mapping of type: {}", rhs.surface_mapping_setting_type);
             return false;

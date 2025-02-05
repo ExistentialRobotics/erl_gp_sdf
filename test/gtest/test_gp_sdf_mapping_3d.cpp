@@ -294,7 +294,7 @@ TEST(GpSdfMapping3D, Build_Save_Load) {
         Eigen::Matrix3Xd positions_test(3, positions.size());
         for (long j = 0; j < positions.cols(); ++j) {
             for (long i = 0; i < positions.rows(); ++i) {
-                Eigen::Vector3d &position = positions(i, j);
+                const Eigen::Vector3d &position = positions(i, j);
                 positions_test.col(i + j * positions.rows()) = rotation_sensor * position + translation_sensor;  // sensor frame to world frame
             }
         }
@@ -354,10 +354,10 @@ TEST(GpSdfMapping3D, Build_Save_Load) {
             line_set_surf_normals->points_.clear();
             line_set_surf_normals->lines_.clear();
             for (auto it = octree->BeginLeaf(), end = octree->EndLeaf(); it != end; ++it) {
-                const auto surface_data = it->GetSurfaceData();
-                if (surface_data == nullptr) { continue; }
-                const Eigen::Vector3d &position = surface_data->position;
-                const Eigen::Vector3d &normal = surface_data->normal;
+                if (!it->HasSurfaceData()) { continue; }
+                const auto &surface_data = surface_mapping->GetSurfaceDataManager()[it->surface_data_index];
+                const Eigen::Vector3d &position = surface_data.position;
+                const Eigen::Vector3d &normal = surface_data.normal;
                 ERL_ASSERTM(std::abs(normal.norm() - 1.0) < 1.e-6, "normal.norm() = {:.6f}", normal.norm());
                 pcd_surf_points->points_.emplace_back(position);
                 line_set_surf_normals->points_.emplace_back(position);
@@ -456,7 +456,7 @@ TEST(GpSdfMapping3D, Accuracy) {
     const auto pcd = std::make_shared<open3d::geometry::PointCloud>();
     for (long i = 0; i < num_test_positions; ++i) {
         pcd->points_.emplace_back(positions.col(i));
-        const auto &color = img_error.at<cv::Vec3b>(i, 0);
+        const auto &color = img_error.at<cv::Vec3b>(static_cast<int>(i), 0);
         pcd->colors_.emplace_back(static_cast<double>(color[0]) / 255.0, static_cast<double>(color[1]) / 255.0, static_cast<double>(color[2]) / 255.0);
 
         auto sphere = open3d::geometry::TriangleMesh::CreateSphere(abs_error[i] * 0.1);

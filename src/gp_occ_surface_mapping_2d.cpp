@@ -22,7 +22,7 @@ namespace erl::sdf_mapping {
         bool sensor_gp_trained = false;
         const bool verbose_timer = common::Logging::GetLevel() <= common::Logging::Level::kInfo;
         {
-            erl::common::BlockTimer<std::chrono::milliseconds> timer("Sensor GP training", nullptr, verbose_timer);
+            common::BlockTimer<std::chrono::milliseconds> timer("Sensor GP training", nullptr, verbose_timer);
             sensor_gp_trained = m_sensor_gp_->Train(rotation, translation, ranges, false);
         }
         if (!sensor_gp_trained) { return false; }
@@ -34,18 +34,18 @@ namespace erl::sdf_mapping {
         // clang-format on
 
         if (m_setting_->update_occupancy) {
-            erl::common::BlockTimer<std::chrono::milliseconds> timer("Update occupancy", nullptr, verbose_timer);
+            common::BlockTimer<std::chrono::milliseconds> timer("Update occupancy", nullptr, verbose_timer);
             UpdateOccupancy();
         }
 
         // perform surface mapping
         {
-            erl::common::BlockTimer<std::chrono::milliseconds> timer("Update map points", nullptr, verbose_timer);
+            common::BlockTimer<std::chrono::milliseconds> timer("Update map points", nullptr, verbose_timer);
             UpdateMapPoints();
         }
 
         {
-            erl::common::BlockTimer<std::chrono::milliseconds> timer("Add new measurement time", nullptr, verbose_timer);
+            common::BlockTimer<std::chrono::milliseconds> timer("Add new measurement time", nullptr, verbose_timer);
             AddNewMeasurement();
         }
 
@@ -150,7 +150,7 @@ namespace erl::sdf_mapping {
             return false;
         }
 
-        auto skip_line = [&s]() {
+        auto skip_line = [&s] {
             char c;
             do { c = static_cast<char>(s.get()); } while (s.good() && c != '\n');
         };
@@ -202,7 +202,7 @@ namespace erl::sdf_mapping {
                     s >> has_quadtree;
                     skip_line();
                     if (has_quadtree) {
-                        m_quadtree_ = std::make_shared<geometry::SurfaceMappingQuadtree>(m_setting_->quadtree);
+                        m_quadtree_ = std::make_shared<SurfaceMappingQuadtree>(m_setting_->quadtree);
                         if (!m_quadtree_->LoadData(s)) {
                             ERL_WARN("Failed to read quadtree.");
                             return false;
@@ -254,7 +254,7 @@ namespace erl::sdf_mapping {
         const double max_sensor_range = sensor_frame->GetMaxValidRange();
         const geometry::Aabb2D observed_area(sensor_pos, max_sensor_range);
 
-        std::vector<std::tuple<geometry::QuadtreeKey, geometry::SurfaceMappingQuadtreeNode *, std::optional<geometry::QuadtreeKey>>> nodes_in_aabb;
+        std::vector<std::tuple<geometry::QuadtreeKey, SurfaceMappingQuadtreeNode *, std::optional<geometry::QuadtreeKey>>> nodes_in_aabb;
         for (auto it = m_quadtree_->BeginLeafInAabb(observed_area), end = m_quadtree_->EndLeafInAabb(); it != end; ++it) {
             nodes_in_aabb.emplace_back(it.GetKey(), *it, std::nullopt);
         }
@@ -282,10 +282,10 @@ namespace erl::sdf_mapping {
                 continue;
             }
 
-            std::shared_ptr<geometry::SurfaceMappingQuadtreeNode::SurfaceData> surface_data = node->GetSurfaceData();
-            if (surface_data == nullptr) { continue; }
+            if (!node->HasSurfaceData()) { continue; }
+            auto &surface_data = m_surface_data_manager_[node->surface_data_index];
 
-            const Eigen::Vector2d &xy_global_old = surface_data->position;
+            const Eigen::Vector2d &xy_global_old = surface_data.position;
             Eigen::Vector2d xy_local_old = sensor_frame->WorldToFrameSe2(xy_global_old);
 
             if (!sensor_frame->PointIsInFrame(xy_local_old)) { continue; }
@@ -296,7 +296,7 @@ namespace erl::sdf_mapping {
             if (!m_sensor_gp_->ComputeOcc(angle_local, distance_old, distance_pred, distance_pred_var, occ)) { continue; }
             if (occ < min_observable_occ) { continue; }
 
-            const Eigen::Vector2d &grad_global_old = surface_data->normal;
+            const Eigen::Vector2d &grad_global_old = surface_data.normal;
             Eigen::Vector2d grad_local_old = sensor_frame->WorldToFrameSo2(grad_global_old);
 
             // compute a new position for the point
@@ -341,7 +341,7 @@ namespace erl::sdf_mapping {
             ComputeVariance(xy_local_new, grad_local_new, distance_new, var_distance, std::fabs(occ_mean), occ_abs, false, var_position_new, var_gradient_new);
 
             Eigen::Vector2d xy_global_new = sensor_frame->FrameToWorldSe2(xy_local_new);
-            if (const double var_position_old = surface_data->var_position, var_gradient_old = surface_data->var_normal;
+            if (const double var_position_old = surface_data.var_position, var_gradient_old = surface_data.var_normal;
                 var_gradient_old <= max_valid_gradient_var) {
                 // do bayes Update only when the old result is not too bad, otherwise, just replace it
                 const double var_position_sum = var_position_new + var_position_old;
@@ -364,9 +364,9 @@ namespace erl::sdf_mapping {
 
                 // variance Update
                 const double distance = (xy_global_new - xy_global_old).norm() * 0.5;
-                var_position_new = std::max((var_position_new * var_position_old) / var_position_sum + distance, sensor_range_var);
+                var_position_new = std::max(var_position_new * var_position_old / var_position_sum + distance, sensor_range_var);
                 var_gradient_new = common::ClipRange(  //
-                    (var_gradient_new * var_gradient_old) / var_gradient_sum + distance,
+                    var_gradient_new * var_gradient_old / var_gradient_sum + distance,
                     min_comp_gradient_var,
                     max_comp_gradient_var);
             }
@@ -374,32 +374,37 @@ namespace erl::sdf_mapping {
             var_gradient_new = std::max(var_gradient_new, min_gradient_var);
 
             // Update the surface data
-            if ((var_position_new > max_bayes_position_var) && (var_gradient_new > max_bayes_gradient_var)) {
-                node->ResetSurfaceData();
+            if (var_position_new > max_bayes_position_var && var_gradient_new > max_bayes_gradient_var) {
+                m_surface_data_manager_.RemoveEntry(node->surface_data_index);
+                node->ResetSurfaceDataIndex();
                 continue;  // too bad, skip
             }
             if (new_key = m_quadtree_->CoordToKey(xy_global_new.x(), xy_global_new.y()); new_key.value() == node_key) { new_key = std::nullopt; }
-            surface_data->position = xy_global_new;
-            surface_data->normal = grad_global_new;
-            surface_data->var_position = var_position_new;
-            surface_data->var_normal = var_gradient_new;
-            ERL_DEBUG_ASSERT(std::abs(surface_data->normal.norm() - 1.0) < 1.e-6, "surface_data->normal.norm() = {:.6f}", surface_data->normal.norm());
+            surface_data.position = xy_global_new;
+            surface_data.normal = grad_global_new;
+            surface_data.var_position = var_position_new;
+            surface_data.var_normal = var_gradient_new;
+            ERL_DEBUG_ASSERT(std::abs(surface_data.normal.norm() - 1.0) < 1.e-6, "surface_data->normal.norm() = {:.6f}", surface_data.normal.norm());
         }
 
         for (auto &[key, node, new_key]: nodes_in_aabb) {
-            if (node->GetSurfaceData() == nullptr) {  // too bad, surface data is removed
+            if (!node->HasSurfaceData()) {  // too bad, surface data is removed
                 RecordChangedKey(key);
                 continue;
             }
             if (new_key.has_value()) {  // the node is moved to a new position
-                auto surface_data = node->GetSurfaceData();
-                node->ResetSurfaceData();
                 RecordChangedKey(key);
 
-                geometry::SurfaceMappingQuadtreeNode *new_node = m_quadtree_->InsertNode(new_key.value());
+                SurfaceMappingQuadtreeNode *new_node = m_quadtree_->InsertNode(new_key.value());
                 ERL_DEBUG_ASSERT(new_node != nullptr, "Failed to get the node");
-                if (new_node->GetSurfaceData() != nullptr) { continue; }  // the new node is already occupied
-                new_node->SetSurfaceData(surface_data);
+                if (new_node->HasSurfaceData()) {                                   // the new node is already occupied
+                    m_surface_data_manager_.RemoveEntry(node->surface_data_index);  // this surface data is not used anymore
+                    node->ResetSurfaceDataIndex();                                  // the old node is empty now
+                    continue;
+                }
+                new_node->surface_data_index = node->surface_data_index;  // move the surface data to the new node
+                node->ResetSurfaceDataIndex();                            // the old node is empty now
+
                 RecordChangedKey(new_key.value());
             }
         }
@@ -408,7 +413,7 @@ namespace erl::sdf_mapping {
     void
     GpOccSurfaceMapping2D::UpdateOccupancy() {
 
-        if (m_quadtree_ == nullptr) { m_quadtree_ = std::make_shared<geometry::SurfaceMappingQuadtree>(m_setting_->quadtree); }
+        if (m_quadtree_ == nullptr) { m_quadtree_ = std::make_shared<SurfaceMappingQuadtree>(m_setting_->quadtree); }
 
         const auto sensor_frame = m_sensor_gp_->GetLidarFrame();
         // In AddNewMeasurement(), only rays classified as hit are used. So, we use the same here to avoid inconsistency.
@@ -423,7 +428,7 @@ namespace erl::sdf_mapping {
     void
     GpOccSurfaceMapping2D::AddNewMeasurement() {
 
-        if (m_quadtree_ == nullptr) { m_quadtree_ = std::make_shared<geometry::SurfaceMappingQuadtree>(m_setting_->quadtree); }
+        if (m_quadtree_ == nullptr) { m_quadtree_ = std::make_shared<SurfaceMappingQuadtree>(m_setting_->quadtree); }
 
         const auto sensor_frame = m_sensor_gp_->GetLidarFrame();
         const std::vector<long> &hit_ray_indices = sensor_frame->GetHitRayIndices();
@@ -436,17 +441,17 @@ namespace erl::sdf_mapping {
 
         // collect new measurements
         // if we iterate over the hit rays directly, some computations are unnecessary
-        std::vector<std::tuple<geometry::QuadtreeKey, long, long, geometry::SurfaceMappingQuadtreeNode *, bool, double, Eigen::Vector2d>> new_measurements;
+        std::vector<std::tuple<geometry::QuadtreeKey, long, long, SurfaceMappingQuadtreeNode *, bool, double, Eigen::Vector2d>> new_measurements;
         new_measurements.reserve(num_hit_rays);
         geometry::QuadtreeKeySet new_measurement_keys;
         new_measurement_keys.reserve(num_hit_rays);
         for (long i = 0; i < num_hit_rays; ++i) {
             const Eigen::Vector2d &hit_point = hit_points[i];
             geometry::QuadtreeKey key = m_quadtree_->CoordToKey(hit_point);
-            if (!new_measurement_keys.insert(key).second) { continue; }                 // the key is already in the set
-            geometry::SurfaceMappingQuadtreeNode *node = m_quadtree_->InsertNode(key);  // insert the node
-            if (node == nullptr) { continue; }                                          // failed to insert the node
-            if (node->GetSurfaceData() != nullptr) { continue; }                        // the node is already occupied
+            if (!new_measurement_keys.insert(key).second) { continue; }       // the key is already in the set
+            SurfaceMappingQuadtreeNode *node = m_quadtree_->InsertNode(key);  // insert the node
+            if (node == nullptr) { continue; }                                // failed to insert the node
+            if (node->HasSurfaceData()) { continue; }                         // the node is already occupied
             new_measurements.emplace_back(key, i, hit_ray_indices[i], node, false, 0.0, Eigen::Vector2d::Zero());
         }
 
@@ -460,14 +465,19 @@ namespace erl::sdf_mapping {
         for (long i = 0; i < num_new_measurements; ++i) {
             auto &[key, hit_idx, idx, node, invalid_flag, occ_mean, gradient_local] = new_measurements[i];
             if (invalid_flag) { continue; }
-            if (node->GetSurfaceData() != nullptr) { continue; }  // the node is already occupied by previous new measurement
+            if (node->HasSurfaceData()) { continue; }  // the node is already occupied by previous new measurement
 
             double var_position, var_gradient;
             ComputeVariance(points_local[idx], gradient_local, ranges[idx], 0, std::fabs(occ_mean), 0, true, var_position, var_gradient);
             var_position = std::max(var_position, min_position_var);
             var_gradient = std::max(var_gradient, min_gradient_var);
-
-            node->SetSurfaceData(hit_points[hit_idx], sensor_frame->FrameToWorldSo2(gradient_local), var_position, var_gradient);
+            ERL_DEBUG_ASSERT(!node->HasSurfaceData(), "node is already occupied, which should not happen.");
+            node->surface_data_index = m_surface_data_manager_.AddEntry(SurfaceDataManager<2>::SurfaceData{
+                hit_points[hit_idx],
+                sensor_frame->FrameToWorldSo2(gradient_local),
+                var_position,
+                var_gradient,
+            });
             RecordChangedKey(key);
         }
     }

@@ -48,55 +48,11 @@ namespace erl::sdf_mapping {
         covariances = nullptr;
     }
 
-    GpSdfMapping2D::
-    GpSdfMapping2D(std::shared_ptr<Setting> setting)
+    GpSdfMapping2D::GpSdfMapping2D(std::shared_ptr<Setting> setting)
         : m_setting_(NotNull(std::move(setting), "setting is nullptr.")),
-          m_surface_mapping_(geometry::AbstractSurfaceMapping::CreateSurfaceMapping<geometry::AbstractSurfaceMapping2D>(
-              m_setting_->surface_mapping_type,
-              m_setting_->surface_mapping)) {
+          m_surface_mapping_(
+              AbstractSurfaceMapping::CreateSurfaceMapping<AbstractSurfaceMapping2D>(m_setting_->surface_mapping_type, m_setting_->surface_mapping)) {
         ERL_ASSERTM(m_surface_mapping_ != nullptr, "surface_mapping is nullptr.");
-
-        // get log dir from env
-        if (m_setting_->log_timing) {
-            char *log_dir_env = std::getenv("LOG_DIR");
-            const std::filesystem::path log_dir = log_dir_env == nullptr ? std::filesystem::current_path() : std::filesystem::path(log_dir_env);
-            const std::filesystem::path train_log_file_name = log_dir / "gp_sdf_mapping_2d_train.csv";
-            const std::filesystem::path test_log_file_name = log_dir / "gp_sdf_mapping_2d_test.csv";
-            if (std::filesystem::exists(train_log_file_name)) { std::filesystem::remove(train_log_file_name); }
-            if (std::filesystem::exists(test_log_file_name)) { std::filesystem::remove(test_log_file_name); }
-            m_train_log_csv_.header = {
-                "travel_distance",
-                "surf_mapping_time",
-                "gp_data_update_time",
-                "gp_delay_cnt",
-                "gp_train_time",
-                "total_gp_update_time",
-                "total_update_time",
-            };
-            m_train_log_csv_.data["travel_distance"] = {""};
-            m_train_log_csv_.data["surf_mapping_time"] = {"us"};
-            m_train_log_csv_.data["gp_data_update_time"] = {"us"};
-            m_train_log_csv_.data["gp_delay_cnt"] = {""};
-            m_train_log_csv_.data["gp_train_time"] = {"us"};
-            m_train_log_csv_.data["total_gp_update_time"] = {"ms"};
-            m_train_log_csv_.data["total_update_time"] = {"ms"};
-            m_test_log_csv_.header = {
-                "travel_distance",
-                "gp_candidate_cnt",
-                "gp_candidate_search_time",
-                "gp_search_time",
-                "gp_train_time",
-                "gp_test_time",
-                "total_test_time",
-            };
-            m_test_log_csv_.data["travel_distance"] = {""};
-            m_train_log_csv_.data["gp_candidate_cnt"] = {""};
-            m_test_log_csv_.data["gp_candidate_search_time"] = {"ms"};
-            m_test_log_csv_.data["gp_search_time"] = {"ms"};
-            m_test_log_csv_.data["gp_train_time"] = {"us"};
-            m_test_log_csv_.data["gp_test_time"] = {"us"};
-            m_test_log_csv_.data["total_test_time"] = {"ms"};
-        }
     }
 
     bool
@@ -105,19 +61,7 @@ namespace erl::sdf_mapping {
         const Eigen::Ref<const Eigen::Vector2d> &translation,
         const Eigen::Ref<const Eigen::MatrixXd> &ranges) {
 
-        ++m_num_update_calls_;
         ERL_TRACY_FRAME_MARK_START();
-
-        if (m_setting_->log_timing) {
-            std::lock_guard lock(m_log_mutex_);
-            if (m_last_position_.has_value()) {
-                const Eigen::Vector2d delta = translation - m_last_position_.value();
-                m_travel_distance_ += delta.norm();
-            } else {
-                m_travel_distance_ = 0;
-            }
-            m_last_position_ = translation;
-        }
 
         const std::chrono::high_resolution_clock::time_point t0 = std::chrono::high_resolution_clock::now();
         const bool verbose_timer = common::Logging::GetLevel() <= common::Logging::Level::kInfo;
@@ -126,37 +70,29 @@ namespace erl::sdf_mapping {
         double surf_mapping_time = 0;
         {
             std::lock_guard lock(m_mutex_);
-            {
-                common::BlockTimer<std::chrono::microseconds> timer("Surface mapping update", &surf_mapping_time, verbose_timer);
-                success = m_surface_mapping_->Update(rotation, translation, ranges);
-            }
+            common::BlockTimer<std::chrono::milliseconds> timer("Surface mapping update", &surf_mapping_time, verbose_timer);
+            success = m_surface_mapping_->Update(rotation, translation, ranges);
         }
-        time_budget_us -= surf_mapping_time;  // us
+        time_budget_us -= surf_mapping_time * 1000;  // us
 
         double total_gp_update_time = 0;
         if (success) {
-            std::lock_guard lock(m_mutex_);
+            std::lock_guard lock(m_mutex_);  // CRITICAL SECTION
             common::BlockTimer<std::chrono::milliseconds> timer("Update SDF GPs", &total_gp_update_time, verbose_timer);
             UpdateGps(time_budget_us);
         }
 
         const std::chrono::high_resolution_clock::time_point t1 = std::chrono::high_resolution_clock::now();
         double total_update_time = std::chrono::duration<double, std::milli>(t1 - t0).count();
-        if (m_setting_->log_timing) {
-            m_train_log_csv_.data["travel_distance"].emplace_back(std::to_string(m_travel_distance_));
-            m_train_log_csv_.data["surf_mapping_time"].emplace_back(std::to_string(surf_mapping_time));
-            m_train_log_csv_.data["total_gp_update_time"].emplace_back(std::to_string(total_gp_update_time));
-            m_train_log_csv_.data["total_update_time"].emplace_back(std::to_string(total_update_time));
-            ERL_INFO("Total update time: {} ms", total_update_time);
-        }
+        ERL_INFO("Total update time: {} ms", total_update_time);
 
         ERL_TRACY_PLOT("surf_mapping_time (us)", surf_mapping_time);
         ERL_TRACY_PLOT("total_gp_update_time (ms)", total_gp_update_time);
         ERL_TRACY_PLOT("total_update_time (ms)", total_update_time);
         ERL_TRACY_PLOT("m_gp_map_.size()", static_cast<long>(m_gp_map_.size()));
-        ERL_TRACY_PLOT("m_new_gp_keys_.size()", static_cast<long>(m_new_gp_keys_.size()));
-        ERL_TRACY_PLOT("m_new_gp_queue_.size()", static_cast<long>(m_new_gp_queue_.size()));
-        ERL_TRACY_PLOT("m_gps_to_train_.size()", static_cast<long>(m_gps_to_train_.size()));
+        ERL_TRACY_PLOT("m_cluster_queue_keys_.size()", static_cast<long>(m_cluster_queue_keys_.size()));
+        ERL_TRACY_PLOT("m_cluster_queue_.size()", static_cast<long>(m_cluster_queue_.size()));
+        ERL_TRACY_PLOT("m_clusters_to_train_.size()", static_cast<long>(m_clusters_to_train_.size()));
         ERL_TRACY_PLOT_CONFIG("m_gp_map_.memory_usage", tracy::PlotFormatType::Memory, true, true, 0);
         ERL_TRACY_PLOT("m_gp_map_.memory_usage", static_cast<long>([&]() {
                            std::size_t gps_memory_usage = 0;
@@ -179,9 +115,6 @@ namespace erl::sdf_mapping {
         Eigen::Matrix2Xd &gradients_out,
         Eigen::Matrix3Xd &variances_out,
         Eigen::Matrix3Xd &covariances_out) {
-
-        ++m_num_test_calls_;
-        m_num_test_positions_ += positions_in.cols();
 
         {
             std::lock_guard lock(m_mutex_);
@@ -225,11 +158,6 @@ namespace erl::sdf_mapping {
         const std::size_t leftover = num_queries - batch_size * num_threads;
         std::size_t start_idx, end_idx;
 
-        if (m_setting_->log_timing) {
-            std::lock_guard lock(m_log_mutex_);
-            m_test_log_csv_.data["travel_distance"].emplace_back(std::to_string(m_travel_distance_));
-        }
-
         double gp_search_time = 0;
         double gp_train_time = 0;
         double gp_test_time = 0;
@@ -243,9 +171,9 @@ namespace erl::sdf_mapping {
             // Search GPs for each query position
             {
                 common::BlockTimer<std::chrono::milliseconds> timer("Search GPs", &gp_search_time, verbose_timer);
-                SearchCandidateGps(positions_in);
-                m_query_to_gps_.clear();
-                m_query_to_gps_.resize(num_queries);  // allocate memory for n threads, collected GPs will be locked for testing
+                SearchCandidateGps(positions_in);     // search for candidate GPs, collected GPs will be locked for testing
+                m_query_to_gps_.clear();              // clear the previous query to GPs
+                m_query_to_gps_.resize(num_queries);  // allocate memory for n threads
                 if (num_queries == 1) {
                     SearchGpThread(0, 0, 1);  // save time on thread creation
                 } else {
@@ -262,27 +190,28 @@ namespace erl::sdf_mapping {
             }
 
             // Train any updated GPs
-            if (!m_new_gp_queue_.empty()) {
+            if (!m_cluster_queue_.empty()) {
                 common::BlockTimer<std::chrono::microseconds> timer("Train GPs", &gp_train_time, verbose_timer);
-                std::unordered_set<std::shared_ptr<Gp>> new_gps;
+                KeySet keys;
+                m_clusters_to_train_.clear();
                 for (auto &gps: m_query_to_gps_) {
-                    for (auto &[distance, gp]: gps) {
-                        if (gp->active && !gp->edf_gp->IsTrained()) { new_gps.insert(gp); }
+                    for (auto &[distance, key_and_gp]: gps) {
+                        if (!keys.insert(key_and_gp.first).second) { continue; }
+                        if (const auto &gp = key_and_gp.second; !gp->active || gp->edf_gp->IsTrained()) { continue; }
+                        m_clusters_to_train_.emplace_back(key_and_gp);
                     }
                 }
-                m_gps_to_train_.clear();
-                m_gps_to_train_.insert(m_gps_to_train_.end(), new_gps.begin(), new_gps.end());
                 TrainGps();
             }
 
             if (m_setting_->use_occ_sign) {
                 // collect the sign of query positions since the quadtree is not thread-safe
-                const auto quadtree = m_surface_mapping_->GetQuadtree();
+                const auto tree = m_surface_mapping_->GetQuadtree();
                 if (m_query_signs_.size() < num_queries) { m_query_signs_.resize(num_queries); }
-#pragma omp parallel for default(none) shared(quadtree, positions_in, num_queries)
+#pragma omp parallel for default(none) shared(tree, positions_in, num_queries)
                 for (uint32_t i = 0; i < num_queries; i++) {
                     const Eigen::Vector2d &position = positions_in.col(i);
-                    const auto node = quadtree->Search(position.x(), position.y());
+                    const auto node = tree->Search(position.x(), position.y());
                     m_query_signs_[i] = node == nullptr ? -1.0 : 1.0;
                 }
             }
@@ -310,19 +239,12 @@ namespace erl::sdf_mapping {
 
         m_test_buffer_.DisconnectBuffers();
         for (const auto &gps: m_query_to_gps_) {
-            for (const auto &[_, gp]: gps) { gp->locked_for_test = false; }  // unlock GPs
+            for (const auto &[_, key_and_gp]: gps) { key_and_gp.second->locked_for_test = false; }  // unlock GPs
         }
 
         const std::chrono::high_resolution_clock::time_point t1 = std::chrono::high_resolution_clock::now();
         const double total_test_time = std::chrono::duration<double, std::milli>(t1 - t0).count();
         ERL_INFO("Total test time: {} ms", total_test_time);
-
-        if (m_setting_->log_timing) {
-            m_test_log_csv_.data["gp_search_time"].emplace_back(std::to_string(gp_search_time));
-            m_test_log_csv_.data["gp_train_time"].emplace_back(std::to_string(gp_train_time));
-            m_test_log_csv_.data["gp_test_time"].emplace_back(std::to_string(gp_test_time));
-            m_test_log_csv_.data["total_test_time"].emplace_back(std::to_string(total_test_time));
-        }
 
         return true;
     }
@@ -341,15 +263,13 @@ namespace erl::sdf_mapping {
             if (gp == nullptr && other_gp != nullptr) { return false; }
             if (gp != nullptr && (other_gp == nullptr || *gp != *other_gp)) { return false; }
         }
-        if (m_new_gp_keys_.size() != other.m_new_gp_keys_.size()) { return false; }
-        for (const auto &[key, handle]: m_new_gp_keys_) {
-            const auto it = other.m_new_gp_keys_.find(key);
-            if (it == other.m_new_gp_keys_.end()) { return false; }
+        if (m_cluster_queue_keys_.size() != other.m_cluster_queue_keys_.size()) { return false; }
+        for (const auto &[key, handle]: m_cluster_queue_keys_) {
+            const auto it = other.m_cluster_queue_keys_.find(key);
+            if (it == other.m_cluster_queue_keys_.end()) { return false; }
             if ((*handle).time_stamp != (*it->second).time_stamp) { return false; }
         }
         if (m_train_gp_time_ != other.m_train_gp_time_) { return false; }
-        if (m_travel_distance_ != other.m_travel_distance_) { return false; }
-        if (m_last_position_ != other.m_last_position_) { return false; }
         return true;
     }
 
@@ -386,7 +306,6 @@ namespace erl::sdf_mapping {
             ERL_WARN("Failed to write surface mapping.");
             return false;
         }
-        // m_clusters_to_update_ is temporary data.
         s << "gp_map " << m_gp_map_.size() << std::endl;
         for (const auto &[key, gp]: m_gp_map_) {
             s.write(reinterpret_cast<const char *>(&key[0]), sizeof(key[0]));
@@ -398,34 +317,17 @@ namespace erl::sdf_mapping {
                 return false;
             }
         }
-        // m_candidate_gps_ is temporary data.
-        // m_kd_tree_candidate_gps_ is temporary data.
-        // m_query_to_gps_ is temporary data.
-        // m_query_used_gps_ is temporary data.
-        s << "new_gp_keys " << m_new_gp_keys_.size() << std::endl;
-        for (const auto &[key, handle]: m_new_gp_keys_) {
+        // m_affected_clusters_ is temporary data.
+        s << "cluster_queue_keys " << m_cluster_queue_keys_.size() << std::endl;
+        for (const auto &[key, handle]: m_cluster_queue_keys_) {
             s.write(reinterpret_cast<const char *>(&key[0]), sizeof(key[0]));
             s.write(reinterpret_cast<const char *>(&key[1]), sizeof(key[1]));
             s.write(reinterpret_cast<const char *>(&(*handle).time_stamp), sizeof((*handle).time_stamp));
         }
-        // m_new_gp_queue_ can be reconstructed from m_new_gp_keys_.
-        // m_gps_to_train_ is temporary data.
+        // m_cluster_queue_ can be reconstructed from m_cluster_queue_keys_.
+        // m_clusters_to_train_ is temporary data.
         s << "train_gp_time" << std::endl;
         s.write(reinterpret_cast<const char *>(&m_train_gp_time_), sizeof(m_train_gp_time_));
-        s << "travel_distance" << std::endl;
-        s.write(reinterpret_cast<const char *>(&m_travel_distance_), sizeof(m_travel_distance_));
-        s << "last_position " << m_last_position_.has_value() << std::endl;
-        if (m_last_position_.has_value()) {
-            if (!common::SaveEigenMatrixToBinaryStream(s, m_last_position_.value())) {
-                ERL_WARN("Failed to write last_position.");
-                return false;
-            }
-        }
-        // m_train_log_csv_ is temporary data.
-        // m_test_log_csv_ is temporary data.
-        s << "num_update_calls " << m_num_update_calls_ << std::endl;
-        s << "num_test_calls " << m_num_test_calls_ << std::endl;
-        s << "num_test_positions " << m_num_test_positions_ << std::endl;
         s << "end_of_GpSdfMapping2D" << std::endl;
         return s.good();
     }
@@ -468,13 +370,8 @@ namespace erl::sdf_mapping {
             "setting",
             "surface_mapping",
             "gp_map",
-            "new_gp_keys",
+            "cluster_queue_keys",
             "train_gp_time",
-            "travel_distance",
-            "last_position",
-            "num_update_calls",
-            "num_test_calls",
-            "num_test_positions",
             "end_of_GpSdfMapping2D",
         };
 
@@ -508,7 +405,7 @@ namespace erl::sdf_mapping {
                     skip_line();
                     if (has_surface_mapping) {
                         if (m_surface_mapping_ == nullptr) {
-                            m_surface_mapping_ = geometry::AbstractSurfaceMapping::CreateSurfaceMapping<geometry::AbstractSurfaceMapping2D>(  //
+                            m_surface_mapping_ = AbstractSurfaceMapping::CreateSurfaceMapping<AbstractSurfaceMapping2D>(
                                 m_setting_->surface_mapping_type,
                                 m_setting_->surface_mapping);
                         }
@@ -524,7 +421,7 @@ namespace erl::sdf_mapping {
                     s >> num_gps;
                     skip_line();
                     for (uint32_t i = 0; i < num_gps; ++i) {
-                        geometry::QuadtreeKey key;
+                        Key key;
                         s.read(reinterpret_cast<char *>(&key[0]), sizeof(key[0]));
                         s.read(reinterpret_cast<char *>(&key[1]), sizeof(key[1]));
                         auto [it, inserted] = m_gp_map_.try_emplace(key, nullptr);
@@ -544,17 +441,17 @@ namespace erl::sdf_mapping {
                     }
                     break;
                 }
-                case 3: {  // new_gp_keys
-                    uint32_t num_new_gp_keys;
-                    s >> num_new_gp_keys;
+                case 3: {  // cluster_queue_keys
+                    uint32_t num_cluster_keys;
+                    s >> num_cluster_keys;
                     skip_line();
-                    for (uint32_t i = 0; i < num_new_gp_keys; ++i) {
-                        geometry::QuadtreeKey key;
+                    for (uint32_t i = 0; i < num_cluster_keys; ++i) {
+                        Key key;
                         s.read(reinterpret_cast<char *>(&key[0]), sizeof(key[0]));
                         s.read(reinterpret_cast<char *>(&key[1]), sizeof(key[1]));
                         long time_stamp;
                         s.read(reinterpret_cast<char *>(&time_stamp), sizeof(time_stamp));
-                        m_new_gp_keys_.insert({key, m_new_gp_queue_.push({time_stamp, key})});
+                        m_cluster_queue_keys_.insert({key, m_cluster_queue_.push({time_stamp, key})});
                     }
                     break;
                 }
@@ -563,36 +460,7 @@ namespace erl::sdf_mapping {
                     s.read(reinterpret_cast<char *>(&m_train_gp_time_), sizeof(m_train_gp_time_));
                     break;
                 }
-                case 5: {  // travel_distance
-                    skip_line();
-                    s.read(reinterpret_cast<char *>(&m_travel_distance_), sizeof(m_travel_distance_));
-                    break;
-                }
-                case 6: {  // last_position
-                    bool has_last_position;
-                    s >> has_last_position;
-                    skip_line();
-                    if (has_last_position) {
-                        if (!common::LoadEigenMatrixFromBinaryStream(s, m_last_position_.emplace())) {
-                            ERL_WARN("Failed to read last_position.");
-                            return false;
-                        }
-                    }
-                    break;
-                }
-                case 7: {  // num_update_calls
-                    s >> m_num_update_calls_;
-                    break;
-                }
-                case 8: {  // num_test_calls
-                    s >> m_num_test_calls_;
-                    break;
-                }
-                case 9: {  // num_test_positions
-                    s >> m_num_test_positions_;
-                    break;
-                }
-                case 10: {  // end_of_GpSdfMapping3D
+                case 5: {  // end_of_GpSdfMapping2D
                     skip_line();
                     return true;
                 }
@@ -612,184 +480,153 @@ namespace erl::sdf_mapping {
 
         auto t0 = std::chrono::high_resolution_clock::now();
         double collect_clusters_time = 0;
-        double create_gps_time = 0;
-        double update_gps_time = 0;
+        double queue_clusters_time = 0;
         double train_gps_time = 0;
         const bool verbose_timer = common::Logging::GetLevel() <= common::Logging::Level::kInfo;
 
-        const geometry::QuadtreeKeySet changed_clusters = m_surface_mapping_->GetChangedClusters();
         const uint32_t cluster_level = m_surface_mapping_->GetClusterLevel();
-        const std::shared_ptr<geometry::SurfaceMappingQuadtree> quadtree = m_surface_mapping_->GetQuadtree();
-        const uint32_t cluster_depth = quadtree->GetTreeDepth() - cluster_level;
-        const double cluster_size = quadtree->GetNodeSize(cluster_depth);
+        const std::shared_ptr<SurfaceMappingQuadtree> tree = m_surface_mapping_->GetQuadtree();
+        const uint32_t cluster_depth = tree->GetTreeDepth() - cluster_level;
+        const double cluster_size = tree->GetNodeSize(cluster_depth);
         const double area_half_size = cluster_size * m_setting_->gp_sdf_area_scale / 2;
 
         // add affected clusters
         {
             common::BlockTimer<std::chrono::milliseconds> timer("Collect affected clusters", &collect_clusters_time, verbose_timer);
-            geometry::QuadtreeKeySet affected_clusters(changed_clusters);
+            (void) timer;
+
+            const KeySet changed_clusters = m_surface_mapping_->GetChangedClusters();
+            KeySet affected_clusters(changed_clusters);
             for (const auto &cluster_key: changed_clusters) {
-                const geometry::Aabb2D area(quadtree->KeyToCoord(cluster_key, cluster_depth), area_half_size);
-                for (auto it = quadtree->BeginTreeInAabb(area, cluster_depth), end = quadtree->EndTreeInAabb(); it != end; ++it) {
+                const geometry::Aabb2D area(tree->KeyToCoord(cluster_key, cluster_depth), area_half_size);
+                for (auto it = tree->BeginTreeInAabb(area, cluster_depth), end = tree->EndTreeInAabb(); it != end; ++it) {
                     if (it->GetDepth() != cluster_depth) { continue; }
-                    affected_clusters.insert(quadtree->AdjustKeyToDepth(it.GetKey(), cluster_depth));
+                    affected_clusters.insert(tree->AdjustKeyToDepth(it.GetKey(), cluster_depth));
                 }
             }
-            m_clusters_to_update_.clear();
-            m_clusters_to_update_.insert(m_clusters_to_update_.end(), affected_clusters.begin(), affected_clusters.end());
+            m_affected_clusters_.clear();
+            m_affected_clusters_.insert(m_affected_clusters_.end(), affected_clusters.begin(), affected_clusters.end());
             ERL_INFO("Collect {} -> {} affected clusters", changed_clusters.size(), affected_clusters.size());
         }
 
-        // update GPs in affected clusters
-        /// create GPs for new clusters, compute AABB of all clusters to be updated
+        // put affected clusters into m_cluster_queue_
         {
-            common::BlockTimer<std::chrono::milliseconds> timer("Create new GPs", &create_gps_time, verbose_timer);
+            common::BlockTimer<std::chrono::milliseconds> timer("Queue affected clusters", &queue_clusters_time, verbose_timer);
             long cnt_new_gps = 0;
-            for (auto &cluster_key: m_clusters_to_update_) {
-                auto [it, inserted] = m_gp_map_.try_emplace(cluster_key, nullptr);
-                if (!inserted) { continue; }
-                ++cnt_new_gps;
-                it->second = std::make_shared<Gp>();
-                quadtree->KeyToCoord(cluster_key, cluster_depth, it->second->position);
-                it->second->half_size = area_half_size;
-            }
-            ERL_INFO("Create {} new GPs", cnt_new_gps);
-        }
-
-        /// create threads to update GPs
-        {
-            common::BlockTimer<std::chrono::milliseconds> timer("Update GPs", &update_gps_time, verbose_timer);
-            uint32_t num_threads = std::min(m_setting_->num_threads, std::thread::hardware_concurrency());
-            std::vector<std::thread> threads;
-            threads.reserve(num_threads);
-            const std::size_t batch_size = m_clusters_to_update_.size() / num_threads;
-            const std::size_t left_over = m_clusters_to_update_.size() - batch_size * num_threads;
-            std::size_t end_idx = 0;
-            for (uint32_t thread_idx = 0; thread_idx < num_threads; ++thread_idx) {
-                std::size_t start_idx = end_idx;
-                end_idx = start_idx + batch_size;
-                if (thread_idx < left_over) { end_idx++; }
-                threads.emplace_back(&GpSdfMapping2D::UpdateGpThread, this, thread_idx, start_idx, end_idx);
-            }
-            for (uint32_t thread_idx = 0; thread_idx < num_threads; ++thread_idx) { threads[thread_idx].join(); }
-            threads.clear();
-            ERL_INFO("Update {} GPs", m_clusters_to_update_.size());
-        }
-
-        if (!m_setting_->train_gp_immediately) {
-            {
-                common::BlockTimer<std::chrono::milliseconds> timer("Collect GPs to train", &train_gps_time, verbose_timer);
-                for (auto &cluster_key: m_clusters_to_update_) {
-                    auto it = m_gp_map_.find(cluster_key);
-                    if (it == m_gp_map_.end() || !it->second->active) { continue; }  // GP does not exist or deactivated (e.g. due to no training data)
-                    if (it->second->edf_gp != nullptr && !it->second->edf_gp->IsTrained()) {
-                        auto time_stamp = std::chrono::high_resolution_clock::now().time_since_epoch().count();
-                        if (m_new_gp_keys_.find(cluster_key) == m_new_gp_keys_.end()) {
-                            m_new_gp_keys_.insert({cluster_key, m_new_gp_queue_.push({time_stamp, cluster_key})});
-                        } else {
-                            auto &heap_key = m_new_gp_keys_.at(cluster_key);
-                            (*heap_key).time_stamp = time_stamp;
-                            m_new_gp_queue_.increase(heap_key);
-                        }
-                    }
+            for (const auto &cluster_key: m_affected_clusters_) {
+                if (auto [it, inserted] = m_gp_map_.try_emplace(cluster_key, nullptr); inserted || it->second->locked_for_test) {
+                    it->second = std::make_shared<Gp>();       // new GP is required
+                    it->second->Activate(m_setting_->edf_gp);  // activate the GP
+                    tree->KeyToCoord(cluster_key, cluster_depth, it->second->position);
+                    it->second->half_size = area_half_size;
+                    ++cnt_new_gps;
+                } else {
+                    it->second->Activate(m_setting_->edf_gp);
+                }
+                auto time_stamp = std::chrono::high_resolution_clock::now().time_since_epoch().count();
+                if (auto itr = m_cluster_queue_keys_.find(cluster_key); itr == m_cluster_queue_keys_.end()) {  // new cluster
+                    m_cluster_queue_keys_.insert({cluster_key, m_cluster_queue_.push({time_stamp, cluster_key})});
+                } else {
+                    auto &heap_key = itr->second;
+                    (*heap_key).time_stamp = time_stamp;
+                    m_cluster_queue_.increase(heap_key);
                 }
             }
-            const double dt = std::chrono::duration<double, std::micro>(std::chrono::high_resolution_clock::now() - t0).count();
-            time_budget_us -= dt;
-
-            // train as many new GPs as possible within the time limit
-            if (time_budget_us > 2.0 * m_train_gp_time_) {
-                auto max_num_gps_to_train = static_cast<std::size_t>(std::floor(time_budget_us / m_train_gp_time_));
-                max_num_gps_to_train = std::min(max_num_gps_to_train, m_new_gp_queue_.size());
-                m_gps_to_train_.clear();
-                while (!m_new_gp_queue_.empty() && m_gps_to_train_.size() < max_num_gps_to_train) {
-                    geometry::QuadtreeKey cluster_key = m_new_gp_queue_.top().key;
-                    m_new_gp_queue_.pop();
-                    m_new_gp_keys_.erase(cluster_key);
-                    auto it = m_gp_map_.find(cluster_key);
-                    auto gp = it->second;
-                    if (it == m_gp_map_.end() || !gp->active) { continue; }  // GP does not exist or deactivated (e.g. due to no training data)
-                    if (gp->edf_gp != nullptr && !gp->edf_gp->IsTrained()) { m_gps_to_train_.push_back(gp); }
-                }
-                TrainGps();
-            }
-            ERL_INFO("{} GP(s) not trained yet due to time limit.", m_new_gp_queue_.size());
+            ERL_INFO("Create {} new GPs when queuing clusters", cnt_new_gps);
         }
 
-        const double gp_data_update_time = std::chrono::duration<double, std::milli>(std::chrono::high_resolution_clock::now() - t0).count();
-        ERL_INFO("Update GPs' data time: {} ms", gp_data_update_time);
-        if (m_setting_->log_timing) {
-            m_train_log_csv_.data["collect_clusters_time"].emplace_back(std::to_string(collect_clusters_time));
-            m_train_log_csv_.data["create_gps_time"].emplace_back(std::to_string(create_gps_time));
-            m_train_log_csv_.data["update_gps_time"].emplace_back(std::to_string(update_gps_time));
-            m_train_log_csv_.data["train_gps_time"].emplace_back(std::to_string(train_gps_time));
-            m_train_log_csv_.data["gp_data_update_time"].emplace_back(std::to_string(gp_data_update_time));
-            m_train_log_csv_.data["gp_delay_cnt"].emplace_back(std::to_string(m_new_gp_queue_.size()));
+        // train GPs if we still have time
+        const double dt = std::chrono::duration<double, std::micro>(std::chrono::high_resolution_clock::now() - t0).count();
+        time_budget_us -= dt;
+        if (time_budget_us > 2.0 * m_train_gp_time_) {
+            common::BlockTimer<std::chrono::milliseconds> timer("Train GPs", &train_gps_time, verbose_timer);
+            (void) timer;
+            auto max_num_clusters_to_train = static_cast<std::size_t>(std::floor(time_budget_us / m_train_gp_time_));
+            max_num_clusters_to_train = std::min(max_num_clusters_to_train, m_cluster_queue_.size());
+            m_clusters_to_train_.clear();
+            while (!m_cluster_queue_.empty() && m_clusters_to_train_.size() < max_num_clusters_to_train) {
+                Key cluster_key = m_cluster_queue_.top().key;
+                m_cluster_queue_.pop();
+                m_cluster_queue_keys_.erase(cluster_key);
+                m_clusters_to_train_.emplace_back(cluster_key, m_gp_map_.at(cluster_key));
+            }
+            TrainGps();
         }
-    }
+        ERL_INFO("{} cluster(s) not trained yet due to time limit.", m_cluster_queue_.size());
 
-    void
-    GpSdfMapping2D::UpdateGpThread(const uint32_t thread_idx, const std::size_t start_idx, const std::size_t end_idx) {
-        ERL_TRACY_SET_THREAD_NAME(fmt::format("{}:{}", __PRETTY_FUNCTION__, thread_idx).c_str());
-        (void) thread_idx;
-
-        const auto quadtree = m_surface_mapping_->GetQuadtree();
-        if (quadtree == nullptr) { return; }
-        const double sensor_noise = m_surface_mapping_->GetSensorNoise();
-        const uint32_t cluster_depth = quadtree->GetTreeDepth() - m_surface_mapping_->GetClusterLevel();
-        const double cluster_size = quadtree->GetNodeSize(cluster_depth);
-        const double aabb_half_size = cluster_size * m_setting_->gp_sdf_area_scale / 2.;
-        const double offset_distance = m_setting_->offset_distance;
-        const double max_valid_gradient_var = m_setting_->max_valid_gradient_var;
-        const double invalid_position_var = m_setting_->invalid_position_var;
-
-        std::vector<std::pair<double, std::shared_ptr<SurfaceData>>> surface_data_vec;
-        const auto max_num_samples = static_cast<std::size_t>(m_setting_->edf_gp->max_num_samples);
-        surface_data_vec.reserve(max_num_samples);
-        for (uint32_t i = start_idx; i < end_idx; ++i) {
-            auto &cluster_key = m_clusters_to_update_[i];
-            // get the GP of the cluster
-            std::shared_ptr<Gp> &gp = m_gp_map_.at(cluster_key);
-            // testing thread may unlock the GP, but it is impossible to lock it here due to the mutex
-            if (gp->locked_for_test) {                          // create a new GP if the old one is locked for testing
-                const auto new_gp = std::make_shared<Gp>(*gp);  // copy the GP
-                gp = new_gp;
-            }
-            gp->Activate(m_setting_->edf_gp);
-
-            // collect surface data in the area
-            surface_data_vec.clear();
-            const geometry::Aabb2D area(quadtree->KeyToCoord(cluster_key, cluster_depth), aabb_half_size);
-            for (auto it = quadtree->BeginLeafInAabb(area), end = quadtree->EndLeafInAabb(); it != end; ++it) {
-                auto surface_data = it->GetSurfaceData();
-                if (surface_data == nullptr) { continue; }  // no surface data in the node
-                surface_data_vec.emplace_back((gp->position - surface_data->position).norm(), surface_data);
-            }
-            if (surface_data_vec.empty()) {  // no surface data in the area
-                gp->Deactivate();            // deactivate the GP if there is no training data
-                continue;
-            }
-            gp->LoadSurfaceData(surface_data_vec, offset_distance, sensor_noise, max_valid_gradient_var, invalid_position_var);
-            if (m_setting_->train_gp_immediately) { gp->Train(); }
-        }
+        const double func_time = std::chrono::duration<double, std::milli>(std::chrono::high_resolution_clock::now() - t0).count();
+        ERL_INFO("Function {} takes {} ms", __PRETTY_FUNCTION__, func_time);
     }
 
     void
     GpSdfMapping2D::TrainGps() {
-        const uint32_t n = m_gps_to_train_.size();
+        const std::size_t n = m_clusters_to_train_.size();
         if (n == 0) { return; }
 
         ERL_INFO("Training {} GPs ...", n);
         const auto t0 = std::chrono::high_resolution_clock::now();
-#pragma omp parallel for default(none) shared(n)
-        for (uint32_t i = 0; i < n; ++i) { m_gps_to_train_[i]->Train(); }
-        m_gps_to_train_.clear();
+        const uint32_t num_threads = std::min(m_setting_->num_threads, std::thread::hardware_concurrency());
+        std::vector<std::thread> threads;
+        threads.reserve(num_threads);
+        const std::size_t batch_size = n / num_threads;
+        const std::size_t left_over = n - batch_size * num_threads;
+        std::size_t end_idx = 0;
+        for (uint32_t thread_idx = 0; thread_idx < num_threads; ++thread_idx) {
+            std::size_t start_idx = end_idx;
+            end_idx = start_idx + batch_size;
+            if (thread_idx < left_over) { end_idx++; }
+            threads.emplace_back(&GpSdfMapping2D::TrainGpThread, this, thread_idx, start_idx, end_idx);
+        }
+        for (uint32_t thread_idx = 0; thread_idx < num_threads; ++thread_idx) { threads[thread_idx].join(); }
+        threads.clear();
+        ERL_INFO("Trained {} GPs", n);
+
         const auto t1 = std::chrono::high_resolution_clock::now();
         double time = std::chrono::duration<double, std::micro>(t1 - t0).count();
-        ERL_INFO("Training GPs time: {} ms.", time / 1e3);
+        ERL_INFO("Function {} takes {} ms", __PRETTY_FUNCTION__, time / 1e3);
         time /= static_cast<double>(n);
         m_train_gp_time_ = m_train_gp_time_ * 0.1 + time * 0.9;
         ERL_INFO("Per GP training time: {} us.", m_train_gp_time_);
+    }
+
+    void
+    GpSdfMapping2D::TrainGpThread(const uint32_t thread_idx, const std::size_t start_idx, const std::size_t end_idx) {
+        ERL_TRACY_SET_THREAD_NAME(fmt::format("{}:{}", __PRETTY_FUNCTION__, thread_idx).c_str());
+        (void) thread_idx;
+
+        const auto tree = m_surface_mapping_->GetQuadtree();
+        if (tree == nullptr) { return; }
+        const double sensor_noise = m_surface_mapping_->GetSensorNoise();
+        const uint32_t cluster_depth = tree->GetTreeDepth() - m_surface_mapping_->GetClusterLevel();
+        const double cluster_size = tree->GetNodeSize(cluster_depth);
+        const double aabb_half_size = cluster_size * m_setting_->gp_sdf_area_scale / 2.;
+        const double offset_distance = m_setting_->offset_distance;
+        const double max_valid_gradient_var = m_setting_->max_valid_gradient_var;
+        const double invalid_position_var = m_setting_->invalid_position_var;
+        const auto &surface_data_vec = m_surface_mapping_->GetSurfaceDataManager().GetEntries();
+
+        std::vector<std::pair<double, std::size_t>> surface_data_indices;
+        const auto max_num_samples = static_cast<std::size_t>(m_setting_->edf_gp->max_num_samples);
+        surface_data_indices.reserve(max_num_samples);
+        for (uint32_t i = start_idx; i < end_idx; ++i) {
+            auto &[cluster_key, gp] = m_clusters_to_train_[i];
+            ERL_DEBUG_ASSERT(gp->active, "GP is not active");
+
+            // collect surface data in the area
+            surface_data_indices.clear();
+            const geometry::Aabb2D area(tree->KeyToCoord(cluster_key, cluster_depth), aabb_half_size);
+            for (auto it = tree->BeginLeafInAabb(area), end = tree->EndLeafInAabb(); it != end; ++it) {
+                if (!it->HasSurfaceData()) { continue; }  // no surface data in the node
+                const auto &surface_data = surface_data_vec[it->surface_data_index];
+                surface_data_indices.emplace_back((gp->position - surface_data.position).norm(), it->surface_data_index);
+            }
+            if (surface_data_indices.empty()) {  // no surface data in the area
+                gp->Deactivate();                // deactivate the GP if there is no training data
+                continue;
+            }
+            gp->LoadSurfaceData(surface_data_indices, surface_data_vec, offset_distance, sensor_noise, max_valid_gradient_var, invalid_position_var);
+            gp->Train();
+        }
     }
 
     void
@@ -799,45 +636,40 @@ namespace erl::sdf_mapping {
             const bool verbose_timer = common::Logging::GetLevel() <= common::Logging::Level::kInfo;
             common::BlockTimer<std::chrono::milliseconds> timer("Search candidate GPs", &dt, verbose_timer);
 
+            // collect some numbers needed for searching
             const double search_area_half_size = m_setting_->test_query->search_area_half_size;
-            const auto quadtree = m_surface_mapping_->GetQuadtree();
-            const uint32_t cluster_depth = quadtree->GetTreeDepth() - m_surface_mapping_->GetClusterLevel();
-            const double cluster_half_size = quadtree->GetNodeSize(cluster_depth) / 2;
-
-            const geometry::Aabb2D quadtree_aabb = quadtree->GetMetricAabb();
-            geometry::Aabb2D query_aabb(
+            const auto tree = m_surface_mapping_->GetQuadtree();
+            const uint32_t cluster_depth = tree->GetTreeDepth() - m_surface_mapping_->GetClusterLevel();
+            const geometry::Aabb2D tree_aabb = tree->GetMetricAabb();  // biggest AABB of the tree
+            geometry::Aabb2D query_aabb(                               // current queried search area
                 positions_in.rowwise().minCoeff().array() - search_area_half_size,
                 positions_in.rowwise().maxCoeff().array() + search_area_half_size);
-            geometry::Aabb2D intersection = query_aabb.Intersection(quadtree_aabb);
-            m_candidate_gps_.clear();
-            while (intersection.sizes().prod() > 0) {
+            geometry::Aabb2D region = query_aabb.Intersection(tree_aabb);  // current region of interest
+            m_candidate_gps_.clear();                                      // clear the buffer
+            while (region.sizes().prod() > 0) {                            // search until the intersection is empty
                 // search the octree for clusters in the search area
-                for (auto it = quadtree->BeginTreeInAabb(intersection, cluster_depth), end = quadtree->EndTreeInAabb(); it != end; ++it) {
+                for (auto it = tree->BeginTreeInAabb(region, cluster_depth), end = tree->EndTreeInAabb(); it != end; ++it) {
                     if (it->GetDepth() != cluster_depth) { continue; }  // not a cluster node
                     auto it_gp = m_gp_map_.find(it.GetIndexKey());      // get the GP of the cluster
                     if (it_gp == m_gp_map_.end()) { continue; }         // no gp for this cluster
                     const auto gp = it_gp->second;                      // get the GP of the cluster
                     if (!gp->active) { continue; }                      // gp is inactive (e.g. due to no training data)
                     gp->locked_for_test = true;                         // lock the GP for testing
-                    m_candidate_gps_.emplace_back(geometry::Aabb2D(gp->position, cluster_half_size), gp);
+                    m_candidate_gps_.emplace_back(it_gp->first, gp);
                 }
                 if (!m_candidate_gps_.empty()) { break; }  // found at least one GP
                 // double the size of query_aabb
                 query_aabb = geometry::Aabb2D(query_aabb.center, 2.0 * query_aabb.half_sizes);
-                geometry::Aabb2D new_intersection = query_aabb.Intersection(quadtree_aabb);
-                if ((intersection.min() == new_intersection.min()) && (intersection.max() == new_intersection.max())) { break; }  // intersection did not change
-                intersection = std::move(new_intersection);
+                geometry::Aabb2D new_region = query_aabb.Intersection(tree_aabb);
+                if ((region.min() == new_region.min()) && (region.max() == new_region.max())) { break; }  // region did not change
+                region = std::move(new_region);                                                           // update region
             }
-            // build kdtree of candidate GPs
+            // build kdtree of candidate GPs to allow fast search
             if (!m_candidate_gps_.empty()) {
                 Eigen::Matrix2Xd positions(2, m_candidate_gps_.size());
                 for (std::size_t i = 0; i < m_candidate_gps_.size(); ++i) { positions.col(static_cast<long>(i)) = m_candidate_gps_[i].second->position; }
                 m_kd_tree_candidate_gps_ = std::make_shared<geometry::KdTree2d>(std::move(positions));
             }
-        }
-        if (m_setting_->log_timing) {
-            m_test_log_csv_.data["gp_candidate_search_cnt"].emplace_back(std::to_string(m_candidate_gps_.size()));
-            m_test_log_csv_.data["gp_candidate_search_time"].emplace_back(std::to_string(dt));
         }
         ERL_INFO("{} candidate GPs found.", m_candidate_gps_.size());
         ERL_INFO("Search candidate GPs: {} ms", dt);
@@ -849,84 +681,79 @@ namespace erl::sdf_mapping {
         (void) thread_idx;
 
         if (m_surface_mapping_ == nullptr) { return; }
-        const auto quadtree = m_surface_mapping_->GetQuadtree();
+        const auto tree = m_surface_mapping_->GetQuadtree();
         const uint32_t cluster_level = m_surface_mapping_->GetClusterLevel();
-        const uint32_t cluster_depth = quadtree->GetTreeDepth() - cluster_level;
-        const geometry::Aabb2D quadtree_aabb = quadtree->GetMetricAabb();
+        const uint32_t cluster_depth = tree->GetTreeDepth() - cluster_level;
+        const geometry::Aabb2D tree_aabb = tree->GetMetricAabb();
 
         for (uint32_t i = start_idx; i < end_idx; ++i) {
             const Eigen::Vector2d test_position = m_test_buffer_.positions->col(i);
-            std::vector<std::pair<double, std::shared_ptr<Gp>>> &gps = m_query_to_gps_[i];
+            std::vector<std::pair<double, KeyGpPair>> &gps = m_query_to_gps_[i];
             gps.clear();
-            gps.reserve(16);
+            constexpr int kMaxNumGps = 16;
+            gps.reserve(kMaxNumGps);
 
             double search_area_half_size = m_setting_->test_query->search_area_half_size;
             geometry::Aabb2D search_aabb(test_position, search_area_half_size);
-            geometry::Aabb2D intersection = quadtree_aabb.Intersection(search_aabb);
+            geometry::Aabb2D region = tree_aabb.Intersection(search_aabb);
 
             // search gps from the common buffer at first to save time
-            // use kdtree to search for 32 nearest GPs
             if (m_kd_tree_candidate_gps_ != nullptr) {
-                Eigen::VectorXl indices = Eigen::VectorXl::Constant(32, -1);
-                Eigen::VectorXd squared_distances(32);
-                m_kd_tree_candidate_gps_->Knn(32, test_position, indices, squared_distances);
-                for (long j = 0; j < 32; ++j) {
+                // use kdtree to search for 32 nearest GPs
+                constexpr long kMaxNumNeighbors = 32;
+                Eigen::VectorXl indices = Eigen::VectorXl::Constant(kMaxNumNeighbors, -1);
+                Eigen::VectorXd squared_distances(kMaxNumNeighbors);
+                m_kd_tree_candidate_gps_->Knn(kMaxNumNeighbors, test_position, indices, squared_distances);
+                for (long j = 0; j < kMaxNumNeighbors; ++j) {
                     const long &index = indices[j];
                     if (index < 0) { break; }  // no more GPs
-                    const auto &[cluster_aabb, gp] = m_candidate_gps_[index];
-                    if (!cluster_aabb.intersects(intersection)) { continue; }
-                    gps.emplace_back(std::sqrt(squared_distances[j]), gp);
-                    if (gps.size() >= 16) { break; }  // found enough GPs
+                    const auto &key_and_gp = m_candidate_gps_[index];
+                    if (!key_and_gp.second->Intersects(region.center, region.half_sizes)) { continue; }
+                    gps.emplace_back(std::sqrt(squared_distances[j]), key_and_gp);
+                    if (gps.size() >= kMaxNumGps) { break; }  // found enough GPs
                 }
             } else {
                 // no kdtree, search all GPs in the common buffer, which is slow
                 gps.reserve(m_candidate_gps_.size());  // request more memory
-                for (const auto &[cluster_aabb, gp]: m_candidate_gps_) {
-                    if (!cluster_aabb.intersects(intersection)) { continue; }
-                    gps.emplace_back((gp->position - test_position).norm(), gp);
+                for (const auto &key_and_gp: m_candidate_gps_) {
+                    if (!key_and_gp.second->Intersects(region.center, region.half_sizes)) { continue; }
+                    gps.emplace_back((key_and_gp.second->position - test_position).norm(), key_and_gp);
                 }
             }
 
-            if (gps.empty()) {                    // no gp found
-                if (!m_candidate_gps_.empty()) {  // common buffer is not empty
-                    search_area_half_size *= 2;   // double search area size
-                    search_aabb = geometry::Aabb2D(test_position, search_area_half_size);
-                    geometry::Aabb2D new_intersection = quadtree_aabb.Intersection(search_aabb);
-                    // intersection did not change, no need to search again
-                    if ((intersection.min() == new_intersection.min()) && (intersection.max() == new_intersection.max())) { continue; }
-                    // update intersection
-                    intersection = std::move(new_intersection);
-                }
+            if (gps.empty()) {               // no gp found
+                search_area_half_size *= 2;  // double search area size
+                search_aabb = geometry::Aabb2D(test_position, search_area_half_size);
+                geometry::Aabb2D new_region = tree_aabb.Intersection(search_aabb);
+                if ((region.min() == new_region.min()) && (region.max() == new_region.max())) { continue; }  // no need to search again
+                region = std::move(new_region);                                                              // update intersection
             } else {
                 continue;  // found at least one gp
             }
 
-            while (gps.empty() && intersection.sizes().prod() > 0) {
-                // search the quadtree for clusters in the search area
-                for (auto it = quadtree->BeginTreeInAabb(intersection, cluster_depth), end = quadtree->EndTreeInAabb(); it != end; ++it) {
+            while (gps.empty() && region.sizes().prod() > 0) {
+                // search the tree for clusters in the search area
+                for (auto it = tree->BeginTreeInAabb(region, cluster_depth), end = tree->EndTreeInAabb(); it != end; ++it) {
                     if (it->GetDepth() != cluster_depth) { continue; }  // not a cluster node
                     auto it_gp = m_gp_map_.find(it.GetIndexKey());
                     if (it_gp == m_gp_map_.end()) { continue; }  // no gp for this cluster
                     const auto gp = it_gp->second;
                     if (!gp->active) { continue; }  // gp is inactive (e.g. due to no training data)
                     gp->locked_for_test = true;     // lock the GP for testing
-                    gps.emplace_back((gp->position - test_position).norm(), gp);
+                    gps.emplace_back((gp->position - test_position).norm(), std::make_pair(it_gp->first, gp));
                 }
                 if (!gps.empty()) { break; }  // found at least one gp
-
-                search_area_half_size *= 2;  // double search area size
+                search_area_half_size *= 2;   // double search area size
                 search_aabb = geometry::Aabb2D(test_position, search_area_half_size);
-                geometry::Aabb2D new_intersection = quadtree_aabb.Intersection(search_aabb);
-                // intersection did not change, no need to search again
-                if ((intersection.min() == new_intersection.min()) && (intersection.max() == new_intersection.max())) { break; }
-                // update intersection
-                intersection = std::move(new_intersection);
+                geometry::Aabb2D new_region = tree_aabb.Intersection(search_aabb);
+                if ((region.min() == new_region.min()) && (region.max() == new_region.max())) { break; }  // no need to search again
+                region = std::move(new_region);                                                           // update region
             }
         }
     }
 
     void
-    GpSdfMapping2D::TestGpThread(uint32_t thread_idx, std::size_t start_idx, std::size_t end_idx) {
+    GpSdfMapping2D::TestGpThread(const uint32_t thread_idx, const std::size_t start_idx, const std::size_t end_idx) {
         ERL_TRACY_SET_THREAD_NAME(fmt::format("{}:{}", __PRETTY_FUNCTION__, thread_idx).c_str());
         (void) thread_idx;
 
@@ -976,7 +803,9 @@ namespace erl::sdf_mapping {
             long cnt = 0;
             for (std::size_t &j: gp_indices) {
                 // call selected GPs for inference
-                if (!gps[j].second->Test(
+                const auto &gp = gps[j].second.second;
+                if (!gp->active || !gp->edf_gp->IsTrained()) { continue; }  // skip inactive GPs
+                if (!gp->Test(
                         test_position,
                         fs.col(cnt),
                         variances.col(cnt),
@@ -1020,7 +849,7 @@ namespace erl::sdf_mapping {
                     gradient_out << fs.col(j).tail<2>();
                     variance_out << variances.col(j);
                     if (compute_covariance) { m_test_buffer_.covariances->col(i) = covariance.col(j); }
-                    m_query_used_gps_[i][0] = gps[tested_idx[0].second].second;
+                    m_query_used_gps_[i][0] = gps[tested_idx[0].second].second.second;
                     m_query_used_gps_[i][1] = nullptr;
                 } else {
                     // pick the best two results to do weighted sum
@@ -1044,8 +873,8 @@ namespace erl::sdf_mapping {
                             (covariance(2, j1) * w2 + covariance(2, j2) * w1) / w12;
                     }
                     // clang-format on
-                    m_query_used_gps_[i][0] = gps[tested_idx[0].second].second;
-                    m_query_used_gps_[i][1] = gps[tested_idx[1].second].second;
+                    m_query_used_gps_[i][0] = gps[tested_idx[0].second].second.second;
+                    m_query_used_gps_[i][1] = gps[tested_idx[1].second].second.second;
                 }
             } else {
                 // the first column is the result
@@ -1053,7 +882,7 @@ namespace erl::sdf_mapping {
                 gradient_out << fs.col(0).tail<2>();
                 variance_out << variances.col(0);
                 if (compute_covariance) { m_test_buffer_.covariances->col(i) = covariance.col(0); }
-                m_query_used_gps_[i][0] = gps[tested_idx[0].second].second;
+                m_query_used_gps_[i][0] = gps[tested_idx[0].second].second.second;
                 m_query_used_gps_[i][1] = nullptr;
             }
             gradient_out.normalize();

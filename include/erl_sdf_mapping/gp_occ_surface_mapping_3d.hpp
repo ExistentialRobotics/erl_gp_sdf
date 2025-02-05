@@ -1,22 +1,24 @@
 #pragma once
+
+#include "abstract_surface_mapping_3d.hpp"
 #include "gp_occ_surface_mapping_base_setting.hpp"
+#include "surface_data_manager.hpp"
+#include "surface_mapping_octree.hpp"
 
 #include "erl_common/yaml.hpp"
 #include "erl_gaussian_process/range_sensor_gp_3d.hpp"
-#include "erl_geometry/abstract_surface_mapping_3d.hpp"
-#include "erl_geometry/surface_mapping_octree.hpp"
 
 #include <memory>
 
 namespace erl::sdf_mapping {
 
-    class GpOccSurfaceMapping3D : public geometry::AbstractSurfaceMapping3D {
+    class GpOccSurfaceMapping3D : public AbstractSurfaceMapping3D {
     public:
         using SensorGp = gaussian_process::RangeSensorGaussianProcess3D;
 
         struct Setting : common::Yamlable<Setting, GpOccSurfaceMappingBaseSetting> {
             std::shared_ptr<SensorGp::Setting> sensor_gp = std::make_shared<SensorGp::Setting>();
-            std::shared_ptr<geometry::SurfaceMappingOctree::Setting> octree = std::make_shared<geometry::SurfaceMappingOctree::Setting>();
+            std::shared_ptr<SurfaceMappingOctree::Setting> octree = std::make_shared<SurfaceMappingOctree::Setting>();
         };
 
         inline static const volatile bool kSettingRegistered = common::YamlableBase::Register<Setting>();
@@ -24,7 +26,8 @@ namespace erl::sdf_mapping {
     private:
         std::shared_ptr<Setting> m_setting_ = std::make_shared<Setting>();
         std::shared_ptr<gaussian_process::RangeSensorGaussianProcess3D> m_sensor_gp_ = nullptr;  // the GP of regression between angle and mapped distance
-        std::shared_ptr<geometry::SurfaceMappingOctree> m_octree_ = nullptr;
+        std::shared_ptr<SurfaceMappingOctree> m_octree_ = nullptr;
+        SurfaceDataManager<3> m_surface_data_manager_;
         Eigen::Matrix<double, 3, 6> m_xyz_perturb_ = {};
         geometry::OctreeKeySet m_changed_keys_ = {};
 
@@ -53,9 +56,14 @@ namespace erl::sdf_mapping {
             return m_setting_->cluster_level;
         }
 
-        std::shared_ptr<geometry::SurfaceMappingOctree>
+        std::shared_ptr<SurfaceMappingOctree>
         GetOctree() override {
             return m_octree_;
+        }
+
+        [[nodiscard]] const SurfaceDataManager<3> &
+        GetSurfaceDataManager() const override {
+            return m_surface_data_manager_;
         }
 
         [[nodiscard]] double
@@ -126,18 +134,18 @@ namespace erl::sdf_mapping {
 template<>
 struct YAML::convert<erl::sdf_mapping::GpOccSurfaceMapping3D::Setting> {
     static Node
-    encode(const erl::sdf_mapping::GpOccSurfaceMapping3D::Setting &rhs) {
-        Node node = convert<erl::sdf_mapping::GpOccSurfaceMappingBaseSetting>::encode(rhs);
-        node["sensor_gp"] = rhs.sensor_gp;
-        node["octree"] = rhs.octree;
+    encode(const erl::sdf_mapping::GpOccSurfaceMapping3D::Setting &setting) {
+        Node node = convert<erl::sdf_mapping::GpOccSurfaceMappingBaseSetting>::encode(setting);
+        node["sensor_gp"] = setting.sensor_gp;
+        node["octree"] = setting.octree;
         return node;
     }
 
     static bool
-    decode(const Node &node, erl::sdf_mapping::GpOccSurfaceMapping3D::Setting &rhs) {
-        if (!convert<erl::sdf_mapping::GpOccSurfaceMappingBaseSetting>::decode(node, rhs)) { return false; }
-        rhs.sensor_gp = node["sensor_gp"].as<std::shared_ptr<erl::gaussian_process::RangeSensorGaussianProcess3D::Setting>>();
-        rhs.octree = node["octree"].as<std::shared_ptr<erl::geometry::SurfaceMappingOctree::Setting>>();
+    decode(const Node &node, erl::sdf_mapping::GpOccSurfaceMapping3D::Setting &setting) {
+        if (!convert<erl::sdf_mapping::GpOccSurfaceMappingBaseSetting>::decode(node, setting)) { return false; }
+        setting.sensor_gp = node["sensor_gp"].as<decltype(setting.sensor_gp)>();
+        setting.octree = node["octree"].as<decltype(setting.octree)>();
         return true;
     }
 };

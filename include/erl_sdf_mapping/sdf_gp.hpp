@@ -78,14 +78,30 @@ namespace erl::sdf_mapping {
             return memory_usage;
         }
 
+        [[nodiscard]] bool
+        Intersects(const Eigen::Vector<double, Dim>& other_position, const Eigen::Vector<double, Dim>& other_half_sizes) const {
+            for (int i = 0; i < Dim; ++i) {
+                if (std::abs(position[i] - other_position[i]) > half_size + other_half_sizes[i]) { return false; }
+            }
+            return true;
+        }
+
         void
         LoadSurfaceData(
-            std::vector<std::pair<double, std::shared_ptr<SurfaceData>>>& surface_data_vec,
+            std::vector<std::pair<double, std::size_t>>& surface_data_indices,
+            const std::vector<SurfaceData>& surface_data_vec,
             double offset_distance,
             double sensor_noise,
             double max_valid_gradient_var,
             double invalid_position_var) {
-            num_edf_samples = edf_gp->LoadSurfaceData(surface_data_vec, position, offset_distance, sensor_noise, max_valid_gradient_var, invalid_position_var);
+            num_edf_samples = edf_gp->LoadSurfaceData<Dim>(
+                surface_data_indices,
+                surface_data_vec,
+                position,
+                offset_distance,
+                sensor_noise,
+                max_valid_gradient_var,
+                invalid_position_var);
         }
 
         void
