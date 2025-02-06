@@ -102,23 +102,27 @@ TEST(GpSdfMapping3D, Build_Save_Load) {
     std::vector<std::pair<Eigen::Matrix3d, Eigen::Vector3d>> poses;
     Eigen::Vector3d map_min, map_max;
     if (g_options.use_cow_and_lady) {
+        ERL_INFO("Using Cow and Lady dataset.");
+        ERL_INFO("Using depth.");
         cow_and_lady = std::make_shared<erl::geometry::CowAndLady>(g_options.cow_and_lady_dir);
         geometries.push_back(cow_and_lady->GetGroundTruthPointCloud());
         map_min = cow_and_lady->GetMapMin();
         map_max = cow_and_lady->GetMapMax();
         const auto depth_frame_setting = std::make_shared<erl::geometry::DepthFrame3D::Setting>();
-        depth_frame_setting->camera_intrinsic->image_height = erl::geometry::CowAndLady::kImageHeight;
-        depth_frame_setting->camera_intrinsic->image_width = erl::geometry::CowAndLady::kImageWidth;
-        depth_frame_setting->camera_intrinsic->camera_fx = erl::geometry::CowAndLady::kCameraFx;
-        depth_frame_setting->camera_intrinsic->camera_fy = erl::geometry::CowAndLady::kCameraFy;
-        depth_frame_setting->camera_intrinsic->camera_cx = erl::geometry::CowAndLady::kCameraCx;
-        depth_frame_setting->camera_intrinsic->camera_cy = erl::geometry::CowAndLady::kCameraCy;
+        depth_frame_setting->camera_intrinsic.image_height = erl::geometry::CowAndLady::kImageHeight;
+        depth_frame_setting->camera_intrinsic.image_width = erl::geometry::CowAndLady::kImageWidth;
+        depth_frame_setting->camera_intrinsic.camera_fx = erl::geometry::CowAndLady::kCameraFx;
+        depth_frame_setting->camera_intrinsic.camera_fy = erl::geometry::CowAndLady::kCameraFy;
+        depth_frame_setting->camera_intrinsic.camera_cx = erl::geometry::CowAndLady::kCameraCx;
+        depth_frame_setting->camera_intrinsic.camera_cy = erl::geometry::CowAndLady::kCameraCy;
     } else {
+        ERL_INFO("Using mesh file: {}", g_options.mesh_file);
         const auto mesh = open3d::io::CreateMeshFromFile(g_options.mesh_file);
         ERL_ASSERTM(!mesh->vertices_.empty(), "Failed to load mesh file: {}", g_options.mesh_file);
         map_min = mesh->GetMinBound();
         map_max = mesh->GetMaxBound();
         if (gp_surf_setting->sensor_gp->range_sensor_frame_type == demangle(typeid(erl::geometry::LidarFrame3D).name())) {
+            ERL_INFO("Using LiDAR.");
             const auto lidar_frame_setting = std::dynamic_pointer_cast<erl::geometry::LidarFrame3D::Setting>(gp_surf_setting->sensor_gp->range_sensor_frame);
             const auto lidar_setting = std::make_shared<erl::geometry::Lidar3D::Setting>();
             lidar_setting->azimuth_min = lidar_frame_setting->azimuth_min;
@@ -129,14 +133,10 @@ TEST(GpSdfMapping3D, Build_Save_Load) {
             lidar_setting->num_elevation_lines = lidar_frame_setting->num_elevation_lines;
             range_sensor = std::make_shared<erl::geometry::Lidar3D>(lidar_setting);
         } else if (gp_surf_setting->sensor_gp->range_sensor_frame_type == demangle(typeid(erl::geometry::DepthFrame3D).name())) {
+            ERL_INFO("Using depth.");
             const auto depth_frame_setting = std::dynamic_pointer_cast<erl::geometry::DepthFrame3D::Setting>(gp_surf_setting->sensor_gp->range_sensor_frame);
             const auto depth_camera_setting = std::make_shared<erl::geometry::DepthCamera3D::Setting>();
-            depth_camera_setting->image_height = depth_frame_setting->camera_intrinsic->image_height;
-            depth_camera_setting->image_width = depth_frame_setting->camera_intrinsic->image_width;
-            depth_camera_setting->camera_fx = depth_frame_setting->camera_intrinsic->camera_fx;
-            depth_camera_setting->camera_fy = depth_frame_setting->camera_intrinsic->camera_fy;
-            depth_camera_setting->camera_cx = depth_frame_setting->camera_intrinsic->camera_cx;
-            depth_camera_setting->camera_cy = depth_frame_setting->camera_intrinsic->camera_cy;
+            *depth_camera_setting = depth_frame_setting->camera_intrinsic;
             range_sensor = std::make_shared<erl::geometry::DepthCamera3D>(depth_camera_setting);
         } else {
             ERL_FATAL("Unknown range_sensor_frame_type: {}", gp_surf_setting->sensor_gp->range_sensor_frame_type);
@@ -265,7 +265,7 @@ TEST(GpSdfMapping3D, Build_Save_Load) {
                 Eigen::Matrix4d pose = Eigen::Matrix4d::Identity();
                 pose.topLeftCorner<3, 3>() = rotation;
                 pose.topRightCorner<3, 1>() = translation;
-                pose = pose * erl::geometry::DepthCamera3D::oTc.inverse();
+                pose = pose * erl::geometry::DepthCamera3D::cTo;
                 rotation_sensor = pose.topLeftCorner<3, 3>();
                 translation_sensor = pose.topRightCorner<3, 1>();
                 ranges = frame.depth;

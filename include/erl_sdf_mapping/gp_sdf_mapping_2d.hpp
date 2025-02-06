@@ -26,6 +26,8 @@ namespace erl::sdf_mapping {
         };
 
         inline static const volatile bool kSettingRegistered = common::YamlableBase::Register<Setting>();
+        using SurfaceData = SurfaceDataManager<2>::SurfaceData;
+        using Gp = SdfGaussianProcess<2, SurfaceData>;
 
     private:
         template<typename T>
@@ -52,8 +54,6 @@ namespace erl::sdf_mapping {
             boost::heap::arity<8>,
             boost::heap::compare<Greater<PriorityQueueItem>>>;
         using KeyQueueMap = std::unordered_map<Key, PriorityQueue::handle_type, Key::KeyHash>;
-        using SurfaceData = SurfaceDataManager<2>::SurfaceData;
-        using Gp = SdfGaussianProcess<2, SurfaceData>;
         using KeyGpMap = std::unordered_map<Key, std::shared_ptr<Gp>, Key::KeyHash>;
         using KeyGpPair = std::pair<Key, std::shared_ptr<Gp>>;
 

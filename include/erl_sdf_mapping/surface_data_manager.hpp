@@ -99,17 +99,19 @@ namespace erl::sdf_mapping {
 
         void
         RemoveEntry(const std::size_t index) {
-            m_available_indices_.insert(index);
+            ERL_ASSERTM(m_available_indices_.insert(index).second, "Index {} is already removed.", index);
             --m_size_;
         }
 
         SurfaceData &
         operator[](const std::size_t index) {
+            ERL_DEBUG_ASSERT(m_available_indices_.find(index) == m_available_indices_.end(), "Index {} is not available.", index);
             return m_entries_[index];
         }
 
         const SurfaceData &
         operator[](const std::size_t index) const {
+            ERL_DEBUG_ASSERT(m_available_indices_.find(index) == m_available_indices_.end(), "Index {} is not available.", index);
             return m_entries_[index];
         }
 

@@ -22,10 +22,8 @@ BindGpSdfMappingSetting(const py::module &m) {
         .def_readwrite("offset_distance", &GpSdfMappingBaseSetting::offset_distance)
         .def_readwrite("max_valid_gradient_var", &GpSdfMappingBaseSetting::max_valid_gradient_var)
         .def_readwrite("invalid_position_var", &GpSdfMappingBaseSetting::invalid_position_var)
-        .def_readwrite("train_gp_immediately", &GpSdfMappingBaseSetting::train_gp_immediately)
         .def_readwrite("use_occ_sign", &GpSdfMappingBaseSetting::use_occ_sign)
         .def_readwrite("offset_distance", &GpSdfMappingBaseSetting::offset_distance)
         .def_readwrite("edf_gp", &GpSdfMappingBaseSetting::edf_gp)
-        .def_readwrite("test_query", &GpSdfMappingBaseSetting::test_query)
-        .def_readwrite("log_timing", &GpSdfMappingBaseSetting::log_timing);
+        .def_readwrite("test_query", &GpSdfMappingBaseSetting::test_query);
 }

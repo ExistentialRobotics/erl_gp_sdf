@@ -1,10 +1,10 @@
 num_threads: 64
-update_hz: 10
+update_hz: 50
 log_timing: true
 gp_sdf_area_scale: 4
 max_valid_gradient_var: 0.1
 invalid_position_var: 0.25
-offset_distance: 0.04
+offset_distance: 0.02
 use_occ_sign: false
 train_gp_immediately: false
 edf_gp:
@@ -31,25 +31,25 @@ surface_mapping_type: erl::sdf_mapping::GpOccSurfaceMapping3D
 surface_mapping_setting_type: erl::sdf_mapping::GpOccSurfaceMapping3D::Setting
 surface_mapping:
     sensor_gp:
-        row_group_size: 6
-        row_overlap_size: 2
+        row_group_size: 5
+        row_overlap_size: 1
         row_margin: &row_margin 0
-        col_group_size: 6
-        col_overlap_size: 2
+        col_group_size: 5
+        col_overlap_size: 1
         col_margin: &col_margin 0
         init_variance: 1000000
         sensor_range_var: 0.01
-        max_valid_range_var: 0.10000000000000001
+        max_valid_range_var: 0.1
         occ_test_temperature: 30
         range_sensor_frame_type: erl::geometry::DepthFrame3D
         range_sensor_frame_setting_type: erl::geometry::DepthFrame3D::Setting
         range_sensor_frame:
             row_margin: *row_margin
             col_margin: *col_margin
-            valid_range_min: 0.20000000000000001
+            valid_range_min: 0.1
             valid_range_max: 30
             discontinuity_factor: 10
-            rolling_diff_discount: 0.90000000000000002
+            rolling_diff_discount: 0.9
             min_partition_size: 5
             camera_intrinsic:
                 image_height: 480
@@ -67,7 +67,7 @@ surface_mapping:
                 scale: 0.5
                 scale_mix: 1
                 weights: [ ]
-            max_num_samples: 40
+            max_num_samples: 30
         mapping:
             type: kInverseSqrt
             scale: 1
@@ -90,10 +90,10 @@ surface_mapping:
         min_gradient_var: 0.001
     octree:
         tree_depth: 16
-        log_odd_min: -2
-        log_odd_max: 3.5
-        log_odd_hit: 0.850000024
-        log_odd_miss: -0.400000006
+        log_odd_min: -3
+        log_odd_max: 4
+        log_odd_hit: 0.9
+        log_odd_miss: -0.4
         log_odd_occ_threshold: 0
         resolution: 0.1
         use_change_detection: false

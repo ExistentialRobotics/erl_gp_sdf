@@ -18,36 +18,10 @@ namespace erl::sdf_mapping {
         const Eigen::Ref<const Eigen::MatrixXd> &ranges) {
 
         m_changed_keys_.clear();
-
-        bool sensor_gp_trained = false;
-        const bool verbose_timer = common::Logging::GetLevel() <= common::Logging::Level::kInfo;
-        {
-            common::BlockTimer<std::chrono::milliseconds> timer("Sensor GP training", nullptr, verbose_timer);
-            sensor_gp_trained = m_sensor_gp_->Train(rotation, translation, ranges, false);
-        }
-        if (!sensor_gp_trained) { return false; }
-
-        const double d = m_setting_->perturb_delta;
-        // clang-format off
-        m_xy_perturb_ << d, -d, 0., 0.,
-                         0., 0., d, -d;
-        // clang-format on
-
-        if (m_setting_->update_occupancy) {
-            common::BlockTimer<std::chrono::milliseconds> timer("Update occupancy", nullptr, verbose_timer);
-            UpdateOccupancy();
-        }
-
-        // perform surface mapping
-        {
-            common::BlockTimer<std::chrono::milliseconds> timer("Update map points", nullptr, verbose_timer);
-            UpdateMapPoints();
-        }
-
-        {
-            common::BlockTimer<std::chrono::milliseconds> timer("Add new measurement time", nullptr, verbose_timer);
-            AddNewMeasurement();
-        }
+        if (!m_sensor_gp_->Train(rotation, translation, ranges, false)) { return false; }
+        if (m_setting_->update_occupancy) { UpdateOccupancy(); }
+        UpdateMapPoints();
+        AddNewMeasurement();
 
         return true;
     }
@@ -247,6 +221,8 @@ namespace erl::sdf_mapping {
 
     void
     GpOccSurfaceMapping2D::UpdateMapPoints() {
+        ERL_BLOCK_TIMER();
+
         if (m_quadtree_ == nullptr || !m_sensor_gp_->IsTrained()) { return; }
 
         const auto sensor_frame = m_sensor_gp_->GetLidarFrame();
@@ -412,9 +388,8 @@ namespace erl::sdf_mapping {
 
     void
     GpOccSurfaceMapping2D::UpdateOccupancy() {
-
+        ERL_BLOCK_TIMER();
         if (m_quadtree_ == nullptr) { m_quadtree_ = std::make_shared<SurfaceMappingQuadtree>(m_setting_->quadtree); }
-
         const auto sensor_frame = m_sensor_gp_->GetLidarFrame();
         // In AddNewMeasurement(), only rays classified as hit are used. So, we use the same here to avoid inconsistency.
         // Experiments show that this achieves higher fps and better results.
@@ -427,9 +402,9 @@ namespace erl::sdf_mapping {
 
     void
     GpOccSurfaceMapping2D::AddNewMeasurement() {
+        ERL_BLOCK_TIMER();
 
         if (m_quadtree_ == nullptr) { m_quadtree_ = std::make_shared<SurfaceMappingQuadtree>(m_setting_->quadtree); }
-
         const auto sensor_frame = m_sensor_gp_->GetLidarFrame();
         const std::vector<long> &hit_ray_indices = sensor_frame->GetHitRayIndices();
         const std::vector<Eigen::Vector2d> &points_local = sensor_frame->GetEndPointsInFrame();
@@ -464,14 +439,13 @@ namespace erl::sdf_mapping {
 
         for (long i = 0; i < num_new_measurements; ++i) {
             auto &[key, hit_idx, idx, node, invalid_flag, occ_mean, gradient_local] = new_measurements[i];
-            if (invalid_flag) { continue; }
+            if (invalid_flag) { continue; }            // invalid measurement
             if (node->HasSurfaceData()) { continue; }  // the node is already occupied by previous new measurement
 
             double var_position, var_gradient;
             ComputeVariance(points_local[idx], gradient_local, ranges[idx], 0, std::fabs(occ_mean), 0, true, var_position, var_gradient);
             var_position = std::max(var_position, min_position_var);
             var_gradient = std::max(var_gradient, min_gradient_var);
-            ERL_DEBUG_ASSERT(!node->HasSurfaceData(), "node is already occupied, which should not happen.");
             node->surface_data_index = m_surface_data_manager_.AddEntry(SurfaceDataManager<2>::SurfaceData{
                 hit_points[hit_idx],
                 sensor_frame->FrameToWorldSo2(gradient_local),

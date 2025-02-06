@@ -25,7 +25,7 @@ namespace erl::sdf_mapping {
 
     private:
         std::shared_ptr<Setting> m_setting_ = std::make_shared<Setting>();
-        std::shared_ptr<gaussian_process::RangeSensorGaussianProcess3D> m_sensor_gp_ = nullptr;  // the GP of regression between angle and mapped distance
+        std::shared_ptr<SensorGp> m_sensor_gp_ = nullptr;  // the GP of regression between angle and mapped distance
         std::shared_ptr<SurfaceMappingOctree> m_octree_ = nullptr;
         SurfaceDataManager<3> m_surface_data_manager_;
         Eigen::Matrix<double, 3, 6> m_xyz_perturb_ = {};
@@ -34,14 +34,21 @@ namespace erl::sdf_mapping {
     public:
         explicit GpOccSurfaceMapping3D(std::shared_ptr<Setting> setting)
             : m_setting_(std::move(setting)),
-              m_sensor_gp_(std::make_shared<gaussian_process::RangeSensorGaussianProcess3D>(m_setting_->sensor_gp)) {}
+              m_sensor_gp_(std::make_shared<SensorGp>(m_setting_->sensor_gp)) {
+            const double d = m_setting_->perturb_delta;
+            // clang-format off
+            m_xyz_perturb_ << d, -d, 0,  0, 0,  0,
+                              0,  0, d, -d, 0,  0,
+                              0,  0, 0,  0, d, -d;
+            // clang-format on
+        }
 
         [[nodiscard]] std::shared_ptr<const Setting>
         GetSetting() const {
             return m_setting_;
         }
 
-        [[nodiscard]] std::shared_ptr<const gaussian_process::RangeSensorGaussianProcess3D>
+        [[nodiscard]] std::shared_ptr<const SensorGp>
         GetSensorGp() const {
             return m_sensor_gp_;
         }

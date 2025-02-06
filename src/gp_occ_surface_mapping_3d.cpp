@@ -12,37 +12,10 @@ namespace erl::sdf_mapping {
         const Eigen::Ref<const Eigen::MatrixXd> &ranges) {
 
         m_changed_keys_.clear();
-
-        bool sensor_gp_trained = false;
-        const bool verbose_timer = common::Logging::GetLevel() <= common::Logging::Level::kInfo;
-        {
-            common::BlockTimer<std::chrono::milliseconds> timer("Sensor GP training", nullptr, verbose_timer);
-            sensor_gp_trained = m_sensor_gp_->Train(rotation, translation, ranges);
-        }
-        if (!sensor_gp_trained) { return false; }
-
-        const double d = m_setting_->perturb_delta;
-        // clang-format off
-        m_xyz_perturb_ << d, -d, 0,  0, 0,  0,
-                          0,  0, d, -d, 0,  0,
-                          0,  0, 0,  0, d, -d;
-        // clang-format on
-
-        if (m_setting_->update_occupancy) {
-            common::BlockTimer<std::chrono::milliseconds> timer("Update occupancy", nullptr, verbose_timer);
-            UpdateOccupancy();
-        }
-
-        // perform surface mapping
-        {
-            common::BlockTimer<std::chrono::milliseconds> timer("Update map points", nullptr, verbose_timer);
-            UpdateMapPoints();
-        }
-
-        {
-            common::BlockTimer<std::chrono::milliseconds> timer("Add new measurement time", nullptr, verbose_timer);
-            AddNewMeasurement();
-        }
+        if (!m_sensor_gp_->Train(rotation, translation, ranges)) { return false; }
+        if (m_setting_->update_occupancy) { UpdateOccupancy(); }
+        UpdateMapPoints();
+        AddNewMeasurement();
 
         return true;
     }
@@ -244,6 +217,8 @@ namespace erl::sdf_mapping {
 
     void
     GpOccSurfaceMapping3D::UpdateMapPoints() {
+        ERL_BLOCK_TIMER();
+
         if (m_octree_ == nullptr || !m_sensor_gp_->IsTrained()) { return; }
 
         const auto sensor_frame = m_sensor_gp_->GetRangeSensorFrame();
@@ -409,9 +384,8 @@ namespace erl::sdf_mapping {
 
     void
     GpOccSurfaceMapping3D::UpdateOccupancy() {
-
+        ERL_BLOCK_TIMER();
         if (m_octree_ == nullptr) { m_octree_ = std::make_shared<SurfaceMappingOctree>(m_setting_->octree); }
-
         const auto sensor_frame = m_sensor_gp_->GetRangeSensorFrame();
         const Eigen::Map<const Eigen::Matrix3Xd> map_points(sensor_frame->GetHitPointsWorld().data()->data(), 3, sensor_frame->GetNumHitRays());
         constexpr bool parallel = false;
@@ -422,9 +396,9 @@ namespace erl::sdf_mapping {
 
     void
     GpOccSurfaceMapping3D::AddNewMeasurement() {
+        ERL_BLOCK_TIMER();
 
         if (m_octree_ == nullptr) { m_octree_ = std::make_shared<SurfaceMappingOctree>(m_setting_->octree); }
-
         const auto sensor_frame = m_sensor_gp_->GetRangeSensorFrame();
         const std::vector<std::pair<long, long>> &hit_ray_indices = sensor_frame->GetHitRayIndices();
         const Eigen::MatrixX<Eigen::Vector3d> &points_local = sensor_frame->GetEndPointsInFrame();
@@ -436,6 +410,7 @@ namespace erl::sdf_mapping {
 
         // collect new measurements
         // if we iterate over the hit rays directly, some computations are unnecessary
+        // [key, hit_idx, row, col, node, invalid_flag, occ_mean, gradient_local]
         std::vector<std::tuple<geometry::OctreeKey, long, long, long, SurfaceMappingOctreeNode *, bool, double, Eigen::Vector3d>> new_measurements;
         new_measurements.reserve(num_hit_rays);
         geometry::OctreeKeySet new_measurement_keys;
@@ -467,7 +442,6 @@ namespace erl::sdf_mapping {
             ComputeVariance(points_local(row, col), gradient_local, ranges(row, col), 0, std::fabs(occ_mean), 0, true, var_position, var_gradient);
             var_position = std::max(var_position, min_position_var);
             var_gradient = std::max(var_gradient, min_gradient_var);
-            ERL_DEBUG_ASSERT(!node->HasSurfaceData(), "node is already occupied, which should not happen.");
             node->surface_data_index = m_surface_data_manager_.AddEntry(SurfaceDataManager<3>::SurfaceData{
                 hit_points[hit_idx],
                 sensor_frame->FrameToWorldSo3(gradient_local),

@@ -52,18 +52,18 @@ TEST(GpOccSurfaceMapping3D, Build_Save_Load) {
         area_min = cow_and_lady->GetMapMin();
         area_max = cow_and_lady->GetMapMax();
         const auto depth_frame_setting = std::make_shared<erl::geometry::DepthFrame3D::Setting>();
-        depth_frame_setting->camera_intrinsic->image_height = erl::geometry::CowAndLady::kImageHeight;
-        depth_frame_setting->camera_intrinsic->image_width = erl::geometry::CowAndLady::kImageWidth;
-        depth_frame_setting->camera_intrinsic->camera_fx = erl::geometry::CowAndLady::kCameraFx;
-        depth_frame_setting->camera_intrinsic->camera_fy = erl::geometry::CowAndLady::kCameraFy;
-        depth_frame_setting->camera_intrinsic->camera_cx = erl::geometry::CowAndLady::kCameraCx;
-        depth_frame_setting->camera_intrinsic->camera_cy = erl::geometry::CowAndLady::kCameraCy;
+        depth_frame_setting->camera_intrinsic.image_height = erl::geometry::CowAndLady::kImageHeight;
+        depth_frame_setting->camera_intrinsic.image_width = erl::geometry::CowAndLady::kImageWidth;
+        depth_frame_setting->camera_intrinsic.camera_fx = erl::geometry::CowAndLady::kCameraFx;
+        depth_frame_setting->camera_intrinsic.camera_fy = erl::geometry::CowAndLady::kCameraFy;
+        depth_frame_setting->camera_intrinsic.camera_cx = erl::geometry::CowAndLady::kCameraCx;
+        depth_frame_setting->camera_intrinsic.camera_cy = erl::geometry::CowAndLady::kCameraCy;
     } else {
         const auto mesh = open3d::io::CreateMeshFromFile(g_options.mesh_file);
         ERL_ASSERTM(!mesh->vertices_.empty(), "Failed to load mesh file: {}", g_options.mesh_file);
         area_min = mesh->GetMinBound();
         area_max = mesh->GetMaxBound();
-        if (gp_surf_setting->sensor_gp->range_sensor_frame_type == "lidar") {
+        if (gp_surf_setting->sensor_gp->range_sensor_frame_type == type_name<erl::geometry::LidarFrame3D>()) {
             const auto lidar_frame_setting = std::dynamic_pointer_cast<erl::geometry::LidarFrame3D::Setting>(gp_surf_setting->sensor_gp->range_sensor_frame);
             const auto lidar_setting = std::make_shared<erl::geometry::Lidar3D::Setting>();
             lidar_setting->azimuth_min = lidar_frame_setting->azimuth_min;
@@ -72,12 +72,14 @@ TEST(GpOccSurfaceMapping3D, Build_Save_Load) {
             lidar_setting->elevation_min = lidar_frame_setting->elevation_min;
             lidar_setting->elevation_max = lidar_frame_setting->elevation_max;
             lidar_setting->num_elevation_lines = lidar_frame_setting->num_elevation_lines;
-            range_sensor = std::make_shared<erl::geometry::Lidar3D>(lidar_setting, mesh->vertices_, mesh->triangles_);
-        } else if (gp_surf_setting->sensor_gp->range_sensor_frame_type == "depth") {
+            range_sensor = std::make_shared<erl::geometry::Lidar3D>(lidar_setting);
+            range_sensor->AddMesh(mesh->vertices_, mesh->triangles_);
+        } else if (gp_surf_setting->sensor_gp->range_sensor_frame_type == type_name<erl::geometry::DepthFrame3D>()) {
             const auto depth_frame_setting = std::dynamic_pointer_cast<erl::geometry::DepthFrame3D::Setting>(gp_surf_setting->sensor_gp->range_sensor_frame);
             const auto depth_camera_setting = std::make_shared<erl::geometry::DepthCamera3D::Setting>();
-            *depth_camera_setting = *(depth_frame_setting->camera_intrinsic);
-            range_sensor = std::make_shared<erl::geometry::DepthCamera3D>(depth_camera_setting, mesh->vertices_, mesh->triangles_);
+            *depth_camera_setting = depth_frame_setting->camera_intrinsic;
+            range_sensor = std::make_shared<erl::geometry::DepthCamera3D>(depth_camera_setting);
+            range_sensor->AddMesh(mesh->vertices_, mesh->triangles_);
         } else {
             ERL_FATAL("Unknown range_sensor_frame_type: {}", gp_surf_setting->sensor_gp->range_sensor_frame_type);
         }
@@ -206,10 +208,10 @@ TEST(GpOccSurfaceMapping3D, Build_Save_Load) {
         line_set_surf_normals->lines_.clear();
         if (const auto octree = gp.GetOctree(); octree != nullptr) {
             for (auto it = octree->BeginLeaf(), end = octree->EndLeaf(); it != end; ++it) {
-                const auto surface_data = it->GetSurfaceData();
-                if (surface_data == nullptr) { continue; }
-                const Eigen::Vector3d &position = surface_data->position;
-                const Eigen::Vector3d &normal = surface_data->normal;
+                if (!it->HasSurfaceData()) { continue; }
+                auto &surface_data = gp.GetSurfaceDataManager()[it->surface_data_index];
+                const Eigen::Vector3d &position = surface_data.position;
+                const Eigen::Vector3d &normal = surface_data.normal;
                 ERL_ASSERTM(std::abs(normal.norm() - 1.0) < 1.e-6, "normal.norm() = {:.6f}", normal.norm());
                 pcd_surf_points->points_.emplace_back(position);
                 line_set_surf_normals->points_.emplace_back(position);
@@ -242,11 +244,11 @@ TEST(GpOccSurfaceMapping3D, Build_Save_Load) {
     visualizer.SetAnimationCallback(callback);
     visualizer.Show();
 
-    auto drawer_setting = std::make_shared<erl::geometry::OccupancyOctreeDrawer<erl::geometry::SurfaceMappingOctree>::Setting>();
+    auto drawer_setting = std::make_shared<erl::sdf_mapping::SurfaceMappingOctree::Drawer::Setting>();
     drawer_setting->area_min = area_min;
     drawer_setting->area_max = area_max;
     drawer_setting->occupied_only = true;
-    erl::geometry::OccupancyOctreeDrawer<erl::geometry::SurfaceMappingOctree> octree_drawer(drawer_setting, gp.GetOctree());
+    erl::sdf_mapping::SurfaceMappingOctree::Drawer octree_drawer(drawer_setting, gp.GetOctree());
     auto mesh = geometries[0];
     geometries = octree_drawer.GetBlankGeometries();
     geometries.push_back(mesh);

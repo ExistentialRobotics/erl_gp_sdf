@@ -24,7 +24,7 @@ namespace erl::sdf_mapping {
 
     private:
         std::shared_ptr<Setting> m_setting_ = std::make_shared<Setting>();
-        std::shared_ptr<gaussian_process::LidarGaussianProcess2D> m_sensor_gp_ = nullptr;  // the GP of regression between angle and mapped distance
+        std::shared_ptr<SensorGp> m_sensor_gp_ = nullptr;  // the GP of regression between angle and mapped distance
         std::shared_ptr<SurfaceMappingQuadtree> m_quadtree_ = nullptr;
         SurfaceDataManager<2> m_surface_data_manager_;
         Eigen::Matrix24d m_xy_perturb_ = {};
@@ -33,11 +33,22 @@ namespace erl::sdf_mapping {
     public:
         explicit GpOccSurfaceMapping2D(const std::shared_ptr<Setting> &setting)
             : m_setting_(setting),
-              m_sensor_gp_(std::make_shared<gaussian_process::LidarGaussianProcess2D>(m_setting_->sensor_gp)) {}
+              m_sensor_gp_(std::make_shared<SensorGp>(m_setting_->sensor_gp)) {
+            const double d = m_setting_->perturb_delta;
+            // clang-format off
+            m_xy_perturb_ << d, -d, 0., 0.,
+                             0., 0., d, -d;
+            // clang-format on
+        }
 
         [[nodiscard]] std::shared_ptr<const Setting>
         GetSetting() const {
             return m_setting_;
+        }
+
+        [[nodiscard]] std::shared_ptr<const SensorGp>
+        GetSensorGp() const {
+            return m_sensor_gp_;
         }
 
         geometry::QuadtreeKeySet
@@ -99,7 +110,6 @@ namespace erl::sdf_mapping {
         void
         RecordChangedKey(const geometry::QuadtreeKey &key) {
             ERL_DEBUG_ASSERT(m_quadtree_ != nullptr, "Quadtree is not initialized.");
-            ERL_DEBUG_ASSERT(m_setting_ != nullptr, "Setting is not initialized.");
             m_changed_keys_.insert(m_quadtree_->AdjustKeyToDepth(key, m_quadtree_->GetTreeDepth() - m_setting_->cluster_level));
         }
 

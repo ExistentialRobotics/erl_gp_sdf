@@ -183,7 +183,7 @@ TEST(GpOccSurfaceMapping2D, Build_Save_Load) {
     erl::sdf_mapping::GpOccSurfaceMapping2D gp(gp_setting);
     std::cout << "Surface Mapping Setting:" << std::endl << *gp_setting << std::endl;
 
-    using OccupancyQuadtreeDrawer = erl::geometry::OccupancyQuadtreeDrawer<erl::geometry::SurfaceMappingQuadtree>;
+    using OccupancyQuadtreeDrawer = erl::sdf_mapping::SurfaceMappingQuadtree::Drawer;
     auto drawer_setting = std::make_shared<OccupancyQuadtreeDrawer::Setting>();
     drawer_setting->area_min = map_min;
     drawer_setting->area_max = map_max;
@@ -193,7 +193,8 @@ TEST(GpOccSurfaceMapping2D, Build_Save_Load) {
     std::cout << "Quadtree Drawer Setting:" << std::endl << *drawer_setting << std::endl;
     auto drawer = std::make_shared<OccupancyQuadtreeDrawer>(drawer_setting);
     std::vector<std::pair<cv::Point, cv::Point>> arrowed_lines;
-    drawer->SetDrawTreeCallback([&](const OccupancyQuadtreeDrawer *self, cv::Mat &img, erl::geometry::SurfaceMappingQuadtree::TreeIterator &it) {
+    auto &surface_data_manager = gp.GetSurfaceDataManager();
+    drawer->SetDrawTreeCallback([&](const OccupancyQuadtreeDrawer *self, cv::Mat &img, erl::sdf_mapping::SurfaceMappingQuadtree::TreeIterator &it) {
         const uint32_t cluster_depth = gp.GetQuadtree()->GetTreeDepth() - gp.GetClusterLevel();
         const auto grid_map_info = self->GetGridMapInfo();
         if (it->GetDepth() == cluster_depth) {
@@ -202,21 +203,23 @@ TEST(GpOccSurfaceMapping2D, Build_Save_Load) {
             cv::circle(img, position_px_cv, 2, cv::Scalar(0, 0, 255, 255), -1);  // draw surface point
             return;
         }
-        if (it->GetSurfaceData() == nullptr) { return; }
-        Eigen::Vector2i position_px = grid_map_info->MeterToPixelForPoints(it->GetSurfaceData()->position);
+        if (!it->HasSurfaceData()) { return; }
+        auto &surface_data = surface_data_manager[it->surface_data_index];
+        Eigen::Vector2i position_px = grid_map_info->MeterToPixelForPoints(surface_data.position);
         cv::Point position_px_cv(position_px[0], position_px[1]);
         cv::circle(img, cv::Point(position_px[0], position_px[1]), 1, cv::Scalar(0, 0, 255, 255), -1);  // draw surface point
-        Eigen::Vector2i normal_px = grid_map_info->MeterToPixelForVectors(it->GetSurfaceData()->normal * g_options.surf_normal_scale);
+        Eigen::Vector2i normal_px = grid_map_info->MeterToPixelForVectors(surface_data.normal * g_options.surf_normal_scale);
         cv::Point arrow_end_px(position_px[0] + normal_px[0], position_px[1] + normal_px[1]);
         arrowed_lines.emplace_back(position_px_cv, arrow_end_px);
     });
-    drawer->SetDrawLeafCallback([&](const OccupancyQuadtreeDrawer *self, cv::Mat &img, erl::geometry::SurfaceMappingQuadtree::LeafIterator &it) {
-        if (it->GetSurfaceData() == nullptr) { return; }
+    drawer->SetDrawLeafCallback([&](const OccupancyQuadtreeDrawer *self, cv::Mat &img, erl::sdf_mapping::SurfaceMappingQuadtree::LeafIterator &it) {
+        if (!it->HasSurfaceData()) { return; }
         const auto grid_map_info = self->GetGridMapInfo();
-        Eigen::Vector2i position_px = grid_map_info->MeterToPixelForPoints(it->GetSurfaceData()->position);
+        auto &surface_data = surface_data_manager[it->surface_data_index];
+        Eigen::Vector2i position_px = grid_map_info->MeterToPixelForPoints(surface_data.position);
         cv::Point position_px_cv(position_px[0], position_px[1]);
         cv::circle(img, position_px_cv, 1, cv::Scalar(0, 0, 255, 255), -1);  // draw surface point
-        Eigen::Vector2i normal_px = grid_map_info->MeterToPixelForVectors(it->GetSurfaceData()->normal * g_options.surf_normal_scale);
+        Eigen::Vector2i normal_px = grid_map_info->MeterToPixelForVectors(surface_data.normal * g_options.surf_normal_scale);
         cv::Point arrow_end_px(position_px[0] + normal_px[0], position_px[1] + normal_px[1]);
         arrowed_lines.emplace_back(position_px_cv, arrow_end_px);
     });

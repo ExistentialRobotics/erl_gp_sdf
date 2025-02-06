@@ -9,20 +9,56 @@ from erl_covariance import Covariance
 from erl_gaussian_process import LidarGaussianProcess2D
 from erl_gaussian_process import NoisyInputGaussianProcess
 from erl_gaussian_process import RangeSensorGaussianProcess3D
-from erl_geometry import AbstractSurfaceMapping
-from erl_geometry import AbstractSurfaceMapping2D
-from erl_geometry import AbstractSurfaceMapping3D
 from erl_geometry import QuadtreeKey
-from erl_geometry import SurfaceMappingOctree
-from erl_geometry import SurfaceMappingQuadtree
+from erl_geometry import OccupancyQuadtreeNode
+from erl_geometry import OccupancyQuadtree
+from erl_geometry import OccupancyOctreeNode
+from erl_geometry import OccupancyOctree
 
 __all__ = [
+    "SurfaceMappingQuadtreeNode",
+    "SurfaceMappingQuadtree",
+    "SurfaceMappingOctreeNode",
+    "SurfaceMappingOctree",
     "LogSdfGaussianProcess",
+    "AbstractSurfaceMapping",
+    "AbstractSurfaceMapping2D",
+    "AbstractSurfaceMapping3D",
     "GpOccSurfaceMapping2D",
     "GpOccSurfaceMapping3D",
     "GpSdfMapping2D",
     "GpSdfMapping3D",
 ]
+
+class SurfaceMappingQuadtreeNode(OccupancyQuadtreeNode):
+    class SurfaceData:
+        position: npt.NDArray[np.float64]
+        normal: npt.NDArray[np.float64]
+        var_position: float
+        var_normal: float
+
+        def __eq__(self, other) -> bool: ...
+        def __ne__(self, other) -> bool: ...
+
+    @property
+    def surface_data(self) -> SurfaceMappingQuadtreeNode.SurfaceData: ...
+
+class SurfaceMappingQuadtree(OccupancyQuadtree): ...
+
+class SurfaceMappingOctreeNode(OccupancyOctreeNode):
+    class SurfaceData:
+        position: npt.NDArray[np.float64]
+        normal: npt.NDArray[np.float64]
+        var_position: float
+        var_normal: float
+
+        def __eq__(self, other) -> bool: ...
+        def __ne__(self, other) -> bool: ...
+
+    @property
+    def surface_data(self) -> SurfaceMappingOctreeNode.SurfaceData: ...
+
+class SurfaceMappingOctree(OccupancyOctree): ...
 
 class LogSdfGaussianProcess(NoisyInputGaussianProcess):
     class Setting(NoisyInputGaussianProcess.Setting):
@@ -56,6 +92,40 @@ class LogSdfGaussianProcess(NoisyInputGaussianProcess):
     def test(
         self: LogSdfGaussianProcess, mat_x_test: npt.NDArray[np.float64]
     ) -> Tuple[npt.NDArray[np.float64], npt.NDArray[np.float64]]: ...
+
+class AbstractSurfaceMapping:
+    class Setting(YamlableBase):
+        @staticmethod
+        def create(mapping_type: str) -> AbstractSurfaceMapping.Setting: ...
+
+    @staticmethod
+    def create_surface_mapping(
+        mapping_type: str, setting: AbstractSurfaceMapping.Setting
+    ) -> AbstractSurfaceMapping: ...
+    def write(self, filename: str) -> bool: ...
+    def read(self, filename: str) -> bool: ...
+
+class AbstractSurfaceMapping2D(AbstractSurfaceMapping):
+    @property
+    def quadtree(self) -> SurfaceMappingQuadtree: ...
+    @property
+    def sensor_noise(self) -> float: ...
+    @property
+    def cluster_level(self) -> int: ...
+    def update(
+        self, rotation: npt.NDArray[np.float64], translation: npt.NDArray[np.float64], ranges: npt.NDArray[np.float64]
+    ) -> None: ...
+
+class AbstractSurfaceMapping3D(AbstractSurfaceMapping):
+    @property
+    def octree(self) -> SurfaceMappingOctree: ...
+    @property
+    def sensor_noise(self) -> float: ...
+    @property
+    def cluster_level(self) -> int: ...
+    def update(
+        self, rotation: npt.NDArray[np.float64], translation: npt.NDArray[np.float64], ranges: npt.NDArray[np.float64]
+    ) -> None: ...
 
 class GpOccSurfaceMappingBaseSetting(AbstractSurfaceMapping.Setting):
     class ComputeVariance(YamlableBase):
@@ -164,12 +234,6 @@ class GpSdfMapping2D:
     def used_gps(self) -> list[tuple[GpSdfMapping2D.Gp, GpSdfMapping2D.Gp]]: ...
     @property
     def gps(self) -> dict[QuadtreeKey, GpSdfMapping2D.Gp]: ...
-    @property
-    def num_update_calls(self) -> int: ...
-    @property
-    def num_test_calls(self) -> int: ...
-    @property
-    def num_test_positions(self) -> int: ...
     def __eq__(self, other) -> bool: ...
     def __ne__(self, other) -> bool: ...
     def write(self, filename: str) -> bool: ...
@@ -216,12 +280,6 @@ class GpSdfMapping3D:
     def used_gps(self) -> list[tuple[GpSdfMapping3D.Gp, GpSdfMapping3D.Gp]]: ...
     @property
     def gps(self) -> dict[QuadtreeKey, GpSdfMapping3D.Gp]: ...
-    @property
-    def num_update_calls(self) -> int: ...
-    @property
-    def num_test_calls(self) -> int: ...
-    @property
-    def num_test_positions(self) -> int: ...
     def __eq__(self, other) -> bool: ...
     def __ne__(self, other) -> bool: ...
     def write(self, filename: str) -> bool: ...
