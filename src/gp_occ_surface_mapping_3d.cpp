@@ -411,6 +411,7 @@ namespace erl::sdf_mapping {
         // collect new measurements
         // if we iterate over the hit rays directly, some computations are unnecessary
         // [key, hit_idx, row, col, node, invalid_flag, occ_mean, gradient_local]
+        ERL_INFO("Collecting new measurements");
         std::vector<std::tuple<geometry::OctreeKey, long, long, long, SurfaceMappingOctreeNode *, bool, double, Eigen::Vector3d>> new_measurements;
         new_measurements.reserve(num_hit_rays);
         geometry::OctreeKeySet new_measurement_keys;
@@ -426,6 +427,7 @@ namespace erl::sdf_mapping {
             new_measurements.emplace_back(key, i, row, col, node, false, 0.0, Eigen::Vector3d::Zero());
         }
 
+        ERL_INFO("Check validity of new measurements");
         const auto num_new_measurements = static_cast<long>(new_measurements.size());
 #pragma omp parallel for default(none) shared(num_new_measurements, new_measurements, points_local)
         for (long i = 0; i < num_new_measurements; ++i) {
@@ -433,6 +435,7 @@ namespace erl::sdf_mapping {
             invalid_flag = !ComputeGradient2(points_local(row, col), gradient_local, occ_mean);
         }
 
+        ERL_INFO("Add new measurements");
         for (long i = 0; i < num_new_measurements; ++i) {
             auto &[key, hit_idx, row, col, node, invalid_flag, occ_mean, gradient_local] = new_measurements[i];
             if (invalid_flag) { continue; }            // invalid measurement

@@ -19,14 +19,14 @@ namespace erl::sdf_mapping {
 
         [[nodiscard]] AbstractOctreeNode *
         Create(const uint32_t depth, const int child_index) const override {
-            auto node = new SurfaceMappingOctreeNode(depth, child_index, /*log_odds*/ 0);
+            AbstractOctreeNode *node = new SurfaceMappingOctreeNode(depth, child_index, /*log_odds*/ 0);
             ERL_TRACY_RECORD_ALLOC(node, sizeof(SurfaceMappingOctreeNode));
             return node;
         }
 
         [[nodiscard]] AbstractOctreeNode *
         Clone() const override {
-            auto node = new SurfaceMappingOctreeNode(*this);
+            AbstractOctreeNode *node = new SurfaceMappingOctreeNode(*this);
             ERL_TRACY_RECORD_ALLOC(node, sizeof(SurfaceMappingOctreeNode));
             return node;
         }
@@ -37,6 +37,17 @@ namespace erl::sdf_mapping {
             const auto *other_ptr = dynamic_cast<const SurfaceMappingOctreeNode *>(&other);
             if (other_ptr == nullptr) { return false; }
             return surface_data_index == other_ptr->surface_data_index;
+        }
+
+        [[nodiscard]] bool
+        AllowMerge(const AbstractOctreeNode *other) const override {
+            if (surface_data_index != static_cast<std::size_t>(-1)) { return false; }
+            ERL_DEBUG_ASSERT(dynamic_cast<const SurfaceMappingOctreeNode *>(other) != nullptr, "other node is not SurfaceMappingOctreeNode.");
+            if (const auto *other_node = reinterpret_cast<const SurfaceMappingOctreeNode *>(other);
+                other_node->surface_data_index != static_cast<std::size_t>(-1)) {
+                return false;
+            }
+            return OccupancyOctreeNode::AllowMerge(other);
         }
 
         [[nodiscard]] bool

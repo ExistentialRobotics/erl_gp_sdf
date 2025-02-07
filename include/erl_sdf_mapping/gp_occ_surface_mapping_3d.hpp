@@ -137,7 +137,6 @@ namespace erl::sdf_mapping {
     ERL_REGISTER_SURFACE_MAPPING(GpOccSurfaceMapping3D);
 }  // namespace erl::sdf_mapping
 
-// ReSharper disable CppInconsistentNaming
 template<>
 struct YAML::convert<erl::sdf_mapping::GpOccSurfaceMapping3D::Setting> {
     static Node

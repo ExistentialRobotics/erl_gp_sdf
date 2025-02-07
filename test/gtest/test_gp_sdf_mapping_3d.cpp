@@ -62,7 +62,7 @@ std::pair<cv::Mat, cv::Mat>
 ConvertSdfToImage(const Eigen::VectorXd &distances, const long rows, const long cols) {
     Eigen::MatrixXd sdf = distances.reshaped(rows, cols);
     const Eigen::MatrixX8U sdf_sign = (sdf.array() >= 0.0).cast<uint8_t>() * 255;
-    std::cout << "sdf.minCoeff(): " << sdf.minCoeff() << std::endl << "sdf.maxCoeff(): " << sdf.maxCoeff() << std::endl;
+    // std::cout << "sdf.minCoeff(): " << sdf.minCoeff() << std::endl << "sdf.maxCoeff(): " << sdf.maxCoeff() << std::endl;
     sdf = (sdf.array() - sdf.minCoeff()) / (sdf.maxCoeff() - sdf.minCoeff()) * 255.0;
     const Eigen::MatrixX8U sdf_uint8 = sdf.cast<uint8_t>();
     cv::Mat img_sdf, img_sdf_sign;
@@ -217,7 +217,7 @@ TEST(GpSdfMapping3D, Build_Save_Load) {
                     Eigen::Matrix3Xd gradients(3, test_positions.cols());
                     Eigen::Matrix4Xd variances;
                     Eigen::Matrix6Xd covairances;
-                    const erl::common::BlockTimer<std::chrono::milliseconds> timer("gp.Test");
+                    ERL_BLOCK_TIMER_MSG("sdf_mapping.Test");
                     EXPECT_TRUE(sdf_mapping.Test(test_positions, distances, gradients, variances, covairances));
                 }
                 auto [img_sdf, img_sdf_sign] = ConvertSdfToImage(distances, grid_map_info.Shape(0), grid_map_info.Shape(1));
@@ -256,8 +256,7 @@ TEST(GpSdfMapping3D, Build_Save_Load) {
         Eigen::MatrixXd ranges;
         double dt;
         {
-            const erl::common::BlockTimer<std::chrono::milliseconds> timer("data loading", &dt);
-            (void) timer;
+            ERL_BLOCK_TIMER_MSG_TIME("data loading", dt);
             if (g_options.use_cow_and_lady) {
                 const auto frame = (*cow_and_lady)[wp_idx];
                 rotation = frame.rotation;
@@ -281,14 +280,13 @@ TEST(GpSdfMapping3D, Build_Save_Load) {
         wp_idx += g_options.stride;
 
         {
-            const erl::common::BlockTimer<std::chrono::milliseconds> timer("gp.Update", &dt);
-            (void) timer;
+            ERL_BLOCK_TIMER_MSG_TIME("sdf_mapping.Update", dt);
             // provide ranges and frame pose in the world frame
-            ERL_WARN_COND(!sdf_mapping.Update(rotation, translation, ranges), "gp.Update failed.");
+            ERL_WARN_COND(!sdf_mapping.Update(rotation, translation, ranges), "sdf_mapping.Update failed.");
         }
         double gp_update_fps = 1000.0 / dt;
-        ERL_TRACY_PLOT("gp_update (ms)", dt);
-        ERL_TRACY_PLOT("gp_update (fps)", gp_update_fps);
+        ERL_TRACY_PLOT("sdf_mapping_update (ms)", dt);
+        ERL_TRACY_PLOT("sdf_mapping_update (fps)", gp_update_fps);
 
         // test
         Eigen::Matrix3Xd positions_test(3, positions.size());
@@ -303,8 +301,7 @@ TEST(GpSdfMapping3D, Build_Save_Load) {
             Eigen::Matrix3Xd gradients(3, positions_test.cols());
             Eigen::Matrix4Xd variances;
             Eigen::Matrix6Xd covairances;
-            const erl::common::BlockTimer<std::chrono::milliseconds> timer("gp.Test", &dt);
-            (void) timer;
+            ERL_BLOCK_TIMER_MSG_TIME("sdf_mapping.Test", dt);
             EXPECT_TRUE(sdf_mapping.Test(positions_test, distances, gradients, variances, covairances));
         }
         double gp_test_fps = 1000.0 / dt;

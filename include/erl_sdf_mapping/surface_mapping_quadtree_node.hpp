@@ -4,7 +4,7 @@
 
 namespace erl::sdf_mapping {
 
-    struct SurfaceMappingQuadtreeNode : public geometry::OccupancyQuadtreeNode {
+    struct SurfaceMappingQuadtreeNode : geometry::OccupancyQuadtreeNode {
         std::size_t surface_data_index = -1;
 
         explicit SurfaceMappingQuadtreeNode(const uint32_t depth = 0, const int child_index = -1, const float log_odds = 0)
@@ -19,14 +19,14 @@ namespace erl::sdf_mapping {
 
         [[nodiscard]] AbstractQuadtreeNode *
         Create(const uint32_t depth, const int child_index) const override {
-            auto node = new SurfaceMappingQuadtreeNode(depth, child_index, /*log_odds*/ 0);
+            AbstractQuadtreeNode *node = new SurfaceMappingQuadtreeNode(depth, child_index, /*log_odds*/ 0);
             ERL_TRACY_RECORD_ALLOC(node, sizeof(SurfaceMappingQuadtreeNode));
             return node;
         }
 
         [[nodiscard]] AbstractQuadtreeNode *
         Clone() const override {
-            auto node = new SurfaceMappingQuadtreeNode(*this);
+            AbstractQuadtreeNode *node = new SurfaceMappingQuadtreeNode(*this);
             ERL_TRACY_RECORD_ALLOC(node, sizeof(SurfaceMappingQuadtreeNode));
             return node;
         }
@@ -37,6 +37,17 @@ namespace erl::sdf_mapping {
             const auto *other_ptr = dynamic_cast<const SurfaceMappingQuadtreeNode *>(&other);
             if (other_ptr == nullptr) { return false; }
             return surface_data_index == other_ptr->surface_data_index;
+        }
+
+        [[nodiscard]] bool
+        AllowMerge(const AbstractQuadtreeNode *other) const override {
+            if (surface_data_index != static_cast<std::size_t>(-1)) { return false; }
+            ERL_DEBUG_ASSERT(dynamic_cast<const SurfaceMappingOctreeNode *>(other) != nullptr, "other node is not SurfaceMappingOctreeNode.");
+            if (const auto *other_node = reinterpret_cast<const SurfaceMappingQuadtreeNode *>(other);
+                other_node->surface_data_index != static_cast<std::size_t>(-1)) {
+                return false;
+            }
+            return OccupancyQuadtreeNode::AllowMerge(other);
         }
 
         [[nodiscard]] bool

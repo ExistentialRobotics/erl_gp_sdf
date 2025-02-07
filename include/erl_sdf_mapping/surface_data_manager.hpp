@@ -16,8 +16,8 @@ namespace erl::sdf_mapping {
 
         struct SurfaceData {
 
-            Vector position = {0.0, 0.0, 0.0};
-            Vector normal = {0.0, 0.0, 0.0};
+            Vector position = Vector::Zero();
+            Vector normal = Vector::Zero();
             double var_position = 0.0;
             double var_normal = 0.0;
 
@@ -83,22 +83,24 @@ namespace erl::sdf_mapping {
         }
 
         std::size_t
-        AddEntry(const SurfaceData &&entry) {
+        AddEntry(SurfaceData &&entry) {
             if (m_available_indices_.empty()) {
-                m_entries_.emplace_back(entry);
+                m_entries_.emplace_back(std::move(entry));
                 ++m_size_;
                 return m_size_ - 1;
             }
 
             const auto index = *m_available_indices_.begin();
             m_available_indices_.erase(index);
-            m_entries_[index] = entry;
+            ERL_ASSERTM(index < m_entries_.size(), "Index {} is out of range.", index);
+            m_entries_[index] = std::move(entry);
             ++m_size_;
             return index;
         }
 
         void
         RemoveEntry(const std::size_t index) {
+            ERL_ASSERTM(index != static_cast<std::size_t>(-1), "Index is invalid.");
             ERL_ASSERTM(m_available_indices_.insert(index).second, "Index {} is already removed.", index);
             --m_size_;
         }
@@ -106,12 +108,14 @@ namespace erl::sdf_mapping {
         SurfaceData &
         operator[](const std::size_t index) {
             ERL_DEBUG_ASSERT(m_available_indices_.find(index) == m_available_indices_.end(), "Index {} is not available.", index);
+            ERL_ASSERTM(index < m_entries_.size(), "Index {} is out of range.", index);
             return m_entries_[index];
         }
 
         const SurfaceData &
         operator[](const std::size_t index) const {
             ERL_DEBUG_ASSERT(m_available_indices_.find(index) == m_available_indices_.end(), "Index {} is not available.", index);
+            ERL_ASSERTM(index < m_entries_.size(), "Index {} is out of range.", index);
             return m_entries_[index];
         }
 
@@ -138,6 +142,7 @@ namespace erl::sdf_mapping {
                     ++new_index;
                 }
             }
+
             m_entries_.resize(new_index);
             m_available_indices_.clear();
             m_size_ = new_index;
