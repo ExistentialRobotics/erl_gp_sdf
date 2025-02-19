@@ -1,8 +1,9 @@
-#include "erl_sdf_mapping/gp_sdf_mapping_3d.hpp"
+#pragma once
 
-#include "erl_common/angle_utils.hpp"
 #include "erl_common/block_timer.hpp"
+#include "erl_common/template_helper.hpp"
 #include "erl_common/tracy.hpp"
+#include "erl_sdf_mapping/gp_sdf_mapping_3d.hpp"
 
 #include <algorithm>
 #include <chrono>
@@ -10,13 +11,40 @@
 #include <vector>
 
 namespace erl::sdf_mapping {
+
+    template<typename Dtype>
+    YAML::Node
+    GpSdfMapping3D<Dtype>::Setting::YamlConvertImpl::encode(const Setting &setting) {
+        YAML::Node node = GpSdfMappingBaseSetting<Dtype>::YamlConvertImpl::encode(setting);
+        node["surface_mapping_type"] = setting.surface_mapping_type;
+        node["surface_mapping_setting_type"] = setting.surface_mapping_setting_type;
+        node["surface_mapping"] = setting.surface_mapping->AsYamlNode();
+        return node;
+    }
+
+    template<typename Dtype>
     bool
-    GpSdfMapping3D::TestBuffer::ConnectBuffers(
-        const Eigen::Ref<const Eigen::Matrix3Xd> &positions_in,
-        Eigen::VectorXd &distances_out,
-        Eigen::Matrix3Xd &gradients_out,
-        Eigen::Matrix4Xd &variances_out,
-        Eigen::Matrix6Xd &covariances_out,
+    GpSdfMapping3D<Dtype>::Setting::YamlConvertImpl::decode(const YAML::Node &node, Setting &setting) {
+        if (!GpSdfMappingBaseSetting<Dtype>::YamlConvertImpl::decode(node, setting)) { return false; }
+        setting.surface_mapping_type = node["surface_mapping_type"].as<std::string>();
+        setting.surface_mapping_setting_type = node["surface_mapping_setting_type"].as<std::string>();
+        using SettingBase = typename AbstractSurfaceMapping3D<Dtype>::Setting;
+        setting.surface_mapping = common::YamlableBase::Create<SettingBase>(setting.surface_mapping_setting_type);
+        if (setting.surface_mapping == nullptr) {
+            ERL_WARN("Failed to decode surface_mapping of type: {}", setting.surface_mapping_setting_type);
+            return false;
+        }
+        return setting.surface_mapping->FromYamlNode(node["surface_mapping"]);
+    }
+
+    template<typename Dtype>
+    bool
+    GpSdfMapping3D<Dtype>::TestBuffer::ConnectBuffers(
+        const Eigen::Ref<const Matrix3X> &positions_in,
+        Vector &distances_out,
+        Matrix3X &gradients_out,
+        Matrix4X &variances_out,
+        Matrix6X &covariances_out,
         const bool compute_covariance) {
 
         positions = nullptr;
@@ -31,16 +59,17 @@ namespace erl::sdf_mapping {
         gradients_out.resize(3, n);
         variances_out.resize(4, n);
         if (compute_covariance) { covariances_out.resize(6, n); }
-        this->positions = std::make_unique<Eigen::Ref<const Eigen::Matrix3Xd>>(positions_in);
-        this->distances = std::make_unique<Eigen::Ref<Eigen::VectorXd>>(distances_out);
-        this->gradients = std::make_unique<Eigen::Ref<Eigen::Matrix3Xd>>(gradients_out);
-        this->variances = std::make_unique<Eigen::Ref<Eigen::Matrix4Xd>>(variances_out);
-        this->covariances = std::make_unique<Eigen::Ref<Eigen::Matrix6Xd>>(covariances_out);
+        this->positions = std::make_unique<Eigen::Ref<const Matrix3X>>(positions_in);
+        this->distances = std::make_unique<Eigen::Ref<Vector>>(distances_out);
+        this->gradients = std::make_unique<Eigen::Ref<Matrix3X>>(gradients_out);
+        this->variances = std::make_unique<Eigen::Ref<Matrix4X>>(variances_out);
+        this->covariances = std::make_unique<Eigen::Ref<Matrix6X>>(covariances_out);
         return true;
     }
 
+    template<typename Dtype>
     void
-    GpSdfMapping3D::TestBuffer::DisconnectBuffers() {
+    GpSdfMapping3D<Dtype>::TestBuffer::DisconnectBuffers() {
         positions = nullptr;
         distances = nullptr;
         gradients = nullptr;
@@ -48,18 +77,32 @@ namespace erl::sdf_mapping {
         covariances = nullptr;
     }
 
-    GpSdfMapping3D::GpSdfMapping3D(std::shared_ptr<Setting> setting)
+    template<typename Dtype>
+    GpSdfMapping3D<Dtype>::GpSdfMapping3D(std::shared_ptr<Setting> setting)
         : m_setting_(NotNull(std::move(setting), "setting is nullptr.")),
           m_surface_mapping_(
-              AbstractSurfaceMapping::CreateSurfaceMapping<AbstractSurfaceMapping3D>(m_setting_->surface_mapping_type, m_setting_->surface_mapping)) {
+              AbstractSurfaceMapping::CreateSurfaceMapping<AbstractSurfaceMapping3D<Dtype>>(m_setting_->surface_mapping_type, m_setting_->surface_mapping)) {
         ERL_ASSERTM(m_surface_mapping_ != nullptr, "surface_mapping is nullptr.");
     }
 
+    template<typename Dtype>
+    std::shared_ptr<const typename GpSdfMapping3D<Dtype>::Setting>
+    GpSdfMapping3D<Dtype>::GetSetting() const {
+        return m_setting_;
+    }
+
+    template<typename Dtype>
+    std::shared_ptr<AbstractSurfaceMapping3D<Dtype>>
+    GpSdfMapping3D<Dtype>::GetSurfaceMapping() const {
+        return m_surface_mapping_;
+    }
+
+    template<typename Dtype>
     bool
-    GpSdfMapping3D::Update(
-        const Eigen::Ref<const Eigen::Matrix3d> &rotation,
-        const Eigen::Ref<const Eigen::Vector3d> &translation,
-        const Eigen::Ref<const Eigen::MatrixXd> &ranges) {
+    GpSdfMapping3D<Dtype>::Update(
+        const Eigen::Ref<const Matrix3> &rotation,
+        const Eigen::Ref<const Vector3> &translation,
+        const Eigen::Ref<const Matrix> &ranges) {
 
         ERL_TRACY_FRAME_MARK_START();
 
@@ -93,7 +136,7 @@ namespace erl::sdf_mapping {
         ERL_TRACY_PLOT("m_cluster_queue_.size()", static_cast<long>(m_cluster_queue_.size()));
         ERL_TRACY_PLOT("m_clusters_to_train_.size()", static_cast<long>(m_clusters_to_train_.size()));
         ERL_TRACY_PLOT_CONFIG("m_gp_map_.memory_usage", tracy::PlotFormatType::Memory, true, true, 0);
-        ERL_TRACY_PLOT("m_gp_map_.memory_usage", static_cast<long>([&]() {
+        ERL_TRACY_PLOT("m_gp_map_.memory_usage", static_cast<long>([&] {
                            std::size_t gps_memory_usage = 0;
                            for (const auto &[key, gp]: m_gp_map_) {
                                gps_memory_usage += sizeof(key);
@@ -107,13 +150,14 @@ namespace erl::sdf_mapping {
         return success;
     }
 
+    template<typename Dtype>
     bool
-    GpSdfMapping3D::Test(
-        const Eigen::Ref<const Eigen::Matrix3Xd> &positions_in,
-        Eigen::VectorXd &distances_out,
-        Eigen::Matrix3Xd &gradients_out,
-        Eigen::Matrix4Xd &variances_out,
-        Eigen::Matrix6Xd &covariances_out) {
+    GpSdfMapping3D<Dtype>::Test(
+        const Eigen::Ref<const Matrix3X> &positions_in,
+        Vector &distances_out,
+        Matrix3X &gradients_out,
+        Matrix4X &variances_out,
+        Matrix6X &covariances_out) {
 
         ERL_BLOCK_TIMER();
 
@@ -162,7 +206,7 @@ namespace erl::sdf_mapping {
         {
             std::lock_guard lock(m_mutex_);  // CRITICAL SECTION
             {
-                double x, y, z;
+                Dtype x, y, z;
                 m_surface_mapping_->GetOctree()->GetMetricMin(x, y, z);  // trigger the octree to update its metric min/max
             }
 
@@ -218,7 +262,7 @@ namespace erl::sdf_mapping {
                 if (m_query_signs_.size() < num_queries) { m_query_signs_.resize(num_queries); }
 #pragma omp parallel for default(none) shared(tree, positions_in, num_queries)
                 for (uint32_t i = 0; i < num_queries; i++) {
-                    const Eigen::Vector3d &position = positions_in.col(i);
+                    const Vector3 &position = positions_in.col(i);
                     const auto node = tree->Search(position.x(), position.y(), position.z());
                     m_query_signs_[i] = node == nullptr ? -1.0 : 1.0;
                 }
@@ -257,8 +301,21 @@ namespace erl::sdf_mapping {
         return true;
     }
 
+    template<typename Dtype>
+    const std::vector<std::array<std::shared_ptr<typename GpSdfMapping3D<Dtype>::Gp>, 4>> &
+    GpSdfMapping3D<Dtype>::GetUsedGps() const {
+        return m_query_used_gps_;
+    }
+
+    template<typename Dtype>
+    const typename GpSdfMapping3D<Dtype>::KeyGpMap &
+    GpSdfMapping3D<Dtype>::GetGpMap() const {
+        return m_gp_map_;
+    }
+
+    template<typename Dtype>
     bool
-    GpSdfMapping3D::operator==(const GpSdfMapping3D &other) const {
+    GpSdfMapping3D<Dtype>::operator==(const GpSdfMapping3D &other) const {
         if (m_setting_ == nullptr && other.m_setting_ != nullptr) { return false; }
         if (m_setting_ != nullptr && (other.m_setting_ == nullptr || *m_setting_ != *other.m_setting_)) { return false; }
         if (m_surface_mapping_ == nullptr && other.m_surface_mapping_ != nullptr) { return false; }
@@ -281,8 +338,9 @@ namespace erl::sdf_mapping {
         return true;
     }
 
+    template<typename Dtype>
     bool
-    GpSdfMapping3D::Write(const std::string &filename) const {
+    GpSdfMapping3D<Dtype>::Write(const std::string &filename) const {
         ERL_INFO("Writing GpSdfMapping3D to file: {}", filename);
         std::filesystem::create_directories(std::filesystem::path(filename).parent_path());
         std::ofstream file(filename, std::ios_base::out | std::ios_base::binary);
@@ -298,8 +356,9 @@ namespace erl::sdf_mapping {
 
     static const std::string kFileHeader = "# erl::sdf_mapping::GpSdfMapping3D";
 
+    template<typename Dtype>
     bool
-    GpSdfMapping3D::Write(std::ostream &s) const {
+    GpSdfMapping3D<Dtype>::Write(std::ostream &s) const {
         s << kFileHeader << std::endl  //
           << "# (feel free to add / change comments, but leave the first line as it is!)" << std::endl
           << "setting" << std::endl;
@@ -342,8 +401,9 @@ namespace erl::sdf_mapping {
         return s.good();
     }
 
+    template<typename Dtype>
     bool
-    GpSdfMapping3D::Read(const std::string &filename) {
+    GpSdfMapping3D<Dtype>::Read(const std::string &filename) {
         ERL_INFO("Reading GpSdfMapping3D from file: {}", std::filesystem::absolute(filename));
         std::ifstream file(filename.c_str(), std::ios_base::in | std::ios_base::binary);
         if (!file.is_open()) {
@@ -356,8 +416,9 @@ namespace erl::sdf_mapping {
         return success;
     }
 
+    template<typename Dtype>
     bool
-    GpSdfMapping3D::Read(std::istream &s) {
+    GpSdfMapping3D<Dtype>::Read(std::istream &s) {
         if (!s.good()) {
             ERL_WARN("Input stream is not ready for reading");
             return false;
@@ -371,7 +432,7 @@ namespace erl::sdf_mapping {
             return false;
         }
 
-        auto skip_line = [&s]() {
+        auto skip_line = [&s] {
             char c;
             do { c = static_cast<char>(s.get()); } while (s.good() && c != '\n');
         };
@@ -415,7 +476,7 @@ namespace erl::sdf_mapping {
                     skip_line();
                     if (has_surface_mapping) {
                         if (m_surface_mapping_ == nullptr) {
-                            m_surface_mapping_ = AbstractSurfaceMapping::CreateSurfaceMapping<AbstractSurfaceMapping3D>(
+                            m_surface_mapping_ = AbstractSurfaceMapping::CreateSurfaceMapping<AbstractSurfaceMapping3D<Dtype>>(
                                 m_setting_->surface_mapping_type,
                                 m_setting_->surface_mapping);
                         }
@@ -486,8 +547,9 @@ namespace erl::sdf_mapping {
         return false;  // should not reach here
     }
 
+    template<typename Dtype>
     void
-    GpSdfMapping3D::UpdateGps(double time_budget_us) {
+    GpSdfMapping3D<Dtype>::UpdateGps(double time_budget_us) {
         ERL_BLOCK_TIMER();
         ERL_DEBUG_ASSERT(m_setting_->gp_sdf_area_scale > 1, "GP area scale must be greater than 1");
 
@@ -496,10 +558,10 @@ namespace erl::sdf_mapping {
         double train_gps_time = 0;
 
         const uint32_t cluster_level = m_surface_mapping_->GetClusterLevel();
-        const std::shared_ptr<SurfaceMappingOctree> tree = m_surface_mapping_->GetOctree();
+        const std::shared_ptr<SurfaceMappingOctree<Dtype>> tree = m_surface_mapping_->GetOctree();
         const uint32_t cluster_depth = tree->GetTreeDepth() - cluster_level;
-        const double cluster_size = tree->GetNodeSize(cluster_depth);
-        const double area_half_size = cluster_size * m_setting_->gp_sdf_area_scale / 2;
+        const Dtype cluster_size = tree->GetNodeSize(cluster_depth);
+        const Dtype area_half_size = cluster_size * m_setting_->gp_sdf_area_scale / 2;
 
         // add affected clusters
         {
@@ -508,7 +570,7 @@ namespace erl::sdf_mapping {
             const KeySet changed_clusters = m_surface_mapping_->GetChangedClusters();
             KeySet affected_clusters(changed_clusters);
             for (const auto &cluster_key: changed_clusters) {
-                const geometry::Aabb3D area(tree->KeyToCoord(cluster_key, cluster_depth), area_half_size);
+                const Aabb area(tree->KeyToCoord(cluster_key, cluster_depth), area_half_size);
                 for (auto it = tree->BeginTreeInAabb(area, cluster_depth), end = tree->EndTreeInAabb(); it != end; ++it) {
                     if (it->GetDepth() != cluster_depth) { continue; }
                     affected_clusters.insert(tree->AdjustKeyToDepth(it.GetKey(), cluster_depth));
@@ -571,8 +633,9 @@ namespace erl::sdf_mapping {
         ERL_TRACY_PLOT("[update_sdf_gp]train_gps_time (ms)", train_gps_time);
     }
 
+    template<typename Dtype>
     void
-    GpSdfMapping3D::TrainGps() {
+    GpSdfMapping3D<Dtype>::TrainGps() {
         const std::size_t n = m_clusters_to_train_.size();
         if (n == 0) { return; }
 
@@ -602,23 +665,24 @@ namespace erl::sdf_mapping {
         ERL_INFO("Per GP training time: {} us.", m_train_gp_time_);
     }
 
+    template<typename Dtype>
     void
-    GpSdfMapping3D::TrainGpThread(const uint32_t thread_idx, const std::size_t start_idx, const std::size_t end_idx) {
+    GpSdfMapping3D<Dtype>::TrainGpThread(const uint32_t thread_idx, const std::size_t start_idx, const std::size_t end_idx) {
         ERL_TRACY_SET_THREAD_NAME(fmt::format("{}:{}", __PRETTY_FUNCTION__, thread_idx).c_str());
         (void) thread_idx;
 
         const auto tree = m_surface_mapping_->GetOctree();
         if (tree == nullptr) { return; }
-        const double sensor_noise = m_surface_mapping_->GetSensorNoise();
+        const Dtype sensor_noise = m_surface_mapping_->GetSensorNoise();
         const uint32_t cluster_depth = tree->GetTreeDepth() - m_surface_mapping_->GetClusterLevel();
-        const double cluster_size = tree->GetNodeSize(cluster_depth);
-        const double aabb_half_size = cluster_size * m_setting_->gp_sdf_area_scale / 2.;
-        const double offset_distance = m_setting_->offset_distance;
-        const double max_valid_gradient_var = m_setting_->max_valid_gradient_var;
-        const double invalid_position_var = m_setting_->invalid_position_var;
+        const Dtype cluster_size = tree->GetNodeSize(cluster_depth);
+        const Dtype aabb_half_size = cluster_size * m_setting_->gp_sdf_area_scale / 2.;
+        const Dtype offset_distance = m_setting_->offset_distance;
+        const Dtype max_valid_gradient_var = m_setting_->max_valid_gradient_var;
+        const Dtype invalid_position_var = m_setting_->invalid_position_var;
         const auto &surface_data_vec = m_surface_mapping_->GetSurfaceDataManager().GetEntries();
 
-        std::vector<std::pair<double, std::size_t>> surface_data_indices;
+        std::vector<std::pair<Dtype, std::size_t>> surface_data_indices;
         const auto max_num_samples = static_cast<std::size_t>(m_setting_->edf_gp->max_num_samples);
         surface_data_indices.reserve(max_num_samples);
         for (uint32_t i = start_idx; i < end_idx; ++i) {
@@ -627,7 +691,7 @@ namespace erl::sdf_mapping {
 
             // collect surface data in the area
             surface_data_indices.clear();
-            const geometry::Aabb3D area(tree->KeyToCoord(cluster_key, cluster_depth), aabb_half_size);
+            const Aabb area(tree->KeyToCoord(cluster_key, cluster_depth), aabb_half_size);
             for (auto it = tree->BeginLeafInAabb(area), end = tree->EndLeafInAabb(); it != end; ++it) {
                 if (!it->HasSurfaceData()) { continue; }  // no surface data in the node
                 const auto &surface_data = surface_data_vec[it->surface_data_index];
@@ -642,20 +706,21 @@ namespace erl::sdf_mapping {
         }
     }
 
+    template<typename Dtype>
     void
-    GpSdfMapping3D::SearchCandidateGps(const Eigen::Ref<const Eigen::Matrix3Xd> &positions_in) {
+    GpSdfMapping3D<Dtype>::SearchCandidateGps(const Eigen::Ref<const Matrix3X> &positions_in) {
         ERL_BLOCK_TIMER();
         // collect some numbers needed for searching
-        const double search_area_half_size = m_setting_->test_query->search_area_half_size;
+        const Dtype search_area_half_size = m_setting_->test_query->search_area_half_size;
         const auto tree = m_surface_mapping_->GetOctree();
         const uint32_t cluster_depth = tree->GetTreeDepth() - m_surface_mapping_->GetClusterLevel();
-        const geometry::Aabb3D tree_aabb = tree->GetMetricAabb();  // biggest AABB of the tree
-        geometry::Aabb3D query_aabb(                               // current queried search area
+        const Aabb tree_aabb = tree->GetMetricAabb();  // biggest AABB of the tree
+        Aabb query_aabb(                               // current queried search area
             positions_in.rowwise().minCoeff().array() - search_area_half_size,
             positions_in.rowwise().maxCoeff().array() + search_area_half_size);
-        geometry::Aabb3D region = query_aabb.Intersection(tree_aabb);  // current region of interest
-        m_candidate_gps_.clear();                                      // clear the buffer
-        while (region.sizes().prod() > 0) {                            // search until the intersection is empty
+        Aabb region = query_aabb.Intersection(tree_aabb);  // current region of interest
+        m_candidate_gps_.clear();                          // clear the buffer
+        while (region.sizes().prod() > 0) {                // search until the intersection is empty
             // search the octree for clusters in the search area
             for (auto it = tree->BeginTreeInAabb(region, cluster_depth), end = tree->EndTreeInAabb(); it != end; ++it) {
                 if (it->GetDepth() != cluster_depth) { continue; }  // not a cluster node
@@ -668,22 +733,23 @@ namespace erl::sdf_mapping {
             }
             if (!m_candidate_gps_.empty()) { break; }  // found at least one GP
             // double the size of query_aabb
-            query_aabb = geometry::Aabb3D(query_aabb.center, 2.0 * query_aabb.half_sizes);
-            geometry::Aabb3D new_region = query_aabb.Intersection(tree_aabb);
+            query_aabb = Aabb(query_aabb.center, 2.0 * query_aabb.half_sizes);
+            Aabb new_region = query_aabb.Intersection(tree_aabb);
             if ((region.min() == new_region.min()) && (region.max() == new_region.max())) { break; }  // region did not change
             region = std::move(new_region);                                                           // update region
         }
         // build kdtree of candidate GPs to allow fast search
         if (!m_candidate_gps_.empty()) {
-            Eigen::Matrix3Xd positions(3, m_candidate_gps_.size());
+            Matrix3X positions(3, m_candidate_gps_.size());
             for (std::size_t i = 0; i < m_candidate_gps_.size(); ++i) { positions.col(static_cast<long>(i)) = m_candidate_gps_[i].second->position; }
-            m_kd_tree_candidate_gps_ = std::make_shared<geometry::KdTree3d>(std::move(positions));
+            m_kd_tree_candidate_gps_ = std::make_shared<Kdtree>(std::move(positions));
         }
         ERL_INFO("{} candidate GPs found.", m_candidate_gps_.size());
     }
 
+    template<typename Dtype>
     void
-    GpSdfMapping3D::SearchGpThread(uint32_t thread_idx, std::size_t start_idx, std::size_t end_idx) {
+    GpSdfMapping3D<Dtype>::SearchGpThread(uint32_t thread_idx, std::size_t start_idx, std::size_t end_idx) {
         ERL_TRACY_SET_THREAD_NAME(fmt::format("{}:{}", __PRETTY_FUNCTION__, thread_idx).c_str());
         (void) thread_idx;
 
@@ -691,25 +757,25 @@ namespace erl::sdf_mapping {
         const auto tree = m_surface_mapping_->GetOctree();
         const uint32_t cluster_level = m_surface_mapping_->GetClusterLevel();
         const uint32_t cluster_depth = tree->GetTreeDepth() - cluster_level;
-        const geometry::Aabb3D tree_aabb = tree->GetMetricAabb();
+        const Aabb tree_aabb = tree->GetMetricAabb();
 
         for (uint32_t i = start_idx; i < end_idx; ++i) {
-            const Eigen::Vector3d test_position = m_test_buffer_.positions->col(i);
-            std::vector<std::pair<double, KeyGpPair>> &gps = m_query_to_gps_[i];
+            const Vector3 test_position = m_test_buffer_.positions->col(i);
+            std::vector<std::pair<Dtype, KeyGpPair>> &gps = m_query_to_gps_[i];
             gps.clear();
             constexpr int kMaxNumGps = 16;
             gps.reserve(kMaxNumGps);
 
-            double search_area_half_size = m_setting_->test_query->search_area_half_size;
-            geometry::Aabb3D search_aabb(test_position, search_area_half_size);
-            geometry::Aabb3D region = tree_aabb.Intersection(search_aabb);
+            Dtype search_area_half_size = m_setting_->test_query->search_area_half_size;
+            Aabb search_aabb(test_position, search_area_half_size);
+            Aabb region = tree_aabb.Intersection(search_aabb);
 
             // search gps from the common buffer at first to save time
             if (m_kd_tree_candidate_gps_ != nullptr) {
                 // use kdtree to search for 32 nearest GPs
                 constexpr long kMaxNumNeighbors = 32;
                 Eigen::VectorXl indices = Eigen::VectorXl::Constant(kMaxNumNeighbors, -1);
-                Eigen::VectorXd squared_distances(kMaxNumNeighbors);
+                Vector squared_distances(kMaxNumNeighbors);
                 m_kd_tree_candidate_gps_->Knn(kMaxNumNeighbors, test_position, indices, squared_distances);
                 for (long j = 0; j < kMaxNumNeighbors; ++j) {
                     const long &index = indices[j];
@@ -730,8 +796,8 @@ namespace erl::sdf_mapping {
 
             if (gps.empty()) {               // no gp found
                 search_area_half_size *= 2;  // double search area size
-                search_aabb = geometry::Aabb3D(test_position, search_area_half_size);
-                geometry::Aabb3D new_region = tree_aabb.Intersection(search_aabb);
+                search_aabb = Aabb(test_position, search_area_half_size);
+                Aabb new_region = tree_aabb.Intersection(search_aabb);
                 if ((region.min() == new_region.min()) && (region.max() == new_region.max())) { continue; }  // no need to search again
                 region = std::move(new_region);                                                              // update intersection
             } else {
@@ -751,16 +817,17 @@ namespace erl::sdf_mapping {
                 }
                 if (!gps.empty()) { break; }  // found at least one gp
                 search_area_half_size *= 2;   // double search area size
-                search_aabb = geometry::Aabb3D(test_position, search_area_half_size);
-                geometry::Aabb3D new_region = tree_aabb.Intersection(search_aabb);
+                search_aabb = Aabb(test_position, search_area_half_size);
+                Aabb new_region = tree_aabb.Intersection(search_aabb);
                 if ((region.min() == new_region.min()) && (region.max() == new_region.max())) { break; }  // no need to search again
                 region = std::move(new_region);                                                           // update region
             }
         }
     }
 
+    template<typename Dtype>
     void
-    GpSdfMapping3D::TestGpThread(const uint32_t thread_idx, const std::size_t start_idx, const std::size_t end_idx) {
+    GpSdfMapping3D<Dtype>::TestGpThread(const uint32_t thread_idx, const std::size_t start_idx, const std::size_t end_idx) {
         ERL_TRACY_SET_THREAD_NAME(fmt::format("{}:{}", __PRETTY_FUNCTION__, thread_idx).c_str());
         (void) thread_idx;
 
@@ -770,22 +837,22 @@ namespace erl::sdf_mapping {
         const bool compute_covariance = m_setting_->test_query->compute_covariance;
         const int num_neighbor_gps = m_setting_->test_query->num_neighbor_gps;
         const bool use_smallest = m_setting_->test_query->use_smallest;
-        const double max_test_valid_distance_var = m_setting_->test_query->max_test_valid_distance_var;
-        const double softmin_temperature = m_setting_->test_query->softmin_temperature;
-        const double offset_distance = m_setting_->offset_distance;
+        const Dtype max_test_valid_distance_var = m_setting_->test_query->max_test_valid_distance_var;
+        const Dtype softmin_temperature = m_setting_->test_query->softmin_temperature;
+        const Dtype offset_distance = m_setting_->offset_distance;
         const bool use_occ_sign = m_setting_->use_occ_sign;
 
         std::vector<std::size_t> gp_indices;
-        Eigen::Matrix4Xd fs(4, num_neighbor_gps);          // f, fGrad1, fGrad2, fGrad3
-        Eigen::Matrix4Xd variances(4, num_neighbor_gps);   // variances of f, fGrad1, fGrad2, fGrad3
-        Eigen::Matrix6Xd covariance(6, num_neighbor_gps);  // cov (gx, d), (gy, d), (gz, d), (gy, gx), (gz, gx), (gz, gy)
-        Eigen::MatrixXd no_variance;
-        Eigen::MatrixXd no_covariance;
+        Matrix4X fs(4, num_neighbor_gps);          // f, fGrad1, fGrad2, fGrad3
+        Matrix4X variances(4, num_neighbor_gps);   // variances of f, fGrad1, fGrad2, fGrad3
+        Matrix6X covariance(6, num_neighbor_gps);  // cov (gx, d), (gy, d), (gz, d), (gy, gx), (gz, gx), (gz, gy)
+        Matrix no_variance;
+        Matrix no_covariance;
         std::vector<std::pair<long, long>> tested_idx;
         tested_idx.reserve(num_neighbor_gps);
 
         for (uint32_t i = start_idx; i < end_idx; ++i) {
-            double &distance_out = (*m_test_buffer_.distances)[i];
+            Dtype &distance_out = (*m_test_buffer_.distances)[i];
             auto gradient_out = m_test_buffer_.gradients->col(i);
             auto variance_out = m_test_buffer_.variances->col(i);
 
@@ -797,7 +864,7 @@ namespace erl::sdf_mapping {
             auto &gps = m_query_to_gps_[i];
             if (gps.empty()) { continue; }
 
-            const Eigen::Vector3d test_position = m_test_buffer_.positions->col(i);
+            const Vector3 test_position = m_test_buffer_.positions->col(i);
             gp_indices.resize(gps.size());
             std::iota(gp_indices.begin(), gp_indices.end(), 0);
             if (gps.size() > 1) {  // sort GPs by distance to the test position
@@ -854,7 +921,7 @@ namespace erl::sdf_mapping {
                     auto j = tested_idx[0].first;
                     // column j is the result
                     distance_out = fs(0, j);
-                    gradient_out << fs.col(j).tail<3>();
+                    gradient_out << fs.col(j).template tail<3>();
                     variance_out << variances.col(j);
                     if (compute_covariance) { m_test_buffer_.covariances->col(i) = covariance.col(j); }
                     m_query_used_gps_[i][0] = gps[tested_idx[0].second].second.second;
@@ -862,13 +929,13 @@ namespace erl::sdf_mapping {
                 } else {
                     // pick the best <= 4 results to do weighted sum
                     const std::size_t m = std::min(tested_idx.size(), 4ul);
-                    double w_sum = 0;
-                    Eigen::Vector4d f = Eigen::Vector4d::Zero();
-                    Eigen::Vector4d variance_f = Eigen::Vector4d::Zero();
-                    Eigen::Vector6d covariance_f = Eigen::Vector6d::Zero();
+                    Dtype w_sum = 0;
+                    Vector4 f = Vector4::Zero();
+                    Vector4 variance_f = Vector4::Zero();
+                    Vector6 covariance_f = Vector6::Zero();
                     for (std::size_t k = 0; k < m; ++k) {
                         const long jk = tested_idx[k].first;
-                        const double w = 1.0 / (variances(0, jk) - max_test_valid_distance_var);
+                        const Dtype w = 1.0 / (variances(0, jk) - max_test_valid_distance_var);
                         w_sum += w;
                         f += fs.col(jk) * w;
                         variance_f += variances.col(jk) * w;
@@ -877,14 +944,14 @@ namespace erl::sdf_mapping {
                     }
                     f /= w_sum;
                     distance_out = f[0];
-                    gradient_out << f.tail<3>();
+                    gradient_out << f.template tail<3>();
                     variance_out << variance_f / w_sum;
                     if (compute_covariance) { m_test_buffer_.covariances->col(i) = covariance_f / w_sum; }
                 }
             } else {
                 // the first column is the result
                 distance_out = fs(0, 0);
-                gradient_out << fs.col(0).tail<3>();
+                gradient_out << fs.col(0).template tail<3>();
                 variance_out << variances.col(0);
                 if (compute_covariance) { m_test_buffer_.covariances->col(i) = covariance.col(0); }
                 m_query_used_gps_[i][0] = gps[tested_idx[0].second].second.second;

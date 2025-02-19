@@ -23,7 +23,7 @@
 
 #include <cmath>
 
-using namespace Eigen;
+
 
 // inline functions for Matern32SparseDeriv1
 inline double

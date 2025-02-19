@@ -15,16 +15,27 @@
 #include <open3d/visualization/utility/DrawGeometry.h>
 
 const std::filesystem::path kProjectRootDir = ERL_SDF_MAPPING_ROOT_DIR;
+using Dtype = float;
+using GpOccSurfaceMapping3D = erl::sdf_mapping::GpOccSurfaceMapping3D<Dtype>;
+using RangeSensor3D = erl::geometry::RangeSensor3D<Dtype>;
+using Lidar3D = erl::geometry::Lidar3D<Dtype>;
+using DepthCamera3D = erl::geometry::DepthCamera3D<Dtype>;
+using DepthFrame3D = erl::geometry::DepthFrame3D<Dtype>;
+using LidarFrame3D = erl::geometry::LidarFrame3D<Dtype>;
+using SurfaceMappingOctree = erl::sdf_mapping::SurfaceMappingOctree<Dtype>;
+using Matrix3 = Eigen::Matrix3<Dtype>;
+using Matrix4 = Eigen::Matrix4<Dtype>;
+using Vector3 = Eigen::Vector3<Dtype>;
 
 struct Options {
     bool use_cow_and_lady = false;                                                  // use Cow and Lady dataset, otherwise use mesh_file and traj_file
     std::string cow_and_lady_dir;                                                   // directory containing the Cow and Lady dataset
     std::string mesh_file = kProjectRootDir / "data" / "replica-hotel-0.ply";       // mesh file
     std::string traj_file = kProjectRootDir / "data" / "replica-hotel-0-traj.txt";  // trajectory file
-    std::string surface_mapping_config_file = kProjectRootDir / "config" / "surface_mapping_3d_lidar.yaml";
+    std::string surface_mapping_config_file = kProjectRootDir / "config" / fmt::format("surface_mapping_3d_lidar_{}.yaml", type_name<Dtype>());
     long stride = 1;
-    double test_res = 0.02;
-    double test_z = 0.0;
+    Dtype test_res = 0.02;
+    Dtype test_z = 0.0;
     long test_xs = 150;
     long test_ys = 100;
     bool test_io = false;
@@ -37,21 +48,21 @@ TEST(GpOccSurfaceMapping3D, Build_Save_Load) {
     GTEST_PREPARE_OUTPUT_DIR();
 
     // load setting
-    const auto gp_surf_setting = std::make_shared<erl::sdf_mapping::GpOccSurfaceMapping3D::Setting>();
+    const auto gp_surf_setting = std::make_shared<GpOccSurfaceMapping3D::Setting>();
     ERL_ASSERTM(gp_surf_setting->FromYamlFile(g_options.surface_mapping_config_file), "Failed to load config file: {}.", g_options.surface_mapping_config_file);
 
     // prepare the scene
     std::vector<std::shared_ptr<open3d::geometry::Geometry>> geometries;  // for visualization
-    std::shared_ptr<erl::geometry::RangeSensor3D> range_sensor = nullptr;
+    std::shared_ptr<RangeSensor3D> range_sensor = nullptr;
     std::shared_ptr<erl::geometry::CowAndLady> cow_and_lady = nullptr;
-    std::vector<std::pair<Eigen::Matrix3d, Eigen::Vector3d>> poses;
-    Eigen::Vector3d area_min, area_max;
+    std::vector<std::pair<Matrix3, Vector3>> poses;
+    Vector3 area_min, area_max;
     if (g_options.use_cow_and_lady) {
         cow_and_lady = std::make_shared<erl::geometry::CowAndLady>(g_options.cow_and_lady_dir);
         geometries.push_back(cow_and_lady->GetGroundTruthPointCloud());
-        area_min = cow_and_lady->GetMapMin();
-        area_max = cow_and_lady->GetMapMax();
-        const auto depth_frame_setting = std::make_shared<erl::geometry::DepthFrame3D::Setting>();
+        area_min = cow_and_lady->GetMapMin().cast<Dtype>();
+        area_max = cow_and_lady->GetMapMax().cast<Dtype>();
+        const auto depth_frame_setting = std::make_shared<DepthFrame3D::Setting>();
         depth_frame_setting->camera_intrinsic.image_height = erl::geometry::CowAndLady::kImageHeight;
         depth_frame_setting->camera_intrinsic.image_width = erl::geometry::CowAndLady::kImageWidth;
         depth_frame_setting->camera_intrinsic.camera_fx = erl::geometry::CowAndLady::kCameraFx;
@@ -61,34 +72,34 @@ TEST(GpOccSurfaceMapping3D, Build_Save_Load) {
     } else {
         const auto mesh = open3d::io::CreateMeshFromFile(g_options.mesh_file);
         ERL_ASSERTM(!mesh->vertices_.empty(), "Failed to load mesh file: {}", g_options.mesh_file);
-        area_min = mesh->GetMinBound();
-        area_max = mesh->GetMaxBound();
-        if (gp_surf_setting->sensor_gp->range_sensor_frame_type == type_name<erl::geometry::LidarFrame3D>()) {
-            const auto lidar_frame_setting = std::dynamic_pointer_cast<erl::geometry::LidarFrame3D::Setting>(gp_surf_setting->sensor_gp->range_sensor_frame);
-            const auto lidar_setting = std::make_shared<erl::geometry::Lidar3D::Setting>();
+        area_min = mesh->GetMinBound().cast<Dtype>();
+        area_max = mesh->GetMaxBound().cast<Dtype>();
+        if (gp_surf_setting->sensor_gp->range_sensor_frame_type == type_name<LidarFrame3D>()) {
+            const auto lidar_frame_setting = std::dynamic_pointer_cast<LidarFrame3D::Setting>(gp_surf_setting->sensor_gp->range_sensor_frame);
+            const auto lidar_setting = std::make_shared<Lidar3D::Setting>();
             lidar_setting->azimuth_min = lidar_frame_setting->azimuth_min;
             lidar_setting->azimuth_max = lidar_frame_setting->azimuth_max;
             lidar_setting->num_azimuth_lines = lidar_frame_setting->num_azimuth_lines;
             lidar_setting->elevation_min = lidar_frame_setting->elevation_min;
             lidar_setting->elevation_max = lidar_frame_setting->elevation_max;
             lidar_setting->num_elevation_lines = lidar_frame_setting->num_elevation_lines;
-            range_sensor = std::make_shared<erl::geometry::Lidar3D>(lidar_setting);
-            range_sensor->AddMesh(mesh->vertices_, mesh->triangles_);
-        } else if (gp_surf_setting->sensor_gp->range_sensor_frame_type == type_name<erl::geometry::DepthFrame3D>()) {
-            const auto depth_frame_setting = std::dynamic_pointer_cast<erl::geometry::DepthFrame3D::Setting>(gp_surf_setting->sensor_gp->range_sensor_frame);
-            const auto depth_camera_setting = std::make_shared<erl::geometry::DepthCamera3D::Setting>();
+            range_sensor = std::make_shared<Lidar3D>(lidar_setting);
+            range_sensor->AddMesh(g_options.mesh_file);
+        } else if (gp_surf_setting->sensor_gp->range_sensor_frame_type == type_name<DepthFrame3D>()) {
+            const auto depth_frame_setting = std::dynamic_pointer_cast<DepthFrame3D::Setting>(gp_surf_setting->sensor_gp->range_sensor_frame);
+            const auto depth_camera_setting = std::make_shared<DepthCamera3D::Setting>();
             *depth_camera_setting = depth_frame_setting->camera_intrinsic;
-            range_sensor = std::make_shared<erl::geometry::DepthCamera3D>(depth_camera_setting);
-            range_sensor->AddMesh(mesh->vertices_, mesh->triangles_);
+            range_sensor = std::make_shared<DepthCamera3D>(depth_camera_setting);
+            range_sensor->AddMesh(g_options.mesh_file);
         } else {
             ERL_FATAL("Unknown range_sensor_frame_type: {}", gp_surf_setting->sensor_gp->range_sensor_frame_type);
         }
         geometries.push_back(mesh);
-        poses = erl::geometry::Trajectory::LoadSe3(g_options.traj_file, false);
+        poses = erl::geometry::Trajectory<Dtype>::LoadSe3(g_options.traj_file, false);
     }
 
     // prepare the mapping
-    erl::sdf_mapping::GpOccSurfaceMapping3D gp(gp_surf_setting);
+    GpOccSurfaceMapping3D gp(gp_surf_setting);
 
     // prepare the visualizer
     const auto visualizer_setting = std::make_shared<erl::geometry::Open3dVisualizerWrapper::Setting>();
@@ -97,7 +108,7 @@ TEST(GpOccSurfaceMapping3D, Build_Save_Load) {
     erl::geometry::Open3dVisualizerWrapper visualizer(visualizer_setting);
     const auto mesh_sensor = open3d::geometry::TriangleMesh::CreateSphere(0.05);
     mesh_sensor->PaintUniformColor({1.0, 0.5, 0.0});
-    const auto mesh_sensor_xyz = erl::geometry::CreateAxisMesh(Eigen::Matrix4d::Identity(), 0.1);
+    const auto mesh_sensor_xyz = erl::geometry::CreateAxisMesh(Matrix4::Identity().cast<double>(), 0.1);
     const auto pcd_obs = std::make_shared<open3d::geometry::PointCloud>();
     const auto pcd_surf_points = std::make_shared<open3d::geometry::PointCloud>();
     const auto line_set_surf_normals = std::make_shared<open3d::geometry::LineSet>();
@@ -111,7 +122,7 @@ TEST(GpOccSurfaceMapping3D, Build_Save_Load) {
     // animation callback
     long wp_idx = 0;
     const long max_wp_idx = g_options.use_cow_and_lady ? cow_and_lady->Size() : static_cast<long>(poses.size());
-    Eigen::Matrix4d last_pose = Eigen::Matrix4d::Identity();
+    Matrix4 last_pose = Matrix4::Identity();
     auto callback = [&](erl::geometry::Open3dVisualizerWrapper *wrapper, open3d::visualization::Visualizer *vis) -> bool {
         ERL_TRACY_FRAME_MARK_START();
 
@@ -121,7 +132,7 @@ TEST(GpOccSurfaceMapping3D, Build_Save_Load) {
                 (void) timer;
                 const auto filename = test_output_dir / "gp_occ_surface_mapping_3d.bin";
                 ERL_ASSERTM(gp.Write(filename), "Failed to write to file: {}", filename);
-                erl::sdf_mapping::GpOccSurfaceMapping3D gp_load(std::make_shared<erl::sdf_mapping::GpOccSurfaceMapping3D::Setting>());
+                GpOccSurfaceMapping3D gp_load(std::make_shared<GpOccSurfaceMapping3D::Setting>());
                 ERL_ASSERTM(gp_load.Read(filename), "Failed to read from file: {}", filename);
                 ERL_ASSERTM(gp == gp_load, "gp != gp_load");
             }
@@ -131,12 +142,12 @@ TEST(GpOccSurfaceMapping3D, Build_Save_Load) {
         }
 
         const auto t_start = std::chrono::high_resolution_clock::now();
-        Eigen::Matrix3d rotation;
-        Eigen::Vector3d translation;
+        Matrix3 rotation;
+        Vector3 translation;
         ERL_INFO("wp_idx: {}", wp_idx);
 
         cv::Mat depth_jet;
-        Eigen::MatrixXd ranges;
+        Eigen::MatrixX<Dtype> ranges;
         double dt;
         {
             const erl::common::BlockTimer<std::chrono::milliseconds> timer("data loading", &dt);
@@ -144,9 +155,9 @@ TEST(GpOccSurfaceMapping3D, Build_Save_Load) {
             if (g_options.use_cow_and_lady) {
                 // ReSharper disable once CppUseStructuredBinding
                 const auto frame = (*cow_and_lady)[wp_idx];
-                rotation = frame.rotation;
-                translation = frame.translation;
-                ranges = frame.depth;
+                rotation = frame.rotation.cast<Dtype>();
+                translation = frame.translation.cast<Dtype>();
+                ranges = frame.depth.cast<Dtype>();
                 depth_jet = frame.depth_jet;
             } else {
                 std::tie(rotation, translation) = poses[wp_idx];
@@ -162,7 +173,7 @@ TEST(GpOccSurfaceMapping3D, Build_Save_Load) {
             (void) timer;
             ERL_WARN_COND(!gp.Update(rotation, translation, ranges), "gp.Update failed.");
         }
-        double gp_update_fps = 1000.0 / dt;
+        Dtype gp_update_fps = 1000.0 / dt;
         ERL_TRACY_PLOT("gp_update (ms)", dt);
         ERL_TRACY_PLOT("gp_update (fps)", gp_update_fps);
 
@@ -170,10 +181,10 @@ TEST(GpOccSurfaceMapping3D, Build_Save_Load) {
         /// update the image
         if (!g_options.use_cow_and_lady) {
             Eigen::MatrixXd ranges_img = Eigen::MatrixXd::Zero(ranges.rows(), ranges.cols());
-            double min_range = std::numeric_limits<double>::max();
-            double max_range = std::numeric_limits<double>::lowest();
+            Dtype min_range = std::numeric_limits<Dtype>::max();
+            Dtype max_range = std::numeric_limits<Dtype>::lowest();
             for (long i = 0; i < ranges.size(); ++i) {
-                double &range = ranges.data()[i];
+                Dtype &range = ranges.data()[i];
                 if (range < 0.0 || !std::isfinite(range)) { continue; }
                 min_range = std::min(min_range, range);
                 max_range = std::max(max_range, range);
@@ -189,18 +200,19 @@ TEST(GpOccSurfaceMapping3D, Build_Save_Load) {
         cv::imshow("ranges", depth_jet);
         cv::waitKey(1);
         /// update the sensor mesh
-        Eigen::Matrix4d last_pose_inv = last_pose.inverse();
-        Eigen::Matrix4d cur_pose = Eigen::Matrix4d::Identity();
+        Matrix4 last_pose_inv = last_pose.inverse();
+        Matrix4 cur_pose = Matrix4::Identity();
         cur_pose.topLeftCorner<3, 3>() = rotation;
         cur_pose.topRightCorner<3, 1>() = translation;
-        Eigen::Matrix4d delta_pose = cur_pose * last_pose_inv;
+        Matrix4 delta_pose = cur_pose * last_pose_inv;
         last_pose = cur_pose;
-        mesh_sensor->Transform(delta_pose);
-        mesh_sensor_xyz->Transform(delta_pose);
+        mesh_sensor->Transform(delta_pose.cast<double>());
+        mesh_sensor_xyz->Transform(delta_pose.cast<double>());
         /// update the observation point cloud
         pcd_obs->points_.clear();
         pcd_obs->colors_.clear();
-        pcd_obs->points_ = gp.GetSensorGp()->GetRangeSensorFrame()->GetHitPointsWorld();
+        pcd_obs->points_.reserve(gp.GetSensorGp()->GetRangeSensorFrame()->GetHitPointsWorld().size());
+        for (const auto &point: gp.GetSensorGp()->GetRangeSensorFrame()->GetHitPointsWorld()) { pcd_obs->points_.emplace_back(point.cast<double>()); }
         pcd_obs->PaintUniformColor({0.0, 1.0, 0.0});
         /// update the surface point cloud and normals
         pcd_surf_points->points_.clear();
@@ -210,19 +222,19 @@ TEST(GpOccSurfaceMapping3D, Build_Save_Load) {
             for (auto it = octree->BeginLeaf(), end = octree->EndLeaf(); it != end; ++it) {
                 if (!it->HasSurfaceData()) { continue; }
                 auto &surface_data = gp.GetSurfaceDataManager()[it->surface_data_index];
-                const Eigen::Vector3d &position = surface_data.position;
-                const Eigen::Vector3d &normal = surface_data.normal;
-                ERL_ASSERTM(std::abs(normal.norm() - 1.0) < 1.e-6, "normal.norm() = {:.6f}", normal.norm());
-                pcd_surf_points->points_.emplace_back(position);
-                line_set_surf_normals->points_.emplace_back(position);
-                line_set_surf_normals->points_.emplace_back(position + 0.1 * normal);
+                const Vector3 &position = surface_data.position;
+                const Vector3 &normal = surface_data.normal;
+                ERL_ASSERTM(std::abs(normal.norm() - 1.0) < 1.e-5, "normal.norm() = {:.6f}", normal.norm());
+                pcd_surf_points->points_.emplace_back(position.cast<double>());
+                line_set_surf_normals->points_.emplace_back(position.cast<double>());
+                line_set_surf_normals->points_.emplace_back((position + 0.1 * normal).cast<double>());
                 line_set_surf_normals->lines_.emplace_back(line_set_surf_normals->points_.size() - 2, line_set_surf_normals->points_.size() - 1);
             }
             line_set_surf_normals->PaintUniformColor({1.0, 0.0, 0.0});
         }
 
         const auto t_end = std::chrono::high_resolution_clock::now();
-        const auto duration_total = std::chrono::duration<double, std::milli>(t_end - t_start).count();
+        const auto duration_total = std::chrono::duration<Dtype, std::milli>(t_end - t_start).count();
         ERL_INFO("duration_total: {:.3f} ms", duration_total);
         ERL_TRACY_PLOT("gui_update (ms)", duration_total);
         ERL_TRACY_PLOT("gui_update (fps)", 1000.0 / duration_total);
@@ -232,7 +244,7 @@ TEST(GpOccSurfaceMapping3D, Build_Save_Load) {
             (void) timer;
             const auto filename = test_output_dir / "gp_occ_surface_mapping_3d.bin";
             ERL_ASSERTM(gp.Write(filename), "Failed to write to file: {}", filename);
-            erl::sdf_mapping::GpOccSurfaceMapping3D gp_load(std::make_shared<erl::sdf_mapping::GpOccSurfaceMapping3D::Setting>());
+            GpOccSurfaceMapping3D gp_load(std::make_shared<GpOccSurfaceMapping3D::Setting>());
             ERL_ASSERTM(gp_load.Read(filename), "Failed to read from file: {}", filename);
             ERL_ASSERTM(gp == gp_load, "gp != gp_load");
         }
@@ -244,11 +256,11 @@ TEST(GpOccSurfaceMapping3D, Build_Save_Load) {
     visualizer.SetAnimationCallback(callback);
     visualizer.Show();
 
-    auto drawer_setting = std::make_shared<erl::sdf_mapping::SurfaceMappingOctree::Drawer::Setting>();
-    drawer_setting->area_min = area_min;
-    drawer_setting->area_max = area_max;
+    auto drawer_setting = std::make_shared<SurfaceMappingOctree::Drawer::Setting>();
+    drawer_setting->area_min = area_min.cast<double>();
+    drawer_setting->area_max = area_max.cast<double>();
     drawer_setting->occupied_only = true;
-    erl::sdf_mapping::SurfaceMappingOctree::Drawer octree_drawer(drawer_setting, gp.GetOctree());
+    SurfaceMappingOctree::Drawer octree_drawer(drawer_setting, gp.GetOctree());
     auto mesh = geometries[0];
     geometries = octree_drawer.GetBlankGeometries();
     geometries.push_back(mesh);
@@ -284,8 +296,8 @@ main(int argc, char *argv[]) {
                 "SDF mapping config file"
             )
             ("stride", po::value<long>(&g_options.stride)->default_value(g_options.stride)->value_name("stride"), "stride")
-            ("test-res", po::value<double>(&g_options.test_res)->default_value(g_options.test_res)->value_name("res"), "test resolution")
-            ("test-z", po::value<double>(&g_options.test_z)->default_value(g_options.test_z)->value_name("z"), "test z")
+            ("test-res", po::value<Dtype>(&g_options.test_res)->default_value(g_options.test_res)->value_name("res"), "test resolution")
+            ("test-z", po::value<Dtype>(&g_options.test_z)->default_value(g_options.test_z)->value_name("z"), "test z")
             ("test-xs", po::value<long>(&g_options.test_xs)->default_value(g_options.test_xs)->value_name("xs"), "test xs")
             ("test-ys", po::value<long>(&g_options.test_ys)->default_value(g_options.test_ys)->value_name("ys"), "test ys")
             ("test-io", po::bool_switch(&g_options.test_io), "test IO")

@@ -12,30 +12,52 @@
 
 namespace erl::sdf_mapping {
 
-    class GpOccSurfaceMapping3D : public AbstractSurfaceMapping3D {
+    template<typename Dtype>
+    class GpOccSurfaceMapping3D : public AbstractSurfaceMapping3D<Dtype> {
     public:
-        using SensorGp = gaussian_process::RangeSensorGaussianProcess3D;
+        using Super = AbstractSurfaceMapping3D<Dtype>;
+        using Key = geometry::OctreeKey;
+        using SensorGp = gaussian_process::RangeSensorGaussianProcess3D<Dtype>;
+        using Tree = SurfaceMappingOctree<Dtype>;
+        using TreeNode = SurfaceMappingOctreeNode;
+        using SurfaceDataManager3D = SurfaceDataManager<Dtype, 3>;
+        using Scalar = Eigen::Matrix<Dtype, 1, 1>;
+        using Matrix = Eigen::MatrixX<Dtype>;
+        using Matrix3 = Eigen::Matrix3<Dtype>;
+        using Matrix3X = Eigen::Matrix3X<Dtype>;
+        using Vector = Eigen::VectorX<Dtype>;
+        using Vector2 = Eigen::Vector2<Dtype>;
+        using Vector3 = Eigen::Vector3<Dtype>;
 
         struct Setting : common::Yamlable<Setting, GpOccSurfaceMappingBaseSetting> {
-            std::shared_ptr<SensorGp::Setting> sensor_gp = std::make_shared<SensorGp::Setting>();
-            std::shared_ptr<SurfaceMappingOctree::Setting> octree = std::make_shared<SurfaceMappingOctree::Setting>();
+            std::shared_ptr<typename SensorGp::Setting> sensor_gp = std::make_shared<typename SensorGp::Setting>();
+            std::shared_ptr<typename Tree::Setting> octree = std::make_shared<typename Tree::Setting>();
+
+            struct YamlConvertImpl {
+                static YAML::Node
+                encode(const Setting &setting);
+
+                static bool
+                decode(const YAML::Node &node, Setting &setting);
+            };
         };
 
         inline static const volatile bool kSettingRegistered = common::YamlableBase::Register<Setting>();
+        inline static const std::string kFileHeader = fmt::format("# erl::sdf_mapping::GpOccSurfaceMapping3D<{}>", type_name<Dtype>());
 
     private:
         std::shared_ptr<Setting> m_setting_ = std::make_shared<Setting>();
         std::shared_ptr<SensorGp> m_sensor_gp_ = nullptr;  // the GP of regression between angle and mapped distance
-        std::shared_ptr<SurfaceMappingOctree> m_octree_ = nullptr;
-        SurfaceDataManager<3> m_surface_data_manager_;
-        Eigen::Matrix<double, 3, 6> m_xyz_perturb_ = {};
+        std::shared_ptr<Tree> m_tree_ = nullptr;
+        SurfaceDataManager3D m_surface_data_manager_;
+        Eigen::Matrix<Dtype, 3, 6> m_xyz_perturb_ = {};
         geometry::OctreeKeySet m_changed_keys_ = {};
 
     public:
         explicit GpOccSurfaceMapping3D(std::shared_ptr<Setting> setting)
             : m_setting_(std::move(setting)),
               m_sensor_gp_(std::make_shared<SensorGp>(m_setting_->sensor_gp)) {
-            const double d = m_setting_->perturb_delta;
+            const auto d = static_cast<Dtype>(m_setting_->perturb_delta);
             // clang-format off
             m_xyz_perturb_ << d, -d, 0,  0, 0,  0,
                               0,  0, d, -d, 0,  0,
@@ -44,48 +66,35 @@ namespace erl::sdf_mapping {
         }
 
         [[nodiscard]] std::shared_ptr<const Setting>
-        GetSetting() const {
-            return m_setting_;
-        }
+        GetSetting() const;
 
         [[nodiscard]] std::shared_ptr<const SensorGp>
-        GetSensorGp() const {
-            return m_sensor_gp_;
-        }
+        GetSensorGp() const;
 
         geometry::OctreeKeySet
-        GetChangedClusters() override {
-            return m_changed_keys_;
-        }
+        GetChangedClusters() override;
 
         [[nodiscard]] unsigned int
-        GetClusterLevel() const override {
-            return m_setting_->cluster_level;
-        }
+        GetClusterLevel() const override;
 
-        std::shared_ptr<SurfaceMappingOctree>
-        GetOctree() override {
-            return m_octree_;
-        }
+        std::shared_ptr<Tree>
+        GetOctree();
 
-        [[nodiscard]] const SurfaceDataManager<3> &
-        GetSurfaceDataManager() const override {
-            return m_surface_data_manager_;
-        }
+        [[nodiscard]] const SurfaceDataManager3D &
+        GetSurfaceDataManager() const override;
 
-        [[nodiscard]] double
-        GetSensorNoise() const override {
-            return m_setting_->sensor_gp->sensor_range_var;
-        }
+        [[nodiscard]] Dtype
+        GetSensorNoise() const override;
+
+        // METHODS REQUIRED BY GpSdfMapping
+        [[nodiscard]] bool
+        Ready() const;
 
         bool
-        Update(
-            const Eigen::Ref<const Eigen::Matrix3d> &rotation,
-            const Eigen::Ref<const Eigen::Vector3d> &translation,
-            const Eigen::Ref<const Eigen::MatrixXd> &ranges) override;
+        Update(const Eigen::Ref<const Matrix3> &rotation, const Eigen::Ref<const Vector3> &translation, const Eigen::Ref<const Matrix> &ranges) override;
 
         [[nodiscard]] bool
-        operator==(const AbstractSurfaceMapping3D &other) const override;
+        operator==(const Super &other) const override;
 
         [[nodiscard]] bool
         Write(const std::string &filename) const override;
@@ -110,50 +119,38 @@ namespace erl::sdf_mapping {
         AddNewMeasurement();
 
         void
-        RecordChangedKey(const geometry::OctreeKey &key) {
-            ERL_DEBUG_ASSERT(m_octree_ != nullptr, "octree is nullptr.");
-            m_changed_keys_.insert(m_octree_->AdjustKeyToDepth(key, m_octree_->GetTreeDepth() - m_setting_->cluster_level));
-        }
+        RecordChangedKey(const geometry::OctreeKey &key);
 
         bool
-        ComputeGradient1(const Eigen::Vector3d &xyz_local, Eigen::Vector3d &gradient, double &occ_mean, double &distance_var);
+        ComputeGradient1(const Vector3 &xyz_local, Vector3 &gradient, Dtype &occ_mean, Dtype &distance_var);
 
         bool
-        ComputeGradient2(const Eigen::Vector3d &xyz_local, Eigen::Vector3d &gradient, double &occ_mean);
+        ComputeGradient2(const Vector3 &xyz_local, Vector3 &gradient, Dtype &occ_mean);
 
         void
         ComputeVariance(
-            const Eigen::Ref<const Eigen::Vector3d> &xyz_local,
-            const Eigen::Vector3d &grad_local,
-            const double &distance,
-            const double &distance_var,
-            const double &occ_mean_abs,
-            const double &occ_abs,
+            const Eigen::Ref<const Vector3> &xyz_local,
+            const Vector3 &grad_local,
+            const Dtype &distance,
+            const Dtype &distance_var,
+            const Dtype &occ_mean_abs,
+            const Dtype &occ_abs,
             bool new_point,
-            double &var_position,
-            double &var_gradient) const;
+            Dtype &var_position,
+            Dtype &var_gradient) const;
     };
 
-    ERL_REGISTER_SURFACE_MAPPING(GpOccSurfaceMapping3D);
+    using GpOccSurfaceMapping3Dd = GpOccSurfaceMapping3D<double>;
+    using GpOccSurfaceMapping3Df = GpOccSurfaceMapping3D<float>;
+
+    ERL_REGISTER_SURFACE_MAPPING(GpOccSurfaceMapping3Dd);
+    ERL_REGISTER_SURFACE_MAPPING(GpOccSurfaceMapping3Df);
 }  // namespace erl::sdf_mapping
 
+#include "gp_occ_surface_mapping_3d.tpp"
+
 template<>
-struct YAML::convert<erl::sdf_mapping::GpOccSurfaceMapping3D::Setting> {
-    static Node
-    encode(const erl::sdf_mapping::GpOccSurfaceMapping3D::Setting &setting) {
-        Node node = convert<erl::sdf_mapping::GpOccSurfaceMappingBaseSetting>::encode(setting);
-        node["sensor_gp"] = setting.sensor_gp;
-        node["octree"] = setting.octree;
-        return node;
-    }
+struct YAML::convert<erl::sdf_mapping::GpOccSurfaceMapping3Dd::Setting> : erl::sdf_mapping::GpOccSurfaceMapping3Dd::Setting::YamlConvertImpl {};
 
-    static bool
-    decode(const Node &node, erl::sdf_mapping::GpOccSurfaceMapping3D::Setting &setting) {
-        if (!convert<erl::sdf_mapping::GpOccSurfaceMappingBaseSetting>::decode(node, setting)) { return false; }
-        setting.sensor_gp = node["sensor_gp"].as<decltype(setting.sensor_gp)>();
-        setting.octree = node["octree"].as<decltype(setting.octree)>();
-        return true;
-    }
-};
-
-// ReSharper restore CppInconsistentNaming
+template<>
+struct YAML::convert<erl::sdf_mapping::GpOccSurfaceMapping3Df::Setting> : erl::sdf_mapping::GpOccSurfaceMapping3Df::Setting::YamlConvertImpl {};

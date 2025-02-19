@@ -10,12 +10,38 @@ namespace erl::sdf_mapping {
         explicit SurfaceMappingOctreeNode(const uint32_t depth = 0, const int child_index = -1, const float log_odds = 0)
             : OccupancyOctreeNode(depth, child_index, log_odds) {}
 
-        SurfaceMappingOctreeNode(const SurfaceMappingOctreeNode &) = default;
+        SurfaceMappingOctreeNode(const SurfaceMappingOctreeNode &other)
+            : OccupancyOctreeNode(other) {
+            ERL_WARN("Copy constructor called.");
+            surface_data_index = other.surface_data_index;
+        }
+
         SurfaceMappingOctreeNode &
-        operator=(const SurfaceMappingOctreeNode &other) = default;
-        SurfaceMappingOctreeNode(SurfaceMappingOctreeNode &&other) noexcept = default;
+        operator=(const SurfaceMappingOctreeNode &other) {
+            ERL_WARN("Copy assignment operator called.");
+            if (this != &other) {
+                OccupancyOctreeNode::operator=(other);
+                surface_data_index = other.surface_data_index;
+            }
+            return *this;
+        }
+
+        SurfaceMappingOctreeNode(SurfaceMappingOctreeNode &&other) noexcept {
+            ERL_WARN("Move constructor called.");
+            surface_data_index = other.surface_data_index;
+            other.surface_data_index = static_cast<std::size_t>(-1);
+        }
+
         SurfaceMappingOctreeNode &
-        operator=(SurfaceMappingOctreeNode &&other) noexcept = default;
+        operator=(SurfaceMappingOctreeNode &&other) noexcept {
+            ERL_WARN("Move assignment operator called.");
+            if (this != &other) {
+                OccupancyOctreeNode::operator=(other);
+                surface_data_index = other.surface_data_index;
+                other.surface_data_index = static_cast<std::size_t>(-1);
+            }
+            return *this;
+        }
 
         [[nodiscard]] AbstractOctreeNode *
         Create(const uint32_t depth, const int child_index) const override {

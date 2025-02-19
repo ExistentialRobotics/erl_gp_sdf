@@ -11,16 +11,34 @@
 
 namespace erl::sdf_mapping {
 
+    template<typename Dtype>
     class GpOccSurfaceMapping2D : public AbstractSurfaceMapping2D {
     public:
-        using SensorGp = gaussian_process::LidarGaussianProcess2D;
+        using SensorGp = gaussian_process::LidarGaussianProcess2D<Dtype>;
+        // using Tree = SurfaceMappingQuadtree<Dtype>;
+        using Scalar = Eigen::Matrix<Dtype, 1, 1>;
+        using Matrix = Eigen::MatrixX<Dtype>;
+        using Matrix3 = Eigen::Matrix3<Dtype>;
+        using Matrix3X = Eigen::Matrix3X<Dtype>;
+        using Vector = Eigen::VectorX<Dtype>;
+        using Vector2 = Eigen::Vector2<Dtype>;
+        using Vector3 = Eigen::Vector3<Dtype>;
 
         struct Setting : common::Yamlable<Setting, GpOccSurfaceMappingBaseSetting> {
-            std::shared_ptr<SensorGp::Setting> sensor_gp = std::make_shared<SensorGp::Setting>();
+            auto sensor_gp = std::make_shared<typename SensorGp::Setting>();
             std::shared_ptr<SurfaceMappingQuadtree::Setting> quadtree = std::make_shared<SurfaceMappingQuadtree::Setting>();
+
+            struct YamlConvertImpl {
+                static YAML::Node
+                encode(const Setting &setting);
+
+                static bool
+                decode(const YAML::Node &node, Setting &setting);
+            };
         };
 
         inline static const volatile bool kSettingRegistered = common::YamlableBase::Register<Setting>();
+        inline static const std::string kFileHeader = fmt::format("# erl::sdf_mapping::GpOccSurfaceMapping2D<{}>", type_name<Dtype>());
 
     private:
         std::shared_ptr<Setting> m_setting_ = std::make_shared<Setting>();

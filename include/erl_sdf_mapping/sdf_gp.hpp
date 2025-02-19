@@ -8,17 +8,21 @@
 
 namespace erl::sdf_mapping {
 
-    template<int Dim, typename SurfaceData>
+    template<typename Dtype, int Dim, typename SurfaceData>
     struct SdfGaussianProcess {
+        using EdfGp = LogEdfGaussianProcess<Dtype>;
+        using VectorDim = Eigen::Vector<Dtype, Dim>;
+        using Vector = Eigen::VectorX<Dtype>;
+
         static_assert(Dim == 2 || Dim == 3, "Dim must be 2 or 3.");
 
         bool active = false;
         std::atomic_bool locked_for_test = false;
         long num_edf_samples = 0;
-        Eigen::Vector<double, Dim> position{};
-        double half_size = 0;
-        std::shared_ptr<LogEdfGaussianProcess> edf_gp = {};
-        inline static const std::string kFileHeader = "# erl::sdf_mapping::SdfGaussianProcess";
+        VectorDim position{};
+        Dtype half_size = 0;
+        std::shared_ptr<EdfGp> edf_gp = {};
+        inline static const std::string kFileHeader = fmt::format("# {}", type_name<SdfGaussianProcess>());
 
         SdfGaussianProcess() = default;
 
@@ -44,7 +48,7 @@ namespace erl::sdf_mapping {
             num_edf_samples = other.num_edf_samples;
             position = other.position;
             half_size = other.half_size;
-            if (other.edf_gp != nullptr) { edf_gp = std::make_shared<LogEdfGaussianProcess>(*other.edf_gp); }
+            if (other.edf_gp != nullptr) { edf_gp = std::make_shared<EdfGp>(*other.edf_gp); }
             return *this;
         }
 
@@ -60,8 +64,8 @@ namespace erl::sdf_mapping {
         }
 
         void
-        Activate(const std::shared_ptr<LogEdfGaussianProcess::Setting>& edf_gp_setting) {
-            if (edf_gp == nullptr) { edf_gp = std::make_shared<LogEdfGaussianProcess>(edf_gp_setting); }
+        Activate(const std::shared_ptr<typename EdfGp::Setting>& edf_gp_setting) {
+            if (edf_gp == nullptr) { edf_gp = std::make_shared<EdfGp>(edf_gp_setting); }
             active = true;
         }
 
@@ -79,7 +83,7 @@ namespace erl::sdf_mapping {
         }
 
         [[nodiscard]] bool
-        Intersects(const Eigen::Vector<double, Dim>& other_position, const Eigen::Vector<double, Dim>& other_half_sizes) const {
+        Intersects(const VectorDim& other_position, const VectorDim& other_half_sizes) const {
             for (int i = 0; i < Dim; ++i) {
                 if (std::abs(position[i] - other_position[i]) > half_size + other_half_sizes[i]) { return false; }
             }
@@ -88,13 +92,13 @@ namespace erl::sdf_mapping {
 
         void
         LoadSurfaceData(
-            std::vector<std::pair<double, std::size_t>>& surface_data_indices,
+            std::vector<std::pair<Dtype, std::size_t>>& surface_data_indices,
             const std::vector<SurfaceData>& surface_data_vec,
-            double offset_distance,
-            double sensor_noise,
-            double max_valid_gradient_var,
-            double invalid_position_var) {
-            num_edf_samples = edf_gp->LoadSurfaceData<Dim>(
+            Dtype offset_distance,
+            Dtype sensor_noise,
+            Dtype max_valid_gradient_var,
+            Dtype invalid_position_var) {
+            num_edf_samples = edf_gp->template LoadSurfaceData<Dim>(
                 surface_data_indices,
                 surface_data_vec,
                 position,
@@ -111,18 +115,18 @@ namespace erl::sdf_mapping {
 
         [[nodiscard]] bool
         Test(
-            const Eigen::Vector<double, Dim>& test_position,
-            Eigen::Ref<Eigen::Vector<double, Dim + 1>> f,
-            Eigen::Ref<Eigen::Vector<double, Dim + 1>> var,
-            Eigen::Ref<Eigen::Vector<double, Dim*(Dim + 1) / 2>> covariance,
-            const double offset_distance,
-            const double softmin_temperature,
+            const VectorDim& test_position,
+            Eigen::Ref<Eigen::Vector<Dtype, Dim + 1>> f,
+            Eigen::Ref<Eigen::Vector<Dtype, Dim + 1>> var,
+            Eigen::Ref<Eigen::Vector<Dtype, Dim*(Dim + 1) / 2>> covariance,
+            const Dtype offset_distance,
+            const Dtype softmin_temperature,
             const bool use_gp_covariance,
             const bool compute_covariance) const {
 
             ERL_DEBUG_ASSERT(active, "SdfGaussianProcess is not active.");
 
-            Eigen::VectorXd no_covariance;
+            Vector no_covariance;
 
             if (use_gp_covariance) {
                 if (compute_covariance) {
@@ -132,40 +136,40 @@ namespace erl::sdf_mapping {
                 }
                 if (f.template tail<Dim>().norm() < 1.e-15) { return false; }  // invalid gradient, skip this GP
             } else {
-                Eigen::VectorXd no_variance;
+                Vector no_variance;
                 edf_gp->Test(test_position, f, no_variance, no_covariance);
-                Eigen::Vector<double, Dim> grad = f.template tail<Dim>();
+                VectorDim grad = f.template tail<Dim>();
                 if (grad.norm() <= 1.e-15) { return false; }  // invalid gradient, skip this GP
 
                 auto& mat_x = edf_gp->GetTrainInputSamplesBuffer();
                 auto& vec_x_var = edf_gp->GetTrainInputSamplesVarianceBuffer();
                 const long num_samples = edf_gp->GetNumTrainSamples();
 
-                Eigen::VectorXd s(static_cast<int>(num_samples));
-                double s_sum = 0;
-                Eigen::VectorXd z_sdf(static_cast<int>(num_samples));
-                Eigen::Matrix<double, Dim, Eigen::Dynamic> diff_z_sdf(Dim, num_samples);
-                using SquareMatrix = Eigen::Matrix<double, Dim, Dim>;
+                Vector s(static_cast<int>(num_samples));
+                Dtype s_sum = 0;
+                Vector z_sdf(static_cast<int>(num_samples));
+                Eigen::Matrix<Dtype, Dim, Eigen::Dynamic> diff_z_sdf(Dim, num_samples);
+                using SquareMatrix = Eigen::Matrix<Dtype, Dim, Dim>;
                 const SquareMatrix identity = SquareMatrix::Identity();
                 for (long k = 0; k < num_samples; ++k) {
-                    const Eigen::Vector<double, Dim> v = test_position - mat_x.col(k);
-                    const double d = v.norm();  // distance to the training sample
+                    const VectorDim v = test_position - mat_x.col(k);
+                    const Dtype d = v.norm();  // distance to the training sample
 
                     z_sdf[k] = d;
-                    s[k] = std::max(1.e-6, std::exp(-(d - f[0]) * softmin_temperature));
+                    s[k] = std::max(static_cast<Dtype>(1.e-6), std::exp(-(d - f[0]) * softmin_temperature));
                     s_sum += s[k];
 
                     diff_z_sdf.col(k) = v / d;
                 }
 
                 // s /= s_sum;  // this line causes an extra for loop. replace it with the following line
-                const double inv_s_sum = 1.0 / s_sum;
+                const Dtype inv_s_sum = 1.0 / s_sum;
 
-                const double sz_sdf = s.dot(z_sdf) * inv_s_sum;
+                const Dtype sz_sdf = s.dot(z_sdf) * inv_s_sum;
                 var[0] = 0.0;  // var_sdf
                 SquareMatrix cov_grad = SquareMatrix::Zero();
                 for (long k = 0; k < num_samples; ++k) {
-                    double w = s[k] * (sz_sdf + 1.0 - z_sdf[k]) * inv_s_sum;
+                    Dtype w = s[k] * (sz_sdf + 1.0 - z_sdf[k]) * inv_s_sum;
                     w = w * w * vec_x_var[k];
                     var[0] += w;
                     w = w / (z_sdf[k] * z_sdf[k]);
@@ -221,7 +225,7 @@ namespace erl::sdf_mapping {
         }
 
         [[nodiscard]] bool
-        Read(std::istream& s, const std::shared_ptr<LogEdfGaussianProcess::Setting>& edf_gp_setting) {
+        Read(std::istream& s, const std::shared_ptr<typename EdfGp::Setting>& edf_gp_setting) {
 
             if (!s.good()) {
                 ERL_WARN("Input stream is not ready for reading");
@@ -299,7 +303,7 @@ namespace erl::sdf_mapping {
                         s >> has_gp;
                         if (has_gp) {
                             skip_line();
-                            if (edf_gp == nullptr) { edf_gp = std::make_shared<LogEdfGaussianProcess>(edf_gp_setting); }
+                            if (edf_gp == nullptr) { edf_gp = std::make_shared<LogEdfGaussianProcess<Dtype>>(edf_gp_setting); }
                             if (!edf_gp->Read(s)) { return false; }
                         }
                         break;

@@ -42,7 +42,7 @@ namespace erl::sdf_mapping {
         [[nodiscard]] bool
         AllowMerge(const AbstractQuadtreeNode *other) const override {
             if (surface_data_index != static_cast<std::size_t>(-1)) { return false; }
-            ERL_DEBUG_ASSERT(dynamic_cast<const SurfaceMappingOctreeNode *>(other) != nullptr, "other node is not SurfaceMappingOctreeNode.");
+            ERL_DEBUG_ASSERT(dynamic_cast<const SurfaceMappingQuadtreeNode *>(other) != nullptr, "other node is not SurfaceMappingOctreeNode.");
             if (const auto *other_node = reinterpret_cast<const SurfaceMappingQuadtreeNode *>(other);
                 other_node->surface_data_index != static_cast<std::size_t>(-1)) {
                 return false;

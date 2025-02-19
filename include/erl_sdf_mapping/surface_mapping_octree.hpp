@@ -1,19 +1,22 @@
 #pragma once
 
+#include "surface_mapping_octree_node.hpp"
+
 #include "erl_geometry/occupancy_octree_base.hpp"
 #include "erl_geometry/occupancy_octree_drawer.hpp"
-#include "surface_mapping_octree_node.hpp"
 
 namespace erl::sdf_mapping {
 
-    class SurfaceMappingOctree : public geometry::OccupancyOctreeBase<SurfaceMappingOctreeNode, geometry::OccupancyOctreeBaseSetting> {
+    template<typename Dtype>
+    class SurfaceMappingOctree : public geometry::OccupancyOctreeBase<Dtype, SurfaceMappingOctreeNode, geometry::OccupancyOctreeBaseSetting> {
 
     public:
         using Setting = geometry::OccupancyOctreeBaseSetting;
+        using Super = geometry::OccupancyOctreeBase<Dtype, SurfaceMappingOctreeNode, Setting>;
         using Drawer = geometry::OccupancyOctreeDrawer<SurfaceMappingOctree>;
 
         explicit SurfaceMappingOctree(const std::shared_ptr<Setting> &setting)
-            : OccupancyOctreeBase(setting) {}
+            : Super(setting) {}
 
         SurfaceMappingOctree()
             : SurfaceMappingOctree(std::make_shared<Setting>()) {}
@@ -31,7 +34,7 @@ namespace erl::sdf_mapping {
         operator=(SurfaceMappingOctree &&) = default;
 
     protected:
-        [[nodiscard]] std::shared_ptr<AbstractOctree>
+        [[nodiscard]] std::shared_ptr<geometry::AbstractOctree<Dtype>>
         Create(const std::shared_ptr<geometry::NdTreeSetting> &setting) const override {
             auto tree_setting = std::dynamic_pointer_cast<Setting>(setting);
             if (tree_setting == nullptr) {
@@ -42,10 +45,16 @@ namespace erl::sdf_mapping {
         }
     };
 
-    ERL_REGISTER_OCTREE(SurfaceMappingOctree);
+    using SurfaceMappingOctree_d = SurfaceMappingOctree<double>;
+    using SurfaceMappingOctree_f = SurfaceMappingOctree<float>;
+
+    ERL_REGISTER_OCTREE(SurfaceMappingOctree_d);
+    ERL_REGISTER_OCTREE(SurfaceMappingOctree_f);
 
 }  // namespace erl::sdf_mapping
 
 template<>
-struct YAML::convert<erl::sdf_mapping::SurfaceMappingOctree::Drawer::Setting>
-    : public ConvertOccupancyOctreeDrawerSetting<erl::sdf_mapping::SurfaceMappingOctree::Drawer::Setting> {};  // namespace YAML
+struct YAML::convert<erl::sdf_mapping::SurfaceMappingOctree_d::Drawer::Setting> : erl::sdf_mapping::SurfaceMappingOctree_d::Drawer::Setting::YamlConvertImpl {};
+
+template<>
+struct YAML::convert<erl::sdf_mapping::SurfaceMappingOctree_f::Drawer::Setting> : erl::sdf_mapping::SurfaceMappingOctree_f::Drawer::Setting::YamlConvertImpl {};

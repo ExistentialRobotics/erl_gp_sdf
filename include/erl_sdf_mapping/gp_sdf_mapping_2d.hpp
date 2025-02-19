@@ -26,7 +26,7 @@ namespace erl::sdf_mapping {
         };
 
         inline static const volatile bool kSettingRegistered = common::YamlableBase::Register<Setting>();
-        using SurfaceData = SurfaceDataManager<2>::SurfaceData;
+        using SurfaceData = SurfaceDataManager<2>::Data;
         using Gp = SdfGaussianProcess<2, SurfaceData>;
 
     private:
