@@ -1,0 +1,105 @@
+num_threads: 64
+update_hz: 10
+gp_sdf_area_scale: 3
+max_valid_gradient_var: 0.1
+invalid_position_var: 0.25
+offset_distance: 0.04
+use_occ_sign: false
+edf_gp:
+    kernel_type: erl::covariance::Matern32<3, double>
+    kernel_setting_type: erl::covariance::Covariance<double>::Setting
+    kernel:
+        x_dim: 3
+        alpha: 1
+        scale: 0.3
+        scale_mix: 1
+        weights: [ ]
+    log_lambda: 40
+    max_num_samples: 96   # max dataset size
+    no_gradient_observation: true
+test_query:
+    max_test_valid_distance_var: 0.02
+    search_area_half_size: 2
+    num_neighbor_gps: 8
+    use_smallest: true
+    compute_covariance: false  # whether to compute covariance
+    use_gp_covariance: false
+    softmin_temperature: 10.0
+surface_mapping_type: erl::sdf_mapping::GpOccSurfaceMapping3D<double>
+surface_mapping_setting_type: erl::sdf_mapping::GpOccSurfaceMapping3D<double>::Setting
+surface_mapping:
+    sensor_gp:
+        row_group_size: 6
+        row_overlap_size: 2
+        row_margin: &row_margin 0
+        col_group_size: 6
+        col_overlap_size: 2
+        col_margin: &col_margin 0
+        init_variance: 1000000
+        sensor_range_var: 0.01
+        max_valid_range_var: 0.1
+        occ_test_temperature: 30
+        range_sensor_frame_type: erl::geometry::DepthFrame3D<double>
+        range_sensor_frame_setting_type: erl::geometry::DepthFrame3D<double>::Setting
+        range_sensor_frame:
+            row_margin: *row_margin
+            col_margin: *col_margin
+            valid_range_min: 0.2
+            valid_range_max: 30
+            discontinuity_factor: 10
+            rolling_diff_discount: 0.9
+            min_partition_size: 5
+            camera_intrinsic:
+                image_height: 480
+                image_width: 640
+                camera_fx: 525
+                camera_fy: 525
+                camera_cx: 319.5
+                camera_cy: 239.5
+        gp:
+            kernel_type: erl::covariance::OrnsteinUhlenbeck<2, double>
+            kernel_setting_type: erl::covariance::Covariance<double>::Setting
+            kernel:
+                x_dim: 2
+                alpha: 1
+                scale: 0.5
+                scale_mix: 1
+                weights: [ ]
+            max_num_samples: 40
+        mapping:
+            type: kInverseSqrt
+            scale: 1
+    compute_variance:
+        zero_gradient_position_var: 1
+        zero_gradient_gradient_var: 1
+        min_distance_var: 1
+        max_distance_var: 100
+        position_var_alpha: 0.01
+        min_gradient_var: 0.01
+        max_gradient_var: 1
+    update_map_points:
+        min_observable_occ: -0.1
+        max_surface_abs_occ: 0.02
+        max_valid_gradient_var: 0.5
+        max_adjust_tries: 10
+        max_bayes_position_var: 1
+        max_bayes_gradient_var: 0.6
+        min_position_var: 0.001
+        min_gradient_var: 0.001
+    octree:
+        tree_depth: 16
+        log_odd_min: -2
+        log_odd_max: 3.5
+        log_odd_hit: 0.850000024
+        log_odd_miss: -0.400000006
+        log_odd_occ_threshold: 0
+        resolution: 0.1
+        use_change_detection: false
+        use_aabb_limit: false
+        aabb:
+            center: [ 0, 0, 0 ]
+            half_sizes: [ 0, 0, 0 ]
+    cluster_level: 2
+    perturb_delta: 0.05
+    zero_gradient_threshold: 1.0e-15
+    update_occupancy: true

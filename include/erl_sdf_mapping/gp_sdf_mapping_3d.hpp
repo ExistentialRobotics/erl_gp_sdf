@@ -2,6 +2,7 @@
 
 #include "abstract_surface_mapping_3d.hpp"
 #include "gp_sdf_mapping_base_setting.hpp"
+#include "init.hpp"
 #include "sdf_gp.hpp"
 
 #include "erl_common/yaml.hpp"

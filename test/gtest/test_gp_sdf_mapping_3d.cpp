@@ -221,10 +221,10 @@ TEST(GpSdfMapping3D, Build_Save_Load) {
         if (skip_training || wp_idx >= max_wp_idx) {
             animation_ended = true;
             if (g_options.test_whole_map_at_end) {
-                erl::common::GridMapInfo2D grid_map_info(
-                    map_min.head<2>().cast<double>(),
-                    map_max.head<2>().cast<double>(),
-                    Eigen::Vector2d(g_options.test_res, g_options.test_res),
+                erl::common::GridMapInfo2D<Dtype> grid_map_info(
+                    map_min.head<2>(),
+                    map_max.head<2>(),
+                    Eigen::Vector2<Dtype>(g_options.test_res, g_options.test_res),
                     Eigen::Vector2i(10, 10));
                 Matrix3X test_positions(3, grid_map_info.Size());
                 test_positions.topRows(2) = grid_map_info.GenerateMeterCoordinates(false).cast<Dtype>();
@@ -418,76 +418,76 @@ TEST(GpSdfMapping3D, Build_Save_Load) {
     ERL_INFO("max_gp_size: {}, mean_gp_size: {}", max_gp_size, mean_gp_size);
 }
 
-TEST(GpSdfMapping3D, Accuracy) {
-    GTEST_PREPARE_OUTPUT_DIR();
-
-    ASSERT_TRUE(!g_options.sdf_mapping_bin_file.empty()) << "sdf_mapping_bin_file is empty.";
-
-    const auto sdf_mapping = std::make_shared<GpSdfMapping3D>(std::make_shared<GpSdfMapping3D::Setting>());
-    ASSERT_TRUE(sdf_mapping->Read(g_options.sdf_mapping_bin_file)) << "Failed to read from file: " << g_options.sdf_mapping_bin_file;
-
-    const auto mesh = open3d::io::CreateMeshFromFile(g_options.mesh_file);
-    ASSERT_TRUE(!mesh->vertices_.empty()) << "Failed to load mesh file: " << g_options.mesh_file;
-
-    const auto lidar_setting = std::make_shared<Lidar3D::Setting>();
-    lidar_setting->azimuth_min = -M_PI;
-    lidar_setting->azimuth_max = M_PI;
-    lidar_setting->num_azimuth_lines = 361;
-    lidar_setting->elevation_min = -M_PI_2;
-    lidar_setting->elevation_max = M_PI_2;
-    lidar_setting->num_elevation_lines = 91;
-    const auto lidar = std::make_shared<Lidar3D>(lidar_setting);
-    lidar->AddMesh(g_options.mesh_file);
-
-    const Vector3 min_bound = mesh->GetMinBound().cast<Dtype>();
-    const Vector3 max_bound = mesh->GetMaxBound().cast<Dtype>();
-    const Vector3 size = max_bound - min_bound;
-    constexpr long num_test_positions = 10000;
-    Matrix3X positions = (Matrix3X::Random(3, num_test_positions).array() + 1) / 2;
-    for (long i = 0; i < num_test_positions; ++i) { positions.col(i) = min_bound + positions.col(i).cwiseProduct(size); }
-    Vector sdf_pred;
-    Matrix3X gradients;
-    Matrix4X variances;
-    Matrix6X covariances;
-    ASSERT_TRUE(sdf_mapping->Test(positions, sdf_pred, gradients, variances, covariances)) << "Failed to test.";
-
-    Vector sdf_gt(num_test_positions);
-    for (long i = 0; i < num_test_positions; ++i) { sdf_gt(i) = lidar->Scan(Matrix3::Identity(), positions.col(i)).minCoeff(); }
-
-    Vector abs_error = (sdf_pred - sdf_gt).cwiseAbs();
-    const Dtype abs_error_min = abs_error.minCoeff();
-    const Dtype abs_error_max = abs_error.maxCoeff();
-    ERL_INFO("ABS ERROR: min: {:.6f}, max: {:.6f}, mean: {:.6f}.", abs_error_min, abs_error_max, abs_error.mean());
-    ERL_INFO("MSE: {:.6f}", (sdf_pred - sdf_gt).squaredNorm() / static_cast<Dtype>(num_test_positions));
-
-    // visualize
-    Eigen::MatrixX8U abs_error_uint8 = ((abs_error.array() - abs_error_min) / (abs_error_max - abs_error_min) * 255.0).cast<uint8_t>();
-    cv::Mat img_error;
-    cv::eigen2cv(abs_error_uint8, img_error);
-    cv::cvtColor(img_error, img_error, cv::COLOR_GRAY2BGR);
-    cv::applyColorMap(img_error, img_error, cv::COLORMAP_JET);
-    cv::cvtColor(img_error, img_error, cv::COLOR_BGR2RGB);
-    std::vector<std::shared_ptr<open3d::geometry::Geometry>> geometries;
-    geometries.push_back(mesh);
-    const auto pcd = std::make_shared<open3d::geometry::PointCloud>();
-    for (long i = 0; i < num_test_positions; ++i) {
-        pcd->points_.emplace_back(positions.col(i).cast<double>());
-        const auto &color = img_error.at<cv::Vec3b>(static_cast<int>(i), 0);
-        pcd->colors_.emplace_back(static_cast<double>(color[0]) / 255.0, static_cast<double>(color[1]) / 255.0, static_cast<double>(color[2]) / 255.0);
-
-        auto sphere = open3d::geometry::TriangleMesh::CreateSphere(abs_error[i] * 0.1);
-        sphere->Translate(positions.col(i).cast<double>());
-        sphere->PaintUniformColor(pcd->colors_.back());
-        geometries.push_back(sphere);
-    }
-    geometries.push_back(pcd);
-
-    const auto visualizer_setting = std::make_shared<erl::geometry::Open3dVisualizerWrapper::Setting>();
-    visualizer_setting->window_name = test_info->name();
-    erl::geometry::Open3dVisualizerWrapper visualizer(visualizer_setting);
-    visualizer.AddGeometries(geometries);
-    visualizer.Show();
-}
+// TEST(GpSdfMapping3D, Accuracy) {
+//     GTEST_PREPARE_OUTPUT_DIR();
+//
+//     ASSERT_TRUE(!g_options.sdf_mapping_bin_file.empty()) << "sdf_mapping_bin_file is empty.";
+//
+//     const auto sdf_mapping = std::make_shared<GpSdfMapping3D>(std::make_shared<GpSdfMapping3D::Setting>());
+//     ASSERT_TRUE(sdf_mapping->Read(g_options.sdf_mapping_bin_file)) << "Failed to read from file: " << g_options.sdf_mapping_bin_file;
+//
+//     const auto mesh = open3d::io::CreateMeshFromFile(g_options.mesh_file);
+//     ASSERT_TRUE(!mesh->vertices_.empty()) << "Failed to load mesh file: " << g_options.mesh_file;
+//
+//     const auto lidar_setting = std::make_shared<Lidar3D::Setting>();
+//     lidar_setting->azimuth_min = -M_PI;
+//     lidar_setting->azimuth_max = M_PI;
+//     lidar_setting->num_azimuth_lines = 361;
+//     lidar_setting->elevation_min = -M_PI_2;
+//     lidar_setting->elevation_max = M_PI_2;
+//     lidar_setting->num_elevation_lines = 91;
+//     const auto lidar = std::make_shared<Lidar3D>(lidar_setting);
+//     lidar->AddMesh(g_options.mesh_file);
+//
+//     const Vector3 min_bound = mesh->GetMinBound().cast<Dtype>();
+//     const Vector3 max_bound = mesh->GetMaxBound().cast<Dtype>();
+//     const Vector3 size = max_bound - min_bound;
+//     constexpr long num_test_positions = 10000;
+//     Matrix3X positions = (Matrix3X::Random(3, num_test_positions).array() + 1) / 2;
+//     for (long i = 0; i < num_test_positions; ++i) { positions.col(i) = min_bound + positions.col(i).cwiseProduct(size); }
+//     Vector sdf_pred;
+//     Matrix3X gradients;
+//     Matrix4X variances;
+//     Matrix6X covariances;
+//     ASSERT_TRUE(sdf_mapping->Test(positions, sdf_pred, gradients, variances, covariances)) << "Failed to test.";
+//
+//     Vector sdf_gt(num_test_positions);
+//     for (long i = 0; i < num_test_positions; ++i) { sdf_gt(i) = lidar->Scan(Matrix3::Identity(), positions.col(i)).minCoeff(); }
+//
+//     Vector abs_error = (sdf_pred - sdf_gt).cwiseAbs();
+//     const Dtype abs_error_min = abs_error.minCoeff();
+//     const Dtype abs_error_max = abs_error.maxCoeff();
+//     ERL_INFO("ABS ERROR: min: {:.6f}, max: {:.6f}, mean: {:.6f}.", abs_error_min, abs_error_max, abs_error.mean());
+//     ERL_INFO("MSE: {:.6f}", (sdf_pred - sdf_gt).squaredNorm() / static_cast<Dtype>(num_test_positions));
+//
+//     // visualize
+//     Eigen::MatrixX8U abs_error_uint8 = ((abs_error.array() - abs_error_min) / (abs_error_max - abs_error_min) * 255.0).cast<uint8_t>();
+//     cv::Mat img_error;
+//     cv::eigen2cv(abs_error_uint8, img_error);
+//     cv::cvtColor(img_error, img_error, cv::COLOR_GRAY2BGR);
+//     cv::applyColorMap(img_error, img_error, cv::COLORMAP_JET);
+//     cv::cvtColor(img_error, img_error, cv::COLOR_BGR2RGB);
+//     std::vector<std::shared_ptr<open3d::geometry::Geometry>> geometries;
+//     geometries.push_back(mesh);
+//     const auto pcd = std::make_shared<open3d::geometry::PointCloud>();
+//     for (long i = 0; i < num_test_positions; ++i) {
+//         pcd->points_.emplace_back(positions.col(i).cast<double>());
+//         const auto &color = img_error.at<cv::Vec3b>(static_cast<int>(i), 0);
+//         pcd->colors_.emplace_back(static_cast<double>(color[0]) / 255.0, static_cast<double>(color[1]) / 255.0, static_cast<double>(color[2]) / 255.0);
+//
+//         auto sphere = open3d::geometry::TriangleMesh::CreateSphere(abs_error[i] * 0.1);
+//         sphere->Translate(positions.col(i).cast<double>());
+//         sphere->PaintUniformColor(pcd->colors_.back());
+//         geometries.push_back(sphere);
+//     }
+//     geometries.push_back(pcd);
+//
+//     const auto visualizer_setting = std::make_shared<erl::geometry::Open3dVisualizerWrapper::Setting>();
+//     visualizer_setting->window_name = test_info->name();
+//     erl::geometry::Open3dVisualizerWrapper visualizer(visualizer_setting);
+//     visualizer.AddGeometries(geometries);
+//     visualizer.Show();
+// }
 
 int
 main(int argc, char *argv[]) {

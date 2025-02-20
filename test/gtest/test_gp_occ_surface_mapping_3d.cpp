@@ -173,7 +173,7 @@ TEST(GpOccSurfaceMapping3D, Build_Save_Load) {
             (void) timer;
             ERL_WARN_COND(!gp.Update(rotation, translation, ranges), "gp.Update failed.");
         }
-        Dtype gp_update_fps = 1000.0 / dt;
+        double gp_update_fps = 1000.0 / dt;
         ERL_TRACY_PLOT("gp_update (ms)", dt);
         ERL_TRACY_PLOT("gp_update (fps)", gp_update_fps);
 

@@ -6,8 +6,8 @@ invalid_position_var: 0.25
 offset_distance: 0.04
 use_occ_sign: false
 edf_gp:
-    kernel_type: erl::covariance::Matern32<3, double>
-    kernel_setting_type: erl::covariance::Covariance<double>::Setting
+    kernel_type: erl::covariance::Matern32<3, float>
+    kernel_setting_type: erl::covariance::Covariance<float>::Setting
     kernel:
         x_dim: 3
         alpha: 1
@@ -25,8 +25,8 @@ test_query:
     compute_covariance: false  # whether to compute covariance
     use_gp_covariance: false
     softmin_temperature: 10.0
-surface_mapping_type: erl::sdf_mapping::GpOccSurfaceMapping3D<double>
-surface_mapping_setting_type: erl::sdf_mapping::GpOccSurfaceMapping3D<double>::Setting
+surface_mapping_type: erl::sdf_mapping::GpOccSurfaceMapping3D<float>
+surface_mapping_setting_type: erl::sdf_mapping::GpOccSurfaceMapping3D<float>::Setting
 surface_mapping:
     sensor_gp:
         row_group_size: 6
@@ -39,8 +39,8 @@ surface_mapping:
         sensor_range_var: 0.01
         max_valid_range_var: 0.1
         occ_test_temperature: 30
-        range_sensor_frame_type: erl::geometry::DepthFrame3D<double>
-        range_sensor_frame_setting_type: erl::geometry::DepthFrame3D<double>::Setting
+        range_sensor_frame_type: erl::geometry::DepthFrame3D<float>
+        range_sensor_frame_setting_type: erl::geometry::DepthFrame3D<float>::Setting
         range_sensor_frame:
             row_margin: *row_margin
             col_margin: *col_margin
@@ -57,8 +57,8 @@ surface_mapping:
                 camera_cx: 319.5
                 camera_cy: 239.5
         gp:
-            kernel_type: erl::covariance::OrnsteinUhlenbeck<2, double>
-            kernel_setting_type: erl::covariance::Covariance<double>::Setting
+            kernel_type: erl::covariance::OrnsteinUhlenbeck<2, float>
+            kernel_setting_type: erl::covariance::Covariance<float>::Setting
             kernel:
                 x_dim: 2
                 alpha: 1
