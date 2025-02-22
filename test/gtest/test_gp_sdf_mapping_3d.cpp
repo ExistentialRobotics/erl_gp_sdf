@@ -197,8 +197,8 @@ TEST(GpSdfMapping3D, Build_Save_Load) {
     // prepare the test positions
     Eigen::MatrixX<Vector3> positions(g_options.test_xs, g_options.test_ys);  // test position in the sensor frame
     const Vector3 offset(
-        -0.5 * g_options.test_res * static_cast<Dtype>(g_options.test_xs),
-        -0.5 * g_options.test_res * static_cast<Dtype>(g_options.test_ys),
+        static_cast<Dtype>(-0.5) * g_options.test_res * static_cast<Dtype>(g_options.test_xs),
+        static_cast<Dtype>(-0.5) * g_options.test_res * static_cast<Dtype>(g_options.test_ys),
         0.0);
     for (long j = 0; j < positions.cols(); ++j) {
         for (long i = 0; i < positions.rows(); ++i) {
@@ -332,8 +332,8 @@ TEST(GpSdfMapping3D, Build_Save_Load) {
         auto [img_sdf, img_sdf_sign] = ConvertSdfToImage(distances, positions.rows(), positions.cols());
         ConvertSdfToVoxelGrid(img_sdf, positions_test, voxel_grid_sdf);
         Dtype resize_scale = g_options.image_resize_scale;
-        resize_scale = std::min(resize_scale, static_cast<Dtype>(1920.0) / img_sdf.cols);
-        resize_scale = std::min(resize_scale, static_cast<Dtype>(1920.0) / img_sdf.rows);
+        resize_scale = std::min(resize_scale, static_cast<Dtype>(1920.0) / static_cast<Dtype>(img_sdf.cols));
+        resize_scale = std::min(resize_scale, static_cast<Dtype>(1920.0) / static_cast<Dtype>(img_sdf.rows));
         cv::resize(img_sdf, img_sdf, cv::Size(), resize_scale, resize_scale);
         cv::resize(img_sdf_sign, img_sdf_sign, cv::Size(), resize_scale, resize_scale);
         cv::putText(img_sdf, fmt::format("frame {}", wp_idx), cv::Point(10, 30), cv::FONT_HERSHEY_PLAIN, 1.5, cv::Scalar(255, 255, 255), 2);

@@ -11,6 +11,20 @@ RUN apt update && apt upgrade -y
 
 RUN apt install -y intel-basekit-2024.1
 
+RUN apt install -y ssh locales-all dos2unix rsync tar
+RUN ( \
+    echo 'LogLevel DEBUG2'; \
+    echo 'Port 8022'; \
+    echo 'PermitRootLogin yes'; \
+    echo 'PasswordAuthentication yes'; \
+    echo 'X11Forwarding yes'; \
+    echo 'X11DisplayOffset 10'; \
+    echo 'X11UseLocalhost yes'; \
+    echo 'Subsystem sftp /usr/lib/openssh/sftp-server'; \
+  ) > /etc/ssh/sshd_config.d/sshd_config_test_clion.conf \
+  && mkdir -p /run/sshd && mkdir -p /var/run/sshd && ssh-keygen -A
+EXPOSE 8022
+
 RUN apt install -y \
     git \
     wget \
@@ -21,6 +35,7 @@ RUN apt install -y \
     build-essential \
     ccache \
     python3 \
+    python3-dev \
     python3-pip \
     python3-setuptools \
     software-properties-common \
@@ -28,6 +43,7 @@ RUN apt install -y \
     python3-pytest \
     python3-numpy \
     python3-scipy \
+    libeigen3-dev \
     libgtest-dev \
     liblapacke-dev \
     liblapack-dev \
@@ -39,11 +55,15 @@ RUN apt install -y \
     libyaml-cpp-dev \
     pybind11-dev \
     libepoxy-dev \
-    libgl1-mesa-dev \
     libwayland-dev \
-    libxkbcommon-dev \
     wayland-protocols \
+    libxkbcommon-dev \
+    libgl1-mesa-dev \
     libegl1-mesa-dev \
+    libglu1-mesa-dev \
+    libsdl2-dev \
+    libxcb-shm0 \
+    xorg-dev \
     libc++-dev \
     libc++abi-dev \
     libglew-dev \
@@ -57,61 +77,47 @@ RUN apt install -y \
     libudev-dev \
     autoconf \
     libtool \
-    libcgal-dev
+    libcgal-dev \
+    libfmt-dev \
+    libnanoflann-dev \
+    libabsl-dev \
+    libqhull-dev \
+    libjsoncpp-dev
 
 WORKDIR /root
 
-RUN git clone https://gitlab.com/libeigen/eigen.git && \
-    cd eigen && git checkout f679843dc2792349482af0c02e1daf7032d0c791 && \
+RUN git clone https://github.com/stevenlovegrove/Pangolin.git && \
+    cd Pangolin && git checkout v0.9.3 && \
     mkdir build && cd build && \
-    cmake .. && cmake --build . --target install -j $(nproc) && \
-    cd /root && rm -rf eigen
-
-RUN git clone https://github.com/pybind/pybind11.git && \
-    cd pybind11 && git checkout v2.13.4 && \
-    mkdir build && cd build && \
-    cmake .. && cmake --build . --target install -j $(nproc) && \
-    cd /root && rm -rf pybind11
-
-RUN git clone https://github.com/fmtlib/fmt.git &&  \
-    cd fmt && git checkout 11.1.3 && \
-    mkdir build && cd build && \
-    cmake .. -DFMT_DOC=OFF -DFMT_TEST=OFF -DFMT_INSTALL=ON -DCMAKE_BUILD_TYPE=Release -DBUILD_SHARED_LIBS=ON && \
-    make -j`nproc` && make install && cd /root && rm -rf fmt
-
-RUN git clone https://github.com/jlblancoc/nanoflann.git && \
-    cd nanoflann && git checkout 518b2b97e484715d757c2960aefb26a25d0b7aab && \
-    mkdir build && cd build && \
-    cmake .. && cmake --build . --target install -j $(nproc) && \
-    cd /root && rm -rf nanoflann
-
-RUN wget https://github.com/abseil/abseil-cpp/releases/download/20240722.1/abseil-cpp-20240722.1.tar.gz && \
-    tar -xf abseil-cpp-20240722.1.tar.gz && rm abseil-cpp-20240722.1.tar.gz && \
-    cd abseil-cpp-20240722.1 && mkdir build && cd build && \
-    cmake .. -DCMAKE_BUILD_TYPE=Release -DCMAKE_CXX_FLAGS="${CXXFLAGS} -DNDEBUG" \
-        -DCMAKE_CXX_STANDARD=17 -DBUILD_SHARED_LIBS=ON -DABSL_PROPAGATE_CXX_STD=ON && \
-    make -j`nproc` && make install && \
-    cd /root && rm -rf abseil-cpp-20240722.1
-
-RUN wget https://github.com/stevenlovegrove/Pangolin/archive/refs/tags/v0.9.2.tar.gz && \
-    tar -xf v0.9.2.tar.gz && rm v0.9.2.tar.gz && \
-    cd Pangolin-0.9.2 && mkdir build && cd build && \
     cmake .. -DCMAKE_BUILD_TYPE=Release && make -j`nproc` && make install && \
-    cd /root && rm -rf Pangolin-0.9.2
+    cd /root && rm -rf Pangolin
 
-RUN git clone --recursive https://github.com/qhull/qhull.git && \
-    cd qhull && git checkout a22c735d6a8d1b5eac5773790aeae28f3b088655 && \
-    mkdir -p build && cd build && \
-    cmake .. -DCMAKE_C_FLAGS="${CFLAGS} -ffat-lto-objects" -DCMAKE_CXX_FLAGS="${CXXFLAGS} -ffat-lto-objects" -DCMAKE_BUILD_TYPE=Release && \
-    make -j`nproc` && make install && \
-    cd /root && rm -rf qhull
-
+COPY ./open3d-0.19.0.patch /root
 RUN git clone --recursive https://github.com/isl-org/Open3D.git && cd Open3D && \
-    git checkout 1e7b17438687a0b0c1e5a7187321ac7044afe275 && mkdir build && cd build && \
-    cmake .. -DBUILD_SHARED_LIBS=ON -DCMAKE_BUILD_TYPE=Release && \
-    make -j`nproc` && make install && cd /root && rm -rf Open3D
+    git checkout v0.19.0 && \
+    echo y | util/install_deps_ubuntu.sh && \
+    git apply /root/open3d-0.19.0.patch && \
+    mkdir build && cd build && \
+    cmake .. -DBUILD_SHARED_LIBS=ON -DCMAKE_BUILD_TYPE=Release \
+        -DUSE_SYSTEM_EIGEN3=ON \
+        -DUSE_SYSTEM_FMT=ON \
+        -DUSE_SYSTEM_GOOGLETEST=ON \
+        -DUSE_SYSTEM_JSONCPP=ON \
+        -DUSE_SYSTEM_NANOFLANN=ON \
+        -DUSE_SYSTEM_PYBIND11=ON \
+        -DUSE_SYSTEM_QHULLCPP=ON \
+        -DGLIBCXX_USE_CXX11_ABI=ON \
+        -DBUILD_EXAMPLES=OFF \
+        -DBUILD_UNIT_TESTS=OFF \
+        -DBUILD_BENCHMARKS=OFF && \
+    make -j`nproc` && make install
 
 # clean
-RUN apt-get clean  && rm -rf /var/lib/apt/lists/*
+RUN apt-get clean && rm -rf /var/lib/apt/lists/*
+
 # reset DEBIAN_FRONTEND
 ENV DEBIAN_FRONTEND=""
+
+RUN userdel ubuntu && rm -rf /home/ubuntu
+
+CMD ["/usr/sbin/sshd", "-D", "-e"]
