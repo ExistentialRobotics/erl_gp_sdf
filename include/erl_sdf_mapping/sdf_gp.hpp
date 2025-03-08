@@ -11,15 +11,15 @@ namespace erl::sdf_mapping {
     template<typename Dtype, int Dim, typename SurfaceData>
     struct SdfGaussianProcess {
         using EdfGp = LogEdfGaussianProcess<Dtype>;
-        using VectorDim = Eigen::Vector<Dtype, Dim>;
-        using Vector = Eigen::VectorX<Dtype>;
+        using VectorD = Eigen::Vector<Dtype, Dim>;
+        using VectorX = Eigen::VectorX<Dtype>;
 
         static_assert(Dim == 2 || Dim == 3, "Dim must be 2 or 3.");
 
         bool active = false;
         std::atomic_bool locked_for_test = false;
         long num_edf_samples = 0;
-        VectorDim position{};
+        VectorD position{};
         Dtype half_size = 0;
         std::shared_ptr<EdfGp> edf_gp = {};
         inline static const std::string kFileHeader = fmt::format("# {}", type_name<SdfGaussianProcess>());
@@ -83,7 +83,7 @@ namespace erl::sdf_mapping {
         }
 
         [[nodiscard]] bool
-        Intersects(const VectorDim& other_position, const VectorDim& other_half_sizes) const {
+        Intersects(const VectorD& other_position, const VectorD& other_half_sizes) const {
             for (int i = 0; i < Dim; ++i) {
                 if (std::abs(position[i] - other_position[i]) > half_size + other_half_sizes[i]) { return false; }
             }
@@ -115,7 +115,7 @@ namespace erl::sdf_mapping {
 
         [[nodiscard]] bool
         Test(
-            const VectorDim& test_position,
+            const VectorD& test_position,
             Eigen::Ref<Eigen::Vector<Dtype, Dim + 1>> f,
             Eigen::Ref<Eigen::Vector<Dtype, Dim + 1>> var,
             Eigen::Ref<Eigen::Vector<Dtype, Dim*(Dim + 1) / 2>> covariance,
@@ -126,7 +126,7 @@ namespace erl::sdf_mapping {
 
             ERL_DEBUG_ASSERT(active, "SdfGaussianProcess is not active.");
 
-            Vector no_covariance;
+            VectorX no_covariance;
 
             if (use_gp_covariance) {
                 if (compute_covariance) {
@@ -136,23 +136,23 @@ namespace erl::sdf_mapping {
                 }
                 if (f.template tail<Dim>().norm() < 1.e-15) { return false; }  // invalid gradient, skip this GP
             } else {
-                Vector no_variance;
+                VectorX no_variance;
                 edf_gp->Test(test_position, f, no_variance, no_covariance);
-                VectorDim grad = f.template tail<Dim>();
+                VectorD grad = f.template tail<Dim>();
                 if (grad.norm() <= 1.e-15) { return false; }  // invalid gradient, skip this GP
 
                 auto& mat_x = edf_gp->GetTrainInputSamplesBuffer();
                 auto& vec_x_var = edf_gp->GetTrainInputSamplesVarianceBuffer();
                 const long num_samples = edf_gp->GetNumTrainSamples();
 
-                Vector s(static_cast<int>(num_samples));
+                VectorX s(static_cast<int>(num_samples));
                 Dtype s_sum = 0;
-                Vector z_sdf(static_cast<int>(num_samples));
+                VectorX z_sdf(static_cast<int>(num_samples));
                 Eigen::Matrix<Dtype, Dim, Eigen::Dynamic> diff_z_sdf(Dim, num_samples);
                 using SquareMatrix = Eigen::Matrix<Dtype, Dim, Dim>;
                 const SquareMatrix identity = SquareMatrix::Identity();
                 for (long k = 0; k < num_samples; ++k) {
-                    const VectorDim v = test_position - mat_x.col(k);
+                    const VectorD v = test_position - mat_x.col(k);
                     const Dtype d = v.norm();  // distance to the training sample
 
                     z_sdf[k] = d;

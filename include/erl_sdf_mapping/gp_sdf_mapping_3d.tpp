@@ -41,7 +41,7 @@ namespace erl::sdf_mapping {
     bool
     GpSdfMapping3D<Dtype>::TestBuffer::ConnectBuffers(
         const Eigen::Ref<const Matrix3X> &positions_in,
-        Vector &distances_out,
+        VectorX &distances_out,
         Matrix3X &gradients_out,
         Matrix4X &variances_out,
         Matrix6X &covariances_out,
@@ -60,7 +60,7 @@ namespace erl::sdf_mapping {
         variances_out.resize(4, n);
         if (compute_covariance) { covariances_out.resize(6, n); }
         this->positions = std::make_unique<Eigen::Ref<const Matrix3X>>(positions_in);
-        this->distances = std::make_unique<Eigen::Ref<Vector>>(distances_out);
+        this->distances = std::make_unique<Eigen::Ref<VectorX>>(distances_out);
         this->gradients = std::make_unique<Eigen::Ref<Matrix3X>>(gradients_out);
         this->variances = std::make_unique<Eigen::Ref<Matrix4X>>(variances_out);
         this->covariances = std::make_unique<Eigen::Ref<Matrix6X>>(covariances_out);
@@ -102,7 +102,7 @@ namespace erl::sdf_mapping {
     GpSdfMapping3D<Dtype>::Update(
         const Eigen::Ref<const Matrix3> &rotation,
         const Eigen::Ref<const Vector3> &translation,
-        const Eigen::Ref<const Matrix> &ranges) {
+        const Eigen::Ref<const MatrixX> &ranges) {
 
         ERL_TRACY_FRAME_MARK_START();
 
@@ -154,7 +154,7 @@ namespace erl::sdf_mapping {
     bool
     GpSdfMapping3D<Dtype>::Test(
         const Eigen::Ref<const Matrix3X> &positions_in,
-        Vector &distances_out,
+        VectorX &distances_out,
         Matrix3X &gradients_out,
         Matrix4X &variances_out,
         Matrix6X &covariances_out) {
@@ -775,7 +775,7 @@ namespace erl::sdf_mapping {
                 // use kdtree to search for 32 nearest GPs
                 constexpr long kMaxNumNeighbors = 32;
                 Eigen::VectorXl indices = Eigen::VectorXl::Constant(kMaxNumNeighbors, -1);
-                Vector squared_distances(kMaxNumNeighbors);
+                VectorX squared_distances(kMaxNumNeighbors);
                 m_kd_tree_candidate_gps_->Knn(kMaxNumNeighbors, test_position, indices, squared_distances);
                 for (long j = 0; j < kMaxNumNeighbors; ++j) {
                     const long &index = indices[j];
@@ -846,8 +846,8 @@ namespace erl::sdf_mapping {
         Matrix4X fs(4, num_neighbor_gps);          // f, fGrad1, fGrad2, fGrad3
         Matrix4X variances(4, num_neighbor_gps);   // variances of f, fGrad1, fGrad2, fGrad3
         Matrix6X covariance(6, num_neighbor_gps);  // cov (gx, d), (gy, d), (gz, d), (gy, gx), (gz, gx), (gz, gy)
-        Matrix no_variance;
-        Matrix no_covariance;
+        MatrixX no_variance;
+        MatrixX no_covariance;
         std::vector<std::pair<long, long>> tested_idx;
         tested_idx.reserve(num_neighbor_gps);
 

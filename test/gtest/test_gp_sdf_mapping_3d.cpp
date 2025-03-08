@@ -24,8 +24,8 @@ using DepthCamera3D = erl::geometry::DepthCamera3D<Dtype>;
 using DepthFrame3D = erl::geometry::DepthFrame3D<Dtype>;
 using LidarFrame3D = erl::geometry::LidarFrame3D<Dtype>;
 using Trajectory = erl::geometry::Trajectory<Dtype>;
-using Matrix = Eigen::MatrixX<Dtype>;
-using Vector = Eigen::VectorX<Dtype>;
+using MatrixX = Eigen::MatrixX<Dtype>;
+using VectorX = Eigen::VectorX<Dtype>;
 using Matrix3 = Eigen::Matrix3<Dtype>;
 using Matrix4 = Eigen::Matrix4<Dtype>;
 using Matrix3X = Eigen::Matrix3X<Dtype>;
@@ -55,9 +55,9 @@ struct Options {
 Options g_options;
 
 cv::Mat
-ConvertDepthToImage(const Matrix &ranges) {
+ConvertDepthToImage(const MatrixX &ranges) {
     cv::Mat depth_jet;
-    Matrix ranges_img = Matrix::Zero(ranges.rows(), ranges.cols());
+    MatrixX ranges_img = MatrixX::Zero(ranges.rows(), ranges.cols());
     Dtype min_range = std::numeric_limits<Dtype>::max();
     Dtype max_range = std::numeric_limits<Dtype>::lowest();
     for (long i = 0; i < ranges.size(); ++i) {
@@ -76,8 +76,8 @@ ConvertDepthToImage(const Matrix &ranges) {
 }
 
 std::pair<cv::Mat, cv::Mat>
-ConvertSdfToImage(const Vector &distances, const long rows, const long cols) {
-    Matrix sdf = distances.reshaped(rows, cols);
+ConvertSdfToImage(const VectorX &distances, const long rows, const long cols) {
+    MatrixX sdf = distances.reshaped(rows, cols);
     const Eigen::MatrixX8U sdf_sign = (sdf.array() >= 0.0).cast<uint8_t>() * 255;
     // std::cout << "sdf.minCoeff(): " << sdf.minCoeff() << std::endl << "sdf.maxCoeff(): " << sdf.maxCoeff() << std::endl;
     sdf = (sdf.array() - sdf.minCoeff()) / (sdf.maxCoeff() - sdf.minCoeff()) * 255.0;
@@ -138,9 +138,9 @@ TEST(GpSdfMapping3D, Build_Save_Load) {
         ERL_ASSERTM(!mesh->vertices_.empty(), "Failed to load mesh file: {}", g_options.mesh_file);
         map_min = mesh->GetMinBound().cast<Dtype>();
         map_max = mesh->GetMaxBound().cast<Dtype>();
-        if (gp_surf_setting->sensor_gp->range_sensor_frame_type == demangle(typeid(LidarFrame3D).name())) {
+        if (gp_surf_setting->sensor_gp->sensor_frame_type == demangle(typeid(LidarFrame3D).name())) {
             ERL_INFO("Using LiDAR.");
-            const auto lidar_frame_setting = std::dynamic_pointer_cast<LidarFrame3D::Setting>(gp_surf_setting->sensor_gp->range_sensor_frame);
+            const auto lidar_frame_setting = std::dynamic_pointer_cast<LidarFrame3D::Setting>(gp_surf_setting->sensor_gp->sensor_frame);
             const auto lidar_setting = std::make_shared<Lidar3D::Setting>();
             lidar_setting->azimuth_min = lidar_frame_setting->azimuth_min;
             lidar_setting->azimuth_max = lidar_frame_setting->azimuth_max;
@@ -149,14 +149,14 @@ TEST(GpSdfMapping3D, Build_Save_Load) {
             lidar_setting->elevation_max = lidar_frame_setting->elevation_max;
             lidar_setting->num_elevation_lines = lidar_frame_setting->num_elevation_lines;
             range_sensor = std::make_shared<Lidar3D>(lidar_setting);
-        } else if (gp_surf_setting->sensor_gp->range_sensor_frame_type == demangle(typeid(DepthFrame3D).name())) {
+        } else if (gp_surf_setting->sensor_gp->sensor_frame_type == demangle(typeid(DepthFrame3D).name())) {
             ERL_INFO("Using depth.");
-            const auto depth_frame_setting = std::dynamic_pointer_cast<DepthFrame3D::Setting>(gp_surf_setting->sensor_gp->range_sensor_frame);
+            const auto depth_frame_setting = std::dynamic_pointer_cast<DepthFrame3D::Setting>(gp_surf_setting->sensor_gp->sensor_frame);
             const auto depth_camera_setting = std::make_shared<DepthCamera3D::Setting>();
             *depth_camera_setting = depth_frame_setting->camera_intrinsic;
             range_sensor = std::make_shared<DepthCamera3D>(depth_camera_setting);
         } else {
-            ERL_FATAL("Unknown range_sensor_frame_type: {}", gp_surf_setting->sensor_gp->range_sensor_frame_type);
+            ERL_FATAL("Unknown sensor_frame_type: {}", gp_surf_setting->sensor_gp->sensor_frame_type);
         }
         range_sensor->AddMesh(g_options.mesh_file);
         geometries.push_back(mesh);
@@ -229,7 +229,7 @@ TEST(GpSdfMapping3D, Build_Save_Load) {
                 Matrix3X test_positions(3, grid_map_info.Size());
                 test_positions.topRows(2) = grid_map_info.GenerateMeterCoordinates(false).cast<Dtype>();
                 test_positions.row(2).setConstant(g_options.test_z);
-                Vector distances;
+                VectorX distances;
                 {
                     Matrix3X gradients(3, test_positions.cols());
                     Matrix4X variances;
@@ -270,7 +270,7 @@ TEST(GpSdfMapping3D, Build_Save_Load) {
         ERL_INFO("wp_idx: {}", wp_idx);
 
         cv::Mat depth_jet;
-        Matrix ranges;
+        MatrixX ranges;
         double dt;
         {
             ERL_BLOCK_TIMER_MSG_TIME("data loading", dt);
@@ -313,7 +313,7 @@ TEST(GpSdfMapping3D, Build_Save_Load) {
                 positions_test.col(i + j * positions.rows()) = rotation_sensor * position + translation_sensor;  // sensor frame to world frame
             }
         }
-        Vector distances(positions_test.cols());
+        VectorX distances(positions_test.cols());
         {
             Matrix3X gradients(3, positions_test.cols());
             Matrix4X variances;
@@ -356,7 +356,7 @@ TEST(GpSdfMapping3D, Build_Save_Load) {
         if (std::find(geometries.begin(), geometries.end(), pcd_obs) != geometries.end()) {
             pcd_obs->points_.clear();
             pcd_obs->colors_.clear();
-            const auto &hit_points = surface_mapping->GetSensorGp()->GetRangeSensorFrame()->GetHitPointsWorld();
+            const auto &hit_points = surface_mapping->GetSensorGp()->GetSensorFrame()->GetHitPointsWorld();
             pcd_obs->points_.reserve(hit_points.size());
             for (const auto &hit_point: hit_points) { pcd_obs->points_.emplace_back(hit_point.cast<double>()); }
             pcd_obs->PaintUniformColor({0.0, 1.0, 0.0});

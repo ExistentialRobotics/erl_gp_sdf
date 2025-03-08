@@ -39,9 +39,9 @@ surface_mapping:
         sensor_range_var: 0.01
         max_valid_range_var: 0.1
         occ_test_temperature: 30
-        range_sensor_frame_type: erl::geometry::DepthFrame3D<double>
-        range_sensor_frame_setting_type: erl::geometry::DepthFrame3D<double>::Setting
-        range_sensor_frame:
+        sensor_frame_type: erl::geometry::DepthFrame3D<double>
+        sensor_frame_setting_type: erl::geometry::DepthFrame3D<double>::Setting
+        sensor_frame:
             row_margin: *row_margin
             col_margin: *col_margin
             valid_range_min: 0.2

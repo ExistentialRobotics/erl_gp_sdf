@@ -8,9 +8,11 @@
 
 namespace erl::sdf_mapping {
 
+    template<typename Dtype>
     class AbstractSurfaceMapping2D : public AbstractSurfaceMapping {
+
     public:
-        [[nodiscard]] virtual double
+        [[nodiscard]] virtual Dtype
         GetSensorNoise() const = 0;
 
         [[nodiscard]] virtual unsigned int
@@ -19,17 +21,17 @@ namespace erl::sdf_mapping {
         virtual geometry::QuadtreeKeySet
         GetChangedClusters() = 0;
 
-        virtual std::shared_ptr<SurfaceMappingQuadtree>
+        virtual std::shared_ptr<SurfaceMappingQuadtree<Dtype>>
         GetQuadtree() = 0;
 
-        virtual const SurfaceDataManager<2> &
+        [[nodiscard]] virtual const SurfaceDataManager<Dtype, 2> &
         GetSurfaceDataManager() const = 0;
 
         virtual bool
         Update(
-            const Eigen::Ref<const Eigen::Matrix2d> &rotation,
-            const Eigen::Ref<const Eigen::Vector2d> &translation,
-            const Eigen::Ref<const Eigen::MatrixXd> &ranges) = 0;
+            const Eigen::Ref<const Eigen::Matrix2<Dtype>> &rotation,
+            const Eigen::Ref<const Eigen::Vector2<Dtype>> &translation,
+            const Eigen::Ref<const Eigen::MatrixX<Dtype>> &ranges) = 0;
 
         [[nodiscard]] virtual bool
         operator==(const AbstractSurfaceMapping2D & /*other*/) const {

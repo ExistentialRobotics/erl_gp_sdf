@@ -15,15 +15,6 @@ erl_project_setup(
         CATKIN_COMPONENTS roscpp std_msgs sensor_msgs tf2_ros tf2_eigen cv_bridge message_generation
         CATKIN_DEPENDS roscpp std_msgs sensor_msgs tf2_ros tf2_eigen cv_bridge message_runtime
 )
-if (NOT TARGET Open3D::Open3D)
-        message(STATUS "Adding Open3D in erl_gaussian_process")
-        erl_find_package(
-                PACKAGE Open3D
-                REQUIRED
-                COMMANDS GENERAL "visit http://www.open3d.org/"
-                COMMANDS ARCH_LINUX "try `paru -S open3d`"
-        )
-endif()
 erl_setup_ros(
         CATKIN_COMPONENTS ${${PROJECT_NAME}_CATKIN_COMPONENTS}
         SRV_FILES PredictSdf.srv

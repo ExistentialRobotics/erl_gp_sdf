@@ -15,12 +15,12 @@
 
 namespace erl::sdf_mapping {
 
-    template<int Dim, typename Dtype, typename SurfaceMapping>
+    template<typename Dtype, int Dim, typename SurfaceMapping>
     class GpSdfMapping {
     public:
-        using SurfaceDataManager = SurfaceDataManager<Dim>;
-        using SurfaceData = typename SurfaceDataManager::SurfaceData;
-        using Gp = SdfGaussianProcess<Dim, SurfaceData>;
+        using SurfDataManager = SurfaceDataManager<Dtype, Dim>;
+        using SurfData = typename SurfDataManager::SurfaceData;
+        using SdfGp = SdfGaussianProcess<Dtype, Dim, SurfData>;
         using Key = typename SurfaceMapping::Key;
         using KeySet = absl::flat_hash_set<Key>;
         using KeyVector = std::vector<Key>;
@@ -58,8 +58,8 @@ namespace erl::sdf_mapping {
             boost::heap::compare<Greater<PriorityQueueItem>>>;
 
         using KeyQueueMap = absl::flat_hash_map<Key, typename PriorityQueue::handle_type>;
-        using KeyGpMap = absl::flat_hash_map<Key, std::shared_ptr<Gp>>;
-        using KeyGpPair = std::pair<Key, std::shared_ptr<Gp>>;
+        using KeyGpMap = absl::flat_hash_map<Key, std::shared_ptr<SdfGp>>;
+        using KeyGpPair = std::pair<Key, std::shared_ptr<SdfGp>>;
 
         using Aabb = geometry::Aabb<Dtype, Dim>;
 
@@ -112,7 +112,7 @@ namespace erl::sdf_mapping {
         TestBuffer m_test_buffer_ = {};
 
 #if defined(ERL_GP_SDF_MAPPING_TRACK_QUERY_GPS)
-        std::vector<std::vector<std::shared_ptr<Gp>>> m_query_used_gps_ = {};  // for testing
+        std::vector<std::vector<std::shared_ptr<SdfGp>>> m_query_used_gps_ = {};  // for testing
 #endif
 
     public:
@@ -144,7 +144,7 @@ namespace erl::sdf_mapping {
             Covariances& covariances_out);
 
 #if defined(ERL_GP_SDF_MAPPING_TRACK_QUERY_GPS)
-        [[nodiscard]] const std::vector<std::vector<std::shared_ptr<Gp>>>&
+        [[nodiscard]] const std::vector<std::vector<std::shared_ptr<SdfGp>>>&
         GetUsedGps() const {
             return m_query_used_gps_;
         }
@@ -190,6 +190,6 @@ namespace erl::sdf_mapping {
             Covariances& covariances);
     };
 
-#include "gp_sdf_mapping.tpp"
-
 }  // namespace erl::sdf_mapping
+
+#include "gp_sdf_mapping.tpp"

@@ -39,16 +39,18 @@ namespace erl::sdf_mapping {
             return surface_data_index == other_ptr->surface_data_index;
         }
 
-        [[nodiscard]] bool
-        AllowMerge(const AbstractQuadtreeNode *other) const override {
-            if (surface_data_index != static_cast<std::size_t>(-1)) { return false; }
-            ERL_DEBUG_ASSERT(dynamic_cast<const SurfaceMappingQuadtreeNode *>(other) != nullptr, "other node is not SurfaceMappingOctreeNode.");
-            if (const auto *other_node = reinterpret_cast<const SurfaceMappingQuadtreeNode *>(other);
-                other_node->surface_data_index != static_cast<std::size_t>(-1)) {
-                return false;
-            }
-            return OccupancyQuadtreeNode::AllowMerge(other);
-        }
+        // uncomment this to block merging when surface_data_index is not -1
+        // then the occupancy tree cannot help to reject noise points, the surface mapping algorithm has to do it well
+        // [[nodiscard]] bool
+        // AllowMerge(const AbstractQuadtreeNode *other) const override {
+        //     if (surface_data_index != static_cast<std::size_t>(-1)) { return false; }
+        //     ERL_DEBUG_ASSERT(dynamic_cast<const SurfaceMappingQuadtreeNode *>(other) != nullptr, "other node is not SurfaceMappingOctreeNode.");
+        //     if (const auto *other_node = reinterpret_cast<const SurfaceMappingQuadtreeNode *>(other);
+        //         other_node->surface_data_index != static_cast<std::size_t>(-1)) {
+        //         return false;
+        //     }
+        //     return OccupancyQuadtreeNode::AllowMerge(other);
+        // }
 
         [[nodiscard]] bool
         HasSurfaceData() const {
@@ -74,6 +76,4 @@ namespace erl::sdf_mapping {
             return s;
         }
     };
-
-    ERL_REGISTER_QUADTREE_NODE(SurfaceMappingQuadtreeNode);
 }  // namespace erl::sdf_mapping

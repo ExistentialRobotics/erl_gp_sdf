@@ -2,7 +2,6 @@
 
 #include "abstract_surface_mapping_3d.hpp"
 #include "gp_sdf_mapping_base_setting.hpp"
-#include "init.hpp"
 #include "sdf_gp.hpp"
 
 #include "erl_common/yaml.hpp"
@@ -35,13 +34,13 @@ namespace erl::sdf_mapping {
 
         using SurfaceDataType = typename SurfaceDataManager<Dtype, 3>::Data;
         using Gp = SdfGaussianProcess<Dtype, 3, SurfaceDataType>;
-        using Matrix = Eigen::MatrixX<Dtype>;
+        using MatrixX = Eigen::MatrixX<Dtype>;
         using Matrix3 = Eigen::Matrix3<Dtype>;
         using Matrix4 = Eigen::Matrix4<Dtype>;
         using Matrix3X = Eigen::Matrix3X<Dtype>;
         using Matrix4X = Eigen::Matrix4X<Dtype>;
         using Matrix6X = Eigen::Matrix<Dtype, 6, Eigen::Dynamic>;
-        using Vector = Eigen::VectorX<Dtype>;
+        using VectorX = Eigen::VectorX<Dtype>;
         using Vector3 = Eigen::Vector3<Dtype>;
         using Vector4 = Eigen::Vector4<Dtype>;
         using Vector6 = Eigen::Vector<Dtype, 6>;
@@ -88,13 +87,13 @@ namespace erl::sdf_mapping {
         std::shared_ptr<Kdtree> m_kd_tree_candidate_gps_ = nullptr;                     // for testing to search candidate GPs
         std::vector<std::vector<std::pair<Dtype, KeyGpPair>>> m_query_to_gps_ = {};     // for testing
         std::vector<std::array<std::shared_ptr<Gp>, 4>> m_query_used_gps_ = {};         // for testing
-        Vector m_query_signs_ = {};                                                     // sign of query positions
+        VectorX m_query_signs_ = {};                                                    // sign of query positions
         double m_train_gp_time_ = 10;                                                   // us
 
         // for testing
         struct TestBuffer {
             std::unique_ptr<Eigen::Ref<const Matrix3X>> positions = nullptr;
-            std::unique_ptr<Eigen::Ref<Vector>> distances = nullptr;
+            std::unique_ptr<Eigen::Ref<VectorX>> distances = nullptr;
             std::unique_ptr<Eigen::Ref<Matrix3X>> gradients = nullptr;
             std::unique_ptr<Eigen::Ref<Matrix4X>> variances = nullptr;    // var(d, grad.x, grad.y, grad.z)
             std::unique_ptr<Eigen::Ref<Matrix6X>> covariances = nullptr;  // cov (gx, d), (gy, d), (gz, d), (gy, gx), (gz, gx), (gz, gy)
@@ -108,7 +107,7 @@ namespace erl::sdf_mapping {
             bool
             ConnectBuffers(
                 const Eigen::Ref<const Matrix3X>& positions_in,
-                Vector& distances_out,
+                VectorX& distances_out,
                 Matrix3X& gradients_out,
                 Matrix4X& variances_out,
                 Matrix6X& covariances_out,
@@ -130,10 +129,10 @@ namespace erl::sdf_mapping {
         GetSurfaceMapping() const;
 
         [[nodiscard]] bool
-        Update(const Eigen::Ref<const Matrix3>& rotation, const Eigen::Ref<const Vector3>& translation, const Eigen::Ref<const Matrix>& ranges);
+        Update(const Eigen::Ref<const Matrix3>& rotation, const Eigen::Ref<const Vector3>& translation, const Eigen::Ref<const MatrixX>& ranges);
 
         [[nodiscard]] bool
-        Test(const Eigen::Ref<const Matrix3X>& positions, Vector& distances_out) {
+        Test(const Eigen::Ref<const Matrix3X>& positions, VectorX& distances_out) {
             Matrix3X gradients;
             Matrix4X variances;
             Matrix6X covariances;
@@ -143,7 +142,7 @@ namespace erl::sdf_mapping {
         [[nodiscard]] bool
         Test(
             const Eigen::Ref<const Matrix3X>& positions_in,
-            Vector& distances_out,
+            VectorX& distances_out,
             Matrix3X& gradients_out,
             Matrix4X& variances_out,
             Matrix6X& covariances_out);

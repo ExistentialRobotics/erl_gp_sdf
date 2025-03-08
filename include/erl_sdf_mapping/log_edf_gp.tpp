@@ -78,10 +78,10 @@ namespace erl::sdf_mapping {
     template<typename Dtype>
     bool
     LogEdfGaussianProcess<Dtype>::Test(
-        const Eigen::Ref<const Matrix> &mat_x_test,
-        Eigen::Ref<Matrix> mat_f_out,
-        Eigen::Ref<Matrix> mat_var_out,
-        Eigen::Ref<Matrix> mat_cov_out) const {
+        const Eigen::Ref<const MatrixX> &mat_x_test,
+        Eigen::Ref<MatrixX> mat_f_out,
+        Eigen::Ref<MatrixX> mat_var_out,
+        Eigen::Ref<MatrixX> mat_cov_out) const {
 
         if (!Super::Test(mat_x_test, mat_f_out, mat_var_out, mat_cov_out)) { return false; }
         const long dim = mat_x_test.rows();

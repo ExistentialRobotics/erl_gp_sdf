@@ -2,6 +2,7 @@
 
 #include "abstract_surface_mapping_2d.hpp"
 #include "gp_occ_surface_mapping_base_setting.hpp"
+#include "surface_data_manager.hpp"
 #include "surface_mapping_quadtree.hpp"
 
 #include "erl_common/yaml.hpp"
@@ -12,21 +13,27 @@
 namespace erl::sdf_mapping {
 
     template<typename Dtype>
-    class GpOccSurfaceMapping2D : public AbstractSurfaceMapping2D {
+    class GpOccSurfaceMapping2D : public AbstractSurfaceMapping2D<Dtype> {
+        inline static const std::string kFileHeader = fmt::format("# {}", type_name<GpOccSurfaceMapping2D>());
+
     public:
+        using Super = AbstractSurfaceMapping2D<Dtype>;
+        using Key = geometry::QuadtreeKey;
         using SensorGp = gaussian_process::LidarGaussianProcess2D<Dtype>;
-        // using Tree = SurfaceMappingQuadtree<Dtype>;
+        using Tree = SurfaceMappingQuadtree<Dtype>;
+        using TreeNode = SurfaceMappingQuadtreeNode;
+        using SurfaceDataManager2D = SurfaceDataManager<Dtype, 2>;
         using Scalar = Eigen::Matrix<Dtype, 1, 1>;
-        using Matrix = Eigen::MatrixX<Dtype>;
-        using Matrix3 = Eigen::Matrix3<Dtype>;
-        using Matrix3X = Eigen::Matrix3X<Dtype>;
-        using Vector = Eigen::VectorX<Dtype>;
+        using MatrixX = Eigen::MatrixX<Dtype>;
+        using Matrix2 = Eigen::Matrix2<Dtype>;
+        using Matrix2X = Eigen::Matrix2X<Dtype>;
+        using VectorX = Eigen::VectorX<Dtype>;
         using Vector2 = Eigen::Vector2<Dtype>;
         using Vector3 = Eigen::Vector3<Dtype>;
 
         struct Setting : common::Yamlable<Setting, GpOccSurfaceMappingBaseSetting> {
-            auto sensor_gp = std::make_shared<typename SensorGp::Setting>();
-            std::shared_ptr<SurfaceMappingQuadtree::Setting> quadtree = std::make_shared<SurfaceMappingQuadtree::Setting>();
+            std::shared_ptr<typename SensorGp::Setting> sensor_gp = std::make_shared<typename SensorGp::Setting>();
+            std::shared_ptr<typename Tree::Setting> quadtree = std::make_shared<typename Tree::Setting>();
 
             struct YamlConvertImpl {
                 static YAML::Node
@@ -37,22 +44,19 @@ namespace erl::sdf_mapping {
             };
         };
 
-        inline static const volatile bool kSettingRegistered = common::YamlableBase::Register<Setting>();
-        inline static const std::string kFileHeader = fmt::format("# erl::sdf_mapping::GpOccSurfaceMapping2D<{}>", type_name<Dtype>());
-
     private:
         std::shared_ptr<Setting> m_setting_ = std::make_shared<Setting>();
         std::shared_ptr<SensorGp> m_sensor_gp_ = nullptr;  // the GP of regression between angle and mapped distance
-        std::shared_ptr<SurfaceMappingQuadtree> m_quadtree_ = nullptr;
-        SurfaceDataManager<2> m_surface_data_manager_;
-        Eigen::Matrix24d m_xy_perturb_ = {};
+        std::shared_ptr<Tree> m_tree_ = nullptr;
+        SurfaceDataManager2D m_surface_data_manager_;
+        Eigen::Matrix<Dtype, 2, 4> m_xy_perturb_ = {};
         geometry::QuadtreeKeySet m_changed_keys_ = {};
 
     public:
-        explicit GpOccSurfaceMapping2D(const std::shared_ptr<Setting> &setting)
-            : m_setting_(setting),
+        explicit GpOccSurfaceMapping2D(std::shared_ptr<Setting> setting)
+            : m_setting_(std::move(setting)),
               m_sensor_gp_(std::make_shared<SensorGp>(m_setting_->sensor_gp)) {
-            const double d = m_setting_->perturb_delta;
+            const auto d = static_cast<Dtype>(m_setting_->perturb_delta);
             // clang-format off
             m_xy_perturb_ << d, -d, 0., 0.,
                              0., 0., d, -d;
@@ -60,48 +64,35 @@ namespace erl::sdf_mapping {
         }
 
         [[nodiscard]] std::shared_ptr<const Setting>
-        GetSetting() const {
-            return m_setting_;
-        }
+        GetSetting() const;
 
         [[nodiscard]] std::shared_ptr<const SensorGp>
-        GetSensorGp() const {
-            return m_sensor_gp_;
-        }
+        GetSensorGp() const;
 
         geometry::QuadtreeKeySet
-        GetChangedClusters() override {
-            return m_changed_keys_;
-        }
+        GetChangedClusters() override;
 
         [[nodiscard]] unsigned int
-        GetClusterLevel() const override {
-            return m_setting_->cluster_level;
-        }
+        GetClusterLevel() const override;
 
-        std::shared_ptr<SurfaceMappingQuadtree>
-        GetQuadtree() override {
-            return m_quadtree_;
-        }
+        std::shared_ptr<Tree>
+        GetQuadtree() override;
 
-        [[nodiscard]] const SurfaceDataManager<2> &
-        GetSurfaceDataManager() const override {
-            return m_surface_data_manager_;
-        }
+        [[nodiscard]] const SurfaceDataManager2D &
+        GetSurfaceDataManager() const override;
 
-        [[nodiscard]] double
-        GetSensorNoise() const override {
-            return m_setting_->sensor_gp->sensor_range_var;
-        }
+        [[nodiscard]] Dtype
+        GetSensorNoise() const override;
+
+        // METHODS REQUIRED BY GpSdfMapping
+        [[nodiscard]] bool
+        Ready() const;
 
         bool
-        Update(
-            const Eigen::Ref<const Eigen::Matrix2d> &rotation,
-            const Eigen::Ref<const Eigen::Vector2d> &translation,
-            const Eigen::Ref<const Eigen::MatrixXd> &ranges) override;
+        Update(const Eigen::Ref<const Matrix2> &rotation, const Eigen::Ref<const Vector2> &translation, const Eigen::Ref<const MatrixX> &ranges) override;
 
         [[nodiscard]] bool
-        operator==(const AbstractSurfaceMapping2D &other) const override;
+        operator==(const Super &other) const override;
 
         [[nodiscard]] bool
         Write(const std::string &filename) const override;
@@ -126,51 +117,35 @@ namespace erl::sdf_mapping {
         AddNewMeasurement();
 
         void
-        RecordChangedKey(const geometry::QuadtreeKey &key) {
-            ERL_DEBUG_ASSERT(m_quadtree_ != nullptr, "Quadtree is not initialized.");
-            m_changed_keys_.insert(m_quadtree_->AdjustKeyToDepth(key, m_quadtree_->GetTreeDepth() - m_setting_->cluster_level));
-        }
+        RecordChangedKey(const geometry::QuadtreeKey &key);
 
         bool
-        ComputeGradient1(const Eigen::Vector2d &xy_local, Eigen::Vector2d &gradient, double &occ_mean, double &distance_var);
+        ComputeGradient1(const Vector2 &xy_local, Vector2 &gradient, Dtype &occ_mean, Dtype &distance_var);
 
         bool
-        ComputeGradient2(const Eigen::Ref<const Eigen::Vector2d> &xy_local, Eigen::Vector2d &gradient, double &occ_mean);
+        ComputeGradient2(const Eigen::Ref<const Vector2> &xy_local, Vector2 &gradient, Dtype &occ_mean);
 
         void
         ComputeVariance(
-            const Eigen::Ref<const Eigen::Vector2d> &xy_local,
-            const Eigen::Vector2d &grad_local,
-            const double &distance,
-            const double &distance_var,
-            const double &occ_mean_abs,
-            const double &occ_abs,
+            const Eigen::Ref<const Vector2> &xy_local,
+            const Vector2 &grad_local,
+            const Dtype &distance,
+            const Dtype &distance_var,
+            const Dtype &occ_mean_abs,
+            const Dtype &occ_abs,
             bool new_point,
-            double &var_position,
-            double &var_gradient) const;
+            Dtype &var_position,
+            Dtype &var_gradient) const;
     };
 
-    ERL_REGISTER_SURFACE_MAPPING(GpOccSurfaceMapping2D);
+    using GpOccSurfaceMapping2Dd = GpOccSurfaceMapping2D<double>;
+    using GpOccSurfaceMapping2Df = GpOccSurfaceMapping2D<float>;
 }  // namespace erl::sdf_mapping
 
-// ReSharper disable CppInconsistentNaming
+#include "gp_occ_surface_mapping_2d.tpp"
+
 template<>
-struct YAML::convert<erl::sdf_mapping::GpOccSurfaceMapping2D::Setting> {
-    static Node
-    encode(const erl::sdf_mapping::GpOccSurfaceMapping2D::Setting &setting) {
-        Node node = convert<erl::sdf_mapping::GpOccSurfaceMappingBaseSetting>::encode(setting);
-        node["sensor_gp"] = setting.sensor_gp;
-        node["quadtree"] = setting.quadtree;
-        return node;
-    }
+struct YAML::convert<erl::sdf_mapping::GpOccSurfaceMapping2Dd::Setting> : erl::sdf_mapping::GpOccSurfaceMapping2Dd::Setting::YamlConvertImpl {};
 
-    static bool
-    decode(const Node &node, erl::sdf_mapping::GpOccSurfaceMapping2D::Setting &setting) {
-        if (!convert<erl::sdf_mapping::GpOccSurfaceMappingBaseSetting>::decode(node, setting)) { return false; }
-        setting.sensor_gp = node["sensor_gp"].as<decltype(setting.sensor_gp)>();
-        setting.quadtree = node["quadtree"].as<decltype(setting.quadtree)>();
-        return true;
-    }
-};
-
-// ReSharper restore CppInconsistentNaming
+template<>
+struct YAML::convert<erl::sdf_mapping::GpOccSurfaceMapping2Df::Setting> : erl::sdf_mapping::GpOccSurfaceMapping2Df::Setting::YamlConvertImpl {};

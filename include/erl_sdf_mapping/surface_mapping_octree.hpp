@@ -45,16 +45,12 @@ namespace erl::sdf_mapping {
         }
     };
 
-    using SurfaceMappingOctree_d = SurfaceMappingOctree<double>;
-    using SurfaceMappingOctree_f = SurfaceMappingOctree<float>;
-
-    ERL_REGISTER_OCTREE(SurfaceMappingOctree_d);
-    ERL_REGISTER_OCTREE(SurfaceMappingOctree_f);
-
+    using SurfaceMappingOctreeD = SurfaceMappingOctree<double>;
+    using SurfaceMappingOctreeF = SurfaceMappingOctree<float>;
 }  // namespace erl::sdf_mapping
 
 template<>
-struct YAML::convert<erl::sdf_mapping::SurfaceMappingOctree_d::Drawer::Setting> : erl::sdf_mapping::SurfaceMappingOctree_d::Drawer::Setting::YamlConvertImpl {};
+struct YAML::convert<erl::sdf_mapping::SurfaceMappingOctreeD::Drawer::Setting> : erl::sdf_mapping::SurfaceMappingOctreeD::Drawer::Setting::YamlConvertImpl {};
 
 template<>
-struct YAML::convert<erl::sdf_mapping::SurfaceMappingOctree_f::Drawer::Setting> : erl::sdf_mapping::SurfaceMappingOctree_f::Drawer::Setting::YamlConvertImpl {};
+struct YAML::convert<erl::sdf_mapping::SurfaceMappingOctreeF::Drawer::Setting> : erl::sdf_mapping::SurfaceMappingOctreeF::Drawer::Setting::YamlConvertImpl {};

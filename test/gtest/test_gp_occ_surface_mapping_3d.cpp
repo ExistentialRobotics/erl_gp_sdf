@@ -74,8 +74,8 @@ TEST(GpOccSurfaceMapping3D, Build_Save_Load) {
         ERL_ASSERTM(!mesh->vertices_.empty(), "Failed to load mesh file: {}", g_options.mesh_file);
         area_min = mesh->GetMinBound().cast<Dtype>();
         area_max = mesh->GetMaxBound().cast<Dtype>();
-        if (gp_surf_setting->sensor_gp->range_sensor_frame_type == type_name<LidarFrame3D>()) {
-            const auto lidar_frame_setting = std::dynamic_pointer_cast<LidarFrame3D::Setting>(gp_surf_setting->sensor_gp->range_sensor_frame);
+        if (gp_surf_setting->sensor_gp->sensor_frame_type == type_name<LidarFrame3D>()) {
+            const auto lidar_frame_setting = std::dynamic_pointer_cast<LidarFrame3D::Setting>(gp_surf_setting->sensor_gp->sensor_frame);
             const auto lidar_setting = std::make_shared<Lidar3D::Setting>();
             lidar_setting->azimuth_min = lidar_frame_setting->azimuth_min;
             lidar_setting->azimuth_max = lidar_frame_setting->azimuth_max;
@@ -85,14 +85,14 @@ TEST(GpOccSurfaceMapping3D, Build_Save_Load) {
             lidar_setting->num_elevation_lines = lidar_frame_setting->num_elevation_lines;
             range_sensor = std::make_shared<Lidar3D>(lidar_setting);
             range_sensor->AddMesh(g_options.mesh_file);
-        } else if (gp_surf_setting->sensor_gp->range_sensor_frame_type == type_name<DepthFrame3D>()) {
-            const auto depth_frame_setting = std::dynamic_pointer_cast<DepthFrame3D::Setting>(gp_surf_setting->sensor_gp->range_sensor_frame);
+        } else if (gp_surf_setting->sensor_gp->sensor_frame_type == type_name<DepthFrame3D>()) {
+            const auto depth_frame_setting = std::dynamic_pointer_cast<DepthFrame3D::Setting>(gp_surf_setting->sensor_gp->sensor_frame);
             const auto depth_camera_setting = std::make_shared<DepthCamera3D::Setting>();
             *depth_camera_setting = depth_frame_setting->camera_intrinsic;
             range_sensor = std::make_shared<DepthCamera3D>(depth_camera_setting);
             range_sensor->AddMesh(g_options.mesh_file);
         } else {
-            ERL_FATAL("Unknown range_sensor_frame_type: {}", gp_surf_setting->sensor_gp->range_sensor_frame_type);
+            ERL_FATAL("Unknown sensor_frame_type: {}", gp_surf_setting->sensor_gp->sensor_frame_type);
         }
         geometries.push_back(mesh);
         poses = erl::geometry::Trajectory<Dtype>::LoadSe3(g_options.traj_file, false);
@@ -121,6 +121,8 @@ TEST(GpOccSurfaceMapping3D, Build_Save_Load) {
 
     // animation callback
     long wp_idx = 0;
+    double gp_update_dt = 0.0;
+    double cnt = 0.0;
     const long max_wp_idx = g_options.use_cow_and_lady ? cow_and_lady->Size() : static_cast<long>(poses.size());
     Matrix4 last_pose = Matrix4::Identity();
     auto callback = [&](erl::geometry::Open3dVisualizerWrapper *wrapper, open3d::visualization::Visualizer *vis) -> bool {
@@ -173,8 +175,11 @@ TEST(GpOccSurfaceMapping3D, Build_Save_Load) {
             (void) timer;
             ERL_WARN_COND(!gp.Update(rotation, translation, ranges), "gp.Update failed.");
         }
-        double gp_update_fps = 1000.0 / dt;
-        ERL_TRACY_PLOT("gp_update (ms)", dt);
+        gp_update_dt = (gp_update_dt * cnt + dt) / (cnt + 1.0);
+        cnt += 1.0;
+        double gp_update_fps = 1000.0 / gp_update_dt;
+        ERL_INFO("gp_update_dt: {:.3f} ms, gp_update_fps: {:.3f} fps", gp_update_dt, gp_update_fps);
+        ERL_TRACY_PLOT("gp_update (ms)", gp_update_dt);
         ERL_TRACY_PLOT("gp_update (fps)", gp_update_fps);
 
         // update visualization
@@ -211,8 +216,8 @@ TEST(GpOccSurfaceMapping3D, Build_Save_Load) {
         /// update the observation point cloud
         pcd_obs->points_.clear();
         pcd_obs->colors_.clear();
-        pcd_obs->points_.reserve(gp.GetSensorGp()->GetRangeSensorFrame()->GetHitPointsWorld().size());
-        for (const auto &point: gp.GetSensorGp()->GetRangeSensorFrame()->GetHitPointsWorld()) { pcd_obs->points_.emplace_back(point.cast<double>()); }
+        pcd_obs->points_.reserve(gp.GetSensorGp()->GetSensorFrame()->GetHitPointsWorld().size());
+        for (const auto &point: gp.GetSensorGp()->GetSensorFrame()->GetHitPointsWorld()) { pcd_obs->points_.emplace_back(point.cast<double>()); }
         pcd_obs->PaintUniformColor({0.0, 1.0, 0.0});
         /// update the surface point cloud and normals
         pcd_surf_points->points_.clear();

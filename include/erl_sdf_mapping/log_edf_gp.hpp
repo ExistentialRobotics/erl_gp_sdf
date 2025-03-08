@@ -13,7 +13,7 @@ namespace erl::sdf_mapping {
 
     public:
         using Super = gaussian_process::NoisyInputGaussianProcess<Dtype>;
-        using Matrix = Eigen::MatrixX<Dtype>;
+        using MatrixX = Eigen::MatrixX<Dtype>;
 
         struct Setting : common::Yamlable<Setting, typename Super::Setting> {
             Dtype log_lambda = 40.0;
@@ -58,7 +58,7 @@ namespace erl::sdf_mapping {
             Dtype invalid_position_var);
 
         [[nodiscard]] bool
-        Test(const Eigen::Ref<const Matrix> &mat_x_test, Eigen::Ref<Matrix> mat_f_out, Eigen::Ref<Matrix> mat_var_out, Eigen::Ref<Matrix> mat_cov_out)
+        Test(const Eigen::Ref<const MatrixX> &mat_x_test, Eigen::Ref<MatrixX> mat_f_out, Eigen::Ref<MatrixX> mat_var_out, Eigen::Ref<MatrixX> mat_cov_out)
             const override;
 
         [[nodiscard]] bool
@@ -82,14 +82,14 @@ namespace erl::sdf_mapping {
         Read(std::istream &s) override;
     };
 
-    using LogEdfGaussianProcess_d = LogEdfGaussianProcess<double>;
-    using LogEdfGaussianProcess_f = LogEdfGaussianProcess<float>;
+    using LogEdfGaussianProcessD = LogEdfGaussianProcess<double>;
+    using LogEdfGaussianProcessF = LogEdfGaussianProcess<float>;
 }  // namespace erl::sdf_mapping
 
 #include "log_edf_gp.tpp"
 
 template<>
-struct YAML::convert<erl::sdf_mapping::LogEdfGaussianProcess_d::Setting> : erl::sdf_mapping::LogEdfGaussianProcess_d::Setting::YamlConvertImpl {};
+struct YAML::convert<erl::sdf_mapping::LogEdfGaussianProcessD::Setting> : erl::sdf_mapping::LogEdfGaussianProcessD::Setting::YamlConvertImpl {};
 
 template<>
-struct YAML::convert<erl::sdf_mapping::LogEdfGaussianProcess_f::Setting> : erl::sdf_mapping::LogEdfGaussianProcess_f::Setting::YamlConvertImpl {};
+struct YAML::convert<erl::sdf_mapping::LogEdfGaussianProcessF::Setting> : erl::sdf_mapping::LogEdfGaussianProcessF::Setting::YamlConvertImpl {};

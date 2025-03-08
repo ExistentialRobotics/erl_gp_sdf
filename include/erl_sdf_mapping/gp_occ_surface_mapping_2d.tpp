@@ -1,24 +1,73 @@
-#include "erl_sdf_mapping/gp_occ_surface_mapping_2d.hpp"
+#pragma once
 
 #include "erl_common/block_timer.hpp"
 #include "erl_common/clip.hpp"
 
 namespace erl::sdf_mapping {
 
+    template<typename Dtype>
+    YAML::Node
+    GpOccSurfaceMapping2D<Dtype>::Setting::YamlConvertImpl::encode(const Setting &setting) {
+        YAML::Node node = YAML::convert<GpOccSurfaceMappingBaseSetting>::encode(setting);
+        node["sensor_gp"] = setting.sensor_gp;
+        node["quadtree"] = setting.quadtree;
+        return node;
+    }
+
+    template<typename Dtype>
+    bool
+    GpOccSurfaceMapping2D<Dtype>::Setting::YamlConvertImpl::decode(const YAML::Node &node, Setting &setting) {
+        if (!YAML::convert<GpOccSurfaceMappingBaseSetting>::decode(node, setting)) { return false; }
+        setting.sensor_gp = node["sensor_gp"].as<decltype(setting.sensor_gp)>();
+        setting.quadtree = node["quadtree"].as<decltype(setting.quadtree)>();
+        return true;
+    }
+
     static void
-    Cartesian2Polar(const Eigen::Ref<const Eigen::Vector2d> &xy, double &r, double &angle) {
+    Cartesian2Polar(const Eigen::Ref<const Vector2> &xy, Dtype &r, Dtype &angle) {
         r = xy.norm();
         angle = std::atan2(xy.y(), xy.x());
     }
 
+    template<typename Dtype>
+    std::shared_ptr<const typename GpOccSurfaceMapping2D<Dtype>::Setting>
+    GpOccSurfaceMapping2D<Dtype>::GetSetting() const {
+        return m_setting_;
+    }
+
+    template<typename Dtype>
+    std::shared_ptr<const typename GpOccSurfaceMapping2D<Dtype>::SensorGp>
+    GpOccSurfaceMapping2D<Dtype>::GetSensorGp() const {
+        return m_sensor_gp_;
+    }
+
+    template<typename Dtype>
+    geometry::QuadtreeKeySet
+    GpOccSurfaceMapping2D<Dtype>::GetChangedClusters() {
+        return m_changed_keys_;
+    }
+
+    template<typename Dtype>
+    unsigned int
+    GpOccSurfaceMapping2D<Dtype>::GetClusterLevel() const {
+        return m_setting_->cluster_level;
+    }
+
+    template<typename Dtype>
+    std::shared_ptr<typename GpOccSurfaceMapping2D<Dtype>::Tree>
+    GpOccSurfaceMapping2D<Dtype>::GetQuadtree() {
+        return m_tree_;
+    }
+
+    template<typename Dtype>
     bool
-    GpOccSurfaceMapping2D::Update(
-        const Eigen::Ref<const Eigen::Matrix2d> &rotation,
-        const Eigen::Ref<const Eigen::Vector2d> &translation,
-        const Eigen::Ref<const Eigen::MatrixXd> &ranges) {
+    GpOccSurfaceMapping2D<Dtype>::Update(
+        const Eigen::Ref<const Matrix2> &rotation,
+        const Eigen::Ref<const Vector2> &translation,
+        const Eigen::Ref<const MatrixX> &ranges) {
 
         m_changed_keys_.clear();
-        if (!m_sensor_gp_->Train(rotation, translation, ranges, false)) { return false; }
+        if (!m_sensor_gp_->Train(rotation, translation, ranges)) { return false; }
         if (m_setting_->update_occupancy) { UpdateOccupancy(); }
         UpdateMapPoints();
         AddNewMeasurement();
@@ -26,23 +75,37 @@ namespace erl::sdf_mapping {
         return true;
     }
 
+    template<typename Dtype>
+    const typename GpOccSurfaceMapping2D<Dtype>::SurfaceDataManager2D &
+    GpOccSurfaceMapping2D<Dtype>::GetSurfaceDataManager() const {
+        return m_surface_data_manager_;
+    }
+
+    template<typename Dtype>
+    Dtype
+    GpOccSurfaceMapping2D<Dtype>::GetSensorNoise() const {
+        return m_setting_->sensor_gp->sensor_range_var;
+    }
+
+    template<typename Dtype>
     bool
-    GpOccSurfaceMapping2D::operator==(const AbstractSurfaceMapping2D &other) const {
+    GpOccSurfaceMapping2D<Dtype>::operator==(const Super &other) const {
         const auto *other_ptr = dynamic_cast<const GpOccSurfaceMapping2D *>(&other);
         if (other_ptr == nullptr) { return false; }
         if (m_setting_ == nullptr && other_ptr->m_setting_ != nullptr) { return false; }
         if (m_setting_ != nullptr && (other_ptr->m_setting_ == nullptr || *m_setting_ != *other_ptr->m_setting_)) { return false; }
         if (m_sensor_gp_ == nullptr && other_ptr->m_sensor_gp_ != nullptr) { return false; }
         if (m_sensor_gp_ != nullptr && (other_ptr->m_sensor_gp_ == nullptr || *m_sensor_gp_ != *other_ptr->m_sensor_gp_)) { return false; }
-        if (m_quadtree_ == nullptr && other_ptr->m_quadtree_ != nullptr) { return false; }
-        if (m_quadtree_ != nullptr && (other_ptr->m_quadtree_ == nullptr || *m_quadtree_ != *other_ptr->m_quadtree_)) { return false; }
+        if (m_tree_ == nullptr && other_ptr->m_tree_ != nullptr) { return false; }
+        if (m_tree_ != nullptr && (other_ptr->m_tree_ == nullptr || *m_tree_ != *other_ptr->m_tree_)) { return false; }
         if (m_xy_perturb_ != other_ptr->m_xy_perturb_) { return false; }
         if (m_changed_keys_ != other_ptr->m_changed_keys_) { return false; }
         return true;
     }
 
+    template<typename Dtype>
     bool
-    GpOccSurfaceMapping2D::Write(const std::string &filename) const {
+    GpOccSurfaceMapping2D<Dtype>::Write(const std::string &filename) const {
         ERL_INFO("Writing GpOccSurfaceMapping2D to file: {}", filename);
         std::filesystem::create_directories(std::filesystem::path(filename).parent_path());
         std::ofstream file(filename, std::ios_base::out | std::ios_base::binary);
@@ -56,10 +119,9 @@ namespace erl::sdf_mapping {
         return success;
     }
 
-    static const std::string kFileHeader = "# erl::sdf_mapping::GpOccSurfaceMapping2D";
-
+    template<typename Dtype>
     bool
-    GpOccSurfaceMapping2D::Write(std::ostream &s) const {
+    GpOccSurfaceMapping2D<Dtype>::Write(std::ostream &s) const {
         s << kFileHeader << std::endl  //
           << "# (feel free to add / change comments, but leave the first line as it is!)" << std::endl
           << "setting" << std::endl;
@@ -74,9 +136,9 @@ namespace erl::sdf_mapping {
             ERL_WARN("Failed to write sensor_gp.");
             return false;
         }
-        s << "quadtree " << (m_quadtree_ != nullptr) << std::endl;
-        if (m_quadtree_ != nullptr) {
-            if (!m_quadtree_->Write(s)) {
+        s << "quadtree " << (m_tree_ != nullptr) << std::endl;
+        if (m_tree_ != nullptr) {
+            if (!m_tree_->Write(s)) {
                 ERL_WARN("Failed to write quadtree.");
                 return false;
             }
@@ -95,8 +157,9 @@ namespace erl::sdf_mapping {
         return s.good();
     }
 
+    template<typename Dtype>
     bool
-    GpOccSurfaceMapping2D::Read(const std::string &filename) {
+    GpOccSurfaceMapping2D<Dtype>::Read(const std::string &filename) {
         ERL_INFO("Reading GpOccSurfaceMapping2D from file: {}", std::filesystem::absolute(filename));
         std::ifstream file(filename.c_str(), std::ios_base::in | std::ios_base::binary);
         if (!file.is_open()) {
@@ -109,8 +172,9 @@ namespace erl::sdf_mapping {
         return success;
     }
 
+    template<typename Dtype>
     bool
-    GpOccSurfaceMapping2D::Read(std::istream &s) {
+    GpOccSurfaceMapping2D<Dtype>::Read(std::istream &s) {
         if (!s.good()) {
             ERL_WARN("Input stream is not ready for reading");
             return false;
@@ -176,8 +240,8 @@ namespace erl::sdf_mapping {
                     s >> has_quadtree;
                     skip_line();
                     if (has_quadtree) {
-                        m_quadtree_ = std::make_shared<SurfaceMappingQuadtree>(m_setting_->quadtree);
-                        if (!m_quadtree_->LoadData(s)) {
+                        m_tree_ = std::make_shared<SurfaceMappingQuadtree>(m_setting_->quadtree);
+                        if (!m_tree_->LoadData(s)) {
                             ERL_WARN("Failed to read quadtree.");
                             return false;
                         }
@@ -219,41 +283,42 @@ namespace erl::sdf_mapping {
         return false;  // should not reach here
     }
 
+    template<typename Dtype>
     void
-    GpOccSurfaceMapping2D::UpdateMapPoints() {
+    GpOccSurfaceMapping2D<Dtype>::UpdateMapPoints() {
         ERL_BLOCK_TIMER();
 
-        if (m_quadtree_ == nullptr || !m_sensor_gp_->IsTrained()) { return; }
+        if (m_tree_ == nullptr || !m_sensor_gp_->IsTrained()) { return; }
 
-        const auto sensor_frame = m_sensor_gp_->GetLidarFrame();
-        const Eigen::Vector2d &sensor_pos = sensor_frame->GetTranslationVector();
-        const double max_sensor_range = sensor_frame->GetMaxValidRange();
+        const auto sensor_frame = m_sensor_gp_->GetSensorFrame();
+        const Vector2 &sensor_pos = sensor_frame->GetTranslationVector();
+        const Dtype max_sensor_range = sensor_frame->GetMaxValidRange();
         const geometry::Aabb2D observed_area(sensor_pos, max_sensor_range);
 
-        std::vector<std::tuple<geometry::QuadtreeKey, SurfaceMappingQuadtreeNode *, std::optional<geometry::QuadtreeKey>>> nodes_in_aabb;
-        for (auto it = m_quadtree_->BeginLeafInAabb(observed_area), end = m_quadtree_->EndLeafInAabb(); it != end; ++it) {
-            nodes_in_aabb.emplace_back(it.GetKey(), *it, std::nullopt);
+        std::vector<std::tuple<geometry::QuadtreeKey, SurfaceMappingQuadtreeNode *, bool, std::optional<geometry::QuadtreeKey>>> nodes_in_aabb;
+        for (auto it = m_tree_->BeginLeafInAabb(observed_area), end = m_tree_->EndLeafInAabb(); it != end; ++it) {
+            nodes_in_aabb.emplace_back(it.GetKey(), *it, false, std::nullopt);
         }
 
 #pragma omp parallel for default(none) shared(nodes_in_aabb, max_sensor_range, sensor_pos, sensor_frame, g_print_mutex)
-        for (auto &[node_key, node, new_key]: nodes_in_aabb) {
+        for (auto &[node_key, node, bad_update, new_key]: nodes_in_aabb) {
             const uint32_t cluster_level = m_setting_->cluster_level;
-            const double sensor_range_var = m_setting_->sensor_gp->sensor_range_var;
-            const double min_comp_gradient_var = m_setting_->compute_variance.min_gradient_var;
-            const double max_comp_gradient_var = m_setting_->compute_variance.max_gradient_var;
+            const Dtype sensor_range_var = m_setting_->sensor_gp->sensor_range_var;
+            const Dtype min_comp_gradient_var = m_setting_->compute_variance.min_gradient_var;
+            const Dtype max_comp_gradient_var = m_setting_->compute_variance.max_gradient_var;
             const int max_adjust_tries = m_setting_->update_map_points.max_adjust_tries;
-            const double min_observable_occ = m_setting_->update_map_points.min_observable_occ;
-            const double max_surface_abs_occ = m_setting_->update_map_points.max_surface_abs_occ;
-            const double max_valid_gradient_var = m_setting_->update_map_points.max_valid_gradient_var;
-            const double min_position_var = m_setting_->update_map_points.min_position_var;
-            const double min_gradient_var = m_setting_->update_map_points.min_gradient_var;
-            const double max_bayes_position_var = m_setting_->update_map_points.max_bayes_position_var;
-            const double max_bayes_gradient_var = m_setting_->update_map_points.max_bayes_gradient_var;
+            const Dtype min_observable_occ = m_setting_->update_map_points.min_observable_occ;
+            const Dtype max_surface_abs_occ = m_setting_->update_map_points.max_surface_abs_occ;
+            const Dtype max_valid_gradient_var = m_setting_->update_map_points.max_valid_gradient_var;
+            const Dtype min_position_var = m_setting_->update_map_points.min_position_var;
+            const Dtype min_gradient_var = m_setting_->update_map_points.min_gradient_var;
+            const Dtype max_bayes_position_var = m_setting_->update_map_points.max_bayes_position_var;
+            const Dtype max_bayes_gradient_var = m_setting_->update_map_points.max_bayes_gradient_var;
 
-            const double cluster_half_size = m_setting_->quadtree->resolution * std::pow(2, cluster_level - 1);
-            const double squared_dist_max = max_sensor_range * max_sensor_range + cluster_half_size * cluster_half_size * 2.0;
+            const Dtype cluster_half_size = m_setting_->quadtree->resolution * std::pow(2, cluster_level - 1);
+            const Dtype squared_dist_max = max_sensor_range * max_sensor_range + cluster_half_size * cluster_half_size * 2.0;
 
-            if (const Eigen::Vector2d cluster_position = m_quadtree_->KeyToCoord(node_key, m_quadtree_->GetTreeDepth() - cluster_level);
+            if (const Vector2 cluster_position = m_tree_->KeyToCoord(node_key, m_tree_->GetTreeDepth() - cluster_level);
                 (cluster_position - sensor_pos).squaredNorm() > squared_dist_max) {
                 continue;
             }
@@ -261,38 +326,38 @@ namespace erl::sdf_mapping {
             if (!node->HasSurfaceData()) { continue; }
             auto &surface_data = m_surface_data_manager_[node->surface_data_index];
 
-            const Eigen::Vector2d &xy_global_old = surface_data.position;
-            Eigen::Vector2d xy_local_old = sensor_frame->WorldToFrameSe2(xy_global_old);
+            const Vector2 &pos_global_old = surface_data.position;
+            Vector2 pos_local_old = sensor_frame->PosWorldToFrame(pos_global_old);
 
-            if (!sensor_frame->PointIsInFrame(xy_local_old)) { continue; }
+            if (!sensor_frame->PointIsInFrame(pos_local_old)) { continue; }
 
-            double occ, distance_old;
-            Eigen::Scalard distance_pred, distance_pred_var, angle_local;
-            Cartesian2Polar(xy_local_old, distance_old, angle_local[0]);
+            Dtype occ, distance_old;
+            Scalar distance_pred, distance_pred_var, angle_local;
+            Cartesian2Polar(pos_local_old, distance_old, angle_local[0]);
             if (!m_sensor_gp_->ComputeOcc(angle_local, distance_old, distance_pred, distance_pred_var, occ)) { continue; }
             if (occ < min_observable_occ) { continue; }
 
-            const Eigen::Vector2d &grad_global_old = surface_data.normal;
-            Eigen::Vector2d grad_local_old = sensor_frame->WorldToFrameSo2(grad_global_old);
+            const Vector2 &grad_global_old = surface_data.normal;
+            Vector2 grad_local_old = sensor_frame->DirWorldToFrame(grad_global_old);
 
             // compute a new position for the point
-            Eigen::Vector2d xy_local_new = xy_local_old;
-            double delta = m_setting_->perturb_delta;
+            Vector2 pos_local_new = pos_local_old;
+            Dtype delta = m_setting_->perturb_delta;
             int num_adjust_tries = 0;
-            double occ_abs = std::fabs(occ);
-            double distance_new = distance_old;
+            Dtype occ_abs = std::fabs(occ);
+            Dtype distance_new = distance_old;
             while (num_adjust_tries < max_adjust_tries && occ_abs > max_surface_abs_occ) {
                 // move one step
                 // the direction is determined by the occupancy sign, the step size is heuristically determined according to iteration.
                 if (occ < 0.) {
-                    xy_local_new += grad_local_old * delta;  // point is inside the obstacle
+                    pos_local_new += grad_local_old * delta;  // point is inside the obstacle
                 } else if (occ > 0.) {
-                    xy_local_new -= grad_local_old * delta;  // point is outside the obstacle
+                    pos_local_new -= grad_local_old * delta;  // point is outside the obstacle
                 }
 
                 // test the new point
-                Cartesian2Polar(xy_local_new, distance_pred[0], angle_local[0]);
-                if (double occ_new; m_sensor_gp_->ComputeOcc(angle_local, distance_pred[0], distance_pred, distance_pred_var, occ_new)) {
+                Cartesian2Polar(pos_local_new, distance_pred[0], angle_local[0]);
+                if (Dtype occ_new; m_sensor_gp_->ComputeOcc(angle_local, distance_pred[0], distance_pred, distance_pred_var, occ_new)) {
                     occ_abs = std::fabs(occ_new);
                     distance_new = distance_pred[0];
                     if (occ_abs < max_surface_abs_occ) { break; }
@@ -309,37 +374,37 @@ namespace erl::sdf_mapping {
             }
 
             // compute new gradient and uncertainty
-            double occ_mean, var_distance;
-            Eigen::Vector2d grad_local_new;
-            if (!ComputeGradient1(xy_local_new, grad_local_new, occ_mean, var_distance)) { continue; }
-            Eigen::Vector2d grad_global_new = sensor_frame->FrameToWorldSo2(grad_local_new);
-            double var_position_new, var_gradient_new;
-            ComputeVariance(xy_local_new, grad_local_new, distance_new, var_distance, std::fabs(occ_mean), occ_abs, false, var_position_new, var_gradient_new);
+            Dtype occ_mean, var_distance;
+            Vector2 grad_local_new;
+            if (!ComputeGradient1(pos_local_new, grad_local_new, occ_mean, var_distance)) { continue; }
+            Vector2 grad_global_new = sensor_frame->DirFrameToWorld(grad_local_new);
+            Dtype var_position_new, var_gradient_new;
+            ComputeVariance(pos_local_new, grad_local_new, distance_new, var_distance, std::fabs(occ_mean), occ_abs, false, var_position_new, var_gradient_new);
 
-            Eigen::Vector2d xy_global_new = sensor_frame->FrameToWorldSe2(xy_local_new);
-            if (const double var_position_old = surface_data.var_position, var_gradient_old = surface_data.var_normal;
+            Vector2 pos_global_new = sensor_frame->PosFrameToWorld(pos_local_new);
+            if (const Dtype var_position_old = surface_data.var_position, var_gradient_old = surface_data.var_normal;
                 var_gradient_old <= max_valid_gradient_var) {
                 // do bayes Update only when the old result is not too bad, otherwise, just replace it
-                const double var_position_sum = var_position_new + var_position_old;
-                const double var_gradient_sum = var_gradient_new + var_gradient_old;
+                const Dtype var_position_sum = var_position_new + var_position_old;
+                const Dtype var_gradient_sum = var_gradient_new + var_gradient_old;
 
                 // position Update
-                xy_global_new = (xy_global_new * var_position_old + xy_global_old * var_position_new) / var_position_sum;
+                pos_global_new = (pos_global_new * var_position_old + pos_global_old * var_position_new) / var_position_sum;
                 // gradient Update
-                const double &old_x = grad_global_old.x();
-                const double &old_y = grad_global_old.y();
-                const double &new_x = grad_global_new.x();
-                const double &new_y = grad_global_new.y();
-                const double angle_dist = std::atan2(old_x * new_y - old_y * new_x, old_x * new_x + old_y * new_y) * var_gradient_new / var_gradient_sum;
-                const double sin = std::sin(angle_dist);
-                const double cos = std::cos(angle_dist);
+                const Dtype &old_x = grad_global_old.x();
+                const Dtype &old_y = grad_global_old.y();
+                const Dtype &new_x = grad_global_new.x();
+                const Dtype &new_y = grad_global_new.y();
+                const Dtype angle_dist = std::atan2(old_x * new_y - old_y * new_x, old_x * new_x + old_y * new_y) * var_gradient_new / var_gradient_sum;
+                const Dtype sin = std::sin(angle_dist);
+                const Dtype cos = std::cos(angle_dist);
                 // rotate grad_global_old by angle_dist
                 grad_global_new.x() = cos * old_x - sin * old_y;
                 grad_global_new.y() = sin * old_x + cos * old_y;
                 ERL_DEBUG_ASSERT(std::abs(grad_global_new.norm() - 1.0) < 1.e-6, "grad_global_new.norm() = {:.6f}", grad_global_new.norm());
 
                 // variance Update
-                const double distance = (xy_global_new - xy_global_old).norm() * 0.5;
+                const Dtype distance = (pos_global_new - pos_global_old).norm() * 0.5;
                 var_position_new = std::max(var_position_new * var_position_old / var_position_sum + distance, sensor_range_var);
                 var_gradient_new = common::ClipRange(  //
                     var_gradient_new * var_gradient_old / var_gradient_sum + distance,
@@ -351,27 +416,30 @@ namespace erl::sdf_mapping {
 
             // Update the surface data
             if (var_position_new > max_bayes_position_var && var_gradient_new > max_bayes_gradient_var) {
-                m_surface_data_manager_.RemoveEntry(node->surface_data_index);
-                node->ResetSurfaceDataIndex();
+                bad_update = true;
                 continue;  // too bad, skip
             }
-            if (new_key = m_quadtree_->CoordToKey(xy_global_new.x(), xy_global_new.y()); new_key.value() == node_key) { new_key = std::nullopt; }
-            surface_data.position = xy_global_new;
+            if (new_key = m_tree_->CoordToKey(pos_global_new); new_key.value() == node_key) { new_key = std::nullopt; }
+            surface_data.position = pos_global_new;
             surface_data.normal = grad_global_new;
             surface_data.var_position = var_position_new;
             surface_data.var_normal = var_gradient_new;
-            ERL_DEBUG_ASSERT(std::abs(surface_data.normal.norm() - 1.0) < 1.e-6, "surface_data->normal.norm() = {:.6f}", surface_data.normal.norm());
+            ERL_DEBUG_ASSERT(std::abs(surface_data.normal.norm() - 1.0) < 1.e-5, "surface_data->normal.norm() = {:.6f}", surface_data.normal.norm());
         }
 
-        for (auto &[key, node, new_key]: nodes_in_aabb) {
-            if (!node->HasSurfaceData()) {  // too bad, surface data is removed
+        for (auto &[key, node, bad_update, new_key]: nodes_in_aabb) {
+            if (bad_update) {                                                   // too bad, the surface data should be removed
+                m_surface_data_manager_.RemoveEntry(node->surface_data_index);  // this surface data is not used anymore
+                node->ResetSurfaceDataIndex();                                  // the node has no surface data now
+            }
+            if (!node->HasSurfaceData()) {  // surface data is removed
                 RecordChangedKey(key);
                 continue;
             }
             if (new_key.has_value()) {  // the node is moved to a new position
                 RecordChangedKey(key);
 
-                SurfaceMappingQuadtreeNode *new_node = m_quadtree_->InsertNode(new_key.value());
+                SurfaceMappingQuadtreeNode *new_node = m_tree_->InsertNode(new_key.value());
                 ERL_DEBUG_ASSERT(new_node != nullptr, "Failed to get the node");
                 if (new_node->HasSurfaceData()) {                                   // the new node is already occupied
                     m_surface_data_manager_.RemoveEntry(node->surface_data_index);  // this surface data is not used anymore
@@ -386,48 +454,50 @@ namespace erl::sdf_mapping {
         }
     }
 
+    template<typename Dtype>
     void
-    GpOccSurfaceMapping2D::UpdateOccupancy() {
+    GpOccSurfaceMapping2D<Dtype>::UpdateOccupancy() {
         ERL_BLOCK_TIMER();
-        if (m_quadtree_ == nullptr) { m_quadtree_ = std::make_shared<SurfaceMappingQuadtree>(m_setting_->quadtree); }
-        const auto sensor_frame = m_sensor_gp_->GetLidarFrame();
+        if (m_tree_ == nullptr) { m_tree_ = std::make_shared<SurfaceMappingQuadtree>(m_setting_->quadtree); }
+        const auto sensor_frame = m_sensor_gp_->GetSensorFrame();
         // In AddNewMeasurement(), only rays classified as hit are used. So, we use the same here to avoid inconsistency.
         // Experiments show that this achieves higher fps and better results.
-        const Eigen::Map<const Eigen::Matrix2Xd> map_points(sensor_frame->GetHitPointsWorld().data()->data(), 2, sensor_frame->GetNumHitRays());
+        const Eigen::Map<const Matrix2X> map_points(sensor_frame->GetHitPointsWorld().data()->data(), 2, sensor_frame->GetNumHitRays());
         constexpr bool parallel = false;
         constexpr bool lazy_eval = false;
         constexpr bool discrete = true;
-        m_quadtree_->InsertPointCloud(map_points, sensor_frame->GetTranslationVector(), sensor_frame->GetMaxValidRange(), parallel, lazy_eval, discrete);
+        m_tree_->InsertPointCloud(map_points, sensor_frame->GetTranslationVector(), sensor_frame->GetMaxValidRange(), parallel, lazy_eval, discrete);
     }
 
+    template<typename Dtype>
     void
-    GpOccSurfaceMapping2D::AddNewMeasurement() {
+    GpOccSurfaceMapping2D<Dtype>::AddNewMeasurement() {
         ERL_BLOCK_TIMER();
 
-        if (m_quadtree_ == nullptr) { m_quadtree_ = std::make_shared<SurfaceMappingQuadtree>(m_setting_->quadtree); }
-        const auto sensor_frame = m_sensor_gp_->GetLidarFrame();
+        if (m_tree_ == nullptr) { m_tree_ = std::make_shared<SurfaceMappingQuadtree>(m_setting_->quadtree); }
+        const auto sensor_frame = m_sensor_gp_->GetSensorFrame();
         const std::vector<long> &hit_ray_indices = sensor_frame->GetHitRayIndices();
-        const std::vector<Eigen::Vector2d> &points_local = sensor_frame->GetEndPointsInFrame();
-        const std::vector<Eigen::Vector2d> &hit_points = sensor_frame->GetHitPointsWorld();
+        const std::vector<Vector2> &points_local = sensor_frame->GetEndPointsInFrame();
+        const std::vector<Vector2> &hit_points = sensor_frame->GetHitPointsWorld();
         const long num_hit_rays = sensor_frame->GetNumHitRays();
-        const Eigen::VectorXd &ranges = sensor_frame->GetRanges();
-        const double min_position_var = m_setting_->update_map_points.min_position_var;
-        const double min_gradient_var = m_setting_->update_map_points.min_gradient_var;
+        const VectorX &ranges = sensor_frame->GetRanges();
+        const Dtype min_position_var = m_setting_->update_map_points.min_position_var;
+        const Dtype min_gradient_var = m_setting_->update_map_points.min_gradient_var;
 
         // collect new measurements
         // if we iterate over the hit rays directly, some computations are unnecessary
-        std::vector<std::tuple<geometry::QuadtreeKey, long, long, SurfaceMappingQuadtreeNode *, bool, double, Eigen::Vector2d>> new_measurements;
+        std::vector<std::tuple<geometry::QuadtreeKey, long, long, SurfaceMappingQuadtreeNode *, bool, Dtype, Vector2>> new_measurements;
         new_measurements.reserve(num_hit_rays);
         geometry::QuadtreeKeySet new_measurement_keys;
         new_measurement_keys.reserve(num_hit_rays);
         for (long i = 0; i < num_hit_rays; ++i) {
-            const Eigen::Vector2d &hit_point = hit_points[i];
-            geometry::QuadtreeKey key = m_quadtree_->CoordToKey(hit_point);
-            if (!new_measurement_keys.insert(key).second) { continue; }       // the key is already in the set
-            SurfaceMappingQuadtreeNode *node = m_quadtree_->InsertNode(key);  // insert the node
-            if (node == nullptr) { continue; }                                // failed to insert the node
-            if (node->HasSurfaceData()) { continue; }                         // the node is already occupied
-            new_measurements.emplace_back(key, i, hit_ray_indices[i], node, false, 0.0, Eigen::Vector2d::Zero());
+            const Vector2 &hit_point = hit_points[i];
+            geometry::QuadtreeKey key = m_tree_->CoordToKey(hit_point);
+            if (!new_measurement_keys.insert(key).second) { continue; }   // the key is already in the set
+            SurfaceMappingQuadtreeNode *node = m_tree_->InsertNode(key);  // insert the node
+            if (node == nullptr) { continue; }                            // failed to insert the node
+            if (node->HasSurfaceData()) { continue; }                     // the node is already occupied
+            new_measurements.emplace_back(key, i, hit_ray_indices[i], node, false, 0.0, Vector2::Zero());
         }
 
         const auto num_new_measurements = static_cast<long>(new_measurements.size());
@@ -442,13 +512,13 @@ namespace erl::sdf_mapping {
             if (invalid_flag) { continue; }            // invalid measurement
             if (node->HasSurfaceData()) { continue; }  // the node is already occupied by previous new measurement
 
-            double var_position, var_gradient;
+            Dtype var_position, var_gradient;
             ComputeVariance(points_local[idx], gradient_local, ranges[idx], 0, std::fabs(occ_mean), 0, true, var_position, var_gradient);
             var_position = std::max(var_position, min_position_var);
             var_gradient = std::max(var_gradient, min_gradient_var);
             node->surface_data_index = m_surface_data_manager_.AddEntry(SurfaceDataManager<2>::SurfaceData{
                 hit_points[hit_idx],
-                sensor_frame->FrameToWorldSo2(gradient_local),
+                sensor_frame->DirFrameToWorld(gradient_local),
                 var_position,
                 var_gradient,
             });
@@ -456,21 +526,29 @@ namespace erl::sdf_mapping {
         }
     }
 
-    bool
-    GpOccSurfaceMapping2D::ComputeGradient1(const Eigen::Vector2d &xy_local, Eigen::Vector2d &gradient, double &occ_mean, double &distance_var) {
+    template<typename Dtype>
+    void
+    GpOccSurfaceMapping2D<Dtype>::RecordChangedKey(const geometry::QuadtreeKey &key) {
+        ERL_DEBUG_ASSERT(m_tree_ != nullptr, "Quadtree is not initialized.");
+        m_changed_keys_.insert(m_tree_->AdjustKeyToDepth(key, m_tree_->GetTreeDepth() - m_setting_->cluster_level));
+    }
 
-        double occ[4];
+    template<typename Dtype>
+    bool
+    GpOccSurfaceMapping2D<Dtype>::ComputeGradient1(const Vector2 &xy_local, Vector2 &gradient, Dtype &occ_mean, Dtype &distance_var) {
+
+        Dtype occ[4];
         occ_mean = 0.;
-        double distance_sum = 0.;
-        double distance_square_mean = 0.;
+        Dtype distance_sum = 0.;
+        Dtype distance_square_mean = 0.;
         gradient.setZero();
 
         for (int j = 0; j < 4; ++j) {
-            double distance;
-            Eigen::Scalard angle;
+            Dtype distance;
+            Scalar angle;
             Cartesian2Polar(xy_local + m_xy_perturb_.col(j), distance, angle[0]);
-            Eigen::Scalard distance_pred;
-            if (Eigen::Scalard var; !m_sensor_gp_->ComputeOcc(angle, distance, distance_pred, var, occ[j])) { return false; }
+            Scalar distance_pred;
+            if (Scalar var; !m_sensor_gp_->ComputeOcc(angle, distance, distance_pred, var, occ[j])) { return false; }
             occ_mean += occ[j];
             distance_sum += distance_pred[0];
             distance_square_mean += distance_pred[0] * distance_pred[0];
@@ -484,25 +562,26 @@ namespace erl::sdf_mapping {
 
         gradient << (occ[0] - occ[1]) / m_setting_->perturb_delta, (occ[2] - occ[3]) / m_setting_->perturb_delta;
 
-        const double gradient_norm = gradient.norm();
+        const Dtype gradient_norm = gradient.norm();
         if (gradient_norm <= m_setting_->zero_gradient_threshold) { return false; }  // uncertain point, drop it
         gradient /= gradient_norm;
         return true;
     }
 
+    template<typename Dtype>
     bool
-    GpOccSurfaceMapping2D::ComputeGradient2(const Eigen::Ref<const Eigen::Vector2d> &xy_local, Eigen::Vector2d &gradient, double &occ_mean) {
-        double occ[4];
+    GpOccSurfaceMapping2D<Dtype>::ComputeGradient2(const Eigen::Ref<const Vector2> &xy_local, Vector2 &gradient, Dtype &occ_mean) {
+        Dtype occ[4];
         occ_mean = 0.;
         gradient.setZero();
 
-        const double valid_range_min = m_setting_->sensor_gp->lidar_frame->valid_range_min;
-        const double valid_range_max = m_setting_->sensor_gp->lidar_frame->valid_range_max;
+        const Dtype valid_range_min = m_setting_->sensor_gp->lidar_frame->valid_range_min;
+        const Dtype valid_range_max = m_setting_->sensor_gp->lidar_frame->valid_range_max;
         for (int j = 0; j < 4; ++j) {
-            double distance;
-            Eigen::Scalard angle;
+            Dtype distance;
+            Scalar angle;
             Cartesian2Polar(xy_local + m_xy_perturb_.col(j), distance, angle[0]);
-            if (Eigen::Scalard distance_pred, var;                                         //
+            if (Scalar distance_pred, var;                                                 //
                 !m_sensor_gp_->ComputeOcc(angle, distance, distance_pred, var, occ[j]) ||  //
                 distance_pred[0] < valid_range_min || distance_pred[0] > valid_range_max) {
                 return false;
@@ -513,33 +592,34 @@ namespace erl::sdf_mapping {
         occ_mean *= 0.25;
         gradient << (occ[0] - occ[1]) / m_setting_->perturb_delta, (occ[2] - occ[3]) / m_setting_->perturb_delta;
 
-        const double gradient_norm = gradient.norm();
+        const Dtype gradient_norm = gradient.norm();
         if (gradient_norm <= m_setting_->zero_gradient_threshold) { return false; }  // uncertain point, drop it
         gradient /= gradient_norm;
         return true;
     }
 
+    template<typename Dtype>
     void
-    GpOccSurfaceMapping2D::ComputeVariance(
-        const Eigen::Ref<const Eigen::Vector2d> &xy_local,
-        const Eigen::Vector2d &grad_local,
-        const double &distance,
-        const double &distance_var,
-        const double &occ_mean_abs,
-        const double &occ_abs,
+    GpOccSurfaceMapping2D<Dtype>::ComputeVariance(
+        const Eigen::Ref<const Vector2> &xy_local,
+        const Vector2 &grad_local,
+        const Dtype &distance,
+        const Dtype &distance_var,
+        const Dtype &occ_mean_abs,
+        const Dtype &occ_abs,
         const bool new_point,
-        double &var_position,
-        double &var_gradient) const {
+        Dtype &var_position,
+        Dtype &var_gradient) const {
 
-        const double min_distance_var = m_setting_->compute_variance.min_distance_var;
-        const double max_distance_var = m_setting_->compute_variance.max_distance_var;
-        const double min_gradient_var = m_setting_->compute_variance.min_gradient_var;
-        const double max_gradient_var = m_setting_->compute_variance.max_gradient_var;
+        const Dtype min_distance_var = m_setting_->compute_variance.min_distance_var;
+        const Dtype max_distance_var = m_setting_->compute_variance.max_distance_var;
+        const Dtype min_gradient_var = m_setting_->compute_variance.min_gradient_var;
+        const Dtype max_gradient_var = m_setting_->compute_variance.max_gradient_var;
 
-        const double var_distance = common::ClipRange(distance * distance, min_distance_var, max_distance_var);
-        const double cos_view_angle = -xy_local.dot(grad_local) / xy_local.norm();
-        const double cos2_view_angle = std::max(cos_view_angle * cos_view_angle, 1.e-2);  // avoid zero division
-        const double var_direction = (1. - cos2_view_angle) / cos2_view_angle;
+        const Dtype var_distance = common::ClipRange(distance * distance, min_distance_var, max_distance_var);
+        const Dtype cos_view_angle = -xy_local.dot(grad_local) / xy_local.norm();
+        const Dtype cos2_view_angle = std::max(cos_view_angle * cos_view_angle, 1.e-2);  // avoid zero division
+        const Dtype var_direction = (1. - cos2_view_angle) / cos2_view_angle;
 
         if (new_point) {
             var_position = m_setting_->compute_variance.position_var_alpha * (var_distance + var_direction);

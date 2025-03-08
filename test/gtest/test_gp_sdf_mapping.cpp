@@ -143,10 +143,10 @@ TEST(GPSdfMapping, Build_Save_Load_3D) {
         ERL_ASSERTM(!mesh->vertices_.empty(), "Failed to load mesh file: {}", g_options.mesh_file);
         map_min = mesh->GetMinBound();
         map_max = mesh->GetMaxBound();
-        if (surface_mapping_setting->sensor_gp->range_sensor_frame_type == demangle(typeid(erl::geometry::LidarFrame3D).name())) {
+        if (surface_mapping_setting->sensor_gp->sensor_frame_type == demangle(typeid(erl::geometry::LidarFrame3D).name())) {
             ERL_INFO("Using LiDAR.");
             const auto lidar_frame_setting =
-                std::dynamic_pointer_cast<erl::geometry::LidarFrame3D::Setting>(surface_mapping_setting->sensor_gp->range_sensor_frame);
+                std::dynamic_pointer_cast<erl::geometry::LidarFrame3D::Setting>(surface_mapping_setting->sensor_gp->sensor_frame);
             const auto lidar_setting = std::make_shared<erl::geometry::Lidar3D::Setting>();
             lidar_setting->azimuth_min = lidar_frame_setting->azimuth_min;
             lidar_setting->azimuth_max = lidar_frame_setting->azimuth_max;
@@ -155,15 +155,15 @@ TEST(GPSdfMapping, Build_Save_Load_3D) {
             lidar_setting->elevation_max = lidar_frame_setting->elevation_max;
             lidar_setting->num_elevation_lines = lidar_frame_setting->num_elevation_lines;
             range_sensor = std::make_shared<erl::geometry::Lidar3D>(lidar_setting);
-        } else if (surface_mapping_setting->sensor_gp->range_sensor_frame_type == demangle(typeid(erl::geometry::DepthFrame3D).name())) {
+        } else if (surface_mapping_setting->sensor_gp->sensor_frame_type == demangle(typeid(erl::geometry::DepthFrame3D).name())) {
             ERL_INFO("Using depth.");
             const auto depth_frame_setting =
-                std::dynamic_pointer_cast<erl::geometry::DepthFrame3D::Setting>(surface_mapping_setting->sensor_gp->range_sensor_frame);
+                std::dynamic_pointer_cast<erl::geometry::DepthFrame3D::Setting>(surface_mapping_setting->sensor_gp->sensor_frame);
             const auto depth_camera_setting = std::make_shared<erl::geometry::DepthCamera3D::Setting>();
             *depth_camera_setting = depth_frame_setting->camera_intrinsic;
             range_sensor = std::make_shared<erl::geometry::DepthCamera3D>(depth_camera_setting);
         } else {
-            ERL_FATAL("Unknown range_sensor_frame_type: {}", surface_mapping_setting->sensor_gp->range_sensor_frame_type);
+            ERL_FATAL("Unknown sensor_frame_type: {}", surface_mapping_setting->sensor_gp->sensor_frame_type);
         }
         range_sensor->AddMesh(mesh->vertices_, mesh->triangles_);
         geometries.push_back(mesh);

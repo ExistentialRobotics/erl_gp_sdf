@@ -7,16 +7,16 @@ namespace erl::sdf_mapping {
 
     template<typename Dtype, int Dim>
     struct SurfaceData {
-        using Vector = Eigen::Vector<Dtype, Dim>;
+        using VectorD = Eigen::Vector<Dtype, Dim>;
 
-        Vector position = Vector::Zero();
-        Vector normal = Vector::Zero();
+        VectorD position = VectorD::Zero();
+        VectorD normal = VectorD::Zero();
         Dtype var_position = 0.0;
         Dtype var_normal = 0.0;
 
         SurfaceData() = default;
 
-        SurfaceData(Vector position, Vector normal, const Dtype var_position, const Dtype var_normal)
+        SurfaceData(VectorD position, VectorD normal, const Dtype var_position, const Dtype var_normal)
             : position(std::move(position)),
               normal(std::move(normal)),
               var_position(var_position),

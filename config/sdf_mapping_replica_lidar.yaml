@@ -41,9 +41,9 @@ surface_mapping:
         sensor_range_var: 0.01
         max_valid_range_var: 0.10000000000000001
         occ_test_temperature: 30
-        range_sensor_frame_type: erl::geometry::LidarFrame3D
-        range_sensor_frame_setting_type: erl::geometry::LidarFrame3D::Setting
-        range_sensor_frame:
+        sensor_frame_type: erl::geometry::LidarFrame3D
+        sensor_frame_setting_type: erl::geometry::LidarFrame3D::Setting
+        sensor_frame:
             row_margin: *row_margin
             col_margin: *col_margin
             valid_range_min: 0.20000000000000001

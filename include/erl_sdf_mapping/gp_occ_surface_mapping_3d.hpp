@@ -22,10 +22,10 @@ namespace erl::sdf_mapping {
         using TreeNode = SurfaceMappingOctreeNode;
         using SurfaceDataManager3D = SurfaceDataManager<Dtype, 3>;
         using Scalar = Eigen::Matrix<Dtype, 1, 1>;
-        using Matrix = Eigen::MatrixX<Dtype>;
+        using MatrixX = Eigen::MatrixX<Dtype>;
         using Matrix3 = Eigen::Matrix3<Dtype>;
         using Matrix3X = Eigen::Matrix3X<Dtype>;
-        using Vector = Eigen::VectorX<Dtype>;
+        using VectorX = Eigen::VectorX<Dtype>;
         using Vector2 = Eigen::Vector2<Dtype>;
         using Vector3 = Eigen::Vector3<Dtype>;
 
@@ -43,7 +43,7 @@ namespace erl::sdf_mapping {
         };
 
         inline static const volatile bool kSettingRegistered = common::YamlableBase::Register<Setting>();
-        inline static const std::string kFileHeader = fmt::format("# erl::sdf_mapping::GpOccSurfaceMapping3D<{}>", type_name<Dtype>());
+        inline static const std::string kFileHeader = fmt::format("# {}", type_name<GpOccSurfaceMapping3D>());
 
     private:
         std::shared_ptr<Setting> m_setting_ = std::make_shared<Setting>();
@@ -91,7 +91,7 @@ namespace erl::sdf_mapping {
         Ready() const;
 
         bool
-        Update(const Eigen::Ref<const Matrix3> &rotation, const Eigen::Ref<const Vector3> &translation, const Eigen::Ref<const Matrix> &ranges) override;
+        Update(const Eigen::Ref<const Matrix3> &rotation, const Eigen::Ref<const Vector3> &translation, const Eigen::Ref<const MatrixX> &ranges) override;
 
         [[nodiscard]] bool
         operator==(const Super &other) const override;
@@ -142,9 +142,6 @@ namespace erl::sdf_mapping {
 
     using GpOccSurfaceMapping3Dd = GpOccSurfaceMapping3D<double>;
     using GpOccSurfaceMapping3Df = GpOccSurfaceMapping3D<float>;
-
-    ERL_REGISTER_SURFACE_MAPPING(GpOccSurfaceMapping3Dd);
-    ERL_REGISTER_SURFACE_MAPPING(GpOccSurfaceMapping3Df);
 }  // namespace erl::sdf_mapping
 
 #include "gp_occ_surface_mapping_3d.tpp"
