@@ -3,7 +3,6 @@
 #include "surface_mapping_octree_node.hpp"
 
 #include "erl_geometry/occupancy_octree_base.hpp"
-#include "erl_geometry/occupancy_octree_drawer.hpp"
 
 namespace erl::sdf_mapping {
 
@@ -13,7 +12,6 @@ namespace erl::sdf_mapping {
     public:
         using Setting = geometry::OccupancyOctreeBaseSetting;
         using Super = geometry::OccupancyOctreeBase<Dtype, SurfaceMappingOctreeNode, Setting>;
-        using Drawer = geometry::OccupancyOctreeDrawer<SurfaceMappingOctree>;
 
         explicit SurfaceMappingOctree(const std::shared_ptr<Setting> &setting)
             : Super(setting) {}
@@ -48,9 +46,3 @@ namespace erl::sdf_mapping {
     using SurfaceMappingOctreeD = SurfaceMappingOctree<double>;
     using SurfaceMappingOctreeF = SurfaceMappingOctree<float>;
 }  // namespace erl::sdf_mapping
-
-template<>
-struct YAML::convert<erl::sdf_mapping::SurfaceMappingOctreeD::Drawer::Setting> : erl::sdf_mapping::SurfaceMappingOctreeD::Drawer::Setting::YamlConvertImpl {};
-
-template<>
-struct YAML::convert<erl::sdf_mapping::SurfaceMappingOctreeF::Drawer::Setting> : erl::sdf_mapping::SurfaceMappingOctreeF::Drawer::Setting::YamlConvertImpl {};

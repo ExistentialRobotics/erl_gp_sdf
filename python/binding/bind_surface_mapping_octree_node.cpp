@@ -6,6 +6,6 @@ void
 BindSurfaceMappingOctreeNode(const py::module& m) {
     using namespace erl::geometry;
     using namespace erl::sdf_mapping;
-    auto node = BindOccupancyOctreeNode<SurfaceMappingOctreeNode, OccupancyOctreeNode>(m, "SurfaceMappingOctreeNode");
-    node.def_readwrite("surface_data_index", &SurfaceMappingOctreeNode::surface_data_index);
+    BindOccupancyOctreeNode<SurfaceMappingOctreeNode, OccupancyOctreeNode>(m, "SurfaceMappingOctreeNode")
+        .def_readwrite("surface_data_index", &SurfaceMappingOctreeNode::surface_data_index);
 }

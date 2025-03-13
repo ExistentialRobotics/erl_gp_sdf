@@ -11,11 +11,11 @@ namespace erl::sdf_mapping {
         YAML::Node node;
         node["max_test_valid_distance_var"] = setting.max_test_valid_distance_var;
         node["search_area_half_size"] = setting.search_area_half_size;
+        node["softmin_temperature"] = setting.softmin_temperature;
         node["num_neighbor_gps"] = setting.num_neighbor_gps;
         node["use_smallest"] = setting.use_smallest;
         node["compute_covariance"] = setting.compute_covariance;
         node["use_gp_covariance"] = setting.use_gp_covariance;
-        node["softmin_temperature"] = setting.softmin_temperature;
         return node;
     }
 
@@ -25,11 +25,11 @@ namespace erl::sdf_mapping {
         if (!node.IsMap()) { return false; }
         setting.max_test_valid_distance_var = node["max_test_valid_distance_var"].as<Dtype>();
         setting.search_area_half_size = node["search_area_half_size"].as<Dtype>();
+        setting.softmin_temperature = node["softmin_temperature"].as<Dtype>();
         setting.num_neighbor_gps = node["num_neighbor_gps"].as<int>();
         setting.use_smallest = node["use_smallest"].as<bool>();
         setting.compute_covariance = node["compute_covariance"].as<bool>();
         setting.use_gp_covariance = node["use_gp_covariance"].as<bool>();
-        setting.softmin_temperature = node["softmin_temperature"].as<Dtype>();
         return true;
     }
 

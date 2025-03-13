@@ -5,5 +5,6 @@
 void
 BindSurfaceMappingQuadtree(const py::module& m) {
     using namespace erl::sdf_mapping;
-    BindOccupancyQuadtree<SurfaceMappingQuadtree, SurfaceMappingQuadtreeNode>(m, "SurfaceMappingQuadtree");
+    BindOccupancyQuadtree<SurfaceMappingQuadtreeD, SurfaceMappingQuadtreeNode>(m, "SurfaceMappingQuadtreeD");
+    BindOccupancyQuadtree<SurfaceMappingQuadtreeF, SurfaceMappingQuadtreeNode>(m, "SurfaceMappingQuadtreeF");
 }

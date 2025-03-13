@@ -6,6 +6,7 @@
 #include "erl_geometry/house_expo_map.hpp"
 #include "erl_geometry/lidar_2d.hpp"
 #include "erl_geometry/lidar_3d.hpp"
+#include "erl_geometry/open3d_visualizer_wrapper.hpp"
 #include "erl_geometry/range_sensor_3d.hpp"
 #include "erl_geometry/trajectory.hpp"
 #include "erl_geometry/ucsd_fah_2d.hpp"
@@ -272,7 +273,7 @@ TestImpl3D() {
         if (const auto octree = gp.GetTree(); octree != nullptr) {
             for (auto it = octree->BeginLeaf(), end = octree->EndLeaf(); it != end; ++it) {
                 if (!it->HasSurfaceData()) { continue; }
-                auto &surface_data = gp.GetSurfDataManager()[it->surface_data_index];
+                auto &surface_data = gp.GetSurfaceDataManager()[it->surface_data_index];
                 const Vector3 &position = surface_data.position;
                 const Vector3 &normal = surface_data.normal;
                 ERL_ASSERTM(std::abs(normal.norm() - 1.0) < 1.e-5, "normal.norm() = {:.6f}", normal.norm());
@@ -366,9 +367,9 @@ TestImpl2D() {
         // clang-format off
         desc.add_options()
             ("help", "produce help message")
-            ("use-gazebo-data", po::bool_switch(&options.use_gazebo_room_2d)->default_value(options.use_gazebo_room_2d), "Use Gazebo data")
-            ("use-house-expo-data", po::bool_switch(&options.use_house_expo_lidar_2d)->default_value(options.use_house_expo_lidar_2d), "Use HouseExpo data")
-            ("use-ucsd-fah-2d", po::bool_switch(&options.use_ucsd_fah_2d)->default_value(options.use_ucsd_fah_2d), "Use ROS bag data")
+            ("use-gazebo-room-2d", po::bool_switch(&options.use_gazebo_room_2d)->default_value(options.use_gazebo_room_2d), "Use Gazebo data")
+            ("use-house-expo-lidar-2d", po::bool_switch(&options.use_house_expo_lidar_2d)->default_value(options.use_house_expo_lidar_2d), "Use HouseExpo data")
+            ("use-ucsd-fah-2d", po::bool_switch(&options.use_ucsd_fah_2d)->default_value(options.use_ucsd_fah_2d), "Use UCSD FAH 2D data")
             ("stride", po::value<int>(&options.stride)->default_value(options.stride), "stride for running the sequence")
             ("map-resolution", po::value<Dtype>(&options.map_resolution)->default_value(options.map_resolution), "Map resolution")
             ("surf-normal-scale", po::value<Dtype>(&options.surf_normal_scale)->default_value(options.surf_normal_scale), "Surface normal scale")
@@ -555,7 +556,7 @@ TestImpl2D() {
     auto drawer = std::make_shared<QuadtreeDrawer>(drawer_setting);
 
     std::vector<std::pair<cv::Point, cv::Point>> arrowed_lines;
-    auto &surface_data_manager = gp.GetSurfDataManager();
+    auto &surface_data_manager = gp.GetSurfaceDataManager();
     drawer->SetDrawTreeCallback([&](const QuadtreeDrawer *self, cv::Mat &img, typename SurfaceMappingQuadtree::TreeIterator &it) {
         const uint32_t cluster_depth = gp.GetTree()->GetTreeDepth() - gp_setting->cluster_level;
         const auto grid_map_info = self->GetGridMapInfo();

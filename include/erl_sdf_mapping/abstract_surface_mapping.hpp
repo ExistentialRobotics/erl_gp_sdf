@@ -8,19 +8,18 @@ namespace erl::sdf_mapping {
 
     class AbstractSurfaceMapping {
     public:
-        struct Setting : common::YamlableBase {};
-
-    protected:
-        inline static std::map<std::string, std::function<std::shared_ptr<AbstractSurfaceMapping>(const std::shared_ptr<Setting> &)>> s_class_id_mapping_ = {};
-
-    public:
-        using Factory = common::FactoryPattern<AbstractSurfaceMapping, false, false, const std::shared_ptr<Setting> &>;
+        using Factory = common::FactoryPattern<AbstractSurfaceMapping, false, false, const std::shared_ptr<common::YamlableBase> &>;
         virtual ~AbstractSurfaceMapping() = default;
 
         // Comparison
         [[nodiscard]] virtual bool
         operator==(const AbstractSurfaceMapping & /*other*/) const {
             throw NotImplemented(__PRETTY_FUNCTION__);
+        }
+
+        [[nodiscard]] bool
+        operator!=(const AbstractSurfaceMapping &other) const {
+            return !(*this == other);
         }
 
         // IO
@@ -63,7 +62,7 @@ namespace erl::sdf_mapping {
         // Factory pattern
         template<typename Derived = AbstractSurfaceMapping>
         static std::shared_ptr<Derived>
-        CreateSurfaceMapping(const std::string &mapping_type, const std::shared_ptr<Setting> &setting) {
+        Create(const std::string &mapping_type, const std::shared_ptr<common::YamlableBase> &setting) {
             return Factory::GetInstance().Create(mapping_type, setting);
         }
 
@@ -72,7 +71,7 @@ namespace erl::sdf_mapping {
         Register(std::string mapping_type = "") {
             return Factory::GetInstance().Register<Derived>(
                 mapping_type,
-                [](const std::shared_ptr<Setting> &setting) -> std::shared_ptr<AbstractSurfaceMapping> {
+                [](const std::shared_ptr<common::YamlableBase> &setting) -> std::shared_ptr<AbstractSurfaceMapping> {
                     auto mapping_setting = std::dynamic_pointer_cast<typename Derived::Setting>(setting);
                     if (setting == nullptr) { mapping_setting = std::make_shared<typename Derived::Setting>(); }
                     if (mapping_setting == nullptr) {

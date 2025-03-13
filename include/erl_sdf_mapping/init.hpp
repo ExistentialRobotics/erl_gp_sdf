@@ -9,6 +9,4 @@ namespace erl::sdf_mapping {
      */
     bool
     Init();
-
-    inline const static bool kAutoInitialized = Init();
-}
+}  // namespace erl::sdf_mapping

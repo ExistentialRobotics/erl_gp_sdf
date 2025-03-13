@@ -1,55 +1,48 @@
 #include "erl_common/pybind11.hpp"
 #include "erl_sdf_mapping/log_edf_gp.hpp"
 
+template<typename Dtype>
 void
-BindLogEdfGaussianProcess(const py::module &m) {
+BindLogEdfGaussianProcessImpl(const py::module &m, const char *name) {
 
-    using ParentT = erl::gaussian_process::NoisyInputGaussianProcess;
-    using T = erl::sdf_mapping::LogEdfGaussianProcess;
+    using ParentT = erl::gaussian_process::NoisyInputGaussianProcess<Dtype>;
+    using T = erl::sdf_mapping::LogEdfGaussianProcess<Dtype>;
+    using ParentSetting = typename ParentT::Setting;
+    using Setting = typename T::Setting;
 
-    auto py_log_noisy_input_gp = py::class_<T, ParentT, std::shared_ptr<T>>(m, "LogEdfGaussianProcess");
+    py::class_<T, ParentT, std::shared_ptr<T>> py_log_noisy_input_gp(m, name);
 
-    py::class_<T::Setting, ParentT::Setting, std::shared_ptr<T::Setting>>(py_log_noisy_input_gp, "Setting")
+    py::class_<Setting, ParentSetting, std::shared_ptr<Setting>>(py_log_noisy_input_gp, "Setting")
         .def(py::init<>())
         .def_readwrite("log_lambda", &T::Setting::log_lambda);
 
-    py_log_noisy_input_gp.def(py::init<std::shared_ptr<T::Setting>>(), py::arg("setting").none(false))
-        .def_property_readonly("setting", &T::GetSetting<T::Setting>)
-        .def("reset", &T::Reset, py::arg("max_num_samples"), py::arg("x_dim"))
+    py_log_noisy_input_gp.def(py::init<std::shared_ptr<Setting>>(), py::arg("setting").none(false))
         .def_property_readonly("memory_usage", &T::GetMemoryUsage)
+        .def_property_readonly("setting", &T::template GetSetting<Setting>)
         .def(
-            "train",
-            [](T &self,
-               const Eigen::Ref<const Eigen::MatrixXd> &mat_x_train,
-               const Eigen::Ref<const Eigen::VectorXd> &vec_y_train,
-               const Eigen::Ref<const Eigen::MatrixXd> &mat_grad_train,
-               const Eigen::Ref<const Eigen::VectorXl> &vec_grad_flag,
-               const Eigen::Ref<const Eigen::VectorXd> &vec_var_x,
-               const Eigen::Ref<const Eigen::VectorXd> &vec_var_y,
-               const Eigen::Ref<const Eigen::VectorXd> &vec_var_grad) {
-                const long num_train_samples = mat_x_train.cols();
-                const long x_dim = mat_x_train.rows();
-                self.Reset(num_train_samples, x_dim);
-                self.GetTrainInputSamplesBuffer().topLeftCorner(x_dim, num_train_samples) = mat_x_train;
-                self.GetTrainInputSamplesVarianceBuffer().head(num_train_samples) = vec_var_x;
-                self.GetTrainOutputValueSamplesVarianceBuffer().head(num_train_samples) = vec_y_train;
-                self.GetTrainOutputValueSamplesVarianceBuffer().head(num_train_samples) = vec_var_y;
-                self.GetTrainOutputGradientSamplesBuffer().topLeftCorner(2, num_train_samples) = mat_grad_train;
-                self.GetTrainGradientFlagsBuffer().head(num_train_samples) = vec_grad_flag;
-                self.GetTrainOutputGradientSamplesVarianceBuffer().head(num_train_samples) = vec_var_grad;
-                self.Train(num_train_samples);
-            },
-            py::arg("mat_x_train"),
-            py::arg("vec_y_train"),
-            py::arg("mat_grad_train"),
-            py::arg("vec_grad_flag"),
-            py::arg("vec_var_x"),
-            py::arg("vec_var_y"),
-            py::arg("vec_var_grad"))
+            "load_surface_data_2d",
+            &T::template LoadSurfaceData<2>,
+            py::arg("surface_data_indices"),
+            py::arg("surface_data_vec"),
+            py::arg("coord_origin"),
+            py::arg("offset_distance"),
+            py::arg("sensor_noise"),
+            py::arg("max_valid_gradient_var"),
+            py::arg("invalid_position_var"))
+        .def(
+            "load_surface_data_3d",
+            &T::template LoadSurfaceData<3>,
+            py::arg("surface_data_indices"),
+            py::arg("surface_data_vec"),
+            py::arg("coord_origin"),
+            py::arg("offset_distance"),
+            py::arg("sensor_noise"),
+            py::arg("max_valid_gradient_var"),
+            py::arg("invalid_position_var"))
         .def(
             "test",
-            [](const T &self, const Eigen::Ref<const Eigen::MatrixXd> &mat_x_test) {
-                Eigen::MatrixXd mat_f_out, mat_var_out, mat_cov_out;
+            [](const T &self, const Eigen::Ref<const Eigen::MatrixX<Dtype>> &mat_x_test) {
+                Eigen::MatrixX<Dtype> mat_f_out, mat_var_out, mat_cov_out;
                 const long dim = mat_x_test.rows();
                 const long n = mat_x_test.cols();
                 mat_f_out.resize(dim + 1, n);
@@ -59,4 +52,10 @@ BindLogEdfGaussianProcess(const py::module &m) {
                 return py::make_tuple(mat_f_out, mat_var_out, mat_cov_out);
             },
             py::arg("mat_x_test"));
+}
+
+void
+BindLogEdfGaussianProcess(const py::module &m) {
+    BindLogEdfGaussianProcessImpl<double>(m, "LogEdfGaussianProcessD");
+    BindLogEdfGaussianProcessImpl<float>(m, "LogEdfGaussianProcessF");
 }

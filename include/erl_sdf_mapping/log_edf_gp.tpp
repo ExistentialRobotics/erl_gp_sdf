@@ -43,7 +43,7 @@ namespace erl::sdf_mapping {
     long
     LogEdfGaussianProcess<Dtype>::LoadSurfaceData(
         std::vector<std::pair<Dtype, std::size_t>> &surface_data_indices,
-        const std::vector<typename SurfaceDataManager<Dtype, Dim>::Data> &surface_data_vec,
+        const std::vector<SurfaceData<Dtype, Dim>> &surface_data_vec,
         const Eigen::Vector<Dtype, Dim> &coord_origin,
         const Dtype offset_distance,
         const Dtype sensor_noise,

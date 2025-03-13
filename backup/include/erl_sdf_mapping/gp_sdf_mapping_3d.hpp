@@ -175,7 +175,7 @@ namespace erl::sdf_mapping {
 
     private:
         void
-        UpdateGps(double time_budget_us);
+        UpdateGpSdf(double time_budget_us);
 
         void
         TrainGps();

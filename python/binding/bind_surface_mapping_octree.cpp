@@ -5,5 +5,6 @@
 void
 BindSurfaceMappingOctree(const py::module& m) {
     using namespace erl::sdf_mapping;
-    BindOccupancyOctree<SurfaceMappingOctree, SurfaceMappingOctreeNode>(m, "SurfaceMappingOctree");
+    BindOccupancyOctree<SurfaceMappingOctreeD, SurfaceMappingOctreeNode>(m, "SurfaceMappingOctreeD");
+    BindOccupancyOctree<SurfaceMappingOctreeF, SurfaceMappingOctreeNode>(m, "SurfaceMappingOctreeF");
 }

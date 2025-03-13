@@ -28,7 +28,7 @@ namespace erl::sdf_mapping {
         };
 
     private:
-        inline static const std::string kFileHeader = fmt::format("# erl::sdf_mapping::LogEdfGaussianProcess<{}>", type_name<Dtype>());
+        inline static const std::string kFileHeader = fmt::format("# {}", type_name<LogEdfGaussianProcess>());
 
     protected:
         std::shared_ptr<Setting> m_setting_ = nullptr;
@@ -50,7 +50,7 @@ namespace erl::sdf_mapping {
         long
         LoadSurfaceData(
             std::vector<std::pair<Dtype, std::size_t>> &surface_data_indices,
-            const std::vector<typename SurfaceDataManager<Dtype, Dim>::Data> &surface_data_vec,
+            const std::vector<SurfaceData<Dtype, Dim>> &surface_data_vec,
             const Eigen::Vector<Dtype, Dim> &coord_origin,
             Dtype offset_distance,
             Dtype sensor_noise,

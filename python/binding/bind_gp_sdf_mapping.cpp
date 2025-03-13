@@ -1,0 +1,50 @@
+#include "erl_common/pybind11.hpp"
+#include "erl_sdf_mapping/gp_occ_surface_mapping.hpp"
+#include "erl_sdf_mapping/gp_sdf_mapping.hpp"
+
+template<typename Dtype, int Dim, typename SurfaceMapping>
+void
+BindGpSdfMappingImpl(const py::module &m, const char *name) {
+    using namespace erl::common;
+    using namespace erl::geometry;
+    using namespace erl::sdf_mapping;
+    using T = GpSdfMapping<Dtype, Dim, SurfaceMapping>;
+    using Setting = typename T::Setting;
+    using Positions = typename T::Positions;
+
+    py::class_<T, std::shared_ptr<T>> sdf_mapping(m, name);
+
+    sdf_mapping.def(py::init<std::shared_ptr<Setting>, std::shared_ptr<SurfaceMapping>>(), py::arg("setting"), py::arg("surface_mapping"))
+        .def_property_readonly("setting", &T::GetSetting)
+        .def("update", &T::Update, py::arg("rotation"), py::arg("translation"), py::arg("ranges"))
+        .def("update_gp_sdf", &T::UpdateGpSdf, py::arg("time_budget_us"))
+        .def(
+            "test",
+            [](T &self, const Eigen::Ref<const Positions> &positions) {
+                typename T::Distances distances;
+                typename T::Gradients gradients;
+                typename T::Variances variances;
+                typename T::Covariances covariances;
+
+                if (self.Test(positions, distances, gradients, variances, covariances)) { return py::make_tuple(distances, gradients, variances, covariances); }
+                return py::make_tuple(py::none(), py::none(), py::none(), py::none());
+            },
+            py::arg("positions"))
+        .def_property_readonly("used_gps", &T::GetUsedGps, "GPs used by the last test call")
+        .def_property_readonly("gps", &T::GetGpMap);
+
+    // TODO: add more bindings
+    // .def("__eq__", &T::operator==)
+    // .def("__ne__", &T::operator!=)
+    // .def("write", py::overload_cast<const std::string &>(&T::Write, py::const_), py::arg("filename"))
+    // .def("read", py::overload_cast<const std::string &>(&T::Read), py::arg("filename"));
+}
+
+void
+BindGpSdfMapping(const py::module &m) {
+    using namespace erl::sdf_mapping;
+    BindGpSdfMappingImpl<double, 3, GpOccSurfaceMapping3Dd>(m, "GpOccSurfaceSdfMapping3Dd");
+    BindGpSdfMappingImpl<float, 3, GpOccSurfaceMapping3Df>(m, "GpOccSurfaceSdfMapping3Df");
+    BindGpSdfMappingImpl<double, 2, GpOccSurfaceMapping2Dd>(m, "GpOccSurfaceSdfMapping2Dd");
+    BindGpSdfMappingImpl<float, 2, GpOccSurfaceMapping2Df>(m, "GpOccSurfaceSdfMapping2Df");
+}

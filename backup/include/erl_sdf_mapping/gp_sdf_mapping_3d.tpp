@@ -124,7 +124,7 @@ namespace erl::sdf_mapping {
             if (success) {
                 std::lock_guard lock(m_mutex_);  // CRITICAL SECTION
                 ERL_BLOCK_TIMER_MSG_TIME("Update SDF GPs", sdf_gp_update_time);
-                UpdateGps(time_budget_us);
+                UpdateGpSdf(time_budget_us);
             }
         }
 
@@ -148,6 +148,91 @@ namespace erl::sdf_mapping {
         ERL_TRACY_FRAME_MARK_END();
 
         return success;
+    }
+
+    template<typename Dtype>
+    void
+    GpSdfMapping3D<Dtype>::UpdateGpSdf(double time_budget_us) {
+        ERL_BLOCK_TIMER();
+        ERL_DEBUG_ASSERT(m_setting_->gp_sdf_area_scale > 1, "GP area scale must be greater than 1");
+
+        double collect_clusters_time = 0;
+        double queue_clusters_time = 0;
+        double train_gps_time = 0;
+
+        const uint32_t cluster_level = m_surface_mapping_->GetClusterLevel();
+        const std::shared_ptr<SurfaceMappingOctree<Dtype>> tree = m_surface_mapping_->GetOctree();
+        const uint32_t cluster_depth = tree->GetTreeDepth() - cluster_level;
+        const Dtype cluster_size = tree->GetNodeSize(cluster_depth);
+        const Dtype area_half_size = cluster_size * m_setting_->gp_sdf_area_scale / 2;
+
+        // add affected clusters
+        {
+            ERL_BLOCK_TIMER_MSG_TIME("Collect affected clusters", collect_clusters_time);
+            const KeySet &changed_clusters = m_surface_mapping_->GetChangedClusters();
+            KeySet affected_clusters(changed_clusters);
+            for (const auto &cluster_key: changed_clusters) {
+                const Aabb area(tree->KeyToCoord(cluster_key, cluster_depth), area_half_size);
+                for (auto it = tree->BeginTreeInAabb(area, cluster_depth), end = tree->EndTreeInAabb(); it != end; ++it) {
+                    if (it->GetDepth() != cluster_depth) { continue; }
+                    affected_clusters.insert(tree->AdjustKeyToDepth(it.GetKey(), cluster_depth));
+                }
+            }
+            m_affected_clusters_.clear();
+            m_affected_clusters_.insert(m_affected_clusters_.end(), affected_clusters.begin(), affected_clusters.end());
+            ERL_INFO("Collect {} -> {} affected clusters", changed_clusters.size(), affected_clusters.size());
+        }
+
+        // put affected clusters into m_cluster_queue_
+        {
+            ERL_BLOCK_TIMER_MSG_TIME("Queue affected clusters", queue_clusters_time);
+
+            long cnt_new_gps = 0;
+            for (const auto &cluster_key: m_affected_clusters_) {
+                if (auto [it, inserted] = m_gp_map_.try_emplace(cluster_key, nullptr); inserted || it->second->locked_for_test) {
+                    it->second = std::make_shared<Gp>();       // new GP is required
+                    it->second->Activate(m_setting_->edf_gp);  // activate the GP
+                    tree->KeyToCoord(cluster_key, cluster_depth, it->second->position);
+                    it->second->half_size = area_half_size;
+                    ++cnt_new_gps;
+                } else {
+                    it->second->Activate(m_setting_->edf_gp);
+                }
+                auto time_stamp = std::chrono::high_resolution_clock::now().time_since_epoch().count();
+                if (auto itr = m_cluster_queue_keys_.find(cluster_key); itr == m_cluster_queue_keys_.end()) {  // new cluster
+                    m_cluster_queue_keys_.insert({cluster_key, m_cluster_queue_.push({time_stamp, cluster_key})});
+                } else {
+                    auto &heap_key = itr->second;
+                    (*heap_key).time_stamp = time_stamp;
+                    m_cluster_queue_.increase(heap_key);
+                }
+            }
+            ERL_INFO("Create {} new GPs when queuing clusters", cnt_new_gps);
+        }
+
+        // train GPs if we still have time
+        const auto dt = timer.Elapsed<double, std::micro>();
+        time_budget_us -= dt;
+        ERL_INFO("Time spent: {} us, time budget: {} us", dt, time_budget_us);
+        if (time_budget_us > 2.0 * m_train_gp_time_) {
+            ERL_BLOCK_TIMER_MSG_TIME("Train GPs", train_gps_time);
+
+            auto max_num_clusters_to_train = static_cast<std::size_t>(std::floor(time_budget_us / m_train_gp_time_));
+            max_num_clusters_to_train = std::min(max_num_clusters_to_train, m_cluster_queue_.size());
+            m_clusters_to_train_.clear();
+            while (!m_cluster_queue_.empty() && m_clusters_to_train_.size() < max_num_clusters_to_train) {
+                Key cluster_key = m_cluster_queue_.top().key;
+                m_cluster_queue_.pop();
+                m_cluster_queue_keys_.erase(cluster_key);
+                m_clusters_to_train_.emplace_back(cluster_key, m_gp_map_.at(cluster_key));
+            }
+            TrainGps();
+        }
+        ERL_INFO("{} cluster(s) not trained yet due to time limit.", m_cluster_queue_.size());
+
+        ERL_TRACY_PLOT("[update_sdf_gp]collect_clusters_time (ms)", collect_clusters_time);
+        ERL_TRACY_PLOT("[update_sdf_gp]queue_clusters_time (ms)", queue_clusters_time);
+        ERL_TRACY_PLOT("[update_sdf_gp]train_gps_time (ms)", train_gps_time);
     }
 
     template<typename Dtype>
@@ -264,7 +349,11 @@ namespace erl::sdf_mapping {
                 for (uint32_t i = 0; i < num_queries; i++) {
                     const Vector3 &position = positions_in.col(i);
                     const auto node = tree->Search(position.x(), position.y(), position.z());
-                    m_query_signs_[i] = node == nullptr ? -1.0 : 1.0;
+                    if (node == nullptr || tree->IsNodeOccupied(node)) {
+                        m_query_signs_[i] = -1.0;
+                    } else {
+                        m_query_signs_[i] = 1.0;
+                    }
                 }
             }
         }
@@ -545,92 +634,6 @@ namespace erl::sdf_mapping {
         }
         ERL_WARN("Failed to read GpSdfMapping3D. Truncated file?");
         return false;  // should not reach here
-    }
-
-    template<typename Dtype>
-    void
-    GpSdfMapping3D<Dtype>::UpdateGps(double time_budget_us) {
-        ERL_BLOCK_TIMER();
-        ERL_DEBUG_ASSERT(m_setting_->gp_sdf_area_scale > 1, "GP area scale must be greater than 1");
-
-        double collect_clusters_time = 0;
-        double queue_clusters_time = 0;
-        double train_gps_time = 0;
-
-        const uint32_t cluster_level = m_surface_mapping_->GetClusterLevel();
-        const std::shared_ptr<SurfaceMappingOctree<Dtype>> tree = m_surface_mapping_->GetOctree();
-        const uint32_t cluster_depth = tree->GetTreeDepth() - cluster_level;
-        const Dtype cluster_size = tree->GetNodeSize(cluster_depth);
-        const Dtype area_half_size = cluster_size * m_setting_->gp_sdf_area_scale / 2;
-
-        // add affected clusters
-        {
-            ERL_BLOCK_TIMER_MSG_TIME("Collect affected clusters", collect_clusters_time);
-
-            const KeySet changed_clusters = m_surface_mapping_->GetChangedClusters();
-            KeySet affected_clusters(changed_clusters);
-            for (const auto &cluster_key: changed_clusters) {
-                const Aabb area(tree->KeyToCoord(cluster_key, cluster_depth), area_half_size);
-                for (auto it = tree->BeginTreeInAabb(area, cluster_depth), end = tree->EndTreeInAabb(); it != end; ++it) {
-                    if (it->GetDepth() != cluster_depth) { continue; }
-                    affected_clusters.insert(tree->AdjustKeyToDepth(it.GetKey(), cluster_depth));
-                }
-            }
-            m_affected_clusters_.clear();
-            m_affected_clusters_.insert(m_affected_clusters_.end(), affected_clusters.begin(), affected_clusters.end());
-            ERL_INFO("Collect {} -> {} affected clusters", changed_clusters.size(), affected_clusters.size());
-        }
-
-        // put affected clusters into m_cluster_queue_
-        {
-            ERL_BLOCK_TIMER_MSG_TIME("Queue affected clusters", queue_clusters_time);
-
-            long cnt_new_gps = 0;
-            for (const auto &cluster_key: m_affected_clusters_) {
-                if (auto [it, inserted] = m_gp_map_.try_emplace(cluster_key, nullptr); inserted || it->second->locked_for_test) {
-                    it->second = std::make_shared<Gp>();       // new GP is required
-                    it->second->Activate(m_setting_->edf_gp);  // activate the GP
-                    tree->KeyToCoord(cluster_key, cluster_depth, it->second->position);
-                    it->second->half_size = area_half_size;
-                    ++cnt_new_gps;
-                } else {
-                    it->second->Activate(m_setting_->edf_gp);
-                }
-                auto time_stamp = std::chrono::high_resolution_clock::now().time_since_epoch().count();
-                if (auto itr = m_cluster_queue_keys_.find(cluster_key); itr == m_cluster_queue_keys_.end()) {  // new cluster
-                    m_cluster_queue_keys_.insert({cluster_key, m_cluster_queue_.push({time_stamp, cluster_key})});
-                } else {
-                    auto &heap_key = itr->second;
-                    (*heap_key).time_stamp = time_stamp;
-                    m_cluster_queue_.increase(heap_key);
-                }
-            }
-            ERL_INFO("Create {} new GPs when queuing clusters", cnt_new_gps);
-        }
-
-        // train GPs if we still have time
-        const double dt = timer.Elapsed<double, std::micro>();
-        time_budget_us -= dt;
-        ERL_INFO("Time spent: {} us, time budget: {} us", dt, time_budget_us);
-        if (time_budget_us > 2.0 * m_train_gp_time_) {
-            ERL_BLOCK_TIMER_MSG_TIME("Train GPs", train_gps_time);
-
-            auto max_num_clusters_to_train = static_cast<std::size_t>(std::floor(time_budget_us / m_train_gp_time_));
-            max_num_clusters_to_train = std::min(max_num_clusters_to_train, m_cluster_queue_.size());
-            m_clusters_to_train_.clear();
-            while (!m_cluster_queue_.empty() && m_clusters_to_train_.size() < max_num_clusters_to_train) {
-                Key cluster_key = m_cluster_queue_.top().key;
-                m_cluster_queue_.pop();
-                m_cluster_queue_keys_.erase(cluster_key);
-                m_clusters_to_train_.emplace_back(cluster_key, m_gp_map_.at(cluster_key));
-            }
-            TrainGps();
-        }
-        ERL_INFO("{} cluster(s) not trained yet due to time limit.", m_cluster_queue_.size());
-
-        ERL_TRACY_PLOT("[update_sdf_gp]collect_clusters_time (ms)", collect_clusters_time);
-        ERL_TRACY_PLOT("[update_sdf_gp]queue_clusters_time (ms)", queue_clusters_time);
-        ERL_TRACY_PLOT("[update_sdf_gp]train_gps_time (ms)", train_gps_time);
     }
 
     template<typename Dtype>

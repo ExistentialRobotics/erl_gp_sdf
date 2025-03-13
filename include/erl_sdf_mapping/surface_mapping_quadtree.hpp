@@ -3,7 +3,6 @@
 #include "surface_mapping_quadtree_node.hpp"
 
 #include "erl_geometry/occupancy_quadtree_base.hpp"
-#include "erl_geometry/occupancy_quadtree_drawer.hpp"
 
 namespace erl::sdf_mapping {
 
@@ -13,7 +12,6 @@ namespace erl::sdf_mapping {
     public:
         using Setting = geometry::OccupancyQuadtreeBaseSetting;
         using Super = geometry::OccupancyQuadtreeBase<Dtype, SurfaceMappingQuadtreeNode, Setting>;
-        using Drawer = geometry::OccupancyQuadtreeDrawer<SurfaceMappingQuadtree>;
 
         explicit SurfaceMappingQuadtree(const std::shared_ptr<Setting> &setting)
             : Super(setting) {}
@@ -48,11 +46,3 @@ namespace erl::sdf_mapping {
     using SurfaceMappingQuadtreeD = SurfaceMappingQuadtree<double>;
     using SurfaceMappingQuadtreeF = SurfaceMappingQuadtree<float>;
 }  // namespace erl::sdf_mapping
-
-template<>
-struct YAML::convert<erl::sdf_mapping::SurfaceMappingQuadtreeD::Drawer::Setting> : erl::sdf_mapping::SurfaceMappingQuadtreeD::Drawer::Setting::YamlConvertImpl {
-};
-
-template<>
-struct YAML::convert<erl::sdf_mapping::SurfaceMappingQuadtreeF::Drawer::Setting> : erl::sdf_mapping::SurfaceMappingQuadtreeF::Drawer::Setting::YamlConvertImpl {
-};

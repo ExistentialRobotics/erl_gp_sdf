@@ -78,7 +78,6 @@ erl_install(
 erl_add_tests(
         LIBRARIES ${PROJECT_NAME}
 )
-target_compile_definitions(test_gp_sdf_mapping PRIVATE -DERL_GP_SDF_MAPPING_TRACK_QUERY_GPS)
 
 #######################################################################################################################
 # export variables

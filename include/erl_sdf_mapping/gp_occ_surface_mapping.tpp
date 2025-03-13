@@ -32,10 +32,11 @@ namespace erl::sdf_mapping {
 
         node["sensor_gp"] = setting.sensor_gp;
         node["tree"] = setting.tree;
+        node["scaling"] = setting.scaling;
         node["perturb_delta"] = setting.perturb_delta;
         node["zero_gradient_threshold"] = setting.zero_gradient_threshold;
         node["update_occupancy"] = setting.update_occupancy;
-        node["cluster_level"] = setting.cluster_level;
+        node["cluster_depth"] = setting.cluster_depth;
         return node;
     }
 
@@ -65,10 +66,11 @@ namespace erl::sdf_mapping {
 
         setting.sensor_gp = node["sensor_gp"].as<decltype(setting.sensor_gp)>();
         setting.tree = node["tree"].as<decltype(setting.tree)>();
+        setting.scaling = node["scaling"].as<Dtype>();
         setting.perturb_delta = node["perturb_delta"].as<Dtype>();
         setting.zero_gradient_threshold = node["zero_gradient_threshold"].as<Dtype>();
         setting.update_occupancy = node["update_occupancy"].as<bool>();
-        setting.cluster_level = node["cluster_level"].as<int>();
+        setting.cluster_depth = node["cluster_depth"].as<int>();
         return true;
     }
 
@@ -105,7 +107,7 @@ namespace erl::sdf_mapping {
 
     template<typename Dtype, int Dim>
     const typename GpOccSurfaceMapping<Dtype, Dim>::SurfDataManager &
-    GpOccSurfaceMapping<Dtype, Dim>::GetSurfDataManager() const {
+    GpOccSurfaceMapping<Dtype, Dim>::GetSurfaceDataManager() const {
         return m_surf_data_manager_;
     }
 
@@ -114,14 +116,116 @@ namespace erl::sdf_mapping {
     GpOccSurfaceMapping<Dtype, Dim>::Update(
         const Eigen::Ref<const Rotation> &rotation,
         const Eigen::Ref<const Translation> &translation,
-        const Eigen::Ref<const MatrixX> &ranges) {
+        const Eigen::Ref<const Ranges> &ranges) {
 
         m_changed_keys_.clear();
-        if (!m_sensor_gp_->Train(rotation, translation, ranges)) { return false; }
-        if (m_setting_->update_occupancy) { UpdateOccupancy(); }
-        UpdateMapPoints();
-        AddNewMeasurement();
+        if (const Dtype s = m_setting_->scaling; s != 1.0) {
+            if (!m_sensor_gp_->Train(rotation, translation.array() * s, ranges.array() * s)) { return false; }
+        } else {
+            if (!m_sensor_gp_->Train(rotation, translation, ranges)) { return false; }
+        }
 
+        {
+            auto lock_guard = GetLockGuard();  // CRITICAL SECTION
+            if (m_setting_->update_occupancy) { UpdateOccupancy(); }
+            UpdateMapPoints();
+            AddNewMeasurement();
+        }
+
+        return true;
+    }
+
+    template<typename Dtype, int Dim>
+    bool
+    GpOccSurfaceMapping<Dtype, Dim>::Ready() const {
+        return m_tree_ != nullptr;
+    }
+
+    template<typename Dtype, int Dim>
+    std::lock_guard<std::mutex>
+    GpOccSurfaceMapping<Dtype, Dim>::GetLockGuard() {
+        return std::lock_guard(m_mutex_);
+    }
+
+    template<typename Dtype, int Dim>
+    Dtype
+    GpOccSurfaceMapping<Dtype, Dim>::GetScaling() const {
+        return m_setting_->scaling;
+    }
+
+    template<typename Dtype, int Dim>
+    Dtype
+    GpOccSurfaceMapping<Dtype, Dim>::GetClusterSize() const {
+        return m_tree_->GetNodeSize(m_setting_->cluster_depth);
+    }
+
+    template<typename Dtype, int Dim>
+    typename GpOccSurfaceMapping<Dtype, Dim>::Position
+    GpOccSurfaceMapping<Dtype, Dim>::GetClusterCenter(const Key &key) const {
+        return m_tree_->KeyToCoord(key, m_setting_->cluster_depth);
+    }
+
+    template<typename Dtype, int Dim>
+    const typename GpOccSurfaceMapping<Dtype, Dim>::KeySet &
+    GpOccSurfaceMapping<Dtype, Dim>::GetChangedClusters() const {
+        return m_changed_keys_;
+    }
+
+    template<typename Dtype, int Dim>
+    void
+    GpOccSurfaceMapping<Dtype, Dim>::IterateClustersInAabb(const Aabb &aabb, std::function<void(const Key &)> callback) const {
+        ERL_DEBUG_ASSERT(m_tree_ != nullptr, "Tree is not ready.");
+        const uint32_t cluster_depth = m_setting_->cluster_depth;
+        for (auto it = m_tree_->BeginTreeInAabb(aabb, cluster_depth), end = m_tree_->EndTreeInAabb(); it != end; ++it) {
+            if (it->GetDepth() != cluster_depth) { continue; }
+            callback(m_tree_->AdjustKeyToDepth(it.GetKey(), cluster_depth));
+        }
+    }
+
+    template<typename Dtype, int Dim>
+    const std::vector<typename GpOccSurfaceMapping<Dtype, Dim>::SurfData> &
+    GpOccSurfaceMapping<Dtype, Dim>::GetSurfaceDataBuffer() const {
+        return m_surf_data_manager_.GetEntries();
+    }
+
+    template<typename Dtype, int Dim>
+    void
+    GpOccSurfaceMapping<Dtype, Dim>::CollectSurfaceDataInAabb(const Aabb &aabb, std::vector<std::pair<Dtype, std::size_t>> &surface_data_indices) const {
+        ERL_DEBUG_ASSERT(m_tree_ != nullptr, "Tree is not ready.");
+        surface_data_indices.clear();
+        for (auto it = m_tree_->BeginLeafInAabb(aabb), end = m_tree_->EndLeafInAabb(); it != end; ++it) {
+            if (!it->HasSurfaceData()) { continue; }
+            const auto &surface_data = m_surf_data_manager_[it->surface_data_index];
+            surface_data_indices.emplace_back((aabb.center - surface_data.position).norm(), it->surface_data_index);
+        }
+    }
+
+    template<typename Dtype, int Dim>
+    typename GpOccSurfaceMapping<Dtype, Dim>::Aabb
+    GpOccSurfaceMapping<Dtype, Dim>::GetMapBoundary() const {
+        ERL_DEBUG_ASSERT(m_tree_ != nullptr, "Tree is not ready.");
+        Position min, max;
+        m_tree_->GetMetricMinMax(min, max);
+        return Aabb(min, max);
+    }
+
+    template<typename Dtype, int Dim>
+    bool
+    GpOccSurfaceMapping<Dtype, Dim>::IsInFreeSpace(const Positions &positions, VectorX &in_free_space) const {
+        if (m_tree_ == nullptr) { return false; }  // tree is not ready
+        const long num_positions = positions.cols();
+        if (in_free_space.size() < num_positions) { in_free_space.resize(num_positions); }
+        const Dtype s = m_setting_->scaling;
+
+#pragma omp parallel for default(none) shared(positions, in_free_space, num_positions, s)
+        for (long i = 0; i < num_positions; ++i) {
+            const auto node = m_tree_->Search(positions.col(i) * s);
+            if (node == nullptr || m_tree_->IsNodeOccupied(node)) {
+                in_free_space[i] = -1.0;
+            } else {
+                in_free_space[i] = 1.0;
+            }
+        }
         return true;
     }
 
@@ -315,7 +419,7 @@ namespace erl::sdf_mapping {
 
 #pragma omp parallel for default(none) shared(nodes_in_aabb, max_sensor_range, sensor_pos, sensor_frame)
         for (auto &[node_key, node, bad_update, new_key]: nodes_in_aabb) {
-            const uint32_t cluster_level = m_setting_->cluster_level;
+            const uint32_t cluster_depth = m_setting_->cluster_depth;
             const Dtype sensor_range_var = m_setting_->sensor_gp->sensor_range_var;
             const Dtype min_comp_gradient_var = m_setting_->compute_variance.min_gradient_var;
             const Dtype max_comp_gradient_var = m_setting_->compute_variance.max_gradient_var;
@@ -328,10 +432,10 @@ namespace erl::sdf_mapping {
             const Dtype max_bayes_position_var = m_setting_->update_map_points.max_bayes_position_var;
             const Dtype max_bayes_gradient_var = m_setting_->update_map_points.max_bayes_gradient_var;
 
-            const Dtype cluster_half_size = m_setting_->tree->resolution * std::pow(2, cluster_level - 1);
+            const Dtype cluster_half_size = m_tree_->GetNodeSize(cluster_depth) * 0.5;
             const Dtype squared_dist_max = max_sensor_range * max_sensor_range + cluster_half_size * cluster_half_size * 3.0;
 
-            if (const Position cluster_position = m_tree_->KeyToCoord(node_key, m_tree_->GetTreeDepth() - cluster_level);
+            if (const Position cluster_position = m_tree_->KeyToCoord(node_key, cluster_depth);
                 (cluster_position - sensor_pos).squaredNorm() > squared_dist_max) {
                 continue;
             }
@@ -593,7 +697,7 @@ namespace erl::sdf_mapping {
     void
     GpOccSurfaceMapping<Dtype, Dim>::RecordChangedKey(const Key &key) {
         ERL_DEBUG_ASSERT(m_tree_ != nullptr, "m_tree_ is nullptr.");
-        m_changed_keys_.insert(m_tree_->AdjustKeyToDepth(key, m_tree_->GetTreeDepth() - m_setting_->cluster_level));
+        m_changed_keys_.insert(m_tree_->AdjustKeyToDepth(key, m_setting_->cluster_depth));
     }
 
     template<typename Dtype, int Dim>

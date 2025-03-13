@@ -1,28 +1,28 @@
 test_query:
-    max_test_valid_distance_var: 0.02
-    search_area_half_size: 2
+    max_test_valid_distance_var: 1
+    search_area_half_size: 4  # should be around max sdf
     softmin_temperature: 10.0
-    num_neighbor_gps: 8
-    use_smallest: true
+    num_neighbor_gps: 4
+    use_smallest: true  # use the smallest distance as the prediction
     compute_covariance: false  # whether to compute covariance
     use_gp_covariance: false
 num_threads: 64
-update_hz: 100
+update_hz: 60
 sensor_noise: 0.01
-gp_sdf_area_scale: 4  # should not be too small
+gp_sdf_area_scale: 4    # should be larger than 2x max sdf when use_smallest is false: 7
 max_valid_gradient_var: 0.1
 invalid_position_var: 0.25
 offset_distance: 0.04
-use_sign_from_surface_mapping: false
+use_sign_from_surface_mapping: true
 sdf_gp:
-    kernel_type: erl::covariance::Matern32<3, float>
+    kernel_type: erl::covariance::Matern32<float, 2>
     kernel_setting_type: erl::covariance::Covariance<float>::Setting
     kernel:
-        x_dim: 3
+        x_dim: 2
         alpha: 1
         scale: 0.3
         scale_mix: 1
         weights: [ ]
     log_lambda: 40
-    max_num_samples: 96   # max dataset size
+    max_num_samples: 256   # max dataset size
     no_gradient_observation: true

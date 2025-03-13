@@ -10,11 +10,11 @@ namespace erl::sdf_mapping {
         struct TestQuery : common::Yamlable<TestQuery> {
             Dtype max_test_valid_distance_var = 0.4;  // maximum distance variance of prediction.
             Dtype search_area_half_size = 4.8;
+            Dtype softmin_temperature = 10.;
             int num_neighbor_gps = 4;        // number of neighbors used for prediction.
             bool use_smallest = false;       // if true, use the smallest sdf for prediction.
             bool compute_covariance = true;  // if true, compute covariance of prediction.
             bool use_gp_covariance = false;  // if true, compute variance with the GP.
-            Dtype softmin_temperature = 10.;
 
             struct YamlConvertImpl {
                 static YAML::Node

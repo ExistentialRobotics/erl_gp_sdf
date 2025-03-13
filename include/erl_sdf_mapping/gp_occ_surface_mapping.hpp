@@ -36,8 +36,10 @@ namespace erl::sdf_mapping {
         // eigen types
         using Scalar = Eigen::Matrix<Dtype, 1, 1>;
         using MatrixX = Eigen::MatrixX<Dtype>;
+        using VectorX = Eigen::VectorX<Dtype>;
         using Rotation = Eigen::Matrix<Dtype, Dim, Dim>;
         using Translation = Eigen::Vector<Dtype, Dim>;
+        using Ranges = MatrixX;
         using Position = Eigen::Vector<Dtype, Dim>;
         using Gradient = Position;
         using Positions = Eigen::Matrix<Dtype, Dim, Eigen::Dynamic>;
@@ -68,10 +70,11 @@ namespace erl::sdf_mapping {
             UpdateMapPoints update_map_points;
             std::shared_ptr<SensorGpSetting> sensor_gp = std::make_shared<SensorGpSetting>();
             std::shared_ptr<TreeSetting> tree = std::make_shared<TreeSetting>();
+            Dtype scaling = 1;                       // internal scaling factor.
             Dtype perturb_delta = 0.01;              // perturbation delta for gradient estimation.
             Dtype zero_gradient_threshold = 1.e-15;  // gradient below this threshold is considered zero.
             bool update_occupancy = true;            // whether to update the occupancy of the occupancy tree.
-            int cluster_level = 2;
+            uint32_t cluster_depth = 14;
 
             struct YamlConvertImpl {
                 static YAML::Node
@@ -89,6 +92,7 @@ namespace erl::sdf_mapping {
         SurfDataManager m_surf_data_manager_;
         Eigen::Matrix<Dtype, Dim, 2 * Dim> m_pos_perturb_ = {};
         KeySet m_changed_keys_ = {};
+        std::mutex m_mutex_;
 
     public:
         explicit GpOccSurfaceMapping(std::shared_ptr<Setting> setting);
@@ -103,10 +107,95 @@ namespace erl::sdf_mapping {
         GetTree() const;
 
         [[nodiscard]] const SurfDataManager &
-        GetSurfDataManager() const;
+        GetSurfaceDataManager() const;
 
         bool
-        Update(const Eigen::Ref<const Rotation> &rotation, const Eigen::Ref<const Translation> &translation, const Eigen::Ref<const MatrixX> &ranges);
+        Update(const Eigen::Ref<const Rotation> &rotation, const Eigen::Ref<const Translation> &translation, const Eigen::Ref<const Ranges> &ranges);
+
+        // implement the methods required by GpSdfMapping
+
+        /**
+         * Check if the mapping is ready.
+         * @return true if the mapping is ready.
+         */
+        [[nodiscard]] bool
+        Ready() const;
+
+        /**
+         * Lock the mutex of the mapping.
+         * @return the lock guard of the mutex.
+         */
+        [[nodiscard]] std::lock_guard<std::mutex>
+        GetLockGuard();
+
+        /**
+         * @return the scaling factor of the map.
+         */
+        [[nodiscard]] Dtype
+        GetScaling() const;
+
+        /**
+         * Get the size of the cluster.
+         * @return the size of the cluster.
+         */
+        [[nodiscard]] Dtype
+        GetClusterSize() const;
+
+        /**
+         * Get the center of the cluster.
+         * @param key the key of the cluster.
+         * @return the center of the cluster.
+         */
+        [[nodiscard]] Position
+        GetClusterCenter(const Key &key) const;
+
+        /**
+         * Get the keys of clusters that have been changed.
+         * @return set of keys of clusters.
+         */
+        [[nodiscard]] const KeySet &
+        GetChangedClusters() const;
+
+        /**
+         * Iterate over the clusters in the given axis-aligned bounding box.
+         * @param aabb the axis-aligned bounding box to collect clusters.
+         * @param callback the callback function to process the key of the cluster.
+         */
+        void
+        IterateClustersInAabb(const Aabb &aabb, std::function<void(const Key &)> callback) const;
+
+        /**
+         * Get the surface data buffer.
+         * @return vector of surface data.
+         */
+        [[nodiscard]] const std::vector<SurfData> &
+        GetSurfaceDataBuffer() const;
+
+        /**
+         * Collect surface data in the given axis-aligned bounding box.
+         * @param aabb the axis-aligned bounding box to collect surface data.
+         * @param surface_data_indices vector of pairs of distance to the surface and the index of the surface data.
+         */
+        void
+        CollectSurfaceDataInAabb(const Aabb &aabb, std::vector<std::pair<Dtype, std::size_t>> &surface_data_indices) const;
+
+        /**
+         * Get the boundary of the map.
+         * @return the boundary of the map as an axis-aligned bounding box.
+         */
+        [[nodiscard]] Aabb
+        GetMapBoundary() const;
+
+        /**
+         * Check if the given positions are in free space.
+         * @param positions the positions to check.
+         * @param in_free_space the vector to store the result. 1.0 if the position is in free space, -1.0 otherwise.
+         * @return true if this method is successful. false if the algorithm fails / is not implemented.
+         */
+        [[nodiscard]] bool
+        IsInFreeSpace(const Positions &positions, VectorX &in_free_space) const;
+
+        // implement the methods required by AbstractSurfaceMapping for factory pattern
 
         [[nodiscard]] bool
         operator==(const AbstractSurfaceMapping &other) const override;

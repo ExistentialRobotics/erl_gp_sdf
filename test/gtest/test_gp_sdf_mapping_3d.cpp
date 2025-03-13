@@ -1,11 +1,17 @@
+#include "erl_common/pangolin_plotter_curve_2d.hpp"
+#include "erl_common/pangolin_plotter_image.hpp"
 #include "erl_common/test_helper.hpp"
 #include "erl_geometry/cow_and_lady.hpp"
 #include "erl_geometry/depth_camera_3d.hpp"
+#include "erl_geometry/gazebo_room_2d.hpp"
+#include "erl_geometry/house_expo_map.hpp"
+#include "erl_geometry/lidar_2d.hpp"
 #include "erl_geometry/lidar_3d.hpp"
 #include "erl_geometry/open3d_visualizer_wrapper.hpp"
 #include "erl_geometry/trajectory.hpp"
-#include "erl_sdf_mapping/gp_occ_surface_mapping_3d.hpp"
-#include "erl_sdf_mapping/gp_sdf_mapping_3d.hpp"
+#include "erl_geometry/ucsd_fah_2d.hpp"
+#include "erl_sdf_mapping/gp_occ_surface_mapping.hpp"
+#include "erl_sdf_mapping/gp_sdf_mapping.hpp"
 
 #include <boost/program_options.hpp>
 #include <open3d/geometry/LineSet.h>
@@ -15,49 +21,14 @@
 #include <open3d/visualization/utility/DrawGeometry.h>
 
 const std::filesystem::path kProjectRootDir = ERL_SDF_MAPPING_ROOT_DIR;
-using Dtype = float;
-using GpOccSurfaceMapping3D = erl::sdf_mapping::GpOccSurfaceMapping3D<Dtype>;
-using GpSdfMapping3D = erl::sdf_mapping::GpSdfMapping3D<Dtype>;
-using Lidar3D = erl::geometry::Lidar3D<Dtype>;
-using RangeSensor3D = erl::geometry::RangeSensor3D<Dtype>;
-using DepthCamera3D = erl::geometry::DepthCamera3D<Dtype>;
-using DepthFrame3D = erl::geometry::DepthFrame3D<Dtype>;
-using LidarFrame3D = erl::geometry::LidarFrame3D<Dtype>;
-using Trajectory = erl::geometry::Trajectory<Dtype>;
-using MatrixX = Eigen::MatrixX<Dtype>;
-using VectorX = Eigen::VectorX<Dtype>;
-using Matrix3 = Eigen::Matrix3<Dtype>;
-using Matrix4 = Eigen::Matrix4<Dtype>;
-using Matrix3X = Eigen::Matrix3X<Dtype>;
-using Matrix4X = Eigen::Matrix4X<Dtype>;
-using Matrix6X = Eigen::Matrix<Dtype, 6, Eigen::Dynamic>;
-using Vector3 = Eigen::Vector3<Dtype>;
+int g_argc = 0;
+char **g_argv = nullptr;
 
-struct Options {
-    bool use_cow_and_lady = false;                                                  // use Cow and Lady dataset, otherwise use mesh_file and traj_file
-    std::string cow_and_lady_dir;                                                   // directory containing the Cow and Lady dataset
-    std::string mesh_file = kProjectRootDir / "data" / "replica-hotel-0.ply";       // mesh file
-    std::string traj_file = kProjectRootDir / "data" / "replica-hotel-0-traj.txt";  // trajectory file
-    std::string sdf_mapping_config_file = kProjectRootDir / "config" / "sdf_mapping_3d_lidar.yaml";
-    std::string sdf_mapping_bin_file;
-    long stride = 1;
-    long max_frames = std::numeric_limits<long>::max();
-    Dtype test_res = 0.02;
-    long test_xs = 150;
-    long test_ys = 100;
-    bool test_whole_map_at_end = false;  // test the whole map at the end
-    Dtype test_z = 0.0;                  // test z for the whole map
-    Dtype image_resize_scale = 10;       // image resize scale
-    bool test_io = false;
-    bool hold = false;
-};
-
-Options g_options;
-
+template<typename Dtype>
 cv::Mat
-ConvertDepthToImage(const MatrixX &ranges) {
+ConvertDepthToImage(const Eigen::MatrixX<Dtype> &ranges) {
     cv::Mat depth_jet;
-    MatrixX ranges_img = MatrixX::Zero(ranges.rows(), ranges.cols());
+    Eigen::MatrixX<Dtype> ranges_img = Eigen::MatrixX<Dtype>::Zero(ranges.rows(), ranges.cols());
     Dtype min_range = std::numeric_limits<Dtype>::max();
     Dtype max_range = std::numeric_limits<Dtype>::lowest();
     for (long i = 0; i < ranges.size(); ++i) {
@@ -75,13 +46,13 @@ ConvertDepthToImage(const MatrixX &ranges) {
     return depth_jet;
 }
 
+template<typename Dtype>
 std::pair<cv::Mat, cv::Mat>
-ConvertSdfToImage(const VectorX &distances, const long rows, const long cols) {
-    MatrixX sdf = distances.reshaped(rows, cols);
-    const Eigen::MatrixX8U sdf_sign = (sdf.array() >= 0.0).cast<uint8_t>() * 255;
-    // std::cout << "sdf.minCoeff(): " << sdf.minCoeff() << std::endl << "sdf.maxCoeff(): " << sdf.maxCoeff() << std::endl;
+ConvertSdfToImage(const Eigen::VectorX<Dtype> &distances, const long rows, const long cols) {
+    Eigen::MatrixX<Dtype> sdf = distances.reshaped(rows, cols);
+    const Eigen::MatrixX8U sdf_sign = (sdf.array() >= 0.0).template cast<uint8_t>() * 255;
     sdf = (sdf.array() - sdf.minCoeff()) / (sdf.maxCoeff() - sdf.minCoeff()) * 255.0;
-    const Eigen::MatrixX8U sdf_uint8 = sdf.cast<uint8_t>();
+    const Eigen::MatrixX8U sdf_uint8 = sdf.template cast<uint8_t>();
     cv::Mat img_sdf, img_sdf_sign;
     cv::eigen2cv(sdf_uint8, img_sdf);
     cv::applyColorMap(img_sdf, img_sdf, cv::COLORMAP_JET);
@@ -92,85 +63,195 @@ ConvertSdfToImage(const VectorX &distances, const long rows, const long cols) {
     return {std::move(img_sdf), std::move(img_sdf_sign)};
 }
 
+template<typename Dtype>
 void
-ConvertSdfToVoxelGrid(const cv::Mat &img_sdf, const Matrix3X &positions, const std::shared_ptr<open3d::geometry::VoxelGrid> &voxel_grid_sdf) {
+ConvertSdfToVoxelGrid(const cv::Mat &img_sdf, const Eigen::Matrix3X<Dtype> &positions, const std::shared_ptr<open3d::geometry::VoxelGrid> &voxel_grid_sdf) {
     voxel_grid_sdf->voxels_.clear();
     for (int j = 0; j < img_sdf.cols; ++j) {  // column major
         for (int i = 0; i < img_sdf.rows; ++i) {
-            Eigen::Vector3d position = positions.col(i + j * img_sdf.rows).cast<double>();
+            Eigen::Vector3d position = positions.col(i + j * img_sdf.rows).template cast<double>();
             const auto &color = img_sdf.at<cv::Vec3b>(i, j);
             voxel_grid_sdf->AddVoxel({voxel_grid_sdf->GetVoxel(position), Eigen::Vector3d(color[2] / 255.0, color[1] / 255.0, color[0] / 255.0)});
         }
     }
 }
 
-TEST(GpSdfMapping3D, Build_Save_Load) {
+template<typename Dtype>
+void
+TestImpl3D() {
     GTEST_PREPARE_OUTPUT_DIR();
 
+    using SurfaceMapping = erl::sdf_mapping::GpOccSurfaceMapping<Dtype, 3>;
+    using SdfMapping = erl::sdf_mapping::GpSdfMapping<Dtype, 3, SurfaceMapping>;
+    using RangeSensor = erl::geometry::RangeSensor3D<Dtype>;
+    using DepthFrame = erl::geometry::DepthFrame3D<Dtype>;
+    using LidarFrame = erl::geometry::LidarFrame3D<Dtype>;
+    using CowAndLady = erl::geometry::CowAndLady;
+    using DepthCamera = erl::geometry::DepthCamera3D<Dtype>;
+    using Lidar = erl::geometry::Lidar3D<Dtype>;
+
+    using VectorX = Eigen::VectorX<Dtype>;
+    using MatrixX = Eigen::MatrixX<Dtype>;
+    using Matrix3 = Eigen::Matrix3<Dtype>;
+    using Matrix4 = Eigen::Matrix4<Dtype>;
+    using Vector3 = Eigen::Vector3<Dtype>;
+    using Matrix3X = Eigen::Matrix3X<Dtype>;
+    using Matrix4X = Eigen::Matrix4X<Dtype>;
+    using Matrix6X = Eigen::Matrix<Dtype, 6, Eigen::Dynamic>;
+
+    struct Options {
+        bool use_cow_and_lady = false;                                                  // use Cow and Lady dataset, otherwise use mesh_file and traj_file
+        std::string cow_and_lady_dir;                                                   // directory containing the Cow and Lady dataset
+        std::string mesh_file = kProjectRootDir / "data" / "replica-hotel-0.ply";       // mesh file
+        std::string traj_file = kProjectRootDir / "data" / "replica-hotel-0-traj.txt";  // trajectory file
+        std::string surface_mapping_config_file = kProjectRootDir / "config" / "surface_mapping_3d_lidar.yaml";
+        std::string sdf_mapping_config_file = kProjectRootDir / "config" / "sdf_mapping_3d_lidar.yaml";
+        std::string sdf_mapping_bin_file;
+        long stride = 1;
+        long max_frames = std::numeric_limits<long>::max();
+        Dtype test_res = 0.02;
+        long test_xs = 150;
+        long test_ys = 100;
+        bool test_whole_map_at_end = false;  // test the whole map at the end
+        Dtype test_z = 0.0;                  // test z for the whole map
+        Dtype image_resize_scale = 10;       // image resize scale
+        bool test_io = false;
+        bool hold = false;
+    };
+
+    Options options;
+    bool options_parsed = false;
+
+    try {
+        namespace po = boost::program_options;
+        po::options_description desc;
+        // clang-format off
+        desc.add_options()
+            ("help", "produce help message")
+            (
+                "use-cow-and-lady",
+                po::bool_switch(&options.use_cow_and_lady),
+                "use Cow and Lady dataset, otherwise use the mesh file and trajectory file"
+            )(
+                "cow-and-lady-dir",
+                po::value<std::string>(&options.cow_and_lady_dir)->default_value(options.cow_and_lady_dir)->value_name("dir"),
+                "directory containing the Cow and Lady dataset"
+            )
+            ("mesh-file", po::value<std::string>(&options.mesh_file)->default_value(options.mesh_file)->value_name("file"), "mesh file")
+            ("traj-file", po::value<std::string>(&options.traj_file)->default_value(options.traj_file)->value_name("file"), "trajectory file")
+            (
+                "surface-mapping-config-file",
+                po::value<std::string>(&options.surface_mapping_config_file)->default_value(options.surface_mapping_config_file)->value_name("file"),
+                "surface mapping config file"
+            )
+            (
+                "sdf-mapping-config-file",
+                po::value<std::string>(&options.sdf_mapping_config_file)->default_value(options.sdf_mapping_config_file)->value_name("file"),
+                "SDF mapping config file"
+            )
+            (
+                "sdf-mapping-bin-file",
+                po::value<std::string>(&options.sdf_mapping_bin_file)->default_value(options.sdf_mapping_bin_file)->value_name("file"),
+                "SDF mapping bin file"
+            )
+            ("stride", po::value<long>(&options.stride)->default_value(options.stride)->value_name("stride"), "stride")
+            ("max-frames", po::value<long>(&options.max_frames)->default_value(options.max_frames)->value_name("frames"), "max number of frames to process")
+            ("test-res", po::value<Dtype>(&options.test_res)->default_value(options.test_res)->value_name("res"), "test resolution")
+            ("test-xs", po::value<long>(&options.test_xs)->default_value(options.test_xs)->value_name("xs"), "test xs")
+            ("test-ys", po::value<long>(&options.test_ys)->default_value(options.test_ys)->value_name("ys"), "test ys")
+            ("test-whole-map-at-end", po::bool_switch(&options.test_whole_map_at_end), "test the whole map at the end")
+            ("test-z", po::value<Dtype>(&options.test_z)->default_value(options.test_z)->value_name("z"), "test z for the whole map")
+            ("image-resize-scale", po::value<Dtype>(&options.image_resize_scale)->default_value(options.image_resize_scale)->value_name("scale"), "image resize scale")
+            ("test-io", po::bool_switch(&options.test_io), "test IO")
+            ("hold", po::bool_switch(&options.hold), "hold the window");
+        // clang-format on
+
+        po::variables_map vm;
+        po::store(po::command_line_parser(g_argc, g_argv).options(desc).run(), vm);
+        if (vm.count("help")) {
+            std::cout << "Usage: " << g_argv[0] << " [options]" << std::endl << desc << std::endl;
+            return;
+        }
+        po::notify(vm);
+        options_parsed = true;
+    } catch (std::exception &e) { std::cerr << e.what() << std::endl; }
+    ASSERT_TRUE(options_parsed);
+
     // load setting
-    const auto sdf_mapping_setting = std::make_shared<GpSdfMapping3D::Setting>();
-    ERL_ASSERTM(sdf_mapping_setting->FromYamlFile(g_options.sdf_mapping_config_file), "Failed to load config file: {}", g_options.sdf_mapping_config_file);
-    const auto gp_surf_setting = std::dynamic_pointer_cast<GpOccSurfaceMapping3D::Setting>(sdf_mapping_setting->surface_mapping);
+    const auto surface_mapping_setting = std::make_shared<typename SurfaceMapping::Setting>();
+    ERL_ASSERTM(
+        surface_mapping_setting->FromYamlFile(options.surface_mapping_config_file),
+        "Failed to load surface_mapping_config_file: {}",
+        options.surface_mapping_config_file);
+    const auto sdf_mapping_setting = std::make_shared<typename SdfMapping::Setting>();
+    ERL_ASSERTM(
+        sdf_mapping_setting->FromYamlFile(options.sdf_mapping_config_file),
+        "Failed to load sdf_mapping_config_file: {}",
+        options.sdf_mapping_config_file);
+    // const auto surface_mapping = std::make_shared<SurfaceMapping>(surface_mapping_setting);  // create surface mapping
+    // SdfMapping sdf_mapping(sdf_mapping_setting, surface_mapping);                            // create sdf mapping
 
     // prepare the scene
     std::vector<std::shared_ptr<open3d::geometry::Geometry>> geometries;  // for visualization
-    std::shared_ptr<RangeSensor3D> range_sensor = nullptr;
-    std::shared_ptr<erl::geometry::CowAndLady> cow_and_lady = nullptr;
+    std::shared_ptr<RangeSensor> range_sensor = nullptr;
+    std::shared_ptr<CowAndLady> cow_and_lady = nullptr;
     std::vector<std::pair<Matrix3, Vector3>> poses;
     Vector3 map_min, map_max;
-    if (g_options.use_cow_and_lady) {
+    if (options.use_cow_and_lady) {
         ERL_INFO("Using Cow and Lady dataset.");
         ERL_INFO("Using depth.");
-        cow_and_lady = std::make_shared<erl::geometry::CowAndLady>(g_options.cow_and_lady_dir);
+        cow_and_lady = std::make_shared<CowAndLady>(options.cow_and_lady_dir);
         geometries.push_back(cow_and_lady->GetGroundTruthPointCloud());
         map_min = cow_and_lady->GetMapMin().cast<Dtype>();
         map_max = cow_and_lady->GetMapMax().cast<Dtype>();
-        const auto depth_frame_setting = std::make_shared<DepthFrame3D::Setting>();
-        depth_frame_setting->camera_intrinsic.image_height = erl::geometry::CowAndLady::kImageHeight;
-        depth_frame_setting->camera_intrinsic.image_width = erl::geometry::CowAndLady::kImageWidth;
-        depth_frame_setting->camera_intrinsic.camera_fx = erl::geometry::CowAndLady::kCameraFx;
-        depth_frame_setting->camera_intrinsic.camera_fy = erl::geometry::CowAndLady::kCameraFy;
-        depth_frame_setting->camera_intrinsic.camera_cx = erl::geometry::CowAndLady::kCameraCx;
-        depth_frame_setting->camera_intrinsic.camera_cy = erl::geometry::CowAndLady::kCameraCy;
+        const auto depth_frame_setting = std::make_shared<typename DepthFrame::Setting>();
+        depth_frame_setting->camera_intrinsic.image_height = CowAndLady::kImageHeight;
+        depth_frame_setting->camera_intrinsic.image_width = CowAndLady::kImageWidth;
+        depth_frame_setting->camera_intrinsic.camera_fx = CowAndLady::kCameraFx;
+        depth_frame_setting->camera_intrinsic.camera_fy = CowAndLady::kCameraFy;
+        depth_frame_setting->camera_intrinsic.camera_cx = CowAndLady::kCameraCx;
+        depth_frame_setting->camera_intrinsic.camera_cy = CowAndLady::kCameraCy;
     } else {
-        ERL_INFO("Using mesh file: {}", g_options.mesh_file);
-        const auto mesh = open3d::io::CreateMeshFromFile(g_options.mesh_file);
-        ERL_ASSERTM(!mesh->vertices_.empty(), "Failed to load mesh file: {}", g_options.mesh_file);
-        map_min = mesh->GetMinBound().cast<Dtype>();
-        map_max = mesh->GetMaxBound().cast<Dtype>();
-        if (gp_surf_setting->sensor_gp->sensor_frame_type == demangle(typeid(LidarFrame3D).name())) {
+        ERL_INFO("Using mesh file: {}", options.mesh_file);
+        const auto mesh = open3d::io::CreateMeshFromFile(options.mesh_file);
+        ERL_ASSERTM(!mesh->vertices_.empty(), "Failed to load mesh file: {}", options.mesh_file);
+        map_min = mesh->GetMinBound().template cast<Dtype>();
+        map_max = mesh->GetMaxBound().template cast<Dtype>();
+        if (surface_mapping_setting->sensor_gp->sensor_frame_type == demangle(typeid(LidarFrame).name())) {
             ERL_INFO("Using LiDAR.");
-            const auto lidar_frame_setting = std::dynamic_pointer_cast<LidarFrame3D::Setting>(gp_surf_setting->sensor_gp->sensor_frame);
-            const auto lidar_setting = std::make_shared<Lidar3D::Setting>();
+            const auto lidar_frame_setting = std::dynamic_pointer_cast<typename LidarFrame::Setting>(surface_mapping_setting->sensor_gp->sensor_frame);
+            const auto lidar_setting = std::make_shared<typename Lidar::Setting>();
             lidar_setting->azimuth_min = lidar_frame_setting->azimuth_min;
             lidar_setting->azimuth_max = lidar_frame_setting->azimuth_max;
             lidar_setting->num_azimuth_lines = lidar_frame_setting->num_azimuth_lines;
             lidar_setting->elevation_min = lidar_frame_setting->elevation_min;
             lidar_setting->elevation_max = lidar_frame_setting->elevation_max;
             lidar_setting->num_elevation_lines = lidar_frame_setting->num_elevation_lines;
-            range_sensor = std::make_shared<Lidar3D>(lidar_setting);
-        } else if (gp_surf_setting->sensor_gp->sensor_frame_type == demangle(typeid(DepthFrame3D).name())) {
+            range_sensor = std::make_shared<Lidar>(lidar_setting);
+        } else if (surface_mapping_setting->sensor_gp->sensor_frame_type == type_name<DepthFrame>()) {
             ERL_INFO("Using depth.");
-            const auto depth_frame_setting = std::dynamic_pointer_cast<DepthFrame3D::Setting>(gp_surf_setting->sensor_gp->sensor_frame);
-            const auto depth_camera_setting = std::make_shared<DepthCamera3D::Setting>();
+            const auto depth_frame_setting = std::dynamic_pointer_cast<typename DepthFrame::Setting>(surface_mapping_setting->sensor_gp->sensor_frame);
+            const auto depth_camera_setting = std::make_shared<typename DepthCamera::Setting>();
             *depth_camera_setting = depth_frame_setting->camera_intrinsic;
-            range_sensor = std::make_shared<DepthCamera3D>(depth_camera_setting);
+            range_sensor = std::make_shared<DepthCamera>(depth_camera_setting);
         } else {
-            ERL_FATAL("Unknown sensor_frame_type: {}", gp_surf_setting->sensor_gp->sensor_frame_type);
+            ERL_FATAL("Unknown sensor_frame_type: {}", surface_mapping_setting->sensor_gp->sensor_frame_type);
         }
-        range_sensor->AddMesh(g_options.mesh_file);
+        range_sensor->AddMesh(options.mesh_file);
         geometries.push_back(mesh);
-        poses = Trajectory::LoadSe3(g_options.traj_file, false);
+        poses = erl::geometry::Trajectory<Dtype>::LoadSe3(options.traj_file, false);
     }
 
     // prepare the mapping
-    GpSdfMapping3D sdf_mapping(sdf_mapping_setting);
+    const auto surface_mapping = std::make_shared<SurfaceMapping>(surface_mapping_setting);  // create surface mapping
+    SdfMapping sdf_mapping(sdf_mapping_setting, surface_mapping);
     bool skip_training = false;
-    if (!g_options.sdf_mapping_bin_file.empty() && std::filesystem::exists(g_options.sdf_mapping_bin_file)) {
-        ERL_ASSERTM(sdf_mapping.Read(g_options.sdf_mapping_bin_file), "Failed to read from file: {}", g_options.sdf_mapping_bin_file);
-        skip_training = true;
-    }
-    const auto surface_mapping = std::dynamic_pointer_cast<GpOccSurfaceMapping3D>(sdf_mapping.GetSurfaceMapping());
+    // TODO: implement Read method
+    // if (!options.sdf_mapping_bin_file.empty() && std::filesystem::exists(options.sdf_mapping_bin_file)) {
+    //     ERL_ASSERTM(sdf_mapping.Read(options.sdf_mapping_bin_file), "Failed to read from file: {}", options.sdf_mapping_bin_file);
+    //     skip_training = true;
+    // }
+    // const auto surface_mapping = std::dynamic_pointer_cast<SurfaceMapping>(sdf_mapping.GetSurfaceMapping());
 
     // prepare the visualizer
     const auto visualizer_setting = std::make_shared<erl::geometry::Open3dVisualizerWrapper::Setting>();
@@ -185,7 +266,7 @@ TEST(GpSdfMapping3D, Build_Save_Load) {
     const auto line_set_surf_normals = std::make_shared<open3d::geometry::LineSet>();
     const auto voxel_grid_sdf = std::make_shared<open3d::geometry::VoxelGrid>();
     voxel_grid_sdf->origin_.setZero();
-    voxel_grid_sdf->voxel_size_ = g_options.test_res;
+    voxel_grid_sdf->voxel_size_ = options.test_res;
     geometries.push_back(mesh_sensor);
     geometries.push_back(mesh_sensor_xyz);
     // geometries.push_back(pcd_obs);
@@ -195,40 +276,40 @@ TEST(GpSdfMapping3D, Build_Save_Load) {
     visualizer.AddGeometries(geometries);
 
     // prepare the test positions
-    Eigen::MatrixX<Vector3> positions(g_options.test_xs, g_options.test_ys);  // test position in the sensor frame
+    Eigen::MatrixX<Vector3> positions(options.test_xs, options.test_ys);  // test position in the sensor frame
     const Vector3 offset(
-        static_cast<Dtype>(-0.5) * g_options.test_res * static_cast<Dtype>(g_options.test_xs),
-        static_cast<Dtype>(-0.5) * g_options.test_res * static_cast<Dtype>(g_options.test_ys),
+        static_cast<Dtype>(-0.5) * options.test_res * static_cast<Dtype>(options.test_xs),
+        static_cast<Dtype>(-0.5) * options.test_res * static_cast<Dtype>(options.test_ys),
         0.0);
     for (long j = 0; j < positions.cols(); ++j) {
         for (long i = 0; i < positions.rows(); ++i) {
-            positions(i, j) = Vector3(static_cast<Dtype>(i) * g_options.test_res, static_cast<Dtype>(j) * g_options.test_res, 0) + offset;
+            positions(i, j) = Vector3(static_cast<Dtype>(i) * options.test_res, static_cast<Dtype>(j) * options.test_res, 0) + offset;
         }
     }
 
     // animation callback
     long wp_idx = 0;
     bool animation_ended = false;
-    const long max_wp_idx = std::min(g_options.use_cow_and_lady ? cow_and_lady->Size() : static_cast<long>(poses.size()), g_options.max_frames);
+    const long max_wp_idx = std::min(options.use_cow_and_lady ? cow_and_lady->Size() : static_cast<long>(poses.size()), options.max_frames);
     Matrix4 last_pose = Matrix4::Identity();
     auto callback = [&](erl::geometry::Open3dVisualizerWrapper *wrapper, open3d::visualization::Visualizer *vis) -> bool {
         ERL_TRACY_FRAME_MARK_START();
-        if (animation_ended) {  // g_options.hold is true, so the window is not closed yet
+        if (animation_ended) {  // options.hold is true, so the window is not closed yet
             cv::waitKey(1);
             return false;
         }
 
         if (skip_training || wp_idx >= max_wp_idx) {
             animation_ended = true;
-            if (g_options.test_whole_map_at_end) {
+            if (options.test_whole_map_at_end) {
                 erl::common::GridMapInfo2D<Dtype> grid_map_info(
-                    map_min.head<2>(),
-                    map_max.head<2>(),
-                    Eigen::Vector2<Dtype>(g_options.test_res, g_options.test_res),
+                    map_min.template head<2>(),
+                    map_max.template head<2>(),
+                    Eigen::Vector2<Dtype>(options.test_res, options.test_res),
                     Eigen::Vector2i(10, 10));
                 Matrix3X test_positions(3, grid_map_info.Size());
-                test_positions.topRows(2) = grid_map_info.GenerateMeterCoordinates(false).cast<Dtype>();
-                test_positions.row(2).setConstant(g_options.test_z);
+                test_positions.topRows(2) = grid_map_info.GenerateMeterCoordinates(false).template cast<Dtype>();
+                test_positions.row(2).setConstant(options.test_z);
                 VectorX distances;
                 {
                     Matrix3X gradients(3, test_positions.cols());
@@ -239,7 +320,7 @@ TEST(GpSdfMapping3D, Build_Save_Load) {
                 }
                 auto [img_sdf, img_sdf_sign] = ConvertSdfToImage(distances, grid_map_info.Shape(0), grid_map_info.Shape(1));
                 ConvertSdfToVoxelGrid(img_sdf, test_positions, voxel_grid_sdf);
-                Dtype resize_scale = g_options.image_resize_scale;
+                Dtype resize_scale = options.image_resize_scale;
                 resize_scale = std::min(resize_scale, static_cast<Dtype>(1920.0) / static_cast<Dtype>(img_sdf.cols));
                 resize_scale = std::min(resize_scale, static_cast<Dtype>(1920.0) / static_cast<Dtype>(img_sdf.rows));
                 cv::resize(img_sdf, img_sdf, cv::Size(), resize_scale, resize_scale);
@@ -248,16 +329,17 @@ TEST(GpSdfMapping3D, Build_Save_Load) {
                 cv::imshow("sdf_sign_whole_map", img_sdf_sign);
                 cv::waitKey(1);
             }
-            if (!skip_training && g_options.test_io) {
-                const erl::common::BlockTimer<std::chrono::milliseconds> timer("IO");
-                (void) timer;
-                const auto filename = test_output_dir / "gp_sdf_mapping_3d.bin";
-                ERL_ASSERTM(sdf_mapping.Write(filename), "Failed to write to file: {}", filename);
-                GpSdfMapping3D sdf_mapping_load(std::make_shared<GpSdfMapping3D::Setting>());
-                ERL_ASSERTM(sdf_mapping_load.Read(filename), "Failed to read from file: {}", filename);
-                ERL_ASSERTM(sdf_mapping == sdf_mapping_load, "gp != gp_load");
+            if (!skip_training && options.test_io) {
+                // TODO: test io
+                // const erl::common::BlockTimer<std::chrono::milliseconds> timer("IO");
+                // (void) timer;
+                // const auto filename = test_output_dir / "gp_sdf_mapping_3d.bin";
+                // ERL_ASSERTM(sdf_mapping.Write(filename), "Failed to write to file: {}", filename);
+                // GpSdfMapping3D sdf_mapping_load(std::make_shared<GpSdfMapping3D::Setting>());
+                // ERL_ASSERTM(sdf_mapping_load.Read(filename), "Failed to read from file: {}", filename);
+                // ERL_ASSERTM(sdf_mapping == sdf_mapping_load, "gp != gp_load");
             }
-            if (!g_options.hold) {
+            if (!options.hold) {
                 wrapper->SetAnimationCallback(nullptr);  // stop calling this callback
                 vis->Close();                            // close the window
             }
@@ -274,16 +356,16 @@ TEST(GpSdfMapping3D, Build_Save_Load) {
         double dt;
         {
             ERL_BLOCK_TIMER_MSG_TIME("data loading", dt);
-            if (g_options.use_cow_and_lady) {
+            if (options.use_cow_and_lady) {
                 const auto frame = (*cow_and_lady)[wp_idx];
                 rotation = frame.rotation.cast<Dtype>();
                 translation = frame.translation.cast<Dtype>();
                 Matrix4 pose = Matrix4::Identity();
-                pose.topLeftCorner<3, 3>() = rotation;
-                pose.topRightCorner<3, 1>() = translation;
-                pose = pose * DepthCamera3D::cTo;
-                rotation_sensor = pose.topLeftCorner<3, 3>();
-                translation_sensor = pose.topRightCorner<3, 1>();
+                pose.template topLeftCorner<3, 3>() = rotation;
+                pose.template topRightCorner<3, 1>() = translation;
+                pose = pose * DepthCamera::cTo;
+                rotation_sensor = pose.template topLeftCorner<3, 3>();
+                translation_sensor = pose.template topRightCorner<3, 1>();
                 ranges = frame.depth.cast<Dtype>();
                 depth_jet = frame.depth_jet;
             } else {
@@ -294,7 +376,7 @@ TEST(GpSdfMapping3D, Build_Save_Load) {
             }
         }
         ERL_TRACY_PLOT("data loading (ms)", dt);
-        wp_idx += g_options.stride;
+        wp_idx += options.stride;
 
         {
             ERL_BLOCK_TIMER_MSG_TIME("sdf_mapping.Update", dt);
@@ -331,7 +413,7 @@ TEST(GpSdfMapping3D, Build_Save_Load) {
         cv::putText(depth_jet, fmt::format("update {:.2f} fps", gp_update_fps), cv::Point(10, 60), cv::FONT_HERSHEY_PLAIN, 1.5, cv::Scalar(255, 255, 255), 2);
         auto [img_sdf, img_sdf_sign] = ConvertSdfToImage(distances, positions.rows(), positions.cols());
         ConvertSdfToVoxelGrid(img_sdf, positions_test, voxel_grid_sdf);
-        Dtype resize_scale = g_options.image_resize_scale;
+        Dtype resize_scale = options.image_resize_scale;
         resize_scale = std::min(resize_scale, static_cast<Dtype>(1920.0) / static_cast<Dtype>(img_sdf.cols));
         resize_scale = std::min(resize_scale, static_cast<Dtype>(1920.0) / static_cast<Dtype>(img_sdf.rows));
         cv::resize(img_sdf, img_sdf, cv::Size(), resize_scale, resize_scale);
@@ -346,38 +428,38 @@ TEST(GpSdfMapping3D, Build_Save_Load) {
         /// update the sensor mesh
         Matrix4 last_pose_inv = last_pose.inverse();
         Matrix4 cur_pose = Matrix4::Identity();
-        cur_pose.topLeftCorner<3, 3>() = rotation_sensor;
-        cur_pose.topRightCorner<3, 1>() = translation_sensor;
+        cur_pose.template topLeftCorner<3, 3>() = rotation_sensor;
+        cur_pose.template topRightCorner<3, 1>() = translation_sensor;
         Matrix4 delta_pose = cur_pose * last_pose_inv;
         last_pose = cur_pose;
-        mesh_sensor->Transform(delta_pose.cast<double>());
-        mesh_sensor_xyz->Transform(delta_pose.cast<double>());
+        mesh_sensor->Transform(delta_pose.template cast<double>());
+        mesh_sensor_xyz->Transform(delta_pose.template cast<double>());
         /// update the observation point cloud
         if (std::find(geometries.begin(), geometries.end(), pcd_obs) != geometries.end()) {
             pcd_obs->points_.clear();
             pcd_obs->colors_.clear();
             const auto &hit_points = surface_mapping->GetSensorGp()->GetSensorFrame()->GetHitPointsWorld();
             pcd_obs->points_.reserve(hit_points.size());
-            for (const auto &hit_point: hit_points) { pcd_obs->points_.emplace_back(hit_point.cast<double>()); }
+            for (const auto &hit_point: hit_points) { pcd_obs->points_.emplace_back(hit_point.template cast<double>()); }
             pcd_obs->PaintUniformColor({0.0, 1.0, 0.0});
         }
         /// update the surface point cloud and normals
-        if (const auto octree = sdf_mapping.GetSurfaceMapping()->GetOctree();
+        if (const auto tree = surface_mapping->GetTree();  //
             (std::find(geometries.begin(), geometries.end(), pcd_surf_points) != geometries.end() ||
              std::find(geometries.begin(), geometries.end(), line_set_surf_normals) != geometries.end()) &&
-            octree != nullptr) {
+            tree != nullptr) {
             pcd_surf_points->points_.clear();
             line_set_surf_normals->points_.clear();
             line_set_surf_normals->lines_.clear();
-            for (auto it = octree->BeginLeaf(), end = octree->EndLeaf(); it != end; ++it) {
+            for (auto it = tree->BeginLeaf(), end = tree->EndLeaf(); it != end; ++it) {
                 if (!it->HasSurfaceData()) { continue; }
                 const auto &surface_data = surface_mapping->GetSurfaceDataManager()[it->surface_data_index];
                 const Vector3 &position = surface_data.position;
                 const Vector3 &normal = surface_data.normal;
                 ERL_ASSERTM(std::abs(normal.norm() - 1.0) < 1.e-6, "normal.norm() = {:.6f}", normal.norm());
-                pcd_surf_points->points_.emplace_back(position.cast<double>());
-                line_set_surf_normals->points_.emplace_back(position.cast<double>());
-                line_set_surf_normals->points_.emplace_back((position + 0.1 * normal).cast<double>());
+                pcd_surf_points->points_.emplace_back(position.template cast<double>());
+                line_set_surf_normals->points_.emplace_back(position.template cast<double>());
+                line_set_surf_normals->points_.emplace_back((position + 0.1 * normal).template cast<double>());
                 line_set_surf_normals->lines_.emplace_back(line_set_surf_normals->points_.size() - 2, line_set_surf_normals->points_.size() - 1);
             }
             line_set_surf_normals->PaintUniformColor({1.0, 0.0, 0.0});
@@ -389,14 +471,15 @@ TEST(GpSdfMapping3D, Build_Save_Load) {
         ERL_TRACY_PLOT("gui_update (ms)", duration_total);
         ERL_TRACY_PLOT("gui_update (fps)", 1000.0 / duration_total);
 
-        if (wp_idx == 1 && g_options.test_io) {
-            const erl::common::BlockTimer<std::chrono::milliseconds> timer("IO");
-            (void) timer;
-            const auto filename = test_output_dir / "gp_sdf_mapping_3d.bin";
-            ERL_ASSERTM(sdf_mapping.Write(filename), "Failed to write to file: {}", filename);
-            GpSdfMapping3D sdf_mapping_load(std::make_shared<GpSdfMapping3D::Setting>());
-            ERL_ASSERTM(sdf_mapping_load.Read(filename), "Failed to read from file: {}", filename);
-            ERL_ASSERTM(sdf_mapping == sdf_mapping_load, "gp != gp_load");
+        if (wp_idx == 1 && options.test_io) {
+            // TODO: test io
+            // const erl::common::BlockTimer<std::chrono::milliseconds> timer("IO");
+            // (void) timer;
+            // const auto filename = test_output_dir / "gp_sdf_mapping_3d.bin";
+            // ERL_ASSERTM(sdf_mapping.Write(filename), "Failed to write to file: {}", filename);
+            // GpSdfMapping3D sdf_mapping_load(std::make_shared<GpSdfMapping3D::Setting>());
+            // ERL_ASSERTM(sdf_mapping_load.Read(filename), "Failed to read from file: {}", filename);
+            // ERL_ASSERTM(sdf_mapping == sdf_mapping_load, "gp != gp_load");
         }
 
         ERL_TRACY_FRAME_MARK_END();
@@ -418,129 +501,14 @@ TEST(GpSdfMapping3D, Build_Save_Load) {
     ERL_INFO("max_gp_size: {}, mean_gp_size: {}", max_gp_size, mean_gp_size);
 }
 
-// TEST(GpSdfMapping3D, Accuracy) {
-//     GTEST_PREPARE_OUTPUT_DIR();
-//
-//     ASSERT_TRUE(!g_options.sdf_mapping_bin_file.empty()) << "sdf_mapping_bin_file is empty.";
-//
-//     const auto sdf_mapping = std::make_shared<GpSdfMapping3D>(std::make_shared<GpSdfMapping3D::Setting>());
-//     ASSERT_TRUE(sdf_mapping->Read(g_options.sdf_mapping_bin_file)) << "Failed to read from file: " << g_options.sdf_mapping_bin_file;
-//
-//     const auto mesh = open3d::io::CreateMeshFromFile(g_options.mesh_file);
-//     ASSERT_TRUE(!mesh->vertices_.empty()) << "Failed to load mesh file: " << g_options.mesh_file;
-//
-//     const auto lidar_setting = std::make_shared<Lidar3D::Setting>();
-//     lidar_setting->azimuth_min = -M_PI;
-//     lidar_setting->azimuth_max = M_PI;
-//     lidar_setting->num_azimuth_lines = 361;
-//     lidar_setting->elevation_min = -M_PI_2;
-//     lidar_setting->elevation_max = M_PI_2;
-//     lidar_setting->num_elevation_lines = 91;
-//     const auto lidar = std::make_shared<Lidar3D>(lidar_setting);
-//     lidar->AddMesh(g_options.mesh_file);
-//
-//     const Vector3 min_bound = mesh->GetMinBound().cast<Dtype>();
-//     const Vector3 max_bound = mesh->GetMaxBound().cast<Dtype>();
-//     const Vector3 size = max_bound - min_bound;
-//     constexpr long num_test_positions = 10000;
-//     Matrix3X positions = (Matrix3X::Random(3, num_test_positions).array() + 1) / 2;
-//     for (long i = 0; i < num_test_positions; ++i) { positions.col(i) = min_bound + positions.col(i).cwiseProduct(size); }
-//     Vector sdf_pred;
-//     Matrix3X gradients;
-//     Matrix4X variances;
-//     Matrix6X covariances;
-//     ASSERT_TRUE(sdf_mapping->Test(positions, sdf_pred, gradients, variances, covariances)) << "Failed to test.";
-//
-//     Vector sdf_gt(num_test_positions);
-//     for (long i = 0; i < num_test_positions; ++i) { sdf_gt(i) = lidar->Scan(Matrix3::Identity(), positions.col(i)).minCoeff(); }
-//
-//     Vector abs_error = (sdf_pred - sdf_gt).cwiseAbs();
-//     const Dtype abs_error_min = abs_error.minCoeff();
-//     const Dtype abs_error_max = abs_error.maxCoeff();
-//     ERL_INFO("ABS ERROR: min: {:.6f}, max: {:.6f}, mean: {:.6f}.", abs_error_min, abs_error_max, abs_error.mean());
-//     ERL_INFO("MSE: {:.6f}", (sdf_pred - sdf_gt).squaredNorm() / static_cast<Dtype>(num_test_positions));
-//
-//     // visualize
-//     Eigen::MatrixX8U abs_error_uint8 = ((abs_error.array() - abs_error_min) / (abs_error_max - abs_error_min) * 255.0).cast<uint8_t>();
-//     cv::Mat img_error;
-//     cv::eigen2cv(abs_error_uint8, img_error);
-//     cv::cvtColor(img_error, img_error, cv::COLOR_GRAY2BGR);
-//     cv::applyColorMap(img_error, img_error, cv::COLORMAP_JET);
-//     cv::cvtColor(img_error, img_error, cv::COLOR_BGR2RGB);
-//     std::vector<std::shared_ptr<open3d::geometry::Geometry>> geometries;
-//     geometries.push_back(mesh);
-//     const auto pcd = std::make_shared<open3d::geometry::PointCloud>();
-//     for (long i = 0; i < num_test_positions; ++i) {
-//         pcd->points_.emplace_back(positions.col(i).cast<double>());
-//         const auto &color = img_error.at<cv::Vec3b>(static_cast<int>(i), 0);
-//         pcd->colors_.emplace_back(static_cast<double>(color[0]) / 255.0, static_cast<double>(color[1]) / 255.0, static_cast<double>(color[2]) / 255.0);
-//
-//         auto sphere = open3d::geometry::TriangleMesh::CreateSphere(abs_error[i] * 0.1);
-//         sphere->Translate(positions.col(i).cast<double>());
-//         sphere->PaintUniformColor(pcd->colors_.back());
-//         geometries.push_back(sphere);
-//     }
-//     geometries.push_back(pcd);
-//
-//     const auto visualizer_setting = std::make_shared<erl::geometry::Open3dVisualizerWrapper::Setting>();
-//     visualizer_setting->window_name = test_info->name();
-//     erl::geometry::Open3dVisualizerWrapper visualizer(visualizer_setting);
-//     visualizer.AddGeometries(geometries);
-//     visualizer.Show();
-// }
+TEST(GpSdfMapping, 3Dd) { TestImpl3D<double>(); }
+
+TEST(GpSdfMapping, 3Df) { TestImpl3D<float>(); }
 
 int
 main(int argc, char *argv[]) {
-    ::testing::InitGoogleTest(&argc, argv);
-    try {
-        namespace po = boost::program_options;
-        po::options_description desc;
-        // clang-format off
-        desc.add_options()
-            ("help", "produce help message")
-            (
-                "use-cow-and-lady",
-                po::bool_switch(&g_options.use_cow_and_lady),
-                "use Cow and Lady dataset, otherwise use the mesh file and trajectory file"
-            )(
-                "cow-and-lady-dir",
-                po::value<std::string>(&g_options.cow_and_lady_dir)->default_value(g_options.cow_and_lady_dir)->value_name("dir"),
-                "directory containing the Cow and Lady dataset"
-            )
-            ("mesh-file", po::value<std::string>(&g_options.mesh_file)->default_value(g_options.mesh_file)->value_name("file"), "mesh file")
-            ("traj-file", po::value<std::string>(&g_options.traj_file)->default_value(g_options.traj_file)->value_name("file"), "trajectory file")
-            (
-                "sdf-mapping-config-file",
-                po::value<std::string>(&g_options.sdf_mapping_config_file)->default_value(g_options.sdf_mapping_config_file)->value_name("file"),
-                "SDF mapping config file"
-            )
-            (
-                "sdf-mapping-bin-file",
-                po::value<std::string>(&g_options.sdf_mapping_bin_file)->default_value(g_options.sdf_mapping_bin_file)->value_name("file"),
-                "SDF mapping bin file"
-            )
-            ("stride", po::value<long>(&g_options.stride)->default_value(g_options.stride)->value_name("stride"), "stride")
-            ("max-frames", po::value<long>(&g_options.max_frames)->default_value(g_options.max_frames)->value_name("frames"), "max number of frames to process")
-            ("test-res", po::value<Dtype>(&g_options.test_res)->default_value(g_options.test_res)->value_name("res"), "test resolution")
-            ("test-xs", po::value<long>(&g_options.test_xs)->default_value(g_options.test_xs)->value_name("xs"), "test xs")
-            ("test-ys", po::value<long>(&g_options.test_ys)->default_value(g_options.test_ys)->value_name("ys"), "test ys")
-            ("test-whole-map-at-end", po::bool_switch(&g_options.test_whole_map_at_end), "test the whole map at the end")
-            ("test-z", po::value<Dtype>(&g_options.test_z)->default_value(g_options.test_z)->value_name("z"), "test z for the whole map")
-            ("image-resize-scale", po::value<Dtype>(&g_options.image_resize_scale)->default_value(g_options.image_resize_scale)->value_name("scale"), "image resize scale")
-            ("test-io", po::bool_switch(&g_options.test_io), "test IO")
-            ("hold", po::bool_switch(&g_options.hold), "hold the window");
-        // clang-format on
-
-        po::variables_map vm;
-        po::store(po::command_line_parser(argc, argv).options(desc).run(), vm);
-        if (vm.count("help")) {
-            std::cout << "Usage: " << argv[0] << " [options]" << std::endl << desc << std::endl;
-            return 0;
-        }
-        po::notify(vm);
-    } catch (std::exception &e) {
-        std::cerr << e.what() << std::endl;
-        return 1;
-    }
+    testing::InitGoogleTest(&argc, argv);
+    g_argc = argc;
+    g_argv = argv;
     return RUN_ALL_TESTS();
 }
