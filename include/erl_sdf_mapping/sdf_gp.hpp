@@ -1,5 +1,6 @@
 #pragma once
 #include "log_edf_gp.hpp"
+#include "sign_gp.hpp"
 #include "surface_data_manager.hpp"
 
 #include <atomic>
@@ -7,10 +8,34 @@
 
 namespace erl::sdf_mapping {
 
+    template<typename Dtype>
+    struct SdfGaussianProcessSetting : common::Yamlable<SdfGaussianProcessSetting<Dtype>> {
+        using SignGpSetting = typename SignGaussianProcess<Dtype>::Setting;
+        using EdfGpSetting = typename LogEdfGaussianProcess<Dtype>::Setting;
+
+        bool enable_sign_gp = true;
+        std::shared_ptr<SignGpSetting> sign_gp = std::make_shared<SignGpSetting>();
+        std::shared_ptr<EdfGpSetting> edf_gp = std::make_shared<EdfGpSetting>();
+
+        struct YamlConvertImpl {
+            static YAML::Node
+            encode(const SdfGaussianProcessSetting& setting);
+
+            static bool
+            decode(const YAML::Node& node, SdfGaussianProcessSetting& setting);
+        };
+    };
+
+    using SdfGaussianProcessSettingD = SdfGaussianProcessSetting<double>;
+    using SdfGaussianProcessSettingF = SdfGaussianProcessSetting<float>;
+
     template<typename Dtype, int Dim>
     struct SdfGaussianProcess {
+        inline static const std::string kFileHeader = fmt::format("# {}", type_name<SdfGaussianProcess>());
+
+        using SignGp = SignGaussianProcess<Dtype>;
         using EdfGp = LogEdfGaussianProcess<Dtype>;
-        using Setting = typename LogEdfGaussianProcess<Dtype>::Setting;
+        using Setting = SdfGaussianProcessSetting<Dtype>;
         using VectorD = Eigen::Vector<Dtype, Dim>;
         using VectorX = Eigen::VectorX<Dtype>;
 
@@ -19,11 +44,12 @@ namespace erl::sdf_mapping {
         std::shared_ptr<Setting> setting = nullptr;
         bool active = false;
         std::atomic_bool locked_for_test = false;
+        long num_sign_samples = 0;
         long num_edf_samples = 0;
         VectorD position{};
         Dtype half_size = 0;
+        std::shared_ptr<SignGp> sign_gp = nullptr;
         std::shared_ptr<EdfGp> edf_gp = nullptr;
-        inline static const std::string kFileHeader = fmt::format("# {}", type_name<SdfGaussianProcess>());
 
         explicit SdfGaussianProcess(std::shared_ptr<Setting> setting);
 
@@ -47,7 +73,7 @@ namespace erl::sdf_mapping {
         GetMemoryUsage() const;
 
         [[nodiscard]] bool
-        Intersects(const VectorD& other_position, const Dtype other_half_size) const;
+        Intersects(const VectorD& other_position, Dtype other_half_size) const;
 
         [[nodiscard]] bool
         Intersects(const VectorD& other_position, const VectorD& other_half_sizes) const;
@@ -96,3 +122,9 @@ namespace erl::sdf_mapping {
 }  // namespace erl::sdf_mapping
 
 #include "sdf_gp.tpp"
+
+template<>
+struct YAML::convert<erl::sdf_mapping::SdfGaussianProcessSettingD> : erl::sdf_mapping::SdfGaussianProcessSettingD::YamlConvertImpl {};
+
+template<>
+struct YAML::convert<erl::sdf_mapping::SdfGaussianProcessSettingF> : erl::sdf_mapping::SdfGaussianProcessSettingF::YamlConvertImpl {};

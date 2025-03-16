@@ -63,6 +63,7 @@ namespace erl::sdf_mapping {
             this->m_mat_x_train_.col(count) = surface_data.position - offset_distance * surface_data.normal;
             this->m_vec_var_h_[count] = sensor_noise;
             this->m_vec_var_x_[count] = surface_data.var_position;
+            // this->m_vec_grad_flag_[count] = false;  // m_setting_->no_gradient_observation is true, so no need to set this
             if ((surface_data.var_normal > max_valid_gradient_var) ||                                   // invalid gradient
                 (surface_data.normal.norm() < 0.9)) {                                                   // invalid normal
                 this->m_vec_var_x_[count] = std::max(this->m_vec_var_x_[count], invalid_position_var);  // position is unreliable
@@ -81,9 +82,10 @@ namespace erl::sdf_mapping {
         const Eigen::Ref<const MatrixX> &mat_x_test,
         Eigen::Ref<MatrixX> mat_f_out,
         Eigen::Ref<MatrixX> mat_var_out,
-        Eigen::Ref<MatrixX> mat_cov_out) const {
+        Eigen::Ref<MatrixX> mat_cov_out,
+        const bool predict_gradient) const {
 
-        if (!Super::Test(mat_x_test, mat_f_out, mat_var_out, mat_cov_out)) { return false; }
+        if (!Super::Test(mat_x_test, mat_f_out, mat_var_out, mat_cov_out, predict_gradient)) { return false; }
         const long dim = mat_x_test.rows();
         const long n = mat_x_test.cols();
         const Dtype log_lambda = m_setting_->log_lambda;
@@ -119,22 +121,6 @@ namespace erl::sdf_mapping {
 
     template<typename Dtype>
     bool
-    LogEdfGaussianProcess<Dtype>::Write(const std::string &filename) const {
-        ERL_INFO("Writing LogEdfGaussianProcess to file: {}", filename);
-        std::filesystem::create_directories(std::filesystem::path(filename).parent_path());
-        std::ofstream file(filename, std::ios_base::out | std::ios_base::binary);
-        if (!file.is_open()) {
-            ERL_WARN("Failed to open file: {}", filename);
-            return false;
-        }
-
-        const bool success = Write(file);
-        file.close();
-        return success;
-    }
-
-    template<typename Dtype>
-    bool
     LogEdfGaussianProcess<Dtype>::Write(std::ostream &s) const {
         if (!Super::Write(s)) {
             ERL_WARN("Failed to write parent class NoisyInputGaussianProcess.");
@@ -150,21 +136,6 @@ namespace erl::sdf_mapping {
         }
         s << "end_of_LogEdfGaussianProcess" << std::endl;
         return s.good();
-    }
-
-    template<typename Dtype>
-    bool
-    LogEdfGaussianProcess<Dtype>::Read(const std::string &filename) {
-        ERL_INFO("Reading LogEdfGaussianProcess from file: {}", std::filesystem::absolute(filename));
-        std::ifstream file(filename.c_str(), std::ios_base::in | std::ios_base::binary);
-        if (!file.is_open()) {
-            ERL_WARN("Failed to open file: {}", filename.c_str());
-            return false;
-        }
-
-        const bool success = Read(file);
-        file.close();
-        return success;
     }
 
     template<typename Dtype>

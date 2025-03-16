@@ -386,7 +386,7 @@ TestImpl2D() {
 
     std::vector<std::pair<cv::Point, cv::Point>> arrowed_lines;
     auto &surface_data_manager = surface_mapping->GetSurfaceDataManager();
-    drawer.SetDrawTreeCallback([&](const QuadtreeDrawer *self, cv::Mat &img, typename SurfaceMappingQuadtree::TreeIterator &it) {
+    drawer.SetDrawTreeCallback([&](const QuadtreeDrawer *, cv::Mat &img, typename SurfaceMappingQuadtree::TreeIterator &it) {
         if (it->GetDepth() == surface_mapping_setting->cluster_depth) {
             Eigen::Vector2i position_px = drawer.GetPixelCoordsForPositions(Vector2(it.GetX(), it.GetY()), true);
             const cv::Point position_px_cv(position_px[0], position_px[1]);
@@ -402,7 +402,7 @@ TestImpl2D() {
         cv::Point arrow_end_px(position_px[0] + normal_px[0], position_px[1] + normal_px[1]);
         arrowed_lines.emplace_back(position_px_cv, arrow_end_px);
     });
-    drawer.SetDrawLeafCallback([&](const QuadtreeDrawer *self, cv::Mat &img, typename SurfaceMappingQuadtree::LeafIterator &it) {
+    drawer.SetDrawLeafCallback([&](const QuadtreeDrawer *, cv::Mat &img, typename SurfaceMappingQuadtree::LeafIterator &it) {
         if (!it->HasSurfaceData()) { return; }
         auto &surface_data = surface_data_manager[it->surface_data_index];
         Eigen::Vector2i position_px = drawer.GetPixelCoordsForPositions(surface_data.position, true);

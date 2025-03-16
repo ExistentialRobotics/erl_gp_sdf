@@ -2,6 +2,26 @@
 
 namespace erl::sdf_mapping {
 
+    template<typename Dtype>
+    YAML::Node
+    SdfGaussianProcessSetting<Dtype>::YamlConvertImpl::encode(const SdfGaussianProcessSetting &setting) {
+        YAML::Node node;
+        node["enable_sign_gp"] = setting.enable_sign_gp;
+        node["sign_gp"] = setting.sign_gp;
+        node["edf_gp"] = setting.edf_gp;
+        return node;
+    }
+
+    template<typename Dtype>
+    bool
+    SdfGaussianProcessSetting<Dtype>::YamlConvertImpl::decode(const YAML::Node &node, SdfGaussianProcessSetting &setting) {
+        if (!node.IsMap()) { return false; }
+        setting.enable_sign_gp = node["enable_sign_gp"].as<bool>();
+        setting.sign_gp = node["sign_gp"].as<decltype(setting.sign_gp)>();
+        setting.edf_gp = node["edf_gp"].as<decltype(setting.edf_gp)>();
+        return true;
+    }
+
     template<typename Dtype, int Dim>
     SdfGaussianProcess<Dtype, Dim>::SdfGaussianProcess(std::shared_ptr<Setting> setting)
         : setting(std::move(setting)) {}
@@ -54,7 +74,8 @@ namespace erl::sdf_mapping {
     template<typename Dtype, int Dim>
     void
     SdfGaussianProcess<Dtype, Dim>::Activate() {
-        if (edf_gp == nullptr) { edf_gp = std::make_shared<EdfGp>(setting); }
+        if (sign_gp == nullptr && setting->enable_sign_gp) { sign_gp = std::make_shared<SignGp>(setting->sign_gp); }
+        if (edf_gp == nullptr) { edf_gp = std::make_shared<EdfGp>(setting->edf_gp); }
         active = true;
     }
 
@@ -100,20 +121,34 @@ namespace erl::sdf_mapping {
         Dtype sensor_noise,
         Dtype max_valid_gradient_var,
         Dtype invalid_position_var) {
-        num_edf_samples = edf_gp->template LoadSurfaceData<Dim>(
-            surface_data_indices,
-            surface_data_vec,
-            position,
-            offset_distance,
-            sensor_noise,
-            max_valid_gradient_var,
-            invalid_position_var);
+        if (sign_gp != nullptr) {
+            num_sign_samples = sign_gp->template LoadSurfaceData<Dim>(
+                surface_data_indices,
+                surface_data_vec,
+                position,
+                offset_distance,
+                sensor_noise,
+                max_valid_gradient_var,
+                invalid_position_var);
+        }
+        if (edf_gp != nullptr) {
+            num_edf_samples = edf_gp->template LoadSurfaceData<Dim>(
+                surface_data_indices,
+                surface_data_vec,
+                position,
+                offset_distance,
+                sensor_noise,
+                max_valid_gradient_var,
+                invalid_position_var);
+        }
     }
 
     template<typename Dtype, int Dim>
     void
     SdfGaussianProcess<Dtype, Dim>::Train() const {
-        edf_gp->Train(num_edf_samples);
+        ERL_DEBUG_ASSERT(active, "SdfGaussianProcess is not active.");
+        if (sign_gp != nullptr) { sign_gp->Train(num_sign_samples); }
+        if (edf_gp != nullptr) { edf_gp->Train(num_edf_samples); }
     }
 
     template<typename Dtype, int Dim>
@@ -130,18 +165,19 @@ namespace erl::sdf_mapping {
 
         ERL_DEBUG_ASSERT(active, "SdfGaussianProcess is not active.");
 
-        VectorX no_covariance;
+        VectorX no_variance, no_covariance;
+        VectorX sign(f.size());
+        const bool predict_sign = sign_gp != nullptr && sign_gp->Test(test_position, sign, no_variance, no_covariance, false);
 
         if (use_gp_covariance) {
             if (compute_covariance) {
-                edf_gp->Test(test_position, f, var, covariance);
+                edf_gp->Test(test_position, f, var, covariance, true);
             } else {
-                edf_gp->Test(test_position, f, var, no_covariance);
+                edf_gp->Test(test_position, f, var, no_covariance, true);
             }
             if (f.template tail<Dim>().norm() < 1.e-15) { return false; }  // invalid gradient, skip this GP
         } else {
-            VectorX no_variance;
-            edf_gp->Test(test_position, f, no_variance, no_covariance);
+            edf_gp->Test(test_position, f, no_variance, no_covariance, true);
             VectorD grad = f.template tail<Dim>();
             if (grad.norm() <= 1.e-15) { return false; }  // invalid gradient, skip this GP
 
@@ -191,6 +227,7 @@ namespace erl::sdf_mapping {
         }
 
         f[0] -= offset_distance;
+        if (predict_sign) { f[0] = std::copysign(f[0], sign[0]); }
         return true;
     }
 

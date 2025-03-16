@@ -58,8 +58,12 @@ namespace erl::sdf_mapping {
             Dtype invalid_position_var);
 
         [[nodiscard]] bool
-        Test(const Eigen::Ref<const MatrixX> &mat_x_test, Eigen::Ref<MatrixX> mat_f_out, Eigen::Ref<MatrixX> mat_var_out, Eigen::Ref<MatrixX> mat_cov_out)
-            const override;
+        Test(
+            const Eigen::Ref<const MatrixX> &mat_x_test,
+            Eigen::Ref<MatrixX> mat_f_out,
+            Eigen::Ref<MatrixX> mat_var_out,
+            Eigen::Ref<MatrixX> mat_cov_out,
+            bool predict_gradient) const override;
 
         [[nodiscard]] bool
         operator==(const LogEdfGaussianProcess &other) const;
@@ -70,13 +74,7 @@ namespace erl::sdf_mapping {
         }
 
         [[nodiscard]] bool
-        Write(const std::string &filename) const override;
-
-        [[nodiscard]] bool
         Write(std::ostream &s) const override;
-
-        [[nodiscard]] bool
-        Read(const std::string &filename) override;
 
         [[nodiscard]] bool
         Read(std::istream &s) override;

@@ -245,7 +245,8 @@ namespace erl::sdf_mapping {
         const auto& surface_data_buffer = m_surface_mapping_->GetSurfaceDataBuffer();
 
         std::vector<std::pair<Dtype, std::size_t>> surface_data_indices;
-        const auto max_num_samples = static_cast<std::size_t>(m_setting_->sdf_gp->max_num_samples);
+        const auto sdf_gp_setting = m_setting_->sdf_gp;
+        const auto max_num_samples = std::max(sdf_gp_setting->edf_gp->max_num_samples, sdf_gp_setting->sign_gp->max_num_samples);
         surface_data_indices.reserve(max_num_samples);
         for (uint32_t i = start_idx; i < end_idx; ++i) {
             auto& [cluster_key, gp] = m_clusters_to_train_[i];
@@ -371,7 +372,6 @@ namespace erl::sdf_mapping {
             gp_positions.conservativeResize(Positions::RowsAtCompileTime, m_candidate_gps_.size());
             m_kdtree_candidate_gps_ = std::make_shared<KdTree>(std::move(gp_positions));
         }
-        // m_test_buffer_.kdtree_aabb = area;
 
         std::vector<std::vector<std::size_t>> no_gps_indices(num_threads);
         {
@@ -693,7 +693,8 @@ namespace erl::sdf_mapping {
                 used_gps[0] = gps[tested_idx[0].second].second.second;
             }
             gradient_out.normalize();
-            if (use_sign_from_surface_mapping && distance_out > 0 && m_query_signs_[i] < 0) { distance_out = -distance_out; }
+            if (use_sign_from_surface_mapping) { distance_out = std::copysign(distance_out, m_query_signs_[i]); }
+            // if (use_sign_from_surface_mapping && distance_out > 0 && m_query_signs_[i] < 0) { distance_out = -distance_out; }
         }
     }
 
