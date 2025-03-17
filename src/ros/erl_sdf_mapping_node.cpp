@@ -73,41 +73,8 @@ public:
         LoadParameters();  // load parameters from ros parameter server
 
         m_surface_mapping_ = std::make_shared<erl::sdf_mapping::GpOccSurfaceMapping2D>(m_surface_mapping_setting_);
-        m_sdf_mapping_ = std::make_shared<erl::sdf_mapping::GpSdfMapping2D>(m_surface_mapping_, m_sdf_mapping_setting_);
-        if (m_params_.visualize_quadtree) {
-            m_quadtree_drawer_ = std::make_shared<OccupancyQuadtreeDrawer>(m_quadtree_drawer_setting_);
-            m_quadtree_drawer_->SetDrawTreeCallback(
-                [&](const OccupancyQuadtreeDrawer *self, cv::Mat &img, erl::sdf_mapping::SurfaceMappingQuadtree::TreeIterator &it) {
-                    unsigned int cluster_depth = m_surface_mapping_->GetQuadtree()->GetTreeDepth() - m_surface_mapping_->GetClusterLevel();
-                    auto grid_map_info = self->GetGridMapInfo();
-                    if (it->GetDepth() == cluster_depth) {
-                        Eigen::Vector2i position_px = grid_map_info->MeterToPixelForPoints(Eigen::Vector2d(it.GetX(), it.GetY()));
-                        cv::Point position_px_cv(position_px[0], position_px[1]);
-                        cv::circle(img, position_px_cv, 2, cv::Scalar(0, 0, 255, 255), -1);  // draw surface point
-                        return;
-                    }
-                    if (it->GetSurfaceData() == nullptr) { return; }
-                    Eigen::Vector2i position_px = grid_map_info->MeterToPixelForPoints(it->GetSurfaceData()->position);
-                    cv::Point position_px_cv(position_px[0], position_px[1]);
-                    cv::circle(img, cv::Point(position_px[0], position_px[1]), 1, cv::Scalar(0, 0, 255, 255), -1);  // draw surface point
-                    Eigen::Vector2i normal_px = grid_map_info->MeterToPixelForVectors(it->GetSurfaceData()->normal * 0.5);
-                    cv::Point arrow_end_px(position_px[0] + normal_px[0], position_px[1] + normal_px[1]);
-                    m_arrowed_lines_.emplace_back(position_px_cv, arrow_end_px);
-                });
-            m_quadtree_drawer_->SetDrawLeafCallback(
-                [&](const OccupancyQuadtreeDrawer *self, cv::Mat &img, erl::sdf_mapping::SurfaceMappingQuadtree::LeafIterator &it) {
-                    if (it->GetSurfaceData() == nullptr) { return; }
-                    auto grid_map_info = self->GetGridMapInfo();
-                    Eigen::Vector2i position_px = grid_map_info->MeterToPixelForPoints(it->GetSurfaceData()->position);
-                    cv::Point position_px_cv(position_px[0], position_px[1]);
-                    cv::circle(img, position_px_cv, 1, cv::Scalar(0, 0, 255, 255), -1);  // draw surface point
-                    Eigen::Vector2i normal_px = grid_map_info->MeterToPixelForVectors(it->GetSurfaceData()->normal * 0.5);
-                    cv::Point arrow_end_px(position_px[0] + normal_px[0], position_px[1] + normal_px[1]);
-                    m_arrowed_lines_.emplace_back(position_px_cv, arrow_end_px);
-                });
-            auto grid_map_info = m_quadtree_drawer_->GetGridMapInfo();
-            m_cv_image_ = cv::Mat(grid_map_info->Height(), grid_map_info->Width(), CV_8UC4, cv::Scalar(128, 128, 128, 255));
-        }
+        m_sdf_mapping_ = std::make_shared<erl::sdf_mapping::GpSdfMapping2D>(m_sdf_mapping_setting_);
+        
 
         m_spinner_->start();
 
@@ -171,16 +138,11 @@ private:
         LOAD_PARAMETER(surface_mapping_config_path);
         LOAD_PARAMETER(sdf_mapping_config_path);
         m_surface_mapping_setting_ = std::make_shared<erl::sdf_mapping::GpOccSurfaceMapping2D::Setting>();
-        if (!m_params_.surface_mapping_config_path.empty()) { m_surface_mapping_setting_->FromYamlFile(m_params_.surface_mapping_config_path); }
+        
         m_sdf_mapping_setting_ = std::make_shared<erl::sdf_mapping::GpSdfMapping2D::Setting>();
-        if (!m_params_.sdf_mapping_config_path.empty()) { m_sdf_mapping_setting_->FromYamlFile(m_params_.sdf_mapping_config_path); }
+        
         LOAD_PARAMETER(visualize_quadtree);
-        if (m_params_.visualize_quadtree) {
-            LOAD_PARAMETER(visualize_frequency_divider);
-            LOAD_REQUIRED_PARAMETER(visualize_quadtree_config_path);
-            m_quadtree_drawer_setting_ = std::make_shared<OccupancyQuadtreeDrawer::Setting>();
-            m_quadtree_drawer_setting_->FromYamlFile(m_params_.visualize_quadtree_config_path);
-        }
+        
     }
 
 #undef LOAD_REQUIRED_PARAMETER
@@ -210,7 +172,9 @@ private:
         Eigen::VectorXd angles = Eigen::VectorXd::LinSpaced(num_lines, laser_scan->angle_min, laser_scan->angle_max);
         Eigen::VectorXd ranges = Eigen::Map<const Eigen::VectorXf>((const float *) (laser_scan->ranges.data()), num_lines).cast<double>();
         auto lidar_pose = GetLidarPose(laser_scan->header.stamp);
-        bool success = m_sdf_mapping_->Update(angles, ranges, lidar_pose);
+        Eigen::Matrix2d rotation = lidar_pose.leftCols<2>();
+        Eigen::Vector2d translation = lidar_pose.rightCols<1>();
+        bool success = m_sdf_mapping_->Update(rotation, translation, ranges);
         if (!success) {
             ROS_WARN("SDF mapping update failed");
             return;
