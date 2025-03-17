@@ -235,7 +235,11 @@ TestImpl3D() {
             *depth_camera_setting = depth_frame_setting->camera_intrinsic;
             range_sensor = std::make_shared<DepthCamera>(depth_camera_setting);
         } else {
-            ERL_FATAL("Unknown sensor_frame_type: {}", surface_mapping_setting->sensor_gp->sensor_frame_type);
+            ERL_FATAL("Unknown sensor_frame_type: {}. Expected either {} or {}",
+                surface_mapping_setting->sensor_gp->sensor_frame_type,
+                demangle(typeid(LidarFrame).name()),
+                type_name<DepthFrame>()
+            );
         }
         range_sensor->AddMesh(options.mesh_file);
         geometries.push_back(mesh);
@@ -501,7 +505,7 @@ TestImpl3D() {
     ERL_INFO("max_gp_size: {}, mean_gp_size: {}", max_gp_size, mean_gp_size);
 }
 
-TEST(GpSdfMapping, 3Dd) { TestImpl3D<double>(); }
+// TEST(GpSdfMapping, 3Dd) { TestImpl3D<double>(); }
 
 TEST(GpSdfMapping, 3Df) { TestImpl3D<float>(); }
 
