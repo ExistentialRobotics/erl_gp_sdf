@@ -121,19 +121,20 @@ def predict_fast(x, grid, mu, sigma, gamma, sigma_scheme: str = "full", compute_
     phi = torch.exp(-gamma * torch.square(diff).sum(dim=-1))  # (N, M)
     t1 = phi @ mu  # (N,)
     if sigma_scheme == "diagonal":
-        t2 = torch.sqrt(1 + (phi**2 * torch.diag(sigma)).sum(dim=1) * torch.pi / 8)
+        t2 = 1 + (phi**2 * torch.diag(sigma)).sum(dim=1) * torch.pi / 8
     else:
-        t2 = torch.sqrt(1 + (phi * (phi @ sigma)).sum(dim=1) * torch.pi / 8)
-    h = t1 / t2  # (N,)
+        t2 = 1 + (phi * (phi @ sigma)).sum(dim=1) * torch.pi / 8
+    t3 = torch.sqrt(t2)
+    h = t1 / t3  # (N,)
     y = sigmoid(h)
     grad = None
     if compute_grad:
-        t3 = mu.view(1, -1) / t2.view(-1, 1)  # (N, M)
-        t4 = torch.pi / 8 * h.view(-1, 1)  # (N, 1)
+        t4 = mu.view(1, -1) / t3.view(-1, 1)  # (N, M)
+        t5 = (torch.pi / 8) * (h / t2).view(-1, 1)  # (N, 1)
         if sigma_scheme == "diagonal":
-            grad_phi_h = t3 - t4 * (phi * torch.diag(sigma))  # (N, M)
+            grad_phi_h = t4 - t5 * (phi * torch.diag(sigma))  # (N, M)
         else:
-            grad_phi_h = t3 - t4 * (phi @ sigma)  # (N, M)
+            grad_phi_h = t4 - t5 * (phi @ sigma)  # (N, M)
         grad_x_h = -2 * gamma * diff * (phi * grad_phi_h)[:, :, torch.newaxis]  # (N, M, d)
         grad_x_h = grad_x_h.sum(dim=1)  # (N, d)
         grad = (y * (1 - y)).view(-1, 1) * grad_x_h  # (N, d)
@@ -158,17 +159,18 @@ def predict_grad_fast(x, grid, mu, sigma, gamma, sigma_scheme: str = "full"):
     phi = torch.exp(-gamma * torch.square(diff).sum(dim=-1))  # (N, M)
     t1 = phi @ mu  # (N,)
     if sigma_scheme == "diagonal":
-        t2 = torch.sqrt(1 + (phi**2 * torch.diag(sigma)).sum(dim=1) * torch.pi / 8)
+        t2 = 1 + (phi**2 * torch.diag(sigma)).sum(dim=1) * torch.pi / 8
     else:
-        t2 = torch.sqrt(1 + (phi * (phi @ sigma)).sum(dim=1) * torch.pi / 8)
-    h = t1 / t2  # (N,)
+        t2 = 1 + (phi * (phi @ sigma)).sum(dim=1) * torch.pi / 8
+    t3 = torch.sqrt(t2)
+    h = t1 / t3  # (N,)
 
-    t3 = mu.view(1, -1) / t2.view(-1, 1)  # (N, M)
-    t4 = torch.pi / 8 * h.view(-1, 1)  # (N, 1)
+    t4 = mu.view(1, -1) / t3.view(-1, 1)  # (N, M)
+    t5 = (torch.pi / 8) * (h / t2).view(-1, 1)  # (N, 1)
     if sigma_scheme == "diagonal":
-        grad_phi_h = t3 - t4 * (phi * torch.diag(sigma))  # (N, M)
+        grad_phi_h = t4 - t5 * (phi * torch.diag(sigma))  # (N, M)
     else:
-        grad_phi_h = t3 - t4 * (phi @ sigma)  # (N, M)
+        grad_phi_h = t4 - t5 * (phi @ sigma)  # (N, M)
     grad_x_h = -2 * gamma * diff * (phi * grad_phi_h)[:, :, torch.newaxis]  # (N, M, d)
     grad_x_h = grad_x_h.sum(dim=1)  # (N, d)
     # y = sigmoid(h)
