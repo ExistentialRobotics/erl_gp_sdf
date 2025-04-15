@@ -11,6 +11,7 @@
 #include "erl_geometry/occupancy_quadtree_drawer.hpp"  // must make sure the tree is included before the drawer
 #include "erl_sdf_mapping/gp_occ_surface_mapping_2d.hpp"
 #include "erl_sdf_mapping/gp_sdf_mapping_2d.hpp"
+#include "erl_geometry/lidar_frame_2d.hpp"
 #define BOOST_BIND_GLOBAL_PLACEHOLDERS
 #include <cv_bridge/cv_bridge.h>
 #include <erl_sdf_mapping/PredictSdf.h>
@@ -72,10 +73,23 @@ public:
         (void) ros::Duration(1.0).sleep();
         LoadParameters();  // load parameters from ros parameter server
 
-        m_surface_mapping_ = std::make_shared<erl::sdf_mapping::GpOccSurfaceMapping2D>(m_surface_mapping_setting_);
-        m_sdf_mapping_ = std::make_shared<erl::sdf_mapping::GpSdfMapping2D>(m_sdf_mapping_setting_);
-        
+        m_sdf_mapping_setting_->FromYamlFile(m_params_.sdf_mapping_config_path);
 
+        // m_surface_mapping_ = std::make_shared<erl::sdf_mapping::GpOccSurfaceMapping2D>(m_surface_mapping_setting_);
+        m_surface_mapping_setting_ = m_sdf_mapping_setting_->surface_mapping;
+        m_surface_mapping_setting_->FromYamlFile(m_params_.surface_mapping_config_path);   
+        std::shared_ptr<erl::geometry::LidarFrame2D::Setting> lidar_frame_setting = m_surface_mapping_setting_->sensor_gp->lidar_frame;
+        lidar_frame_setting->angle_min = -3.14;
+        lidar_frame_setting->angle_max = 3.14;
+        lidar_frame_setting->num_rays = 1024;
+        m_sdf_mapping_ = std::make_shared<erl::sdf_mapping::GpSdfMapping2D>(m_sdf_mapping_setting_);
+        m_surface_mapping_ = m_sdf_mapping_->GetSurfaceMapping();
+
+        
+        std::cout << lidar_frame_setting->angle_min << "\n";
+        std::cout << lidar_frame_setting->angle_max << "\n";
+        std::cout << lidar_frame_setting->num_rays << "\n";
+        
         m_spinner_->start();
 
         m_lidar_scan_sub_ = std::make_shared<ros::Subscriber>(
@@ -137,7 +151,7 @@ private:
         LOAD_PARAMETER(lidar_frame_name);
         LOAD_PARAMETER(surface_mapping_config_path);
         LOAD_PARAMETER(sdf_mapping_config_path);
-        m_surface_mapping_setting_ = std::make_shared<erl::sdf_mapping::GpOccSurfaceMapping2D::Setting>();
+        // m_surface_mapping_setting_ = std::make_shared<erl::sdf_mapping::GpOccSurfaceMapping2D::Setting>();
         
         m_sdf_mapping_setting_ = std::make_shared<erl::sdf_mapping::GpSdfMapping2D::Setting>();
         
@@ -167,6 +181,22 @@ private:
 
     void
     SubCallbackLidarScan(const sensor_msgs::LaserScanConstPtr &laser_scan) {
+        if (m_surface_mapping_setting_ == nullptr){
+            std::cout << "========================================\n";
+            std::cout << "m_surface_mapping_setting_ is a NULL PTR\n";
+            std::cout << "========================================\n";
+        }
+        if (m_sdf_mapping_setting_->surface_mapping == nullptr){
+            std::cout << "========================================\n";
+            std::cout << "m_sdf_mapping_setting_->surface_mapping is a NULL PTR\n";
+            std::cout << "========================================\n";
+        }
+        if (m_sdf_mapping_->GetSetting()->surface_mapping == nullptr){
+            std::cout << "========================================\n";
+            std::cout << "m_sdf_mapping_->GetSetting()->surface_mapping is a NULL PTR\n";
+            std::cout << "========================================\n";
+        }
+
         auto t0 = std::chrono::high_resolution_clock::now();
         auto num_lines = static_cast<long>(laser_scan->ranges.size());
         Eigen::VectorXd angles = Eigen::VectorXd::LinSpaced(num_lines, laser_scan->angle_min, laser_scan->angle_max);

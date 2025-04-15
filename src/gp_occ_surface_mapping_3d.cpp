@@ -231,7 +231,7 @@ namespace erl::sdf_mapping {
             nodes_in_aabb.emplace_back(it.GetKey(), *it, std::nullopt);
         }
 
-#pragma omp parallel for default(none) shared(nodes_in_aabb, max_sensor_range, sensor_pos, sensor_frame, g_print_mutex)
+#pragma omp parallel for shared(nodes_in_aabb, max_sensor_range, sensor_pos, sensor_frame, g_print_mutex)
         for (auto &[node_key, node, new_key]: nodes_in_aabb) {
             const uint32_t cluster_level = m_setting_->cluster_level;
             const double sensor_range_var = m_setting_->sensor_gp->sensor_range_var;

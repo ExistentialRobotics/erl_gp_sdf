@@ -41,7 +41,7 @@ namespace erl::sdf_mapping {
             // clang-format on
         }
 
-        [[nodiscard]] std::shared_ptr<const Setting>
+        [[nodiscard]] std::shared_ptr<Setting>
         GetSetting() const {
             return m_setting_;
         }

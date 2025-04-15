@@ -50,8 +50,7 @@ namespace erl::sdf_mapping {
 
     GpSdfMapping2D::GpSdfMapping2D(std::shared_ptr<Setting> setting)
         : m_setting_(NotNull(std::move(setting), "setting is nullptr.")),
-          m_surface_mapping_(
-              AbstractSurfaceMapping::CreateSurfaceMapping<AbstractSurfaceMapping2D>(m_setting_->surface_mapping_type, m_setting_->surface_mapping)) {
+          m_surface_mapping_(std::make_shared<GpOccSurfaceMapping2D>(m_setting_->surface_mapping)) {
         ERL_ASSERTM(m_surface_mapping_ != nullptr, "surface_mapping is nullptr.");
     }
 
@@ -403,7 +402,7 @@ namespace erl::sdf_mapping {
                     skip_line();
                     if (has_surface_mapping) {
                         if (m_surface_mapping_ == nullptr) {
-                            m_surface_mapping_ = AbstractSurfaceMapping::CreateSurfaceMapping<AbstractSurfaceMapping2D>(
+                            m_surface_mapping_ = AbstractSurfaceMapping::CreateSurfaceMapping<GpOccSurfaceMapping2D>(
                                 m_setting_->surface_mapping_type,
                                 m_setting_->surface_mapping);
                         }

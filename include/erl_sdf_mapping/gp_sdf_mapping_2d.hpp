@@ -2,6 +2,7 @@
 
 #include "abstract_surface_mapping_2d.hpp"
 #include "gp_sdf_mapping_base_setting.hpp"
+#include "gp_occ_surface_mapping_2d.hpp"
 #include "sdf_gp.hpp"
 
 #include "erl_common/csv.hpp"
@@ -22,7 +23,7 @@ namespace erl::sdf_mapping {
         struct Setting : common::Yamlable<Setting, GpSdfMappingBaseSetting> {
             std::string surface_mapping_type = "erl::sdf_mapping::GpOccSurfaceMapping2D";
             std::string surface_mapping_setting_type = "erl::sdf_mapping::GpOccSurfaceMapping2D::Setting";
-            std::shared_ptr<AbstractSurfaceMapping2D::Setting> surface_mapping = nullptr;
+            std::shared_ptr<GpOccSurfaceMapping2D::Setting> surface_mapping = std::make_shared<GpOccSurfaceMapping2D::Setting>();
         };
 
         inline static const volatile bool kSettingRegistered = common::YamlableBase::Register<Setting>();
@@ -59,7 +60,7 @@ namespace erl::sdf_mapping {
 
         std::shared_ptr<Setting> m_setting_ = std::make_shared<Setting>();
         std::mutex m_mutex_;
-        std::shared_ptr<AbstractSurfaceMapping2D> m_surface_mapping_ = nullptr;       // for getting surface points, racing condition.
+        std::shared_ptr<GpOccSurfaceMapping2D> m_surface_mapping_ = nullptr;       // for getting surface points, racing condition.
         KeyGpMap m_gp_map_ = {};                                                      // for getting GP from Quadtree key, racing condition.
         KeyVector m_affected_clusters_ = {};                                          // stores clusters that are to be updated after a new observation
         KeyQueueMap m_cluster_queue_keys_ = {};                                       // caching keys of clusters in the queue to be updated
@@ -109,7 +110,7 @@ namespace erl::sdf_mapping {
             return m_setting_;
         }
 
-        [[nodiscard]] std::shared_ptr<AbstractSurfaceMapping2D>
+        [[nodiscard]] std::shared_ptr<GpOccSurfaceMapping2D>
         GetSurfaceMapping() const {
             return m_surface_mapping_;
         }
@@ -204,7 +205,7 @@ struct YAML::convert<erl::sdf_mapping::GpSdfMapping2D::Setting> {
         if (!convert<erl::sdf_mapping::GpSdfMappingBaseSetting>::decode(node, rhs)) { return false; }
         rhs.surface_mapping_type = node["surface_mapping_type"].as<std::string>();
         rhs.surface_mapping_setting_type = node["surface_mapping_setting_type"].as<std::string>();
-        using SettingBase = erl::sdf_mapping::AbstractSurfaceMapping2D::Setting;
+        using SettingBase = erl::sdf_mapping::GpOccSurfaceMapping2D::Setting;
         rhs.surface_mapping = SettingBase::Create<SettingBase>(rhs.surface_mapping_setting_type);
         if (rhs.surface_mapping == nullptr) {
             ERL_WARN("Failed to decode surface_mapping of type: {}", rhs.surface_mapping_setting_type);

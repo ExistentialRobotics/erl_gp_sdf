@@ -1,0 +1,14 @@
+<launch>
+	<!-- Launch the erl_sdf_mapping_node -->
+	<node name="erl_sdf_mapping_node" pkg="erl_sdf_mapping" type="erl_sdf_mapping_node" output="screen">
+		<param name="frequency" type="double" value="1.0"/>
+		<param name="lidar_data_topic_path" type="string" value="/front/scan"/>
+		<param name="lidar_frame_name" type="string" value="os_lidar"/>
+		<param name="visualize_quadtree" type="bool" value="false"/>
+		<param name="surface_mapping_config_path" type="string" value="/home/shantanu/SDF-Planning/src/erl_sdf_mapping/config/surface_mapping_2d.yaml"/>
+		<!-- rosparam file="/home/shantanu/SDF-Planning/src/erl_sdf_mapping/config/sdf_mapping_ucsd_fah_2d.yaml" command="load" -->
+		<rosparam file="/home/shantanu/SDF-Planning/src/erl_sdf_mapping/config/surface_mapping_2d.yaml" command="load"/>
+		<param name="sdf_mapping_config_path" type="string" value="/home/shantanu/SDF-Planning/src/erl_sdf_mapping/config/sdf_mapping_ucsd_fah_2d.yaml"/>
+	</node>
+	<!-- node pkg="rosbag" type="play" name="rosbag_play" args="/home/shantanu/Downloads/long_succ4_till_no_path.bag" -->
+</launch>
