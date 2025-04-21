@@ -119,7 +119,7 @@ namespace erl::sdf_mapping {
         const Eigen::Ref<const Ranges> &ranges) {
 
         m_changed_keys_.clear();
-        if (const Dtype s = m_setting_->scaling; s != 1.0) {
+        if (const Dtype s = m_setting_->scaling; s != 1.0f) {
             if (!m_sensor_gp_->Train(rotation, translation.array() * s, ranges.array() * s)) { return false; }
         } else {
             if (!m_sensor_gp_->Train(rotation, translation, ranges)) { return false; }
@@ -221,9 +221,9 @@ namespace erl::sdf_mapping {
         for (long i = 0; i < num_positions; ++i) {
             const auto node = m_tree_->Search(positions.col(i) * s);
             if (node == nullptr || m_tree_->IsNodeOccupied(node)) {
-                in_free_space[i] = -1.0;
+                in_free_space[i] = -1.0f;
             } else {
-                in_free_space[i] = 1.0;
+                in_free_space[i] = 1.0f;
             }
         }
         return true;
@@ -432,8 +432,8 @@ namespace erl::sdf_mapping {
             const Dtype max_bayes_position_var = m_setting_->update_map_points.max_bayes_position_var;
             const Dtype max_bayes_gradient_var = m_setting_->update_map_points.max_bayes_gradient_var;
 
-            const Dtype cluster_half_size = m_tree_->GetNodeSize(cluster_depth) * 0.5;
-            const Dtype squared_dist_max = max_sensor_range * max_sensor_range + cluster_half_size * cluster_half_size * 3.0;
+            const Dtype cluster_half_size = m_tree_->GetNodeSize(cluster_depth) * 0.5f;
+            const Dtype squared_dist_max = max_sensor_range * max_sensor_range + cluster_half_size * cluster_half_size * 3.0f;
 
             if (const Position cluster_position = m_tree_->KeyToCoord(node_key, cluster_depth);
                 (cluster_position - sensor_pos).squaredNorm() > squared_dist_max) {
@@ -478,9 +478,9 @@ namespace erl::sdf_mapping {
                 distance_new = distance_pred[0];
                 if (occ_abs < max_surface_abs_occ) { break; }
                 if (occ * occ_new < 0.) {
-                    delta *= 0.5;  // too big, make it smaller
+                    delta *= 0.5f;  // too big, make it smaller
                 } else {
-                    delta *= 1.1;
+                    delta *= 1.1f;
                 }
                 occ = occ_new;
                 ++num_adjust_tries;
@@ -507,7 +507,7 @@ namespace erl::sdf_mapping {
                 UpdateGradient(var_gradient_new, var_gradient_sum, grad_global_old, grad_global_new);
 
                 // variance Update
-                const Dtype distance = (pos_global_new - pos_global_old).norm() * 0.5;
+                const Dtype distance = (pos_global_new - pos_global_old).norm() * 0.5f;
                 var_position_new = std::max(var_position_new * var_position_old / var_position_sum + distance, sensor_range_var);
                 var_gradient_new = common::ClipRange(  //
                     var_gradient_new * var_gradient_old / var_gradient_sum + distance,
@@ -527,7 +527,7 @@ namespace erl::sdf_mapping {
             surface_data.normal = grad_global_new;
             surface_data.var_position = var_position_new;
             surface_data.var_normal = var_gradient_new;
-            ERL_DEBUG_ASSERT(std::abs(surface_data.normal.norm() - 1.0) < 1.e-5, "surface_data->normal.norm() = {:.6f}", surface_data.normal.norm());
+            ERL_DEBUG_ASSERT(std::abs(surface_data.normal.norm() - 1.0f) < 1.e-5f, "surface_data->normal.norm() = {:.6f}", surface_data.normal.norm());
         }
 
         for (auto &[key, node, bad_update, new_key]: nodes_in_aabb) {
@@ -602,7 +602,7 @@ namespace erl::sdf_mapping {
         // rotate grad_old by angle_dist
         new_x = cos * old_x - sin * old_y;
         new_y = sin * old_x + cos * old_y;
-        ERL_DEBUG_ASSERT(std::abs(grad_new.norm() - 1.0) < 1.e-6, "grad_new.norm() = {:.6f}", grad_new.norm());
+        ERL_DEBUG_ASSERT(std::abs(grad_new.norm() - 1.0f) < 1.e-6f, "grad_new.norm() = {:.6f}", grad_new.norm());
     }
 
     template<typename Dtype, int Dim>
@@ -619,7 +619,7 @@ namespace erl::sdf_mapping {
         const Dtype angle_dist = std::atan2(axis_norm, grad_old.dot(grad_new)) * var_new / var_sum;
         Eigen::AngleAxis<Dtype> rot(angle_dist, rot_axis);
         grad_new = rot * grad_old;
-        ERL_DEBUG_ASSERT(std::abs(grad_new.norm() - 1.0) < 1.e-5, "grad_new.norm() = {:.6f}", grad_new.norm());
+        ERL_DEBUG_ASSERT(std::abs(grad_new.norm() - 1.0f) < 1.e-5f, "grad_new.norm() = {:.6f}", grad_new.norm());
     }
 
     template<typename Dtype, int Dim>
@@ -666,7 +666,7 @@ namespace erl::sdf_mapping {
             TreeNode *node = m_tree_->InsertNode(key);                   // insert the node
             if (node == nullptr) { continue; }                           // failed to insert the node
             if (node->HasSurfaceData()) { continue; }                    // the node is already occupied
-            new_measurements.emplace_back(key, i, (hit_point_global - sensor_pos).norm(), node, false, 0.0, Gradient::Zero());
+            new_measurements.emplace_back(key, i, (hit_point_global - sensor_pos).norm(), node, false, 0.0f, Gradient::Zero());
         }
 
         ERL_DEBUG("Check validity of new measurements");
@@ -709,8 +709,8 @@ namespace erl::sdf_mapping {
         distance_var = std::numeric_limits<Dtype>::infinity();
 
         Dtype occ[Dim << 1];
-        Dtype distance_sum = 0.0;
-        Dtype distance_square_mean = 0.0;
+        Dtype distance_sum = 0.0f;
+        Dtype distance_square_mean = 0.0f;
         const Dtype delta = m_setting_->perturb_delta;
 
         for (int i = 0; i < Dim; ++i) {
@@ -798,7 +798,7 @@ namespace erl::sdf_mapping {
             var_gradient = common::ClipRange(occ_mean_abs, min_gradient_var, max_gradient_var);
         } else {  // compute variance for update_map_points
             var_position = m_setting_->compute_variance.position_var_alpha * (var_distance + var_direction) + occ_abs;
-            var_gradient = common::ClipRange(occ_mean_abs + distance_var, min_gradient_var, max_gradient_var) + 0.1 * var_direction;
+            var_gradient = common::ClipRange(occ_mean_abs + distance_var, min_gradient_var, max_gradient_var) + 0.1f * var_direction;
         }
     }
 

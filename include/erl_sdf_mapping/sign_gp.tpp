@@ -48,7 +48,7 @@ namespace erl::sdf_mapping {
             this->m_vec_grad_flag_[count] = true;
 
             if ((surface_data.var_normal > max_valid_gradient_var) ||                                   // invalid gradient
-                (surface_data.normal.norm() < 0.9)) {                                                   // invalid normal
+                (surface_data.normal.norm() < 0.9f)) {                                                   // invalid normal
                 this->m_vec_var_x_[count] = std::max(this->m_vec_var_x_[count], invalid_position_var);  // position is unreliable
                 this->m_vec_grad_flag_[count] = false;
             }

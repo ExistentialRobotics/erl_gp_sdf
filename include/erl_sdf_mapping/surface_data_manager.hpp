@@ -11,8 +11,8 @@ namespace erl::sdf_mapping {
 
         VectorD position = VectorD::Zero();
         VectorD normal = VectorD::Zero();
-        Dtype var_position = 0.0;
-        Dtype var_normal = 0.0;
+        Dtype var_position = 0.0f;
+        Dtype var_normal = 0.0f;
 
         SurfaceData() = default;
 

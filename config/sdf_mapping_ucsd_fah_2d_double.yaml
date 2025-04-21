@@ -1,0 +1,45 @@
+test_query:
+    max_test_valid_distance_var: 0.2
+    search_area_half_size: 2
+    softmin_temperature: 10.0
+    num_neighbor_gps: 4
+    use_smallest: true  # use the smallest distance as the prediction
+    compute_covariance: true  # whether to compute covariance
+    use_gp_covariance: false
+num_threads: 64
+update_hz: 60
+sensor_noise: 0.01
+gp_sdf_area_scale: 2
+max_valid_gradient_var: 0.1
+invalid_position_var: 0.25
+offset_distance: 0.04
+use_sign_from_surface_mapping: true
+sdf_gp:
+    enable_sign_gp: true
+    sign_gp:
+        kernel_type: erl::covariance::ReducedRankMatern32<double, 2>
+        kernel_setting_type: erl::covariance::ReducedRankCovariance<double>::Setting
+        kernel:
+            x_dim: 2
+            alpha: 1
+            scale: 2
+            scale_mix: 1
+            weights: [ ]
+            max_num_basis: -1
+            num_basis: [ 10, 10 ]
+            boundaries: [ 2.5, 2.5 ]
+            accumulated: true
+        max_num_samples: 256   # max dataset size
+        no_gradient_observation: false
+    edf_gp:
+        kernel_type: erl::covariance::Matern32<double, 2>
+        kernel_setting_type: erl::covariance::Covariance<double>::Setting
+        kernel:
+            x_dim: 2
+            alpha: 1
+            scale: 0.3
+            scale_mix: 1
+            weights: [ ]
+        log_lambda: 40
+        max_num_samples: 256   # max dataset size
+        no_gradient_observation: true

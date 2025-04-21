@@ -12,9 +12,9 @@ namespace erl::sdf_mapping {
         using SdfGp = SdfGaussianProcess<Dtype, Dim>;
 
         struct TestQuery {
-            Dtype max_test_valid_distance_var = 0.4;  // maximum distance variance of prediction.
-            Dtype search_area_half_size = 4.8;
-            Dtype softmin_temperature = 10.;
+            Dtype max_test_valid_distance_var = 0.4f;  // maximum distance variance of prediction.
+            Dtype search_area_half_size = 4.8f;
+            Dtype softmin_temperature = 10.0f;
             int num_neighbor_gps = 4;        // number of neighbors used for prediction.
             bool use_smallest = false;       // if true, use the smallest sdf for prediction.
             bool compute_covariance = true;  // if true, compute covariance of prediction.
@@ -23,12 +23,12 @@ namespace erl::sdf_mapping {
 
         TestQuery test_query;                        // parameters used by Test.
         uint32_t num_threads = 64;                   // number of threads for testing.
-        Dtype update_hz = 20;                        // update frequency in Hz.
-        Dtype sensor_noise = 0.01;                   // sensor noise for surface data.
-        Dtype gp_sdf_area_scale = 4;                 // ratio between GP area and cluster area
-        Dtype max_valid_gradient_var = 0.1;          // maximum gradient variance qualified for training.
-        Dtype invalid_position_var = 2.;             // position variance of points whose gradient is labeled invalid, i.e. > max_valid_gradient_var.
-        Dtype offset_distance = 0.04;                // distance to shift for surface data.
+        Dtype update_hz = 20.0f;                     // update frequency in Hz.
+        Dtype sensor_noise = 0.01f;                  // sensor noise for surface data.
+        Dtype gp_sdf_area_scale = 4.0f;              // ratio between GP area and cluster area
+        Dtype max_valid_gradient_var = 0.1f;         // maximum gradient variance qualified for training.
+        Dtype invalid_position_var = 2.0f;           // position variance of points whose gradient is labeled invalid, i.e. > max_valid_gradient_var.
+        Dtype offset_distance = 0.04f;               // distance to shift for surface data.
         bool use_sign_from_surface_mapping = false;  // if true, use sign from surface mapping
         std::shared_ptr<typename SdfGp::Setting> sdf_gp = std::make_shared<typename SdfGp::Setting>();
 

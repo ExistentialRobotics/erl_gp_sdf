@@ -13,9 +13,9 @@ gp_sdf_area_scale: 4    # should be larger than 2x max sdf when use_smallest is 
 max_valid_gradient_var: 0.1
 invalid_position_var: 0.25
 offset_distance: 0.0
-use_sign_from_surface_mapping: false
+use_sign_from_surface_mapping: true
 sdf_gp:
-    enable_sign_gp: true
+    enable_sign_gp: false
     sign_gp:
         kernel_type: erl::covariance::ReducedRankMatern32<float, 2>
         kernel_setting_type: erl::covariance::ReducedRankCovariance<float>::Setting

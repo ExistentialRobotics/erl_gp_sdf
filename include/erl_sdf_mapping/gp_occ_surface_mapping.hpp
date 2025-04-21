@@ -48,32 +48,32 @@ namespace erl::sdf_mapping {
             struct ComputeVariance {
                 Dtype zero_gradient_position_var = 1.;  // position variance to set when the estimated gradient is almost zero.
                 Dtype zero_gradient_gradient_var = 1.;  // gradient variance to set when the estimated gradient is almost zero.
-                Dtype position_var_alpha = 0.01;        // scaling number of position variance.
-                Dtype min_distance_var = 1.;            // allowed minimum distance variance.
-                Dtype max_distance_var = 100.;          // allowed maximum distance variance.
-                Dtype min_gradient_var = 0.01;          // allowed minimum gradient variance.
-                Dtype max_gradient_var = 1.;            // allowed maximum gradient variance.
+                Dtype position_var_alpha = 0.01f;       // scaling number of position variance.
+                Dtype min_distance_var = 1.0f;          // allowed minimum distance variance.
+                Dtype max_distance_var = 100.0f;        // allowed maximum distance variance.
+                Dtype min_gradient_var = 0.01f;         // allowed minimum gradient variance.
+                Dtype max_gradient_var = 1.0f;          // allowed maximum gradient variance.
             };
 
             struct UpdateMapPoints {
                 int max_adjust_tries = 10;
-                Dtype min_observable_occ = -0.1;     // points of OCC smaller than this value is considered unobservable, i.e. inside the object.
-                Dtype min_position_var = 0.001;      // minimum position variance.
-                Dtype min_gradient_var = 0.001;      // minimum gradient variance.
-                Dtype max_surface_abs_occ = 0.02;    // maximum absolute value of surface points' OCC, which should be zero ideally.
-                Dtype max_valid_gradient_var = 0.5;  // maximum valid gradient variance, above this threshold, it won't be used for the Bayes Update.
-                Dtype max_bayes_position_var = 1.;   // if the position variance by Bayes Update is above this threshold, it will be discarded.
-                Dtype max_bayes_gradient_var = 0.6;  // if the gradient variance by Bayes Update is above this threshold, it will be discarded.
+                Dtype min_observable_occ = -0.1f;     // points of OCC smaller than this value is considered unobservable, i.e. inside the object.
+                Dtype min_position_var = 0.001f;      // minimum position variance.
+                Dtype min_gradient_var = 0.001f;      // minimum gradient variance.
+                Dtype max_surface_abs_occ = 0.02f;    // maximum absolute value of surface points' OCC, which should be zero ideally.
+                Dtype max_valid_gradient_var = 0.5f;  // maximum valid gradient variance, above this threshold, it won't be used for the Bayes Update.
+                Dtype max_bayes_position_var = 1.0f;  // if the position variance by Bayes Update is above this threshold, it will be discarded.
+                Dtype max_bayes_gradient_var = 0.6f;  // if the gradient variance by Bayes Update is above this threshold, it will be discarded.
             };
 
             ComputeVariance compute_variance;
             UpdateMapPoints update_map_points;
             std::shared_ptr<SensorGpSetting> sensor_gp = std::make_shared<SensorGpSetting>();
             std::shared_ptr<TreeSetting> tree = std::make_shared<TreeSetting>();
-            Dtype scaling = 1;                       // internal scaling factor.
-            Dtype perturb_delta = 0.01;              // perturbation delta for gradient estimation.
-            Dtype zero_gradient_threshold = 1.e-15;  // gradient below this threshold is considered zero.
-            bool update_occupancy = true;            // whether to update the occupancy of the occupancy tree.
+            Dtype scaling = 1.0f;                     // internal scaling factor.
+            Dtype perturb_delta = 0.01f;              // perturbation delta for gradient estimation.
+            Dtype zero_gradient_threshold = 1.e-15f;  // gradient below this threshold is considered zero.
+            bool update_occupancy = true;             // whether to update the occupancy of the occupancy tree.
             uint32_t cluster_depth = 14;
 
             struct YamlConvertImpl {

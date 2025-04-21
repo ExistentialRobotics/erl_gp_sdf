@@ -85,6 +85,7 @@ def calculate_posterior(
     """
     lambda_xi = sigmoid(xi)
     lambda_xi = (lambda_xi - 0.5) / (2 * xi)  # (N,)
+    lambda_xi[torch.abs(xi) < 1e-6] = 0.125
     assert torch.all(lambda_xi >= 0)
 
     if sigma_scheme == "diagonal":
@@ -534,20 +535,30 @@ def main():
 
     ray_dirs = torch.tensor(lidar.ray_directions_in_frame, device=device).to(device)
     for xy, theta in zip(*trajectory):
+        pts_file = f"/home/daizhirui/D/Dev/erl_sddf/cmake-build-debug/src/erl_sdf_mapping/dataset_points_{traj_idx}.txt"
+        y_file = f"/home/daizhirui/D/Dev/erl_sddf/cmake-build-debug/src/erl_sdf_mapping/dataset_labels_{traj_idx}.txt"
         traj_idx += 1
 
         scan = lidar.scan(theta, xy)
         rotation = torch.tensor([[np.cos(theta), -np.sin(theta)], [np.sin(theta), np.cos(theta)]]).to(device)
 
         ray_dirs_world = rotation @ ray_dirs
-        pts, y = generate_dataset(
-            torch.tensor(xy, device=device, dtype=dtype),
-            ray_dirs_world,
-            torch.tensor(scan, device=device, dtype=dtype),
-            max_dist=30.0,
-            free_pts_per_meter=3,
-            margin=0.05,
-        )
+        if os.path.exists(pts_file):
+            import pandas as pd
+
+            pts = pd.read_csv(pts_file).to_numpy().astype(np.float32).T
+            y = pd.read_csv(y_file).to_numpy().astype(np.float32).flatten()
+            pts = torch.tensor(pts, device=device, dtype=dtype)
+            y = torch.tensor(y, device=device, dtype=dtype)
+        else:
+            pts, y = generate_dataset(
+                torch.tensor(xy, device=device, dtype=dtype),
+                ray_dirs_world,
+                torch.tensor(scan, device=device, dtype=dtype),
+                max_dist=30.0,
+                free_pts_per_meter=3,
+                margin=0.05,
+            )
         pts = pts.to(device)
         y = y.to(device)
 

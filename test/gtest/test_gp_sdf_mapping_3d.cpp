@@ -1,5 +1,3 @@
-#include "erl_common/pangolin_plotter_curve_2d.hpp"
-#include "erl_common/pangolin_plotter_image.hpp"
 #include "erl_common/test_helper.hpp"
 #include "erl_geometry/cow_and_lady.hpp"
 #include "erl_geometry/depth_camera_3d.hpp"
@@ -9,7 +7,6 @@
 #include "erl_geometry/lidar_3d.hpp"
 #include "erl_geometry/open3d_visualizer_wrapper.hpp"
 #include "erl_geometry/trajectory.hpp"
-#include "erl_geometry/ucsd_fah_2d.hpp"
 #include "erl_sdf_mapping/gp_occ_surface_mapping.hpp"
 #include "erl_sdf_mapping/gp_sdf_mapping.hpp"
 

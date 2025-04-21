@@ -159,7 +159,7 @@ namespace erl::sdf_mapping {
         const double dt = timer.Elapsed<double, std::micro>();
         time_budget_us -= dt;
         ERL_INFO("Time spent: {} us, time budget: {} us", dt, time_budget_us);
-        if (time_budget_us > 2.0 * m_train_gp_time_us_) {
+        if (time_budget_us > 2.0f * m_train_gp_time_us_) {
             auto lock = GetLockGuard();  // CRITICAL SECTION: access m_clusters_to_train_ and m_gp_map_
 
             ERL_BLOCK_TIMER_MSG_TIME("Train GPs", train_gps_time);
@@ -222,9 +222,9 @@ namespace erl::sdf_mapping {
 
         const auto t1 = std::chrono::high_resolution_clock::now();
         double time = std::chrono::duration<double, std::micro>(t1 - t0).count();
-        ERL_INFO("Function {} takes {} ms", __PRETTY_FUNCTION__, time / 1e3);
+        ERL_INFO("Function {} takes {} ms", __PRETTY_FUNCTION__, time / 1e3f);
         time /= static_cast<double>(n);
-        m_train_gp_time_us_ = m_train_gp_time_us_ * 0.1 + time * 0.9;
+        m_train_gp_time_us_ = m_train_gp_time_us_ * 0.1f + time * 0.9f;
         ERL_INFO("Per GP training time: {} us.", m_train_gp_time_us_);
     }
 
@@ -722,7 +722,7 @@ namespace erl::sdf_mapping {
         Eigen::Vector<Dtype, 6> covariance_f = Eigen::Vector<Dtype, 6>::Zero();
         for (std::size_t k = 0; k < m; ++k) {
             const long jk = tested_idx[k].first;
-            const Dtype w = 1.0 / (variances(0, jk) - max_test_valid_distance_var);
+            const Dtype w = 1.0f / (variances(0, jk) - max_test_valid_distance_var);
             w_sum += w;
             f += fs.col(jk) * w;
             variance_f += variances.col(jk) * w;
