@@ -1,3 +1,10 @@
+# 2025-04-23
+
+- Add: support reduced rank kernel
+- Add: SurfaceDataManager
+- Add: float precision selection
+- Add: BayesianHilbertSurfaceMapping
+
 # 2024-08-02
 
 - Implement: set number of neighbor GPs and option to use smallest SDF as prediction

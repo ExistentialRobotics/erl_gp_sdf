@@ -426,10 +426,6 @@ TestImpl3D() {
     // visualizer.Show();
 }
 
-// TEST(BayesianHilbertSurfaceMapping, 3Dd) { TestImpl3D<double>(); }
-
-TEST(BayesianHilbertSurfaceMapping, 3Df) { TestImpl3D<float>(); }
-
 template<typename Dtype>
 void
 TestImpl2D() {
@@ -863,6 +859,10 @@ TestImpl2D() {
     }
     if (options.hold) { cv::waitKey(0); }
 }
+
+// TEST(BayesianHilbertSurfaceMapping, 3Dd) { TestImpl3D<double>(); }
+
+TEST(BayesianHilbertSurfaceMapping, 3Df) { TestImpl3D<float>(); }
 
 TEST(BayesianHilbertSurfaceMapping, 2Df) { TestImpl2D<float>(); }
 

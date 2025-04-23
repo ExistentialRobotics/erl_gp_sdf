@@ -59,7 +59,7 @@ tree:
         center: [ 0, 0 ]
         half_sizes: [ 0, 0 ]
 cluster_depth: 14
-scaling: 1.0
+scaling: 0.5
 perturb_delta: 0.001  # this makes the SDF prediction more smooth over time
 zero_gradient_threshold: 1.0e-10
 update_occupancy: true

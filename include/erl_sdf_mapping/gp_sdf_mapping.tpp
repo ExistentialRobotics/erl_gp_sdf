@@ -63,7 +63,7 @@ namespace erl::sdf_mapping {
         double sdf_gp_update_time = 0;
 
         {
-            ERL_BLOCK_TIMER_TIME(total_update_time);
+            ERL_BLOCK_TIMER_MSG_TIME("GpSdfMapping Update", total_update_time);
             {
                 ERL_BLOCK_TIMER_MSG_TIME("Surface mapping update", surf_mapping_time);
                 success = m_surface_mapping_->Update(rotation, translation, ranges);
@@ -273,7 +273,7 @@ namespace erl::sdf_mapping {
         Variances& variances_out,
         Covariances& covariances_out) {
 
-        ERL_BLOCK_TIMER();
+        ERL_BLOCK_TIMER_MSG("GpSdfMapping::Test");
 
         {
             auto lock = GetLockGuard();  // CRITICAL SECTION: access m_gp_map_
@@ -415,7 +415,7 @@ namespace erl::sdf_mapping {
 
         if (m_setting_->use_sign_from_surface_mapping) {
             auto surface_mapping_lock = m_surface_mapping_->GetLockGuard();  // CRITICAL SECTION: access m_surface_mapping_
-            m_surface_mapping_->IsInFreeSpace(positions_in, m_query_signs_);
+            (void) m_surface_mapping_->IsInFreeSpace(positions_in, m_query_signs_);
             // TODO: avoid calling GetTree
             // collect the sign of query positions since the quadtree is not thread-safe
         }
