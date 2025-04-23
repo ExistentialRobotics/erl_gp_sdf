@@ -203,13 +203,13 @@ namespace erl::sdf_mapping {
             }
 
             // s /= s_sum;  // this line causes an extra for loop. replace it with the following line
-            const Dtype inv_s_sum = 1.0 / s_sum;
+            const Dtype inv_s_sum = 1.0f / s_sum;
 
             const Dtype sz_sdf = s.dot(z_sdf) * inv_s_sum;
-            var[0] = 0.0;  // var_sdf
+            var[0] = 0.0f;  // var_sdf
             SquareMatrix cov_grad = SquareMatrix::Zero();
             for (long k = 0; k < num_samples; ++k) {
-                Dtype w = s[k] * (sz_sdf + 1.0 - z_sdf[k]) * inv_s_sum;
+                Dtype w = s[k] * (sz_sdf + 1.0f - z_sdf[k]) * inv_s_sum;
                 w = w * w * vec_x_var[k];
                 var[0] += w;
                 w = w / (z_sdf[k] * z_sdf[k]);

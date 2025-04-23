@@ -1,24 +1,3 @@
-compute_variance:
-    zero_gradient_position_var: 1
-    zero_gradient_gradient_var: 1
-    min_distance_var: 1
-    max_distance_var: 100
-    position_var_alpha: 0.01
-    min_gradient_var: 0.01
-    max_gradient_var: 1
-update_map_points:
-    min_observable_occ: -0.1
-    max_surface_abs_occ: 0.02
-    max_valid_gradient_var: 0.5
-    max_adjust_tries: 10
-    max_bayes_position_var: 1
-    max_bayes_gradient_var: 0.6
-    min_position_var: 0.001
-    min_gradient_var: 0.001
-cluster_level: 2
-perturb_delta: 0.05
-zero_gradient_threshold: 1.e-15
-update_occupancy: true
 sensor_gp:
     row_group_size: 10
     row_overlap_size: 3
@@ -47,7 +26,7 @@ sensor_gp:
         num_azimuth_lines: 271
         num_elevation_lines: 91
     gp:
-        kernel_type: erl::covariance::OrnsteinUhlenbeck<2, float>
+        kernel_type: erl::covariance::OrnsteinUhlenbeck<float, 2>
         kernel_setting_type: erl::covariance::Covariance<float>::Setting
         kernel:
             x_dim: 2
@@ -59,16 +38,38 @@ sensor_gp:
     mapping:
         type: kInverseSqrt
         scale: 1
+compute_variance:
+    zero_gradient_position_var: 1
+    zero_gradient_gradient_var: 1
+    min_distance_var: 1
+    max_distance_var: 100
+    position_var_alpha: 0.01
+    min_gradient_var: 0.01
+    max_gradient_var: 1
+update_map_points:
+    min_observable_occ: -0.1
+    max_surface_abs_occ: 0.02
+    max_valid_gradient_var: 0.5
+    max_adjust_tries: 10
+    max_bayes_position_var: 1
+    max_bayes_gradient_var: 0.6
+    min_position_var: 0.001
+    min_gradient_var: 0.001
 tree:
-    resolution: 0.1
     tree_depth: 16
     log_odd_min: -2
     log_odd_max: 3.5
     log_odd_hit: 0.85
     log_odd_miss: -0.4
     log_odd_occ_threshold: 0
+    resolution: 0.1
     use_change_detection: false
     use_aabb_limit: false
     aabb:
         center: [ 0, 0, 0 ]
         half_sizes: [ 0, 0, 0 ]
+cluster_depth: 14
+scaling: 1.0
+perturb_delta: 0.05
+zero_gradient_threshold: 1.e-15
+update_occupancy: true

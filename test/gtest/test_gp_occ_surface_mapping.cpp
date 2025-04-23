@@ -6,6 +6,8 @@
 #include "erl_geometry/house_expo_map.hpp"
 #include "erl_geometry/lidar_2d.hpp"
 #include "erl_geometry/lidar_3d.hpp"
+#include "erl_geometry/occupancy_octree_drawer.hpp"
+#include "erl_geometry/occupancy_quadtree_drawer.hpp"
 #include "erl_geometry/open3d_visualizer_wrapper.hpp"
 #include "erl_geometry/range_sensor_3d.hpp"
 #include "erl_geometry/trajectory.hpp"
@@ -25,6 +27,7 @@ TestImpl3D() {
 
     using GpOccSurfaceMapping = erl::sdf_mapping::GpOccSurfaceMapping<Dtype, 3>;
     using SurfaceMappingOctree = erl::sdf_mapping::SurfaceMappingOctree<Dtype>;
+    using SurfaceMappingOctreeDrawer = erl::geometry::OccupancyOctreeDrawer<SurfaceMappingOctree>;
     using RangeSensor3D = erl::geometry::RangeSensor3D<Dtype>;
     using Lidar3D = erl::geometry::Lidar3D<Dtype>;
     using LidarFrame3D = erl::geometry::LidarFrame3D<Dtype>;
@@ -32,9 +35,10 @@ TestImpl3D() {
     using DepthFrame3D = erl::geometry::DepthFrame3D<Dtype>;
     using Matrix3 = Eigen::Matrix3<Dtype>;
     using Matrix4 = Eigen::Matrix4<Dtype>;
+    using MatrixX = Eigen::MatrixX<Dtype>;
     using Vector3 = Eigen::Vector3<Dtype>;
 
-    // load setting from command line
+    // load setting from the command line
     struct Options {
         bool use_cow_and_lady = false;
         std::string cow_and_lady_dir;
@@ -42,6 +46,7 @@ TestImpl3D() {
         std::string traj_file = kProjectRootDir / "data" / "replica-hotel-0-traj.txt";
         std::string surface_mapping_config_file = kProjectRootDir / "config" / fmt::format("gp_occ_mapping_3d_lidar_{}.yaml", type_name<Dtype>());
         long stride = 1;
+        Dtype surf_normal_scale = 0.25;
         Dtype test_res = 0.02;
         Dtype test_z = 0.0;
         long test_xs = 150;
@@ -75,6 +80,7 @@ TestImpl3D() {
                 "SDF mapping config file"
             )
             ("stride", po::value<long>(&options.stride)->default_value(options.stride)->value_name("stride"), "stride")
+            ("surf-normal-scale", po::value<Dtype>(&options.surf_normal_scale)->default_value(options.surf_normal_scale)->value_name("scale"), "surface normal scale")
             ("test-res", po::value<Dtype>(&options.test_res)->default_value(options.test_res)->value_name("res"), "test resolution")
             ("test-z", po::value<Dtype>(&options.test_z)->default_value(options.test_z)->value_name("z"), "test z")
             ("test-xs", po::value<long>(&options.test_xs)->default_value(options.test_xs)->value_name("xs"), "test xs")
@@ -101,6 +107,7 @@ TestImpl3D() {
     // prepare the scene
     std::vector<std::shared_ptr<open3d::geometry::Geometry>> geometries;  // for visualization
     std::shared_ptr<RangeSensor3D> range_sensor = nullptr;
+    bool is_lidar = false;
     std::shared_ptr<erl::geometry::CowAndLady> cow_and_lady = nullptr;
     std::vector<std::pair<Matrix3, Vector3>> poses;
     Vector3 area_min, area_max;
@@ -132,6 +139,7 @@ TestImpl3D() {
             lidar_setting->num_elevation_lines = lidar_frame_setting->num_elevation_lines;
             range_sensor = std::make_shared<Lidar3D>(lidar_setting);
             range_sensor->AddMesh(options.mesh_file);
+            is_lidar = true;
         } else if (gp_surf_setting->sensor_gp->sensor_frame_type == type_name<DepthFrame3D>()) {
             const auto depth_frame_setting = std::dynamic_pointer_cast<typename DepthFrame3D::Setting>(gp_surf_setting->sensor_gp->sensor_frame);
             const auto depth_camera_setting = std::make_shared<typename DepthCamera3D::Setting>();
@@ -195,8 +203,8 @@ TestImpl3D() {
         Vector3 translation;
         ERL_INFO("wp_idx: {}", wp_idx);
 
-        cv::Mat depth_jet;
-        Eigen::MatrixX<Dtype> ranges;
+        cv::Mat ranges_img;
+        MatrixX ranges;
         double dt;
         {
             const erl::common::BlockTimer<std::chrono::milliseconds> timer("data loading", &dt);
@@ -207,7 +215,7 @@ TestImpl3D() {
                 rotation = frame.rotation.cast<Dtype>();
                 translation = frame.translation.cast<Dtype>();
                 ranges = frame.depth.cast<Dtype>();
-                depth_jet = frame.depth_jet;
+                ranges_img = frame.depth_jet;
             } else {
                 std::tie(rotation, translation) = poses[wp_idx];
                 ranges = range_sensor->Scan(rotation, translation);
@@ -232,24 +240,27 @@ TestImpl3D() {
         // update visualization
         /// update the image
         if (!options.use_cow_and_lady) {
-            Eigen::MatrixXd ranges_img = Eigen::MatrixXd::Zero(ranges.rows(), ranges.cols());
-            Dtype min_range = std::numeric_limits<Dtype>::max();
-            Dtype max_range = std::numeric_limits<Dtype>::lowest();
             for (long i = 0; i < ranges.size(); ++i) {
                 Dtype &range = ranges.data()[i];
-                if (range < 0.0 || !std::isfinite(range)) { continue; }
-                min_range = std::min(min_range, range);
-                max_range = std::max(max_range, range);
-                ranges_img.data()[i] = range;
+                if (range < 0.0) {
+                    range = 0.0;
+                } else if (range > 1000.0) {
+                    range = 0.0;
+                }
             }
-            ranges_img = (ranges_img.array() - min_range) / (max_range - min_range);
-            cv::eigen2cv(ranges_img, depth_jet);
-            depth_jet.convertTo(depth_jet, CV_8UC1, 255);
-            cv::cvtColor(depth_jet, depth_jet, cv::COLOR_GRAY2BGR);
-            cv::applyColorMap(depth_jet, depth_jet, cv::COLORMAP_JET);
+            if (is_lidar) {
+                cv::eigen2cv(MatrixX(ranges.transpose()), ranges_img);
+                cv::flip(ranges_img, ranges_img, 0);
+                cv::resize(ranges_img, ranges_img, {0, 0}, 2, 2);
+            } else {
+                cv::eigen2cv(ranges, ranges_img);
+            }
+            cv::normalize(ranges_img, ranges_img, 0, 255, cv::NORM_MINMAX);
+            ranges_img.convertTo(ranges_img, CV_8UC1);
+            cv::applyColorMap(ranges_img, ranges_img, cv::COLORMAP_JET);
         }
-        cv::putText(depth_jet, fmt::format("update {:.2f} fps", gp_update_fps), cv::Point(10, 30), cv::FONT_HERSHEY_PLAIN, 1.5, cv::Scalar(255, 255, 255), 2);
-        cv::imshow("ranges", depth_jet);
+        cv::putText(ranges_img, fmt::format("update {:.2f} fps", gp_update_fps), cv::Point(10, 30), cv::FONT_HERSHEY_PLAIN, 1.5, cv::Scalar(255, 255, 255), 2);
+        cv::imshow("ranges", ranges_img);
         cv::waitKey(1);
         /// update the sensor mesh
         Matrix4 last_pose_inv = last_pose.inverse();
@@ -279,7 +290,7 @@ TestImpl3D() {
                 ERL_ASSERTM(std::abs(normal.norm() - 1.0) < 1.e-5, "normal.norm() = {:.6f}", normal.norm());
                 pcd_surf_points->points_.emplace_back(position.template cast<double>());
                 line_set_surf_normals->points_.emplace_back(position.template cast<double>());
-                line_set_surf_normals->points_.emplace_back((position + 0.1 * normal).template cast<double>());
+                line_set_surf_normals->points_.emplace_back((position + options.surf_normal_scale * normal).template cast<double>());
                 line_set_surf_normals->lines_.emplace_back(line_set_surf_normals->points_.size() - 2, line_set_surf_normals->points_.size() - 1);
             }
             line_set_surf_normals->PaintUniformColor({1.0, 0.0, 0.0});
@@ -308,11 +319,11 @@ TestImpl3D() {
     visualizer.SetAnimationCallback(callback);
     visualizer.Show();
 
-    auto drawer_setting = std::make_shared<typename SurfaceMappingOctree::Drawer::Setting>();
+    auto drawer_setting = std::make_shared<typename SurfaceMappingOctreeDrawer::Setting>();
     drawer_setting->area_min = area_min.template cast<double>();
     drawer_setting->area_max = area_max.template cast<double>();
     drawer_setting->occupied_only = true;
-    typename SurfaceMappingOctree::Drawer octree_drawer(drawer_setting, gp.GetTree());
+    SurfaceMappingOctreeDrawer octree_drawer(drawer_setting, gp.GetTree());
     auto mesh = geometries[0];
     geometries = octree_drawer.GetBlankGeometries();
     geometries.push_back(mesh);
@@ -333,16 +344,16 @@ TestImpl2D() {
     using namespace erl::common;
     using GpOccSurfaceMapping = erl::sdf_mapping::GpOccSurfaceMapping<Dtype, 2>;
     using SurfaceMappingQuadtree = erl::sdf_mapping::SurfaceMappingQuadtree<Dtype>;
-    using QuadtreeDrawer = typename SurfaceMappingQuadtree::Drawer;
+    using SurfaceMappingQuadtreeDrawer = erl::geometry::OccupancyQuadtreeDrawer<SurfaceMappingQuadtree>;
     using Lidar2D = erl::geometry::Lidar2D;
     using Matrix2 = Eigen::Matrix2<Dtype>;
     using Matrix2X = Eigen::Matrix2X<Dtype>;
     using Vector2 = Eigen::Vector2<Dtype>;
     using VectorX = Eigen::VectorX<Dtype>;
 
-    // load setting from command line
+    // load setting from the command line
     struct Options {
-        std::string gazebo_train_file = kProjectRootDir / "data" / "gazebo_train.dat";
+        std::string gazebo_train_file = kProjectRootDir / "data" / "gazebo";
         std::string house_expo_map_file = kProjectRootDir / "data" / "house_expo_room_1451.json";
         std::string house_expo_traj_file = kProjectRootDir / "data" / "house_expo_room_1451.csv";
         std::string ucsd_fah_2d_file = kProjectRootDir / "data" / "ucsd_fah_2d.dat";
@@ -411,7 +422,7 @@ TestImpl2D() {
     ASSERT_TRUE(options_parsed);
 
     ASSERT_TRUE(options.use_gazebo_room_2d || options.use_house_expo_lidar_2d || options.use_ucsd_fah_2d)
-        << "Please specify one of --use-gazebo-data, --use-house-expo-data, --use-ucsd-fah-2d.";
+        << "Please specify one of --use-gazebo-room-2d, --use-house-expo-lidar-2d, --use-ucsd-fah-2d.";
     if (options.use_gazebo_room_2d) {
         ASSERT_TRUE(std::filesystem::exists(options.gazebo_train_file)) << "Gazebo train data file " << options.gazebo_train_file << " does not exist.";
     }
@@ -452,20 +463,12 @@ TestImpl2D() {
             train_ranges.push_back(df.ranges.cast<Dtype>());
             train_poses.emplace_back(df.rotation.cast<Dtype>(), df.translation.cast<Dtype>());
             cur_traj.col(cnt) << df.translation.cast<Dtype>();
-            const Dtype &x = cur_traj(0, cnt);
-            const Dtype &y = cur_traj(1, cnt);
-            if (x < map_min[0]) { map_min[0] = x; }
-            if (x > map_max[0]) { map_max[0] = x; }
-            if (y < map_min[1]) { map_min[1] = y; }
-            if (y > map_max[1]) { map_max[1] = y; }
-            map_min[0] -= 0.15;
-            map_min[1] -= 0.4;
-            map_max[0] += 0.2;
-            map_max[1] += 0.15;
-            map_resolution.array() = 0.02;
-            map_padding.setZero();
             bar->Update();
         }
+        map_min = erl::geometry::GazeboRoom2D::kMapMin.cast<Dtype>();
+        map_max = erl::geometry::GazeboRoom2D::kMapMax.cast<Dtype>();
+        map_padding.setZero();
+
         train_angles.resize(cnt);
         train_ranges.resize(cnt);
         train_poses.resize(cnt);
@@ -533,7 +536,7 @@ TestImpl2D() {
         train_poses.resize(cnt);
         cur_traj.conservativeResize(2, cnt);
     } else {
-        std::cerr << "Please specify one of --use-gazebo-data, --use-house-expo-data, --use-ucsd-fah-2d." << std::endl;
+        std::cerr << "Please specify one of --use-gazebo-room-2d, --use-house-expo-lidar-2d, --use-ucsd-fah-2d." << std::endl;
         return;
     }
     max_update_cnt = cur_traj.cols();
@@ -547,18 +550,18 @@ TestImpl2D() {
     GpOccSurfaceMapping gp(gp_setting);
 
     // prepare the visualizer
-    auto drawer_setting = std::make_shared<typename QuadtreeDrawer::Setting>();
+    auto drawer_setting = std::make_shared<typename SurfaceMappingQuadtreeDrawer::Setting>();
     drawer_setting->area_min = map_min;
     drawer_setting->area_max = map_max;
     drawer_setting->resolution = map_resolution[0];
     drawer_setting->padding = map_padding[0];
     drawer_setting->border_color = cv::Scalar(255, 0, 0, 255);
-    auto drawer = std::make_shared<QuadtreeDrawer>(drawer_setting);
+    auto drawer = std::make_shared<SurfaceMappingQuadtreeDrawer>(drawer_setting);
 
     std::vector<std::pair<cv::Point, cv::Point>> arrowed_lines;
     auto &surface_data_manager = gp.GetSurfaceDataManager();
-    drawer->SetDrawTreeCallback([&](const QuadtreeDrawer *self, cv::Mat &img, typename SurfaceMappingQuadtree::TreeIterator &it) {
-        const uint32_t cluster_depth = gp.GetTree()->GetTreeDepth() - gp_setting->cluster_level;
+    drawer->SetDrawTreeCallback([&](const SurfaceMappingQuadtreeDrawer *self, cv::Mat &img, typename SurfaceMappingQuadtree::TreeIterator &it) {
+        const uint32_t cluster_depth = gp_setting->cluster_depth;
         const auto grid_map_info = self->GetGridMapInfo();
         if (it->GetDepth() == cluster_depth) {
             Eigen::Vector2i position_px = grid_map_info->MeterToPixelForPoints(Vector2(it.GetX(), it.GetY()));
@@ -575,7 +578,7 @@ TestImpl2D() {
         cv::Point arrow_end_px(position_px[0] + normal_px[0], position_px[1] + normal_px[1]);
         arrowed_lines.emplace_back(position_px_cv, arrow_end_px);
     });
-    drawer->SetDrawLeafCallback([&](const QuadtreeDrawer *self, cv::Mat &img, typename SurfaceMappingQuadtree::LeafIterator &it) {
+    drawer->SetDrawLeafCallback([&](const SurfaceMappingQuadtreeDrawer *self, cv::Mat &img, typename SurfaceMappingQuadtree::LeafIterator &it) {
         if (!it->HasSurfaceData()) { return; }
         const auto grid_map_info = self->GetGridMapInfo();
         auto &surface_data = surface_data_manager[it->surface_data_index];

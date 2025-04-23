@@ -16,7 +16,7 @@ namespace erl::sdf_mapping {
         using MatrixX = Eigen::MatrixX<Dtype>;
 
         struct Setting : common::Yamlable<Setting, typename Super::Setting> {
-            Dtype log_lambda = 40.0;
+            Dtype log_lambda = 40.0f;
 
             struct YamlConvertImpl {
                 static YAML::Node

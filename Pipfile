@@ -17,6 +17,7 @@ screeninfo = "*"
 scipy = "*"
 pycryptodomex = "*"
 pyside6 = "*"
+torch = "*"
 
 [dev-packages]
 

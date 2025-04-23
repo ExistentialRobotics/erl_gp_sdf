@@ -13,25 +13,20 @@ gp_sdf_area_scale: 4  # should not be too small
 max_valid_gradient_var: 0.1
 invalid_position_var: 0.25
 offset_distance: 0.04
-use_sign_from_surface_mapping: false
+use_sign_from_surface_mapping: true
 sdf_gp:
     enable_sign_gp: false
     sign_gp:
-        kernel_type: erl::covariance::ReducedRankMatern32<float, 3>
-        kernel_setting_type: erl::covariance::ReducedRankCovariance<float>::Setting
+        kernel_type: erl::covariance::Matern32<float, 3>
+        kernel_setting_type: erl::covariance::Covariance<float>::Setting
         kernel:
             x_dim: 3
             alpha: 1
             scale: 2
             scale_mix: 1
             weights: [ ]
-            max_num_basis: -1
-            num_basis: [ 10, 10 ]
-            boundaries: [ 2.5, 2.5 ]
-            accumulated: true
-        max_num_samples: 256   # max dataset size
-        no_gradient_observation: false
-
+        max_num_samples: 96   # max dataset size
+        no_gradient_observation: true
     edf_gp:
         kernel_type: erl::covariance::Matern32<float, 3>
         kernel_setting_type: erl::covariance::Covariance<float>::Setting

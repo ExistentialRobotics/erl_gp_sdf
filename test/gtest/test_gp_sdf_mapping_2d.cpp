@@ -1,6 +1,5 @@
 #include "erl_common/csv.hpp"
-#include "erl_common/pangolin_plotter_curve_2d.hpp"
-#include "erl_common/pangolin_plotter_image.hpp"
+#include "erl_common/plplot_fig.hpp"
 #include "erl_common/test_helper.hpp"
 #include "erl_geometry/gazebo_room_2d.hpp"
 #include "erl_geometry/house_expo_map.hpp"
@@ -146,7 +145,7 @@ TestImpl2D() {
     using VectorX = Eigen::VectorX<Dtype>;
 
     struct Options {
-        std::string gazebo_train_file = kProjectRootDir / "data" / "gazebo_train.dat";
+        std::string gazebo_train_file = kProjectRootDir / "data" / "gazebo";
         std::string house_expo_map_file = kProjectRootDir / "data" / "house_expo_room_1451.json";
         std::string house_expo_traj_file = kProjectRootDir / "data" / "house_expo_room_1451.csv";
         std::string ucsd_fah_2d_file = kProjectRootDir / "data" / "ucsd_fah_2d.dat";
@@ -224,7 +223,7 @@ TestImpl2D() {
     ASSERT_TRUE(options_parsed);
 
     ASSERT_TRUE(options.use_gazebo_room_2d || options.use_house_expo_lidar_2d || options.use_ucsd_fah_2d)
-        << "Please specify one of --use-gazebo-data, --use-house-expo-data, --use-ucsd-fah-2d.";
+        << "Please specify one of --use-gazebo-room-2d, --use-house-expo-lidar-2d, --use-ucsd-fah-2d.";
     if (options.use_gazebo_room_2d) {
         ASSERT_TRUE(std::filesystem::exists(options.gazebo_train_file)) << "Gazebo train data file " << options.gazebo_train_file << " does not exist.";
     }
@@ -266,20 +265,12 @@ TestImpl2D() {
             train_ranges.push_back(df.ranges.cast<Dtype>());
             train_poses.emplace_back(df.rotation.cast<Dtype>(), df.translation.cast<Dtype>());
             cur_traj.col(cnt) << df.translation.cast<Dtype>();
-            const Dtype &x = cur_traj(0, cnt);
-            const Dtype &y = cur_traj(1, cnt);
-            if (x < map_min[0]) { map_min[0] = x; }
-            if (x > map_max[0]) { map_max[0] = x; }
-            if (y < map_min[1]) { map_min[1] = y; }
-            if (y > map_max[1]) { map_max[1] = y; }
-            map_min[0] -= 0.15;
-            map_min[1] -= 0.4;
-            map_max[0] += 0.2;
-            map_max[1] += 0.15;
-            map_resolution.array() = 0.02;
-            map_padding.setZero();
             bar->Update();
         }
+        map_min = erl::geometry::GazeboRoom2D::kMapMin.cast<Dtype>();
+        map_max = erl::geometry::GazeboRoom2D::kMapMax.cast<Dtype>();
+        map_padding.setZero();
+
         train_angles.resize(cnt);
         train_ranges.resize(cnt);
         train_poses.resize(cnt);
@@ -348,7 +339,6 @@ TestImpl2D() {
         train_poses.resize(cnt);
         cur_traj.conservativeResize(2, cnt);
     } else {
-        std::cerr << "Please specify one of --use-gazebo-data, --use-house-expo-data, --use-ucsd-fah-2d." << std::endl;
         return;
     }
     max_update_cnt = cur_traj.cols();
@@ -429,54 +419,42 @@ TestImpl2D() {
         cv::waitKey();  // wait for any key
     }
 
-    // pangolin
-    std::shared_ptr<PangolinWindow> pangolin_plotter_window;
-    std::shared_ptr<PangolinPlotterCurve2D> plotter_sdf;
-    std::shared_ptr<PangolinPlotterCurve2D> plotter_grad;
-    std::shared_ptr<PangolinWindow> pangolin_map_window;
-    std::shared_ptr<PangolinPlotterImage> pangolin_plotter_map;
+    auto grid_map_info = drawer.GetGridMapInfo();
+    PlplotFig fig_sdf(1280, 480, true);
+    PlplotFig fig_grad(1280, 480, true);
     std::string window_name = test_info->name();
-    if (options.visualize) {
-        pangolin_plotter_window = std::make_shared<PangolinWindow>(window_name + ": curves", 1280, 960);
-        pangolin_plotter_window->GetDisplay("main").SetLayout(pangolin::LayoutEqualVertical);
-        plotter_sdf = std::make_shared<PangolinPlotterCurve2D>(
-            pangolin_plotter_window,
-            "SDF",
-            std::vector<std::string>{"t", "SDF", "EDF", "var(SDF)"},
-            500,                              // number of points in the plot window
-            0.0f,                             // t0
-            static_cast<float>(tic) / 10.0f,  // dt
-            0.05f);                           // dy
-
-        plotter_grad = std::make_shared<PangolinPlotterCurve2D>(
-            pangolin_plotter_window,
-            "Gradient",
-            std::vector<std::string>{"t", "gradX", "gradY", "var(gradX)", "var(gradY)"},
-            500,                                      // number of points in the plot window
-            0.0f,                                     // t0
-            static_cast<float>(tic) / 10.0f,          // dt
-            0.05f,                                    // dy
-            pangolin::Colour{0.1f, 0.1f, 0.1f, 1.0f}  // bg_color
-        );
-
-        pangolin_map_window = std::make_shared<PangolinWindow>(window_name + ": map", img.cols, img.rows);
-        pangolin_plotter_map = std::make_shared<PangolinPlotterImage>(pangolin_map_window, img.rows, img.cols, GL_RGBA, GL_UNSIGNED_BYTE);
-    }
+    const double tspan = 500.0 * tic;
+    auto draw_curve = [&](PlplotFig &fig, const PlplotFig::Color0 color_idx, const int n, const double *ts, const double *vs) {
+        fig.SetCurrentColor(color_idx).SetPenWidth(2).DrawLine(n, ts, vs).SetPenWidth(1);
+    };
 
     // save video
     std::shared_ptr<cv::VideoWriter> video_writer = nullptr;
     std::string video_path = (test_output_dir / "sdf_mapping.avi").string();
-    cv::Mat video_frame;
-    if (options.save_video) {
-        cv::Size size(img.cols + 1280, std::max(img.rows, 960));
-        video_writer = std::make_shared<cv::VideoWriter>(video_path, cv::VideoWriter::fourcc('M', 'J', 'P', 'G'), 30.0, size);
-        video_frame = cv::Mat(std::max(img.rows, 960), img.cols + 1280, CV_8UC3, cv::Scalar(0));
-    }
+    cv::Size frame_size(img.cols + 1280, std::max(img.rows, 960));
+    cv::Mat frame(frame_size.height, frame_size.width, CV_8UC3, cv::Scalar(0));
+    if (options.save_video) { video_writer = std::make_shared<cv::VideoWriter>(video_path, cv::VideoWriter::fourcc('M', 'J', 'P', 'G'), 30.0, frame_size); }
 
     // start the mapping
     const std::string bin_file = test_output_dir / fmt::format("sdf_mapping_2d_{}.bin", type_name<Dtype>());
     double t_ms = 0;
     double traj_t = 0;
+    std::vector<double> timestamps_second;
+    std::vector<double> sdf_values;
+    std::vector<double> edf_values;
+    std::vector<double> var_sdf_values;
+    std::vector<double> grad_x_values;
+    std::vector<double> grad_y_values;
+    std::vector<double> var_grad_x_values;
+    std::vector<double> var_grad_y_values;
+    timestamps_second.reserve(max_update_cnt);
+    sdf_values.reserve(max_update_cnt);
+    edf_values.reserve(max_update_cnt);
+    var_sdf_values.reserve(max_update_cnt);
+    grad_x_values.reserve(max_update_cnt);
+    grad_y_values.reserve(max_update_cnt);
+    var_grad_x_values.reserve(max_update_cnt);
+    var_grad_y_values.reserve(max_update_cnt);
     for (long i = 0; i < max_update_cnt; i++) {
         const auto &[rotation, translation] = train_poses[i];
         const VectorX &ranges = train_ranges[i];
@@ -553,38 +531,118 @@ TestImpl2D() {
             // draw fps
             cv::putText(img, std::to_string(1000.0 / dt), cv::Point(10, 30), cv::FONT_HERSHEY_SIMPLEX, 1, cv::Scalar(0, 255, 0, 255), 2);
 
-            // cv::imshow("GP Occ Surface Mapping", img);
-            // int key = cv::waitKey(1);
-            // if (key == 27) { break; }  // ESC
-            // if (key == 'q') { break; }
-
-            if (pangolin_map_window != nullptr && pangolin_plotter_map != nullptr) {
-                pangolin_plotter_map->Update(img);
-
-                // pangolin_plotter_window->Activate(true);
-                plotter_sdf->Append(
-                    static_cast<float>(traj_t),
-                    {static_cast<float>(distance[0]), static_cast<float>(std::abs(distance[0])), static_cast<float>(variances(0, 0))});
-                plotter_grad->Append(
-                    static_cast<float>(traj_t),
-                    {static_cast<float>(gradient(0, 0)),
-                     static_cast<float>(gradient(1, 0)),
-                     static_cast<float>(variances(1, 0)),
-                     static_cast<float>(variances(2, 0))});
-                if (options.save_video) {
-                    pangolin::TypedImage buffer = pangolin::ReadFramebuffer(pangolin_plotter_window->GetDisplay("main").v, "BGR24");
-                    cv::Mat tmp(static_cast<int>(buffer.h), static_cast<int>(buffer.w), CV_8UC3, buffer.ptr);
-                    cv::flip(tmp, tmp, 0);
-                    int offset = (video_frame.rows - tmp.rows) / 2;
-                    tmp.copyTo(video_frame(cv::Rect(img.cols, offset, tmp.cols, tmp.rows)));
-                    cv::cvtColor(img, tmp, cv::COLOR_BGRA2BGR);
-                    tmp.copyTo(video_frame(cv::Rect(0, 0, tmp.cols, tmp.rows)));
-                    video_writer->write(video_frame);
-                }
-                pangolin_plotter_window->Deactivate();
-            } else {
-                ERL_WARN("Pangolin window is not initialized.");
+            timestamps_second.push_back(traj_t);
+            sdf_values.push_back(distance[0]);
+            edf_values.push_back(std::abs(distance[0]));
+            var_sdf_values.push_back(variances(0, 0));
+            grad_x_values.push_back(gradient(0, 0));
+            grad_y_values.push_back(gradient(1, 0));
+            var_grad_x_values.push_back(variances(1, 0));
+            var_grad_y_values.push_back(variances(2, 0));
+            const double t_min = traj_t - tspan;
+            int n = 0;
+            for (; n < static_cast<int>(timestamps_second.size()) && timestamps_second[n] < t_min; ++n) {}  // skip the first n points
+            if (n > 0) {
+                timestamps_second.erase(timestamps_second.begin(), timestamps_second.begin() + n);
+                sdf_values.erase(sdf_values.begin(), sdf_values.begin() + n);
+                edf_values.erase(edf_values.begin(), edf_values.begin() + n);
+                var_sdf_values.erase(var_sdf_values.begin(), var_sdf_values.begin() + n);
+                grad_x_values.erase(grad_x_values.begin(), grad_x_values.begin() + n);
+                grad_y_values.erase(grad_y_values.begin(), grad_y_values.begin() + n);
+                var_grad_x_values.erase(var_grad_x_values.begin(), var_grad_x_values.begin() + n);
+                var_grad_y_values.erase(var_grad_y_values.begin(), var_grad_y_values.begin() + n);
             }
+            n = static_cast<int>(timestamps_second.size());
+
+            if (!timestamps_second.empty()) {
+                auto minmax = std::minmax_element(sdf_values.begin(), sdf_values.end());
+                double fig_sdf_y_min = *minmax.first;
+                double fig_sdf_y_max = *minmax.second;
+
+                // render fig_sdf
+                minmax = std::minmax_element(edf_values.begin(), edf_values.end());
+                fig_sdf_y_min = std::min(fig_sdf_y_min, *minmax.first) - 0.1;
+                fig_sdf_y_max = std::max(fig_sdf_y_max, *minmax.second) + 0.1;
+
+                fig_sdf.Clear()
+                    .SetMargin(0.15, 0.85, 0.15, 0.9)
+                    .SetAxisLimits(traj_t - tspan, traj_t, fig_sdf_y_min, fig_sdf_y_max)
+                    .SetCurrentColor(PlplotFig::Color0::White)
+                    .DrawAxesBox(PlplotFig::AxisOpt().DrawTopRightEdge(), PlplotFig::AxisOpt())
+                    .SetAxisLabelX("time (sec)")
+                    .SetCurrentColor(PlplotFig::Color0::Yellow)
+                    .SetAxisLabelY("SDF/EDF (meter)");
+
+                draw_curve(fig_sdf, PlplotFig::Color0::Red, n, timestamps_second.data(), sdf_values.data());
+                draw_curve(fig_sdf, PlplotFig::Color0::Yellow, n, timestamps_second.data(), edf_values.data());
+
+                minmax = std::minmax_element(var_sdf_values.begin(), var_sdf_values.end());
+                fig_sdf.SetCurrentColor(PlplotFig::Color0::White)
+                    .SetAxisLimits(traj_t - tspan, traj_t, *minmax.first - 0.01, *minmax.second + 0.01)
+                    .DrawAxesBox(
+                        PlplotFig::AxisOpt::Off(),
+                        PlplotFig::AxisOpt::Off().DrawTopRightEdge().DrawTickMajor().DrawTickMinor().DrawTopRightTickLabels())
+                    .SetCurrentColor(PlplotFig::Color0::Green)
+                    .SetAxisLabelY("Variance", true);
+                draw_curve(fig_sdf, PlplotFig::Color0::Green, n, timestamps_second.data(), var_sdf_values.data());
+
+                // render fig_grad
+                minmax = std::minmax_element(grad_x_values.begin(), grad_x_values.end());
+                double fig_grad_y_min = *minmax.first;
+                double fig_grad_y_max = *minmax.second;
+
+                minmax = std::minmax_element(grad_y_values.begin(), grad_y_values.end());
+                fig_grad_y_min = std::min(fig_grad_y_min, *minmax.first) - 0.1;
+                fig_grad_y_max = std::max(fig_grad_y_max, *minmax.second) + 0.1;
+
+                fig_grad.Clear()
+                    .SetMargin(0.15, 0.85, 0.15, 0.9)
+                    .SetAxisLimits(traj_t - tspan, traj_t, fig_grad_y_min, fig_grad_y_max)
+                    .SetCurrentColor(PlplotFig::Color0::White)
+                    .DrawAxesBox(PlplotFig::AxisOpt().DrawTopRightEdge(), PlplotFig::AxisOpt())
+                    .SetAxisLabelX("time (sec)")
+                    .SetCurrentColor(PlplotFig::Color0::Yellow)
+                    .SetAxisLabelY("Gradient (meter)");
+
+                draw_curve(fig_grad, PlplotFig::Color0::Red, n, timestamps_second.data(), grad_x_values.data());
+                draw_curve(fig_grad, PlplotFig::Color0::Yellow, n, timestamps_second.data(), grad_y_values.data());
+
+                minmax = std::minmax_element(var_grad_x_values.begin(), var_grad_x_values.end());
+                fig_grad_y_min = *minmax.first;
+                fig_grad_y_max = *minmax.second;
+
+                minmax = std::minmax_element(var_grad_y_values.begin(), var_grad_y_values.end());
+                fig_grad_y_min = std::min(fig_grad_y_min, *minmax.first) - 0.01;
+                fig_grad_y_max = std::max(fig_grad_y_max, *minmax.second) + 0.01;
+
+                fig_grad.SetCurrentColor(PlplotFig::Color0::White)
+                    .SetAxisLimits(traj_t - tspan, traj_t, fig_grad_y_min, fig_grad_y_max)
+                    .DrawAxesBox(
+                        PlplotFig::AxisOpt::Off(),
+                        PlplotFig::AxisOpt::Off().DrawTopRightEdge().DrawTickMajor().DrawTickMinor().DrawTopRightTickLabels())
+                    .SetCurrentColor(PlplotFig::Color0::Green)
+                    .SetAxisLabelY("Variance", true);
+                draw_curve(fig_grad, PlplotFig::Color0::Green, n, timestamps_second.data(), var_grad_x_values.data());
+                draw_curve(fig_grad, PlplotFig::Color0::Aquamarine, n, timestamps_second.data(), var_grad_y_values.data());
+            }
+            cv::Mat tmp(frame.rows, frame.cols, CV_8UC4, cv::Scalar(0));
+            if (img.rows == frame.rows) {
+                const int offset = (frame.rows - fig_sdf.Height() * 2) / 2;
+                img.copyTo(tmp(cv::Rect(0, 0, img.cols, img.rows)));
+                fig_sdf.ToCvMat().copyTo(tmp(cv::Rect(img.cols, offset, fig_sdf.Width(), fig_sdf.Height())));
+                fig_grad.ToCvMat().copyTo(tmp(cv::Rect(img.cols, offset + fig_sdf.Height(), fig_grad.Width(), fig_grad.Height())));
+            } else {
+                const int offset = (frame.rows - img.rows) / 2;
+                img.copyTo(tmp(cv::Rect(0, offset, img.cols, img.rows)));
+                fig_sdf.ToCvMat().copyTo(tmp(cv::Rect(img.cols, 0, fig_sdf.Width(), fig_sdf.Height())));
+                fig_grad.ToCvMat().copyTo(tmp(cv::Rect(img.cols, fig_sdf.Height(), fig_grad.Width(), fig_grad.Height())));
+            }
+            cv::cvtColor(tmp, frame, cv::COLOR_BGRA2BGR);
+
+            if (options.save_video) { video_writer->write(frame); }
+
+            cv::imshow(window_name, frame);
+            cv::waitKey(1);
         }
         double avg_dt = t_ms / static_cast<double>(i + 1);
         double fps = 1000.0 / avg_dt;
@@ -608,7 +666,6 @@ TestImpl2D() {
 
     // Test SDF Estimation
     constexpr bool c_stride = true;
-    auto grid_map_info = drawer.GetGridMapInfo();
     Matrix2X positions_in = grid_map_info->GenerateMeterCoordinates(c_stride);
     VectorX distances_out(positions_in.cols());
     Matrix2X gradients_out(2, positions_in.cols());
@@ -625,12 +682,6 @@ TestImpl2D() {
     ERL_ASSERT(surface_mapping->GetTree()->WriteBinary("tree.bt"));
     ERL_ASSERT(surface_mapping->GetTree()->Write("tree.ot"));
 
-    std::shared_ptr<PangolinWindow> pangolin_sdf_image_window;
-    std::shared_ptr<PangolinWindow> pangolin_sdf_sign_image_window;
-    std::shared_ptr<PangolinWindow> pangolin_sdf_var_image_window;
-    std::shared_ptr<PangolinPlotterImage> pangolin_plotter_sdf_image;
-    std::shared_ptr<PangolinPlotterImage> pangolin_plotter_sdf_sign_image;
-    std::shared_ptr<PangolinPlotterImage> pangolin_plotter_sdf_var_image;
     if (success && options.visualize) {
         MatrixX sdf_out_mat = distances_out.reshaped(grid_map_info->Height(), grid_map_info->Width());
         Dtype min_distance = distances_out.minCoeff();
@@ -654,10 +705,7 @@ TestImpl2D() {
         cv::applyColorMap(src, dst, cv::COLORMAP_JET);
         cv::cvtColor(dst, dst, cv::COLOR_BGR2BGRA);
         cv::addWeighted(dst, 0.5, img, 0.5, 0.0, dst);
-
-        pangolin_sdf_image_window = std::make_shared<PangolinWindow>(window_name + ": sdf", dst.cols, dst.rows);
-        pangolin_plotter_sdf_image = std::make_shared<PangolinPlotterImage>(pangolin_sdf_image_window, dst.rows, dst.cols, GL_RGBA, GL_UNSIGNED_BYTE);
-        pangolin_plotter_sdf_image->Update(dst);
+        cv::imshow(window_name + ": sdf", dst);
 
         MatrixX8U sdf_sign_mat(sdf_out_mat.rows(), sdf_out_mat.cols());
         uint8_t *sdf_sign_mat_ptr = sdf_sign_mat.data();
@@ -665,10 +713,7 @@ TestImpl2D() {
         for (int i = 0; i < sdf_out_mat.size(); ++i) { sdf_sign_mat_ptr[i] = sdf_out_mat_ptr[i] >= 0 ? 255 : 0; }
         cv::eigen2cv(sdf_sign_mat, src);
         cv::flip(src, src, 0);  // flip along y axis
-        cv::cvtColor(src, dst, cv::COLOR_GRAY2BGRA);
-        pangolin_sdf_sign_image_window = std::make_shared<PangolinWindow>(window_name + ": sdf_sign", src.cols, src.rows);
-        pangolin_plotter_sdf_sign_image = std::make_shared<PangolinPlotterImage>(pangolin_sdf_sign_image_window, src.rows, src.cols, GL_RGBA, GL_UNSIGNED_BYTE);
-        pangolin_plotter_sdf_sign_image->Update(dst);
+        cv::imshow(window_name + ": sdf sign", src);
 
         MatrixX sdf_variances_mat = variances_out.row(0).reshaped(grid_map_info->Height(), grid_map_info->Width());
         Dtype min_variance = sdf_variances_mat.minCoeff();
@@ -679,36 +724,17 @@ TestImpl2D() {
         cv::applyColorMap(src, dst, cv::COLORMAP_JET);
         cv::cvtColor(dst, dst, cv::COLOR_BGR2BGRA);
         cv::addWeighted(dst, 0.5, img, 0.5, 0.0, dst);
-
-        pangolin_sdf_var_image_window = std::make_shared<PangolinWindow>(window_name + ": sdf_variances", dst.cols, dst.rows);
-        pangolin_plotter_sdf_var_image = std::make_shared<PangolinPlotterImage>(pangolin_sdf_var_image_window, dst.rows, dst.cols, GL_RGBA, GL_UNSIGNED_BYTE);
-        pangolin_plotter_sdf_var_image->Update(dst);
+        cv::imshow(window_name + ": sdf variances", dst);
+        cv::waitKey(1);
     }
-
-    auto process_event = [&]() {
-        if (pangolin_plotter_window != nullptr) { pangolin_plotter_window->GetWindow().ProcessEvents(); }
-        if (pangolin_map_window != nullptr) { pangolin_plotter_map->Render(); }
-        if (pangolin_sdf_image_window != nullptr) { pangolin_plotter_sdf_image->Render(); }
-        if (pangolin_sdf_sign_image_window != nullptr) { pangolin_plotter_sdf_sign_image->Render(); }
-        if (pangolin_sdf_var_image_window != nullptr) { pangolin_plotter_sdf_var_image->Render(); }
-    };
 
     if (options.visualize && options.hold) {
         std::cout << "Press any key to exit." << std::endl;
-        while (!pangolin::ShouldQuit()) {
-            std::this_thread::sleep_for(std::chrono::milliseconds(100));
-            process_event();
-        }
+        cv::waitKey(0);
     } else {
-        t0 = std::chrono::high_resolution_clock::now();
         constexpr double wait_time = 10.0;
-        while (std::chrono::duration<double>(std::chrono::high_resolution_clock::now() - t0).count() < wait_time && !pangolin::ShouldQuit()) {
-            std::this_thread::sleep_for(std::chrono::milliseconds(100));
-            process_event();
-        }
+        cv::waitKey(wait_time * 1000);  // wait for 10 seconds
     }
-
-    pangolin::QuitAll();
 
     if (options.interactive) {
 

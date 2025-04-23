@@ -65,7 +65,7 @@ namespace erl::sdf_mapping {
             this->m_vec_var_x_[count] = surface_data.var_position;
             // this->m_vec_grad_flag_[count] = false;  // m_setting_->no_gradient_observation is true, so no need to set this
             if ((surface_data.var_normal > max_valid_gradient_var) ||                                   // invalid gradient
-                (surface_data.normal.norm() < 0.9)) {                                                   // invalid normal
+                (surface_data.normal.norm() < 0.9f)) {                                                  // invalid normal
                 this->m_vec_var_x_[count] = std::max(this->m_vec_var_x_[count], invalid_position_var);  // position is unreliable
             }
             if (++count >= this->m_mat_x_train_.cols()) { break; }  // reached max_num_samples
@@ -95,15 +95,15 @@ namespace erl::sdf_mapping {
             const Dtype f_log_gpis = f[0];
             f[0] = std::log(std::abs(f_log_gpis)) / -log_lambda;
             // gradient
-            Dtype norm = 0;
-            const Dtype d = -1.0 / (log_lambda * std::abs(f_log_gpis));  // d = -ln(f)/lambda, grad_d = -1/(lambda*f)*grad_f
-            for (long j = 1; j <= dim; ++j) {                            // gradient
-                Dtype &grad = f[j];                                      // grad_f
-                grad *= d;                                               // grad_d
+            Dtype norm = 0.0f;
+            const Dtype d = -1.0f / (log_lambda * std::abs(f_log_gpis));  // d = -ln(f)/lambda, grad_d = -1/(lambda*f)*grad_f
+            for (long j = 1; j <= dim; ++j) {                             // gradient
+                Dtype &grad = f[j];                                       // grad_f
+                grad *= d;                                                // grad_d
                 norm += grad * grad;
             }
             norm = std::sqrt(norm);
-            if (norm > 1.e-15) {                                   // avoid zero division
+            if (norm > 1.e-15f) {                                  // avoid zero division
                 for (long j = 1; j <= dim; ++j) { f[j] /= norm; }  // gradient norm is always 1. https://en.wikipedia.org/wiki/Eikonal_equation
             }
         }

@@ -68,8 +68,9 @@ tree:
     aabb:
         center: [ 0, 0, 0 ]
         half_sizes: [ 0, 0, 0 ]
-perturb_delta: 0.05
-zero_gradient_threshold: 1.0e-15
-update_occupancy: true
 cluster_depth: 14
-scaling: 0.5
+scaling: 1.0
+perturb_delta: 0.05
+zero_gradient_threshold: 1.0e-10
+update_occupancy: true
+
