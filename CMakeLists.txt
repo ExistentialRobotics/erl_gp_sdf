@@ -79,6 +79,17 @@ erl_add_tests(
         LIBRARIES ${PROJECT_NAME}
 )
 
+add_executable(
+   process_keti_data
+   app/process_keti_data.cpp
+)
+target_include_directories(process_keti_data
+        PUBLIC
+        $<BUILD_INTERFACE:${${PROJECT_NAME}_INCLUDE_DIR}>
+        $<INSTALL_INTERFACE:${${PROJECT_NAME}_INSTALL_INCLUDE_DIR}>)
+
+target_link_libraries(process_keti_data ${PROJECT_NAME})
+
 #######################################################################################################################
 # export variables
 #######################################################################################################################

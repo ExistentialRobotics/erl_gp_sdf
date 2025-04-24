@@ -19,6 +19,7 @@
 #include <open3d/geometry/VoxelGrid.h>
 #include <open3d/io/TriangleMeshIO.h>
 #include <open3d/visualization/utility/DrawGeometry.h>
+#include <open3d/utility/Logging.h>
 
 const std::filesystem::path kProjectRootDir = ERL_SDF_MAPPING_ROOT_DIR;
 int g_argc = 0;
@@ -109,7 +110,7 @@ TestImpl3D() {
         std::string sdf_mapping_bin_file;
         long stride = 1;
         long max_frames = std::numeric_limits<long>::max();
-        Dtype test_res = 0.02;
+        Dtype test_res = 0.1;
         long test_xs = 150;
         long test_ys = 100;
         bool test_whole_map_at_end = false;  // test the whole map at the end
@@ -269,14 +270,21 @@ TestImpl3D() {
     const auto pcd_surf_points = std::make_shared<open3d::geometry::PointCloud>();
     const auto line_set_surf_normals = std::make_shared<open3d::geometry::LineSet>();
     const auto voxel_grid_sdf = std::make_shared<open3d::geometry::VoxelGrid>();
+    const auto pcd_test = std::make_shared<open3d::geometry::PointCloud>();
+
+    auto sdf_mesh = std::make_shared<open3d::geometry::TriangleMesh>();
+
     voxel_grid_sdf->origin_.setZero();
     voxel_grid_sdf->voxel_size_ = options.test_res;
+
     geometries.push_back(mesh_sensor);
     geometries.push_back(mesh_sensor_xyz);
+    geometries.push_back(sdf_mesh);
+    // geometries.push_back(pcd_test);
     // geometries.push_back(pcd_obs);
     // geometries.push_back(pcd_surf_points);
     // geometries.push_back(line_set_surf_normals);
-    geometries.push_back(voxel_grid_sdf);
+    // geometries.push_back(voxel_grid_sdf);
     visualizer.AddGeometries(geometries);
 
     // prepare the test positions
@@ -306,32 +314,7 @@ TestImpl3D() {
         if (skip_training || wp_idx >= max_wp_idx) {
             animation_ended = true;
             if (options.test_whole_map_at_end) {
-                erl::common::GridMapInfo2D<Dtype> grid_map_info(
-                    map_min.template head<2>(),
-                    map_max.template head<2>(),
-                    Eigen::Vector2<Dtype>(options.test_res, options.test_res),
-                    Eigen::Vector2i(10, 10));
-                Matrix3X test_positions(3, grid_map_info.Size());
-                test_positions.topRows(2) = grid_map_info.GenerateMeterCoordinates(false).template cast<Dtype>();
-                test_positions.row(2).setConstant(options.test_z);
-                VectorX distances;
-                {
-                    Matrix3X gradients(3, test_positions.cols());
-                    Matrix4X variances;
-                    Matrix6X covairances;
-                    ERL_BLOCK_TIMER_MSG("sdf_mapping.Test");
-                    EXPECT_TRUE(sdf_mapping.Test(test_positions, distances, gradients, variances, covairances));
-                }
-                auto [img_sdf, img_sdf_sign] = ConvertSdfToImage(distances, grid_map_info.Shape(0), grid_map_info.Shape(1));
-                ConvertSdfToVoxelGrid(img_sdf, test_positions, voxel_grid_sdf);
-                Dtype resize_scale = options.image_resize_scale;
-                resize_scale = std::min(resize_scale, static_cast<Dtype>(1920.0) / static_cast<Dtype>(img_sdf.cols));
-                resize_scale = std::min(resize_scale, static_cast<Dtype>(1920.0) / static_cast<Dtype>(img_sdf.rows));
-                cv::resize(img_sdf, img_sdf, cv::Size(), resize_scale, resize_scale);
-                cv::resize(img_sdf_sign, img_sdf_sign, cv::Size(), resize_scale, resize_scale);
-                cv::imshow("sdf_whole_map", img_sdf);
-                cv::imshow("sdf_sign_whole_map", img_sdf_sign);
-                cv::waitKey(1);
+
             }
             if (!skip_training && options.test_io) {
                 // TODO: test io
@@ -392,21 +375,82 @@ TestImpl3D() {
         ERL_TRACY_PLOT("sdf_mapping_update (fps)", gp_update_fps);
 
         // test
-        Matrix3X positions_test(3, positions.size());
-        for (long j = 0; j < positions.cols(); ++j) {
-            for (long i = 0; i < positions.rows(); ++i) {
-                const Vector3 &position = positions(i, j);
-                positions_test.col(i + j * positions.rows()) = rotation_sensor * position + translation_sensor;  // sensor frame to world frame
-            }
-        }
+        // Matrix3X positions_test(3, positions.size());
+        // for (long j = 0; j < positions.cols(); ++j) {
+        //     for (long i = 0; i < positions.rows(); ++i) {
+        //         const Vector3 &position = positions(i, j);
+        //         positions_test.col(i + j * positions.rows()) = rotation_sensor * position + translation_sensor;  // sensor frame to world frame
+        //     }
+        // }
+
+        // erl::common::GridMapInfo3D<Dtype> grid_map_info(
+        //     map_min,
+        //     map_max,
+        //     Eigen::Vector3<Dtype>(options.test_res, options.test_res, options.test_res),
+        //     Eigen::Vector3i(10, 10, 10)
+        // );
+
+        // Matrix3X positions_test = grid_map_info.GenerateMeterCoordinates(false);
+
+        erl::common::GridMapInfo3D<Dtype> grid_map_info(
+            map_min,
+            map_max,
+            Eigen::Vector3<Dtype>(options.test_res, options.test_res, options.test_res),
+            Eigen::Vector3i(10, 10, 10)
+        );
+
+        Matrix3X positions_test = grid_map_info.GenerateMeterCoordinates(false);
+
         VectorX distances(positions_test.cols());
         {
             Matrix3X gradients(3, positions_test.cols());
             Matrix4X variances;
             Matrix6X covairances;
-            ERL_BLOCK_TIMER_MSG_TIME("sdf_mapping.Test", dt);
             EXPECT_TRUE(sdf_mapping.Test(positions_test, distances, gradients, variances, covairances));
+            Matrix3X closest_point (3, positions_test.cols());
+
+            for(size_t i = 0; i < closest_point.cols(); i++) {
+                closest_point.col(i) = positions_test.col(i) - distances[i] * gradients.col(i);
+            }
+
+            EXPECT_TRUE(sdf_mapping.Test(closest_point, distances, gradients, variances, covairances));
+
+            pcd_test->points_.clear();
+            pcd_test->points_.reserve(closest_point.cols());
+
+            pcd_test->normals_.clear();
+            pcd_test->normals_.reserve(closest_point.cols());
+            for(size_t i = 0; i < closest_point.cols(); i++) {
+                if (distances[i] > 0.1) {
+                    closest_point.col(i) = closest_point.col(i) - distances[i] * gradients.col(i);
+                }
+                pcd_test->points_.push_back(closest_point.col(i).template cast<double>());
+                pcd_test->normals_.push_back(-gradients.col(i).template cast<double>());
+            }
+
         }
+
+        // if (wp_idx % 30 == 1) {
+
+        //     ERL_INFO("Staring mesh construction");
+        //     std::vector<double> density;
+        //     std::tie(sdf_mesh, density) = open3d::geometry::TriangleMesh::CreateFromPointCloudPoisson(
+        //         *pcd_test
+        //     );
+
+        // }
+
+
+
+        // VectorX distances(positions_test.cols());
+        // {
+        //     Matrix3X gradients(3, positions_test.cols());
+        //     Matrix4X variances;
+        //     Matrix6X covairances;
+        //     ERL_BLOCK_TIMER_MSG_TIME("sdf_mapping.Test", dt);
+        //     EXPECT_TRUE(sdf_mapping.Test(positions_test, distances, gradients, variances, covairances));
+        // }
+
         double gp_test_fps = 1000.0 / dt;
         ERL_TRACY_PLOT("gp_test (ms)", dt);
         ERL_TRACY_PLOT("gp_test (fps)", gp_test_fps);
@@ -424,7 +468,7 @@ TestImpl3D() {
         cv::resize(img_sdf_sign, img_sdf_sign, cv::Size(), resize_scale, resize_scale);
         cv::putText(img_sdf, fmt::format("frame {}", wp_idx), cv::Point(10, 30), cv::FONT_HERSHEY_PLAIN, 1.5, cv::Scalar(255, 255, 255), 2);
         cv::putText(img_sdf, fmt::format("update {:.2f} fps", gp_update_fps), cv::Point(10, 60), cv::FONT_HERSHEY_PLAIN, 1.5, cv::Scalar(255, 255, 255), 2);
-        cv::putText(img_sdf, fmt::format("test {:.2f} fps", gp_test_fps), cv::Point(10, 90), cv::FONT_HERSHEY_PLAIN, 1.5, cv::Scalar(255, 255, 255), 2);
+        // cv::putText(img_sdf, fmt::format("test {:.2f} fps", gp_test_fps), cv::Point(10, 90), cv::FONT_HERSHEY_PLAIN, 1.5, cv::Scalar(255, 255, 255), 2);
         cv::imshow("ranges", depth_jet);
         cv::imshow("sdf", img_sdf);
         cv::imshow("sdf_sign", img_sdf_sign);
@@ -511,6 +555,7 @@ TEST(GpSdfMapping, 3Df) { TestImpl3D<float>(); }
 
 int
 main(int argc, char *argv[]) {
+    open3d::utility::SetVerbosityLevel(open3d::utility::VerbosityLevel::Debug);
     testing::InitGoogleTest(&argc, argv);
     g_argc = argc;
     g_argv = argv;
