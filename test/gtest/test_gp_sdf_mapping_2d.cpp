@@ -36,7 +36,8 @@ DrawGp(
     Eigen::Vector2i gp1_area_max_px = drawer.GetPixelCoordsForPositions(gp1_area_max, true);
     cv::rectangle(img, cv::Point(gp1_area_min_px[0], gp1_area_min_px[1]), cv::Point(gp1_area_max_px[0], gp1_area_max_px[1]), rect_color, 2);
 
-    const Eigen::Matrix2X<Dtype> used_surface_points = gp->edf_gp->GetTrainInputSamplesBuffer().block(0, 0, 2, gp->edf_gp->GetNumTrainSamples());
+    typename erl::gaussian_process::NoisyInputGaussianProcess<Dtype>::TrainSet &train_set = gp->edf_gp->GetTrainSet();
+    const Eigen::Matrix2X<Dtype> used_surface_points = train_set.x.block(0, 0, 2, train_set.num_samples);
     Eigen::Matrix2Xi used_surface_points_px = drawer.GetPixelCoordsForPositions(used_surface_points, true);
     for (long j = 0; j < used_surface_points.cols(); j++) {
         cv::circle(img, cv::Point(used_surface_points_px(0, j), used_surface_points_px(1, j)), 3, data_color, -1);
@@ -362,6 +363,7 @@ TestImpl2D() {
         "Failed to load sdf_mapping_config_file: {}",
         options.sdf_mapping_config_file);
     sdf_mapping_setting->test_query.compute_covariance = true;
+    sdf_mapping_setting->test_query.use_global_buffer = true;
     SdfMapping sdf_mapping(sdf_mapping_setting, surface_mapping);
 
     // prepare the visualizer
@@ -422,6 +424,19 @@ TestImpl2D() {
     auto grid_map_info = drawer.GetGridMapInfo();
     PlplotFig fig_sdf(1280, 480, true);
     PlplotFig fig_grad(1280, 480, true);
+    PlplotFig::LegendOpt legend_opt_sdf(3, {"SDF", "EDF", "Variance"});
+    legend_opt_sdf.SetTextColors({PlplotFig::Color0::Red, PlplotFig::Color0::Yellow, PlplotFig::Color0::Green})
+        .SetStyles({PL_LEGEND_LINE, PL_LEGEND_LINE, PL_LEGEND_LINE})
+        .SetLineColors(legend_opt_sdf.text_colors)
+        .SetLineStyles({1, 1, 1})
+        .SetLineWidths({1.0, 1.0, 1.0});
+    PlplotFig::LegendOpt legend_opt_grad(4, {"grad_x", "grad_y", "var_grad_x", "var_grad_y"});
+    legend_opt_grad.SetTextColors({PlplotFig::Color0::Red, PlplotFig::Color0::Yellow, PlplotFig::Color0::Green, PlplotFig::Color0::Aquamarine})
+        .SetStyles({PL_LEGEND_LINE, PL_LEGEND_LINE, PL_LEGEND_LINE, PL_LEGEND_LINE})
+        .SetLineColors(legend_opt_grad.text_colors)
+        .SetLineStyles({1, 1, 1, 1})
+        .SetLineWidths({1.0, 1.0, 1.0, 1.0});
+
     std::string window_name = test_info->name();
     const double tspan = 500.0 * tic;
     auto draw_curve = [&](PlplotFig &fig, const PlplotFig::Color0 color_idx, const int n, const double *ts, const double *vs) {
@@ -518,11 +533,13 @@ TestImpl2D() {
             auto gp2 = gps[1];
             if (gp1 != nullptr) {
                 DrawGp<Dtype>(img, gp1, drawer, {0, 125, 255, 255}, {125, 255, 0, 255}, {255, 125, 0, 255});
-                ERL_INFO("GP1 at [{:f}, {:f}] has {} data points.", gp1->position.x(), gp1->position.y(), gp1->edf_gp->GetNumTrainSamples());
+                typename erl::gaussian_process::NoisyInputGaussianProcess<Dtype>::TrainSet &train_set = gp1->edf_gp->GetTrainSet();
+                ERL_INFO("GP1 at [{:f}, {:f}] has {} data points.", gp1->position.x(), gp1->position.y(), train_set.num_samples);
             }
             if (gp2 != nullptr) {
                 DrawGp<Dtype>(img, gp2, drawer, {125, 125, 255, 255}, {125, 255, 125, 255}, {255, 125, 0, 255});
-                ERL_INFO("GP2 has {} data points.", gp2->edf_gp->GetNumTrainSamples());
+                typename erl::gaussian_process::NoisyInputGaussianProcess<Dtype>::TrainSet &train_set = gp2->edf_gp->GetTrainSet();
+                ERL_INFO("GP2 has {} data points.", train_set.num_samples);
             }
 
             // draw trajectory
@@ -568,7 +585,7 @@ TestImpl2D() {
                     .SetMargin(0.15, 0.85, 0.15, 0.9)
                     .SetAxisLimits(traj_t - tspan, traj_t, fig_sdf_y_min, fig_sdf_y_max)
                     .SetCurrentColor(PlplotFig::Color0::White)
-                    .DrawAxesBox(PlplotFig::AxisOpt().DrawTopRightEdge(), PlplotFig::AxisOpt())
+                    .DrawAxesBox(PlplotFig::AxisOpt().DrawTopRightEdge(), PlplotFig::AxisOpt().DrawPerpendicularTickLabels())
                     .SetAxisLabelX("time (sec)")
                     .SetCurrentColor(PlplotFig::Color0::Yellow)
                     .SetAxisLabelY("SDF/EDF (meter)");
@@ -581,10 +598,11 @@ TestImpl2D() {
                     .SetAxisLimits(traj_t - tspan, traj_t, *minmax.first - 0.01, *minmax.second + 0.01)
                     .DrawAxesBox(
                         PlplotFig::AxisOpt::Off(),
-                        PlplotFig::AxisOpt::Off().DrawTopRightEdge().DrawTickMajor().DrawTickMinor().DrawTopRightTickLabels())
+                        PlplotFig::AxisOpt::Off().DrawTopRightEdge().DrawTickMajor().DrawTickMinor().DrawTopRightTickLabels().DrawPerpendicularTickLabels())
                     .SetCurrentColor(PlplotFig::Color0::Green)
                     .SetAxisLabelY("Variance", true);
                 draw_curve(fig_sdf, PlplotFig::Color0::Green, n, timestamps_second.data(), var_sdf_values.data());
+                fig_sdf.Legend(legend_opt_sdf);
 
                 // render fig_grad
                 minmax = std::minmax_element(grad_x_values.begin(), grad_x_values.end());
@@ -599,7 +617,7 @@ TestImpl2D() {
                     .SetMargin(0.15, 0.85, 0.15, 0.9)
                     .SetAxisLimits(traj_t - tspan, traj_t, fig_grad_y_min, fig_grad_y_max)
                     .SetCurrentColor(PlplotFig::Color0::White)
-                    .DrawAxesBox(PlplotFig::AxisOpt().DrawTopRightEdge(), PlplotFig::AxisOpt())
+                    .DrawAxesBox(PlplotFig::AxisOpt().DrawTopRightEdge(), PlplotFig::AxisOpt().DrawPerpendicularTickLabels())
                     .SetAxisLabelX("time (sec)")
                     .SetCurrentColor(PlplotFig::Color0::Yellow)
                     .SetAxisLabelY("Gradient (meter)");
@@ -619,11 +637,12 @@ TestImpl2D() {
                     .SetAxisLimits(traj_t - tspan, traj_t, fig_grad_y_min, fig_grad_y_max)
                     .DrawAxesBox(
                         PlplotFig::AxisOpt::Off(),
-                        PlplotFig::AxisOpt::Off().DrawTopRightEdge().DrawTickMajor().DrawTickMinor().DrawTopRightTickLabels())
+                        PlplotFig::AxisOpt::Off().DrawTopRightEdge().DrawTickMajor().DrawTickMinor().DrawTopRightTickLabels().DrawPerpendicularTickLabels())
                     .SetCurrentColor(PlplotFig::Color0::Green)
                     .SetAxisLabelY("Variance", true);
                 draw_curve(fig_grad, PlplotFig::Color0::Green, n, timestamps_second.data(), var_grad_x_values.data());
                 draw_curve(fig_grad, PlplotFig::Color0::Aquamarine, n, timestamps_second.data(), var_grad_y_values.data());
+                fig_grad.Legend(legend_opt_grad);
             }
             cv::Mat tmp(frame.rows, frame.cols, CV_8UC4, cv::Scalar(0));
             if (img.rows == frame.rows) {

@@ -45,34 +45,48 @@ namespace erl::sdf_mapping {
         std::vector<std::pair<Dtype, std::size_t>> &surface_data_indices,
         const std::vector<SurfaceData<Dtype, Dim>> &surface_data_vec,
         const Eigen::Vector<Dtype, Dim> &coord_origin,
+        const bool load_normals,
+        const Dtype normal_scale,
         const Dtype offset_distance,
         const Dtype sensor_noise,
         const Dtype max_valid_gradient_var,
         const Dtype invalid_position_var) {
 
         this->SetKernelCoordOrigin(coord_origin);
-
         const long max_num_samples = std::min(m_setting_->max_num_samples, static_cast<long>(surface_data_vec.size()));
-        this->Reset(max_num_samples, Dim);
-
+        this->Reset(max_num_samples, Dim, load_normals ? Dim + 1 : 1);
         std::sort(surface_data_indices.begin(), surface_data_indices.end(), [](const auto &a, const auto &b) { return a.first < b.first; });
 
         long count = 0;
+        typename gaussian_process::NoisyInputGaussianProcess<Dtype>::TrainSet &train_set = this->m_train_set_;
         for (auto &[distance, surface_data_index]: surface_data_indices) {
             auto &surface_data = surface_data_vec[surface_data_index];
-            this->m_mat_x_train_.col(count) = surface_data.position - offset_distance * surface_data.normal;
-            this->m_vec_var_h_[count] = sensor_noise;
-            this->m_vec_var_x_[count] = surface_data.var_position;
-            // this->m_vec_grad_flag_[count] = false;  // m_setting_->no_gradient_observation is true, so no need to set this
-            if ((surface_data.var_normal > max_valid_gradient_var) ||                                   // invalid gradient
-                (surface_data.normal.norm() < 0.9f)) {                                                  // invalid normal
-                this->m_vec_var_x_[count] = std::max(this->m_vec_var_x_[count], invalid_position_var);  // position is unreliable
+            if (offset_distance == 0.0f) {
+                train_set.x.col(count) = surface_data.position;
+            } else {
+                train_set.x.col(count) = surface_data.position - offset_distance * surface_data.normal;
             }
-            if (++count >= this->m_mat_x_train_.cols()) { break; }  // reached max_num_samples
+            train_set.y.col(0)[count] = 1.0f;
+            if (load_normals) {
+                for (long i = 0; i < Dim; ++i) { train_set.y.col(i + 1)[count] = normal_scale * surface_data.normal[i]; }
+            }
+            train_set.var_x[count] = surface_data.var_position;
+            if ((surface_data.var_normal > max_valid_gradient_var) ||                             // invalid gradient
+                (surface_data.normal.norm() < 0.9f)) {                                            // invalid normal
+                train_set.var_x[count] = std::max(train_set.var_x[count], invalid_position_var);  // position is unreliable
+            }
+            train_set.var_y[count] = sensor_noise;
+
+            // this->m_vec_var_h_[count] = sensor_noise;
+            // this->m_vec_var_x_[count] = surface_data.var_position;
+            // this->m_vec_grad_flag_[count] = false;  // m_setting_->no_gradient_observation is true, so no need to set this
+            // if (++count >= this->m_mat_x_train_.cols()) { break; }  // reached max_num_samples
+
+            if (++count >= train_set.x.cols()) { break; }  // reached max_num_samples
         }
-        this->m_num_train_samples_ = count;
-        this->m_vec_y_train_.setOnes(this->m_num_train_samples_);
-        if (this->m_reduced_rank_kernel_) { this->UpdateKtrain(this->m_num_train_samples_); }
+        train_set.num_samples = count;
+        train_set.num_samples_with_grad = 0;
+        if (this->m_reduced_rank_kernel_) { this->UpdateKtrain(); }
         return count;
     }
 
@@ -80,12 +94,12 @@ namespace erl::sdf_mapping {
     bool
     LogEdfGaussianProcess<Dtype>::Test(
         const Eigen::Ref<const MatrixX> &mat_x_test,
+        const std::vector<std::pair<long, bool>> &y_index_grad_pairs,
         Eigen::Ref<MatrixX> mat_f_out,
         Eigen::Ref<MatrixX> mat_var_out,
-        Eigen::Ref<MatrixX> mat_cov_out,
-        const bool predict_gradient) const {
+        Eigen::Ref<MatrixX> mat_cov_out) const {
 
-        if (!Super::Test(mat_x_test, mat_f_out, mat_var_out, mat_cov_out, predict_gradient)) { return false; }
+        if (!Super::Test(mat_x_test, y_index_grad_pairs, mat_f_out, mat_var_out, mat_cov_out)) { return false; }
         const long dim = mat_x_test.rows();
         const long n = mat_x_test.cols();
         const Dtype log_lambda = m_setting_->log_lambda;

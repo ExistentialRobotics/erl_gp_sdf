@@ -52,6 +52,8 @@ namespace erl::sdf_mapping {
             std::vector<std::pair<Dtype, std::size_t>> &surface_data_indices,
             const std::vector<SurfaceData<Dtype, Dim>> &surface_data_vec,
             const Eigen::Vector<Dtype, Dim> &coord_origin,
+            bool load_normals,
+            Dtype normal_scale,
             Dtype offset_distance,
             Dtype sensor_noise,
             Dtype max_valid_gradient_var,
@@ -60,10 +62,10 @@ namespace erl::sdf_mapping {
         [[nodiscard]] bool
         Test(
             const Eigen::Ref<const MatrixX> &mat_x_test,
+            const std::vector<std::pair<long, bool>> &y_index_grad_pairs,
             Eigen::Ref<MatrixX> mat_f_out,
             Eigen::Ref<MatrixX> mat_var_out,
-            Eigen::Ref<MatrixX> mat_cov_out,
-            bool predict_gradient) const override;
+            Eigen::Ref<MatrixX> mat_cov_out) const override;
 
         [[nodiscard]] bool
         operator==(const LogEdfGaussianProcess &other) const;

@@ -6,6 +6,7 @@ test_query:
     use_smallest: true  # use the smallest distance as the prediction
     compute_covariance: false  # whether to compute covariance
     use_gp_covariance: false
+    use_global_buffer: true
 num_threads: 64
 update_hz: 60
 sensor_noise: 0.01
@@ -13,9 +14,10 @@ gp_sdf_area_scale: 4    # should be larger than 2x max sdf when use_smallest is 
 max_valid_gradient_var: 0.1
 invalid_position_var: 0.25
 offset_distance: 0.0
-use_sign_from_surface_mapping: true
+use_sign_from_surface_mapping: false
 sdf_gp:
-    enable_sign_gp: false
+    sign_prediction_method: "kNormalGp"
+    normal_scale: 10.0
     sign_gp:
         kernel_type: erl::covariance::ReducedRankMatern32<float, 2>
         kernel_setting_type: erl::covariance::ReducedRankCovariance<float>::Setting

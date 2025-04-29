@@ -20,7 +20,7 @@ namespace erl::sdf_mapping {
             : SurfaceMappingOctree(std::make_shared<Setting>()) {}
 
         explicit SurfaceMappingOctree(const std::string &filename)
-            : SurfaceMappingOctree() {  // resolution will be set by LoadData
+            : SurfaceMappingOctree() {  // LoadData will set resolution
             ERL_ASSERTM(this->LoadData(filename), "Failed to read SurfaceMappingOctree from file: {}", filename);
         }
 

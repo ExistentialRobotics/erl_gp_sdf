@@ -8,12 +8,19 @@
 
 namespace erl::sdf_mapping {
 
+    enum SignPredictionMethod {
+        kNone = 0,      // no sign prediction
+        kSignGp = 1,    // use sign gp
+        kNormalGp = 2,  // use normal gp
+    };
+
     template<typename Dtype>
     struct SdfGaussianProcessSetting : common::Yamlable<SdfGaussianProcessSetting<Dtype>> {
         using SignGpSetting = typename SignGaussianProcess<Dtype>::Setting;
         using EdfGpSetting = typename LogEdfGaussianProcess<Dtype>::Setting;
 
-        bool enable_sign_gp = true;
+        SignPredictionMethod sign_prediction_method = kNormalGp;
+        Dtype normal_scale = 1.0f;  // scale for normal gp, used only when sign_prediction_method is kNormalGp
         std::shared_ptr<SignGpSetting> sign_gp = std::make_shared<SignGpSetting>();
         std::shared_ptr<EdfGpSetting> edf_gp = std::make_shared<EdfGpSetting>();
 
@@ -31,7 +38,6 @@ namespace erl::sdf_mapping {
 
     template<typename Dtype, int Dim>
     struct SdfGaussianProcess {
-        inline static const std::string kFileHeader = fmt::format("# {}", type_name<SdfGaussianProcess>());
 
         using SignGp = SignGaussianProcess<Dtype>;
         using EdfGp = LogEdfGaussianProcess<Dtype>;
@@ -44,14 +50,12 @@ namespace erl::sdf_mapping {
         std::shared_ptr<Setting> setting = nullptr;
         bool active = false;
         std::atomic_bool locked_for_test = false;
-        long num_sign_samples = 0;
-        long num_edf_samples = 0;
         VectorD position{};
         Dtype half_size = 0;
         std::shared_ptr<SignGp> sign_gp = nullptr;
         std::shared_ptr<EdfGp> edf_gp = nullptr;
 
-        explicit SdfGaussianProcess(std::shared_ptr<Setting> setting);
+        explicit SdfGaussianProcess(std::shared_ptr<Setting> setting_);
 
         SdfGaussianProcess(const SdfGaussianProcess& other);
 
@@ -93,7 +97,7 @@ namespace erl::sdf_mapping {
         [[nodiscard]] bool
         Test(
             const VectorD& test_position,
-            Eigen::Ref<Eigen::Vector<Dtype, Dim + 1>> f,
+            Eigen::Ref<Eigen::Vector<Dtype, 2 * Dim + 1>> f,
             Eigen::Ref<Eigen::Vector<Dtype, Dim + 1>> var,
             Eigen::Ref<Eigen::Vector<Dtype, Dim*(Dim + 1) / 2>> covariance,
             Dtype offset_distance,

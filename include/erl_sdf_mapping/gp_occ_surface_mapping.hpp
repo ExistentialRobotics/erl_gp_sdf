@@ -15,7 +15,7 @@ namespace erl::sdf_mapping {
         static_assert(Dim == 2 || Dim == 3, "Dim must be 2 or 3.");
         inline static const std::string kClassName = type_name<GpOccSurfaceMapping>();
         inline static const std::string kFileHeader = fmt::format("# {}", kClassName);
-        inline static const char *kFileFooter = "end_of_GpOccSurfaceMapping";
+        inline static auto kFileFooter = "end_of_GpOccSurfaceMapping";
 
     public:
         // type definitions required by GpSdfMapping

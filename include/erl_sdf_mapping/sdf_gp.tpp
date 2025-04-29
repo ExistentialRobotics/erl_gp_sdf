@@ -1,12 +1,49 @@
 #pragma once
 
+template<>
+struct YAML::convert<erl::sdf_mapping::SignPredictionMethod> {
+    static Node
+    encode(const erl::sdf_mapping::SignPredictionMethod &method) {
+        Node node;
+        switch (method) {
+            case erl::sdf_mapping::kNone:
+                node = "kNone";
+                break;
+            case erl::sdf_mapping::kSignGp:
+                node = "kSignGp";
+                break;
+            case erl::sdf_mapping::kNormalGp:
+                node = "kNormalGp";
+                break;
+            default:
+                ERL_FATAL("Unknown SignPredictionMethod: {}", static_cast<int>(method));
+        }
+        return node;
+    }
+
+    static bool
+    decode(const Node &node, erl::sdf_mapping::SignPredictionMethod &method) {
+        const std::string method_str = node.as<std::string>();
+        if (method_str == "kNone") {
+            method = erl::sdf_mapping::kNone;
+        } else if (method_str == "kSignGp") {
+            method = erl::sdf_mapping::kSignGp;
+        } else if (method_str == "kNormalGp") {
+            method = erl::sdf_mapping::kNormalGp;
+        } else {
+            ERL_FATAL("Unknown SignPredictionMethod: {}", method_str);
+        }
+        return true;
+    }
+};
+
 namespace erl::sdf_mapping {
 
     template<typename Dtype>
     YAML::Node
     SdfGaussianProcessSetting<Dtype>::YamlConvertImpl::encode(const SdfGaussianProcessSetting &setting) {
         YAML::Node node;
-        node["enable_sign_gp"] = setting.enable_sign_gp;
+        node["sign_prediction_method"] = setting.sign_prediction_method;
         node["sign_gp"] = setting.sign_gp;
         node["edf_gp"] = setting.edf_gp;
         return node;
@@ -16,21 +53,22 @@ namespace erl::sdf_mapping {
     bool
     SdfGaussianProcessSetting<Dtype>::YamlConvertImpl::decode(const YAML::Node &node, SdfGaussianProcessSetting &setting) {
         if (!node.IsMap()) { return false; }
-        setting.enable_sign_gp = node["enable_sign_gp"].as<bool>();
+        setting.sign_prediction_method = node["sign_prediction_method"].as<SignPredictionMethod>();
         setting.sign_gp = node["sign_gp"].as<decltype(setting.sign_gp)>();
         setting.edf_gp = node["edf_gp"].as<decltype(setting.edf_gp)>();
         return true;
     }
 
     template<typename Dtype, int Dim>
-    SdfGaussianProcess<Dtype, Dim>::SdfGaussianProcess(std::shared_ptr<Setting> setting)
-        : setting(std::move(setting)) {}
+    SdfGaussianProcess<Dtype, Dim>::SdfGaussianProcess(std::shared_ptr<Setting> setting_)
+        : setting(std::move(setting_)) {
+        ERL_ASSERTM(setting != nullptr, "Setting is null.");
+    }
 
     template<typename Dtype, int Dim>
     SdfGaussianProcess<Dtype, Dim>::SdfGaussianProcess(const SdfGaussianProcess &other)
         : setting(other.setting),
           active(other.active),
-          num_edf_samples(other.num_edf_samples),
           position(other.position),
           half_size(other.half_size) {
         if (other.edf_gp != nullptr) { edf_gp = std::make_shared<LogEdfGaussianProcess>(*other.edf_gp); }
@@ -40,7 +78,6 @@ namespace erl::sdf_mapping {
     SdfGaussianProcess<Dtype, Dim>::SdfGaussianProcess(SdfGaussianProcess &&other) noexcept
         : setting(other.setting),
           active(other.active),
-          num_edf_samples(other.num_edf_samples),
           position(std::move(other.position)),
           half_size(other.half_size),
           edf_gp(std::move(other.edf_gp)) {}
@@ -51,7 +88,6 @@ namespace erl::sdf_mapping {
         if (this == &other) { return *this; }
         setting = other.setting;
         active = other.active;
-        num_edf_samples = other.num_edf_samples;
         position = other.position;
         half_size = other.half_size;
         if (other.edf_gp != nullptr) { edf_gp = std::make_shared<EdfGp>(*other.edf_gp); }
@@ -64,7 +100,6 @@ namespace erl::sdf_mapping {
         if (this == &other) { return *this; }
         setting = other.setting;
         active = other.active;
-        num_edf_samples = other.num_edf_samples;
         position = other.position;
         half_size = other.half_size;
         edf_gp = std::move(other.edf_gp);
@@ -74,7 +109,7 @@ namespace erl::sdf_mapping {
     template<typename Dtype, int Dim>
     void
     SdfGaussianProcess<Dtype, Dim>::Activate() {
-        if (sign_gp == nullptr && setting->enable_sign_gp) { sign_gp = std::make_shared<SignGp>(setting->sign_gp); }
+        if (sign_gp == nullptr && setting->sign_prediction_method == kSignGp) { sign_gp = std::make_shared<SignGp>(setting->sign_gp); }
         if (edf_gp == nullptr) { edf_gp = std::make_shared<EdfGp>(setting->edf_gp); }
         active = true;
     }
@@ -83,7 +118,6 @@ namespace erl::sdf_mapping {
     void
     SdfGaussianProcess<Dtype, Dim>::Deactivate() {
         active = false;
-        num_edf_samples = 0;
     }
 
     template<typename Dtype, int Dim>
@@ -91,6 +125,7 @@ namespace erl::sdf_mapping {
     SdfGaussianProcess<Dtype, Dim>::GetMemoryUsage() const {
         std::size_t memory_usage = sizeof(SdfGaussianProcess);
         if (edf_gp != nullptr) { memory_usage += edf_gp->GetMemoryUsage(); }
+        if (sign_gp != nullptr) { memory_usage += sign_gp->GetMemoryUsage(); }
         return memory_usage;
     }
 
@@ -122,7 +157,7 @@ namespace erl::sdf_mapping {
         Dtype max_valid_gradient_var,
         Dtype invalid_position_var) {
         if (sign_gp != nullptr) {
-            num_sign_samples = sign_gp->template LoadSurfaceData<Dim>(
+            sign_gp->template LoadSurfaceData<Dim>(
                 surface_data_indices,
                 surface_data_vec,
                 position,
@@ -132,10 +167,12 @@ namespace erl::sdf_mapping {
                 invalid_position_var);
         }
         if (edf_gp != nullptr) {
-            num_edf_samples = edf_gp->template LoadSurfaceData<Dim>(
+            edf_gp->template LoadSurfaceData<Dim>(
                 surface_data_indices,
                 surface_data_vec,
                 position,
+                setting->sign_prediction_method == kNormalGp,
+                setting->normal_scale,
                 offset_distance,
                 sensor_noise,
                 max_valid_gradient_var,
@@ -147,15 +184,15 @@ namespace erl::sdf_mapping {
     void
     SdfGaussianProcess<Dtype, Dim>::Train() const {
         ERL_DEBUG_ASSERT(active, "SdfGaussianProcess is not active.");
-        if (sign_gp != nullptr) { sign_gp->Train(num_sign_samples); }
-        if (edf_gp != nullptr) { edf_gp->Train(num_edf_samples); }
+        if (sign_gp != nullptr) { sign_gp->Train(); }
+        if (edf_gp != nullptr) { edf_gp->Train(); }
     }
 
     template<typename Dtype, int Dim>
     bool
     SdfGaussianProcess<Dtype, Dim>::Test(
-        const VectorD &test_position,
-        Eigen::Ref<Eigen::Vector<Dtype, Dim + 1>> f,
+        const VectorD &test_position,  // single position to test
+        Eigen::Ref<Eigen::Vector<Dtype, 2 * Dim + 1>> f,
         Eigen::Ref<Eigen::Vector<Dtype, Dim + 1>> var,
         Eigen::Ref<Eigen::Vector<Dtype, Dim *(Dim + 1) / 2>> covariance,
         const Dtype offset_distance,
@@ -165,34 +202,57 @@ namespace erl::sdf_mapping {
 
         ERL_DEBUG_ASSERT(active, "SdfGaussianProcess is not active.");
 
+        // TODO: sign prediction
+
         VectorX no_variance, no_covariance;
-        VectorX sign(f.size());
-        const bool predict_sign = sign_gp != nullptr && sign_gp->Test(test_position, sign, no_variance, no_covariance, false);
+        Eigen::Scalar<Dtype> sign;
+        std::vector<std::pair<long, bool>> y_index_grad_pairs = {{0, true}};
+
+        bool predict_sign = false;
+
+        auto predict_sign_func = [&]() -> bool {
+            if (setting->sign_prediction_method == kSignGp) {
+                ERL_DEBUG_ASSERT(sign_gp != nullptr, "Sign GP is not initialized.");
+                const bool success = sign_gp->Test(test_position, {{0, false}}, sign, no_variance, no_covariance);
+                ERL_DEBUG_ASSERT(success, "Sign GP failed to predict sign.");
+                return success;
+            }
+            if (setting->sign_prediction_method == kNormalGp) {
+                sign[0] = f.template segment<Dim>(1).dot(f.template tail<Dim>());
+                return true;  // use normal GP for sign prediction
+            }
+            return false;
+        };
+
+        if (setting->sign_prediction_method == kNormalGp) {
+            y_index_grad_pairs.reserve(1 + Dim);
+            for (long i = 0; i < Dim; ++i) { y_index_grad_pairs.emplace_back(i + 1, false); }
+        }
 
         if (use_gp_covariance) {
             if (compute_covariance) {
-                edf_gp->Test(test_position, f, var, covariance, true);
+                edf_gp->Test(test_position, y_index_grad_pairs, f, var, covariance);
             } else {
-                edf_gp->Test(test_position, f, var, no_covariance, true);
+                edf_gp->Test(test_position, y_index_grad_pairs, f, var, no_covariance);
             }
-            if (f.template tail<Dim>().norm() < 1.e-15) { return false; }  // invalid gradient, skip this GP
+            if (f.template segment<Dim>(1).norm() < 1.e-6) { return false; }  // invalid gradient, skip this GP
+
+            predict_sign = predict_sign_func();
         } else {
-            edf_gp->Test(test_position, f, no_variance, no_covariance, true);
-            VectorD grad = f.template tail<Dim>();
-            if (grad.norm() <= 1.e-15) { return false; }  // invalid gradient, skip this GP
+            edf_gp->Test(test_position, y_index_grad_pairs, f, no_variance, no_covariance);
+            if (f.template segment<Dim>(1).norm() < 1.e-6) { return false; }  // invalid gradient, skip this GP
 
-            auto &mat_x = edf_gp->GetTrainInputSamplesBuffer();
-            auto &vec_x_var = edf_gp->GetTrainInputSamplesVarianceBuffer();
-            const long num_samples = edf_gp->GetNumTrainSamples();
+            predict_sign = predict_sign_func();
 
-            VectorX s(static_cast<int>(num_samples));
+            const typename LogEdfGaussianProcess<Dtype>::TrainSet &train_set = edf_gp->GetTrainSet();
+            VectorX s(static_cast<int>(train_set.num_samples));
             Dtype s_sum = 0;
-            VectorX z_sdf(static_cast<int>(num_samples));
-            Eigen::Matrix<Dtype, Dim, Eigen::Dynamic> diff_z_sdf(Dim, num_samples);
+            VectorX z_sdf(static_cast<int>(train_set.num_samples));
+            Eigen::Matrix<Dtype, Dim, Eigen::Dynamic> diff_z_sdf(Dim, train_set.num_samples);
             using SquareMatrix = Eigen::Matrix<Dtype, Dim, Dim>;
             const SquareMatrix identity = SquareMatrix::Identity();
-            for (long k = 0; k < num_samples; ++k) {
-                const VectorD v = test_position - mat_x.col(k);
+            for (long k = 0; k < train_set.num_samples; ++k) {
+                const VectorD v = test_position - train_set.x.col(k);
                 const Dtype d = v.norm();  // distance to the training sample
 
                 z_sdf[k] = d;
@@ -201,16 +261,13 @@ namespace erl::sdf_mapping {
 
                 diff_z_sdf.col(k) = v / d;
             }
-
-            // s /= s_sum;  // this line causes an extra for loop. replace it with the following line
             const Dtype inv_s_sum = 1.0f / s_sum;
-
             const Dtype sz_sdf = s.dot(z_sdf) * inv_s_sum;
             var[0] = 0.0f;  // var_sdf
             SquareMatrix cov_grad = SquareMatrix::Zero();
-            for (long k = 0; k < num_samples; ++k) {
+            for (long k = 0; k < train_set.num_samples; ++k) {
                 Dtype w = s[k] * (sz_sdf + 1.0f - z_sdf[k]) * inv_s_sum;
-                w = w * w * vec_x_var[k];
+                w = w * w * train_set.var_x[k];
                 var[0] += w;
                 w = w / (z_sdf[k] * z_sdf[k]);
                 const SquareMatrix diff_grad = (identity - diff_z_sdf.col(k) * diff_z_sdf.col(k).transpose()) * w;
@@ -227,7 +284,10 @@ namespace erl::sdf_mapping {
         }
 
         f[0] -= offset_distance;
-        if (predict_sign) { f[0] = std::copysign(f[0], sign[0]); }
+        if (predict_sign && std::signbit(f[0]) != std::signbit(sign[0])) {
+            f[0] = std::copysign(f[0], sign[0]);
+            for (long i = 1; i <= Dim; ++i) { f[i] = -f[i]; }  // flip the gradient if the sign is different
+        }
         return true;
     }
 
@@ -236,7 +296,6 @@ namespace erl::sdf_mapping {
     SdfGaussianProcess<Dtype, Dim>::operator==(const SdfGaussianProcess &other) const {
         if (active != other.active) { return false; }
         if (locked_for_test.load() != other.locked_for_test.load()) { return false; }
-        if (num_edf_samples != other.num_edf_samples) { return false; }
         if (position != other.position) { return false; }
         if (half_size != other.half_size) { return false; }
         if (edf_gp == nullptr && other.edf_gp != nullptr) { return false; }
@@ -253,25 +312,73 @@ namespace erl::sdf_mapping {
     template<typename Dtype, int Dim>
     bool
     SdfGaussianProcess<Dtype, Dim>::Write(std::ostream &s) const {
-        s << kFileHeader << std::endl  //
-          << "# (feel free to add / change comments, but leave the first line as it is!)" << std::endl;
-        s << "active " << active << std::endl
-          << "locked_for_test " << locked_for_test.load() << std::endl
-          << "num_edf_samples " << num_edf_samples << std::endl;
-        s << "position" << std::endl;
-        if (!common::SaveEigenMatrixToBinaryStream(s, position)) { return false; }
-        s << "half_size" << std::endl;
-        s.write(reinterpret_cast<const char *>(&half_size), sizeof(half_size));
-        s << "edf_gp " << (edf_gp != nullptr) << std::endl;
-        if (edf_gp != nullptr && !edf_gp->Write(s)) { return false; }
-        s << "end_of_SdfGaussianProcess" << std::endl;
-        return s.good();
+        s << "# " << type_name(*this) << "\n# (feel free to add / change comments, but leave the first line as it is!)\n";
+        // no need to write the setting, as it will be written externally.
+        static const std::vector<std::pair<const char *, std::function<bool(const SdfGaussianProcess *, std::ostream &)>>> token_function_pairs = {
+            {
+                "active",
+                [](const SdfGaussianProcess *gp, std::ostream &stream) -> bool {
+                    stream << gp->active;
+                    return true;
+                },
+            },
+            {
+                "locked_for_test",
+                [](const SdfGaussianProcess *gp, std::ostream &stream) -> bool {
+                    stream << gp->locked_for_test.load();
+                    return true;
+                },
+            },
+            {
+                "position",
+                [](const SdfGaussianProcess *gp, std::ostream &stream) -> bool {
+                    if (!common::SaveEigenMatrixToBinaryStream(stream, gp->position)) {
+                        ERL_WARN("Failed to write position.");
+                        return false;
+                    }
+                    return true;
+                },
+            },
+            {
+                "half_size",
+                [](const SdfGaussianProcess *gp, std::ostream &stream) -> bool {
+                    stream.write(reinterpret_cast<const char *>(&gp->half_size), sizeof(gp->half_size));
+                    return true;
+                },
+            },
+            {
+                "sign_gp",
+                [](const SdfGaussianProcess *gp, std::ostream &stream) -> bool {
+                    stream << (gp->sign_gp != nullptr) << '\n';
+                    if (gp->sign_gp != nullptr && !gp->sign_gp->Write(stream)) {
+                        ERL_WARN("Failed to write sign GP.");
+                        return false;
+                    }
+                    return true;
+                },
+            },
+            {
+                "edf_gp",
+                [](const SdfGaussianProcess *gp, std::ostream &stream) -> bool {
+                    stream << (gp->edf_gp != nullptr) << '\n';
+                    if (gp->edf_gp != nullptr && !gp->edf_gp->Write(stream)) {
+                        ERL_WARN("Failed to write EDF GP.");
+                        return false;
+                    }
+                    return true;
+                },
+            },
+            {
+                "end_of_SdfGaussianProcess",
+                [](const SdfGaussianProcess *, std::ostream &) -> bool { return true; },
+            },
+        };
+        return common::WriteTokens(s, this, token_function_pairs);
     }
 
     template<typename Dtype, int Dim>
     bool
     SdfGaussianProcess<Dtype, Dim>::Read(std::istream &s, const std::shared_ptr<typename EdfGp::Setting> &edf_gp_setting) {
-
         if (!s.good()) {
             ERL_WARN("Input stream is not ready for reading");
             return false;
@@ -280,90 +387,74 @@ namespace erl::sdf_mapping {
         // check if the first line is valid
         std::string line;
         std::getline(s, line);
-        if (line.compare(0, kFileHeader.length(), kFileHeader) != 0) {  // check if the first line is valid
-            ERL_WARN("Header does not start with \"{}\"", kFileHeader);
+        if (std::string file_header = fmt::format("# {}", type_name(*this));
+            line.compare(0, file_header.length(), file_header) != 0) {  // check if the first line is valid
+            ERL_WARN("Header does not start with \"{}\"", file_header);
             return false;
         }
 
-        auto skip_line = [&s]() {
-            char c;
-            do { c = static_cast<char>(s.get()); } while (s.good() && c != '\n');
-        };
-
-        static const char *tokens[] = {
-            "active",
-            "locked_for_test",
-            "num_edf_samples",
-            "position",
-            "half_size",
-            "edf_gp",
-            "end_of_SdfGaussianProcess",
-        };
-
-        // read data
-        std::string token;
-        int token_idx = 0;
-        while (s.good()) {
-            s >> token;
-            if (token.compare(0, 1, "#") == 0) {
-                skip_line();  // comment line, skip forward until end of line
-                continue;
-            }
-            // non-comment line
-            if (token != tokens[token_idx]) {
-                ERL_WARN("Expected token {}, got {}.", tokens[token_idx], token);  // check token
-                return false;
-            }
-            // reading state machine
-            switch (token_idx) {
-                case 0: {  // active
-                    s >> active;
-                    break;
-                }
-                case 1: {  // locked_for_test
+        static const std::vector<std::pair<const char *, std::function<bool(SdfGaussianProcess *, std::istream &)>>> token_function_pairs = {
+            {
+                "active",
+                [](SdfGaussianProcess *gp, std::istream &stream) -> bool {
+                    stream >> gp->active;
+                    return true;
+                },
+            },
+            {
+                "locked_for_test",
+                [](SdfGaussianProcess *gp, std::istream &stream) -> bool {
                     bool locked;
-                    s >> locked;
-                    locked_for_test.store(locked);
-                    break;
-                }
-                case 2: {  // num_edf_samples
-                    s >> num_edf_samples;
-                    break;
-                }
-                case 3: {  // position
-                    skip_line();
-                    if (!common::LoadEigenMatrixFromBinaryStream(s, position)) {
+                    stream >> locked;
+                    gp->locked_for_test.store(locked);
+                    return true;
+                },
+            },
+            {
+                "position",
+                [](SdfGaussianProcess *gp, std::istream &stream) -> bool {
+                    common::SkipLine(stream);
+                    if (!common::LoadEigenMatrixFromBinaryStream(stream, gp->position)) {
                         ERL_WARN("Failed to read position.");
                         return false;
                     }
-                    break;
-                }
-                case 4: {  // half_size
-                    skip_line();
-                    s.read(reinterpret_cast<char *>(&half_size), sizeof(half_size));
-                    break;
-                }
-                case 5: {  // edf_gp
-                    bool has_gp;
-                    s >> has_gp;
-                    if (has_gp) {
-                        skip_line();
-                        if (edf_gp == nullptr) { edf_gp = std::make_shared<LogEdfGaussianProcess<Dtype>>(edf_gp_setting); }
-                        if (!edf_gp->Read(s)) { return false; }
-                    }
-                    break;
-                }
-                case 6: {  // end_of_SdfGaussianProcess
-                    skip_line();
                     return true;
-                }
-                default: {  // should not reach here
-                    ERL_FATAL("Internal error, should not reach here.");
-                }
-            }
-            ++token_idx;
-        }
-        ERL_WARN("Failed to read SdfGaussianProcess. Truncated file?");
-        return false;  // should not reach here
+                },
+            },
+            {
+                "half_size",
+                [](SdfGaussianProcess *gp, std::istream &stream) -> bool {
+                    common::SkipLine(stream);
+                    stream.read(reinterpret_cast<char *>(&gp->half_size), sizeof(gp->half_size));
+                    return true;
+                },
+            },
+            {
+                "edf_gp",
+                [](SdfGaussianProcess *gp, std::istream &stream) -> bool {
+                    bool has_gp;
+                    stream >> has_gp;
+                    if (!has_gp) {  // no EDF GP, skip
+                        gp->edf_gp = nullptr;
+                        return true;
+                    }
+                    common::SkipLine(stream);
+                    if (gp->edf_gp == nullptr) { gp->edf_gp = std::make_shared<EdfGp>(gp->setting->edf_gp); }
+                    if (!gp->edf_gp->Read(stream)) {
+                        ERL_WARN("Failed to read EDF GP.");
+                        return false;
+                    }
+                    return true;
+                },
+            },
+            {
+                "end_of_SdfGaussianProcess",
+                [](SdfGaussianProcess *, std::istream &stream) -> bool {
+                    common::SkipLine(stream);
+                    return true;
+                },
+            },
+        };
+        return common::ReadTokens(s, this, token_function_pairs);
     }
 }  // namespace erl::sdf_mapping

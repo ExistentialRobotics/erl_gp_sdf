@@ -33,6 +33,24 @@ namespace erl::sdf_mapping {
     }
 
     template<typename Dtype, int Dim, typename SurfaceMapping>
+    void
+    GpSdfMapping<Dtype, Dim, SurfaceMapping>::TestBuffer::DisconnectBuffers() {
+        positions = nullptr;
+        distances = nullptr;
+        gradients = nullptr;
+        variances = nullptr;
+        covariances = nullptr;
+    }
+
+    template<typename Dtype, int Dim, typename SurfaceMapping>
+    void
+    GpSdfMapping<Dtype, Dim, SurfaceMapping>::TestBuffer::PrepareGpBuffer(const long num_queries, const long num_neighbor_gps) {
+        // (num_queries, 2 * Dim + 1, num_neighbor_gps)
+        const long rows = num_neighbor_gps * (2 * Dim + 1);
+        if (gp_buffer.rows() < rows || gp_buffer.cols() < num_queries) { gp_buffer.setConstant(rows, num_queries, 0.0f); }
+    }
+
+    template<typename Dtype, int Dim, typename SurfaceMapping>
     GpSdfMapping<Dtype, Dim, SurfaceMapping>::GpSdfMapping(std::shared_ptr<Setting> setting, std::shared_ptr<SurfaceMapping> surface_mapping)
         : m_setting_(std::move(setting)),
           m_surface_mapping_(std::move(surface_mapping)) {
@@ -134,7 +152,7 @@ namespace erl::sdf_mapping {
             long cnt_new_gps = 0;
             for (const auto& cluster_key: m_affected_clusters_) {
                 if (auto [it, inserted] = m_gp_map_.try_emplace(cluster_key, nullptr); inserted || it->second->locked_for_test) {
-                    it->second = std::make_shared<SdfGp>(m_setting_->sdf_gp);  // new GP is required
+                    it->second = std::make_shared<SdfGp>(m_setting_->sdf_gp);  // a new GP is required
                     it->second->Activate();                                    // activate the GP
                     it->second->position = m_surface_mapping_->GetClusterCenter(cluster_key);
                     it->second->half_size = area_half_size;
@@ -327,19 +345,19 @@ namespace erl::sdf_mapping {
             // If we iterate through the clusters for each query position separately, it takes too much CPU time.
             // Instead, we collect all GPs in the area of all query positions and then assign them to the query positions.
             // Some query positions may not have any GPs from m_candidate_gps_. We need to search for them separately.
-            // We are sure that m_candidate_gps_ are not empty because m_gp_map_ is not empty.
+            // We are sure that m_candidate_gps_ is not empty because m_gp_map_ is not empty.
             // Experiments show that this can reduce the search time by at most 50%.
-            // For 15k crowded query positions, the search time is reduced from ~60ms to ~30ms.
+            // For 15k crowded query positions, the search time is reduced from ~60 ms to ~30 ms.
             // Another important trick is to use a KdTree to search for candidate GPs for each query position.
-            // Knn search is much faster and the result is sorted by distance.
-            // Experiments show that this knn search can reduce the search time further to 2ms.
+            // Knn search is much faster, and the result is sorted by distance.
+            // Experiments show that this knn search can reduce the search time further to 2 ms.
             ERL_BLOCK_TIMER_MSG_TIME("Search candidate GPs", gp_search_time1);
             SearchCandidateGps(positions_scaled);  // search for candidate GPs, collected GPs will be locked for testing
         }
         if (m_candidate_gps_.empty()) { return false; }  // no candidate GPs
 
         // Train any updated GPs
-        // we need to train call candidate GPs before we select them for testing in order to remove the inactive GPs
+        // we need to train call candidate GPs before we select them for testing.
         if (!m_cluster_queue_.empty()) {
             ERL_BLOCK_TIMER_MSG_TIME("Train candidate GPs", gp_train_time1);
             auto lock = GetLockGuard();  // CRITICAL SECTION: access m_clusters_to_train_
@@ -355,7 +373,7 @@ namespace erl::sdf_mapping {
 
         m_kdtree_candidate_gps_.reset();
         if (!m_candidate_gps_.empty()) {
-            // build kdtree of candidate GPs to allow fast search
+            // build kdtree of candidate GPs to allow fast search.
             // remove inactive GPs and collect GP positions
             Positions gp_positions(Positions::RowsAtCompileTime, m_candidate_gps_.size());
             std::vector<KeyGpPair> new_candidate_gps;
@@ -394,8 +412,7 @@ namespace erl::sdf_mapping {
                     no_gps_indices[0].insert(no_gps_indices[0].end(), no_gps_indices[i].begin(), no_gps_indices[i].end());
                 }
             }
-            // Some query positions may not have any GPs from m_candidate_gps_. We need to search for them separately.
-            SearchGpFallback(no_gps_indices[0]);
+            SearchGpFallback(no_gps_indices[0]);  // Some query positions may not have any GPs from m_candidate_gps_. We need to search for them separately.
         }
 
         if (!no_gps_indices[0].empty()) {
@@ -405,20 +422,28 @@ namespace erl::sdf_mapping {
             KeySet keys;
             for (const std::size_t& i: no_gps_indices[0]) {
                 for (auto& [distance, key_and_gp]: m_query_to_gps_[i]) {
-                    if (!keys.insert(key_and_gp.first).second) { continue; }
-                    if (const auto& gp = key_and_gp.second; !gp->active || gp->edf_gp->IsTrained()) { continue; }
+                    if (!keys.insert(key_and_gp.first).second) { continue; }                                       // skip if the key is already in the set
+                    if (const auto& gp = key_and_gp.second; !gp->active || gp->edf_gp->IsTrained()) { continue; }  // GP is inactive or already trained
                     m_clusters_to_train_.emplace_back(key_and_gp);
                 }
             }
             TrainGps();  // m_surface_mapping_ is locked in TrainGps
         }
 
+        bool surface_mapping_sign = false;
         if (m_setting_->use_sign_from_surface_mapping) {
+            // collect the sign of query positions since accessing the surface mapping is not thread-safe
             auto surface_mapping_lock = m_surface_mapping_->GetLockGuard();  // CRITICAL SECTION: access m_surface_mapping_
-            (void) m_surface_mapping_->IsInFreeSpace(positions_in, m_query_signs_);
+            surface_mapping_sign = m_surface_mapping_->IsInFreeSpace(positions_in, m_query_signs_);
             // TODO: avoid calling GetTree
-            // collect the sign of query positions since the quadtree is not thread-safe
+            if (surface_mapping_sign) {
+                ERL_WARN_COND(
+                    m_setting_->sdf_gp->sign_prediction_method != kNone,
+                    "Sign prediction method is set to kNone, but use_sign_from_surface_mapping is true. Sign provided by surface mapping will be used.");
+            }
         }
+
+        if (m_setting_->test_query.use_global_buffer) { m_test_buffer_.PrepareGpBuffer(num_queries, m_setting_->test_query.num_neighbor_gps); }
 
         // Compute the inference result for each query position
         {
@@ -489,7 +514,7 @@ namespace erl::sdf_mapping {
                 m_surface_mapping_->IterateClustersInAabb(area, [&](const Key& cluster_key) {  // search for clusters in the area
                     if (auto it = m_gp_map_.find(cluster_key); it != m_gp_map_.end()) {
                         const auto& gp = it->second;
-                        if (!gp->active) { return; }  // gp is inactive (e.g. due to no training data)
+                        if (!gp->active) { return; }  // gp is inactive (e.g., due to no training data)
                         gp->locked_for_test = true;   // lock the GP for testing, we need to make sure that gp->active is true
                         m_candidate_gps_.emplace_back(it->first, gp);
                     }
@@ -498,7 +523,7 @@ namespace erl::sdf_mapping {
             if (!m_candidate_gps_.empty()) { break; }  // found at least one GP
             search_area_padding *= 2;                  // double search area size
             Aabb new_area = m_map_boundary_.Intersection({query_area_min.array() - search_area_padding, query_area_max.array() + search_area_padding});
-            if (new_area.IsValid() && (area.min() == new_area.min()) && (area.max() == new_area.max())) { break; }  // area did not change
+            if (new_area.IsValid() && (area.min() == new_area.min()) && (area.max() == new_area.max())) { break; }  // the area did not change
             area = std::move(new_area);                                                                             // update area
         }
         ERL_INFO("{} candidate GPs found.", m_candidate_gps_.size());
@@ -567,7 +592,7 @@ namespace erl::sdf_mapping {
                     m_surface_mapping_->IterateClustersInAabb(search_area, [&](const Key& cluster_key) {  // search for clusters in the area
                         if (auto it = m_gp_map_.find(cluster_key); it != m_gp_map_.end()) {
                             const auto& gp = it->second;
-                            if (!gp->active) { return; }  // gp is inactive (e.g. due to no training data)
+                            if (!gp->active) { return; }  // gp is inactive (e.g., due to no training data)
                             gp->locked_for_test = true;   // lock the GP for testing
                             gps.emplace_back((gp->position - test_position).norm(), std::make_pair(it->first, gp));
                         }
@@ -593,22 +618,35 @@ namespace erl::sdf_mapping {
         const bool use_gp_covariance = m_setting_->test_query.use_gp_covariance;
         const bool compute_covariance = m_setting_->test_query.compute_covariance;
         const int num_neighbor_gps = m_setting_->test_query.num_neighbor_gps;
-        const bool use_smallest = m_setting_->test_query.use_smallest;
+        const bool use_smallest = m_setting_->test_query.use_smallest;  // use the smallest distance prediction
         const auto max_test_valid_distance_var = static_cast<Dtype>(m_setting_->test_query.max_test_valid_distance_var);
         const auto softmin_temperature = static_cast<Dtype>(m_setting_->test_query.softmin_temperature);
         const auto offset_distance = static_cast<Dtype>(m_setting_->offset_distance);
         const bool use_sign_from_surface_mapping = m_setting_->use_sign_from_surface_mapping;
 
         std::vector<std::size_t> gp_indices;
-        Eigen::Matrix<Dtype, Dim + 1, Eigen::Dynamic> fs(Dim + 1, num_neighbor_gps);  // f, fGrad1, fGrad2, fGrad3
-        Variances variances(Variances::RowsAtCompileTime, num_neighbor_gps);          // variances of f, fGrad1, fGrad2, fGrad3
-        Covariances covariances(Covariances::RowsAtCompileTime, num_neighbor_gps);    // cov (gx, d), (gy, d), (gz, d), (gy, gx), (gz, gx), (gz, gy)
+        using FsType = Eigen::Matrix<Dtype, 2 * Dim + 1, Eigen::Dynamic>;  // f, grad_f (by logGP), scaled normal (by normal GP)
+        FsType fs_local;
+        Dtype* fs_ptr = nullptr;
+
+        Variances variances(Variances::RowsAtCompileTime, num_neighbor_gps);        // variances of f, fGrad1, fGrad2, fGrad3
+        Covariances covariances(Covariances::RowsAtCompileTime, num_neighbor_gps);  // cov (gx, d), (gy, d), (gz, d), (gy, gx), (gz, gx), (gz, gy)
         MatrixX no_variance;
         MatrixX no_covariance;
-        std::vector<std::pair<long, long>> tested_idx;
+        std::vector<std::pair<long, long>> tested_idx;  // (column index, gps index)
         tested_idx.reserve(num_neighbor_gps);
 
         for (uint32_t i = start_idx; i < end_idx; ++i) {
+            if (m_test_buffer_.gp_buffer.size() == 0) {  // use the local buffer
+                if (fs_local.size() == 0) {              // set up the local buffer
+                    fs_local.resize(2 * Dim + 1, num_neighbor_gps);
+                    fs_ptr = fs_local.data();
+                }
+            } else {  // use the global buffer
+                fs_ptr = m_test_buffer_.gp_buffer.col(i).data();
+            }
+            Eigen::Map<FsType> fs(fs_ptr, 2 * Dim + 1, num_neighbor_gps);
+
             Dtype& distance_out = (*m_test_buffer_.distances)[i];
             auto gradient_out = m_test_buffer_.gradients->col(i);
             auto variance_out = m_test_buffer_.variances->col(i);
@@ -634,8 +672,8 @@ namespace erl::sdf_mapping {
             tested_idx.clear();
             bool need_weighted_sum = false;
             long cnt = 0;
-            for (std::size_t& j: gp_indices) {  // call selected GPs for inference
-                const auto& gp = gps[j].second.second;
+            for (std::size_t& j: gp_indices) {                              // call selected GPs for inference
+                const auto& gp = gps[j].second.second;                      // (distance, (key, gp))
                 if (!gp->active || !gp->edf_gp->IsTrained()) { continue; }  // skip inactive / untrained GPs
                 if (!gp->Test(
                         test_position,
@@ -650,10 +688,10 @@ namespace erl::sdf_mapping {
                 }
 
                 tested_idx.emplace_back(cnt++, j);
-                if (!use_smallest) {
-                    if ((!need_weighted_sum) && (gp_indices.size() > 1) && (variances(0, cnt) > max_test_valid_distance_var)) { need_weighted_sum = true; }
-                    if (!need_weighted_sum) { break; }
-                }
+                if (use_smallest) { continue; }
+                // the current gp prediction is not good enough, we use more GPs to compute the result.
+                if (!need_weighted_sum && gp_indices.size() > 1 && variances(0, cnt) > max_test_valid_distance_var) { need_weighted_sum = true; }
+                if (!need_weighted_sum) { break; }
             }
             if (tested_idx.empty()) { continue; }
 
@@ -677,24 +715,26 @@ namespace erl::sdf_mapping {
                 if (variances(0, tested_idx[0].first) < max_test_valid_distance_var) {  // the first result is good enough
                     auto j = tested_idx[0].first;                                       // column j is the result
                     distance_out = fs(0, j);
-                    gradient_out << fs.col(j).template tail<Dim>();
+                    gradient_out << fs.col(j).template segment<Dim>(1);
                     variance_out << variances.col(j);
                     if (compute_covariance) { m_test_buffer_.covariances->col(i) = covariances.col(j); }
                     used_gps[0] = gps[tested_idx[0].second].second.second;
-                } else {  // do weighted sum
+                } else {  // compute a weighted sum
                     ComputeWeightedSum<Dim>(i, tested_idx, fs, variances, covariances);
                 }
             } else {
                 // the first column is the result
                 distance_out = fs(0, 0);
-                gradient_out << fs.col(0).template tail<Dim>();
+                gradient_out << fs.col(0).template segment<Dim>(1);
                 variance_out << variances.col(0);
                 if (compute_covariance) { m_test_buffer_.covariances->col(i) = covariances.col(0); }
                 used_gps[0] = gps[tested_idx[0].second].second.second;
             }
             gradient_out.normalize();
-            if (use_sign_from_surface_mapping) { distance_out = std::copysign(distance_out, m_query_signs_[i]); }
-            // if (use_sign_from_surface_mapping && distance_out > 0 && m_query_signs_[i] < 0) { distance_out = -distance_out; }
+            if (use_sign_from_surface_mapping && std::signbit(distance_out) != std::signbit(m_query_signs_[i])) {
+                distance_out = -distance_out;
+                for (long j = 0; j < Dim; ++j) { gradient_out[j] = -gradient_out[j]; }
+            }
         }
     }
 
@@ -704,7 +744,7 @@ namespace erl::sdf_mapping {
     GpSdfMapping<Dtype, Dim, SurfaceMapping>::ComputeWeightedSum(
         const uint32_t i,
         const std::vector<std::pair<long, long>>& tested_idx,
-        Eigen::Matrix<Dtype, 4, Eigen::Dynamic>& fs,
+        Eigen::Ref<Eigen::Matrix<Dtype, 7, Eigen::Dynamic>> fs,
         Variances& variances,
         Covariances& covariances) {
 
@@ -714,7 +754,7 @@ namespace erl::sdf_mapping {
         auto& used_gps = m_query_used_gps_[i];
         used_gps.fill(nullptr);
 
-        // pick the best <= 4 results to do weighted sum
+        // pick the best <= 4 results to compute the weighted sum.
         const std::size_t m = std::min(tested_idx.size(), 4ul);
         Dtype w_sum = 0;
         Eigen::Vector4<Dtype> f = Eigen::Vector4<Dtype>::Zero();
@@ -743,14 +783,14 @@ namespace erl::sdf_mapping {
     GpSdfMapping<Dtype, Dim, SurfaceMapping>::ComputeWeightedSum(
         const uint32_t i,
         const std::vector<std::pair<long, long>>& tested_idx,
-        Eigen::Matrix<Dtype, 3, Eigen::Dynamic>& fs,
+        Eigen::Ref<Eigen::Matrix<Dtype, 5, Eigen::Dynamic>> fs,
         Variances& variances,
         Covariances& covariances) {
 
         const bool compute_covariance = m_setting_->test_query.compute_covariance;
         auto& gps = m_query_to_gps_[i];
 
-        // pick the best two results to do weighted sum
+        // pick the best two results to do the weighted sum
         const long j1 = tested_idx[0].first;
         const long j2 = tested_idx[1].first;
         const Dtype w1 = variances(0, j1) - m_setting_->test_query.max_test_valid_distance_var;

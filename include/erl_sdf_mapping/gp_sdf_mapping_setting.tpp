@@ -15,6 +15,7 @@ namespace erl::sdf_mapping {
         test_query["use_smallest"] = setting.test_query.use_smallest;
         test_query["compute_covariance"] = setting.test_query.compute_covariance;
         test_query["use_gp_covariance"] = setting.test_query.use_gp_covariance;
+        test_query["use_global_buffer"] = setting.test_query.use_global_buffer;
 
         node["test_query"] = test_query;
         node["num_threads"] = setting.num_threads;
@@ -42,6 +43,7 @@ namespace erl::sdf_mapping {
         test_query.use_smallest = test_query_node["use_smallest"].as<bool>();
         test_query.compute_covariance = test_query_node["compute_covariance"].as<bool>();
         test_query.use_gp_covariance = test_query_node["use_gp_covariance"].as<bool>();
+        test_query.use_global_buffer = test_query_node["use_global_buffer"].as<bool>();
 
         setting.num_threads = node["num_threads"].as<int>();
         setting.update_hz = node["update_hz"].as<Dtype>();

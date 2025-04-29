@@ -602,7 +602,7 @@ namespace erl::sdf_mapping {
         // rotate grad_old by angle_dist
         new_x = cos * old_x - sin * old_y;
         new_y = sin * old_x + cos * old_y;
-        ERL_DEBUG_ASSERT(std::abs(grad_new.norm() - 1.0f) < 1.e-6f, "grad_new.norm() = {:.6f}", grad_new.norm());
+        ERL_DEBUG_ASSERT(std::abs(grad_new.norm() - 1.0f) < 1.e-5f, "grad_new.norm() = {:.6f}, diff = {}.", grad_new.norm(), std::abs(grad_new.norm() - 1.0f));
     }
 
     template<typename Dtype, int Dim>

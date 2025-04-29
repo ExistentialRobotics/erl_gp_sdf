@@ -133,6 +133,7 @@ namespace erl::sdf_mapping {
             std::unique_ptr<Eigen::Ref<Gradients>> gradients = nullptr;
             std::unique_ptr<Eigen::Ref<Variances>> variances = nullptr;      // var(d, grad.x, grad.y, grad.z)
             std::unique_ptr<Eigen::Ref<Covariances>> covariances = nullptr;  // cov (gx, d), (gy, d), (gz, d), (gy, gx), (gz, gx), (gz, gy)
+            MatrixX gp_buffer;  // for caching intermediate results used for testing, (num_neighbors * (2 * Dim + 1), num_queries)
 
             [[nodiscard]] std::size_t
             Size() const {
@@ -150,13 +151,10 @@ namespace erl::sdf_mapping {
                 bool compute_covariance);
 
             void
-            DisconnectBuffers() {
-                positions = nullptr;
-                distances = nullptr;
-                gradients = nullptr;
-                variances = nullptr;
-                covariances = nullptr;
-            }
+            DisconnectBuffers();
+
+            void
+            PrepareGpBuffer(long num_queries, long num_neighbor_gps);
         };
 
         std::shared_ptr<Setting> m_setting_ = std::make_shared<Setting>();
@@ -249,7 +247,7 @@ namespace erl::sdf_mapping {
         ComputeWeightedSum(
             uint32_t i,
             const std::vector<std::pair<long, long>>& tested_idx,
-            Eigen::Matrix<Dtype, 4, Eigen::Dynamic>& fs,
+            Eigen::Ref<Eigen::Matrix<Dtype, 7, Eigen::Dynamic>> fs,
             Variances& variances,
             Covariances& covariances);
 
@@ -258,7 +256,7 @@ namespace erl::sdf_mapping {
         ComputeWeightedSum(
             uint32_t i,
             const std::vector<std::pair<long, long>>& tested_idx,
-            Eigen::Matrix<Dtype, 3, Eigen::Dynamic>& fs,
+            Eigen::Ref<Eigen::Matrix<Dtype, 5, Eigen::Dynamic>> fs,
             Variances& variances,
             Covariances& covariances);
     };

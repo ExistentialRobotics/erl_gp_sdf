@@ -1,4 +1,6 @@
 sensor_gp:
+    partition_on_hit_rays: false
+    symmetric_partitions: true
     group_size: 26  # number of points in each group, including the overlap ones
     overlap_size: 6
     margin: 0

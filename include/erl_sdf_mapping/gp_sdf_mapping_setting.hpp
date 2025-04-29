@@ -17,8 +17,9 @@ namespace erl::sdf_mapping {
             Dtype softmin_temperature = 10.0f;
             int num_neighbor_gps = 4;        // number of neighbors used for prediction.
             bool use_smallest = false;       // if true, use the smallest sdf for prediction.
-            bool compute_covariance = true;  // if true, compute covariance of prediction.
+            bool compute_covariance = true;  // if true, compute the covariance of prediction.
             bool use_gp_covariance = false;  // if true, compute variance with the GP.
+            bool use_global_buffer = false;  // if true, use the global buffer for testing. use more memory but is useful to visualize the intermediate results.
         };
 
         TestQuery test_query;                        // parameters used by Test.

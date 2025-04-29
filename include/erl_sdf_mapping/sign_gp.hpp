@@ -42,10 +42,10 @@ namespace erl::sdf_mapping {
         [[nodiscard]] bool
         Test(
             const Eigen::Ref<const MatrixX> &mat_x_test,
+            const std::vector<std::pair<long, bool>> &y_index_grad_pairs,
             Eigen::Ref<MatrixX> mat_f_out,
             Eigen::Ref<MatrixX> mat_var_out,
-            Eigen::Ref<MatrixX> mat_cov_out,
-            bool predict_gradient) const override;
+            Eigen::Ref<MatrixX> mat_cov_out) const override;
     };
 
     using SignGaussianProcessD = SignGaussianProcess<double>;
