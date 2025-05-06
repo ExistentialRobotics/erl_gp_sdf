@@ -20,12 +20,12 @@ namespace erl::sdf_mapping {
 
         if (!gaussian_process::Init()) { return false; }
 
-        REGISTER(SurfaceMappingQuadtreeNode);
-        REGISTER(SurfaceMappingOctreeNode);
-        REGISTER(SurfaceMappingQuadtreeD);
-        REGISTER(SurfaceMappingQuadtreeF);
-        REGISTER(SurfaceMappingOctreeD);
-        REGISTER(SurfaceMappingOctreeF);
+        // REGISTER(SurfaceMappingQuadtreeNode);
+        // REGISTER(SurfaceMappingOctreeNode);
+        // REGISTER(SurfaceMappingQuadtreeD);
+        // REGISTER(SurfaceMappingQuadtreeF);
+        // REGISTER(SurfaceMappingOctreeD);
+        // REGISTER(SurfaceMappingOctreeF);
 
         REGISTER(LogEdfGaussianProcessD::Setting);
         REGISTER(LogEdfGaussianProcessF::Setting);

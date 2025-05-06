@@ -1,4 +1,5 @@
 #pragma once
+
 #include "log_edf_gp.hpp"
 #include "sign_gp.hpp"
 #include "surface_data_manager.hpp"
@@ -8,10 +9,12 @@
 
 namespace erl::sdf_mapping {
 
-    enum SignPredictionMethod {
-        kNone = 0,      // no sign prediction
-        kSignGp = 1,    // use sign gp
-        kNormalGp = 2,  // use normal gp
+    enum SignMethod {
+        kNone = 0,      // No sign prediction.
+        kSignGp = 1,    // Use sign gp.
+        kNormalGp = 2,  // Use normal gp.
+        kExternal = 3,  // Use external sign prediction.
+        kHybrid = 4,    // Use two methods switched by hybrid_sign_threshold.
     };
 
     template<typename Dtype>
@@ -19,8 +22,11 @@ namespace erl::sdf_mapping {
         using SignGpSetting = typename SignGaussianProcess<Dtype>::Setting;
         using EdfGpSetting = typename LogEdfGaussianProcess<Dtype>::Setting;
 
-        SignPredictionMethod sign_prediction_method = kNormalGp;
-        Dtype normal_scale = 1.0f;  // scale for normal gp, used only when sign_prediction_method is kNormalGp
+        SignMethod sign_method = kNormalGp;
+        std::pair<SignMethod, SignMethod> hybrid_sign_methods = {kNormalGp, kExternal};
+        Dtype hybrid_sign_threshold = 0.2f;
+        Dtype normal_scale = 1.0f;  // scale for normal gp
+        Dtype softmin_temperature = 1.0f;
         std::shared_ptr<SignGpSetting> sign_gp = std::make_shared<SignGpSetting>();
         std::shared_ptr<EdfGpSetting> edf_gp = std::make_shared<EdfGpSetting>();
 
@@ -38,6 +44,7 @@ namespace erl::sdf_mapping {
 
     template<typename Dtype, int Dim>
     struct SdfGaussianProcess {
+        static_assert(Dim == 2 || Dim == 3, "Dim must be 2 or 3.");
 
         using SignGp = SignGaussianProcess<Dtype>;
         using EdfGp = LogEdfGaussianProcess<Dtype>;
@@ -45,15 +52,16 @@ namespace erl::sdf_mapping {
         using VectorD = Eigen::Vector<Dtype, Dim>;
         using VectorX = Eigen::VectorX<Dtype>;
 
-        static_assert(Dim == 2 || Dim == 3, "Dim must be 2 or 3.");
-
         std::shared_ptr<Setting> setting = nullptr;
         bool active = false;
+        bool outdated = true;  // whether the GP is outdated and needs to be retrained
+        bool use_normal_gp = false;
+        Dtype offset_distance = 0;
         std::atomic_bool locked_for_test = false;
         VectorD position{};
         Dtype half_size = 0;
         std::shared_ptr<SignGp> sign_gp = nullptr;
-        std::shared_ptr<EdfGp> edf_gp = nullptr;
+        std::shared_ptr<EdfGp> edf_gp = nullptr;  // initialized in Activate().
 
         explicit SdfGaussianProcess(std::shared_ptr<Setting> setting_);
 
@@ -73,6 +81,9 @@ namespace erl::sdf_mapping {
         void
         Deactivate();
 
+        void
+        MarkOutdated();
+
         [[nodiscard]] std::size_t
         GetMemoryUsage() const;
 
@@ -91,8 +102,11 @@ namespace erl::sdf_mapping {
             Dtype max_valid_gradient_var,
             Dtype invalid_position_var);
 
+        [[nodiscard]] bool
+        IsTrained() const;
+
         void
-        Train() const;
+        Train();
 
         [[nodiscard]] bool
         Test(
@@ -100,10 +114,11 @@ namespace erl::sdf_mapping {
             Eigen::Ref<Eigen::Vector<Dtype, 2 * Dim + 1>> f,
             Eigen::Ref<Eigen::Vector<Dtype, Dim + 1>> var,
             Eigen::Ref<Eigen::Vector<Dtype, Dim*(Dim + 1) / 2>> covariance,
-            Dtype offset_distance,
-            Dtype softmin_temperature,
-            bool use_gp_covariance,
-            bool compute_covariance) const;
+            Dtype external_sign,
+            bool compute_gradient,
+            bool compute_gradient_variance,
+            bool compute_covariance,
+            bool use_gp_covariance) const;
 
         [[nodiscard]] bool
         operator==(const SdfGaussianProcess& other) const;
@@ -115,7 +130,17 @@ namespace erl::sdf_mapping {
         Write(std::ostream& s) const;
 
         [[nodiscard]] bool
-        Read(std::istream& s, const std::shared_ptr<typename EdfGp::Setting>& edf_gp_setting);
+        Read(std::istream& s);
+
+    private:
+        void
+        EstimateVariance(
+            const VectorD& test_position,
+            Dtype edf_pred,
+            bool compute_gradient_variance,
+            bool compute_covariance,
+            Dtype* var,
+            Dtype* covariance) const;
     };
 
     using SdfGp3Dd = SdfGaussianProcess<double, 3>;
@@ -128,7 +153,9 @@ namespace erl::sdf_mapping {
 #include "sdf_gp.tpp"
 
 template<>
-struct YAML::convert<erl::sdf_mapping::SdfGaussianProcessSettingD> : erl::sdf_mapping::SdfGaussianProcessSettingD::YamlConvertImpl {};
+struct YAML::convert<erl::sdf_mapping::SdfGaussianProcessSettingD>
+    : erl::sdf_mapping::SdfGaussianProcessSettingD::YamlConvertImpl {};
 
 template<>
-struct YAML::convert<erl::sdf_mapping::SdfGaussianProcessSettingF> : erl::sdf_mapping::SdfGaussianProcessSettingF::YamlConvertImpl {};
+struct YAML::convert<erl::sdf_mapping::SdfGaussianProcessSettingF>
+    : erl::sdf_mapping::SdfGaussianProcessSettingF::YamlConvertImpl {};

@@ -26,8 +26,8 @@ TestImpl3D() {
     GTEST_PREPARE_OUTPUT_DIR();
 
     using GpOccSurfaceMapping = erl::sdf_mapping::GpOccSurfaceMapping<Dtype, 3>;
-    using SurfaceMappingOctree = erl::sdf_mapping::SurfaceMappingOctree<Dtype>;
-    using SurfaceMappingOctreeDrawer = erl::geometry::OccupancyOctreeDrawer<SurfaceMappingOctree>;
+    using Octree = typename GpOccSurfaceMapping::Tree;
+    using OctreeDrawer = erl::geometry::OccupancyOctreeDrawer<Octree>;
     using RangeSensor3D = erl::geometry::RangeSensor3D<Dtype>;
     using Lidar3D = erl::geometry::Lidar3D<Dtype>;
     using LidarFrame3D = erl::geometry::LidarFrame3D<Dtype>;
@@ -210,7 +210,6 @@ TestImpl3D() {
             const erl::common::BlockTimer<std::chrono::milliseconds> timer("data loading", &dt);
             (void) timer;
             if (options.use_cow_and_lady) {
-                // ReSharper disable once CppUseStructuredBinding
                 const auto frame = (*cow_and_lady)[wp_idx];
                 rotation = frame.rotation.cast<Dtype>();
                 translation = frame.translation.cast<Dtype>();
@@ -242,11 +241,7 @@ TestImpl3D() {
         if (!options.use_cow_and_lady) {
             for (long i = 0; i < ranges.size(); ++i) {
                 Dtype &range = ranges.data()[i];
-                if (range < 0.0) {
-                    range = 0.0;
-                } else if (range > 1000.0) {
-                    range = 0.0;
-                }
+                if (range < 0.0 || range > 1000.0) { range = 0.0; }
             }
             if (is_lidar) {
                 cv::eigen2cv(MatrixX(ranges.transpose()), ranges_img);
@@ -281,20 +276,17 @@ TestImpl3D() {
         pcd_surf_points->points_.clear();
         line_set_surf_normals->points_.clear();
         line_set_surf_normals->lines_.clear();
-        if (const auto octree = gp.GetTree(); octree != nullptr) {
-            for (auto it = octree->BeginLeaf(), end = octree->EndLeaf(); it != end; ++it) {
-                if (!it->HasSurfaceData()) { continue; }
-                auto &surface_data = gp.GetSurfaceDataManager()[it->surface_data_index];
-                const Vector3 &position = surface_data.position;
-                const Vector3 &normal = surface_data.normal;
-                ERL_ASSERTM(std::abs(normal.norm() - 1.0) < 1.e-5, "normal.norm() = {:.6f}", normal.norm());
-                pcd_surf_points->points_.emplace_back(position.template cast<double>());
-                line_set_surf_normals->points_.emplace_back(position.template cast<double>());
-                line_set_surf_normals->points_.emplace_back((position + options.surf_normal_scale * normal).template cast<double>());
-                line_set_surf_normals->lines_.emplace_back(line_set_surf_normals->points_.size() - 2, line_set_surf_normals->points_.size() - 1);
-            }
-            line_set_surf_normals->PaintUniformColor({1.0, 0.0, 0.0});
+        for (auto it = gp.BeginSurfaceData(), end = gp.EndSurfaceData(); it != end; ++it) {
+            auto &surface_data = *it;
+            const Vector3 &position = surface_data.position;
+            const Vector3 &normal = surface_data.normal;
+            ERL_ASSERTM(std::abs(normal.norm() - 1.0) < 1.e-5, "normal.norm() = {:.6f}", normal.norm());
+            pcd_surf_points->points_.emplace_back(position.template cast<double>());
+            line_set_surf_normals->points_.emplace_back(position.template cast<double>());
+            line_set_surf_normals->points_.emplace_back((position + options.surf_normal_scale * normal).template cast<double>());
+            line_set_surf_normals->lines_.emplace_back(line_set_surf_normals->points_.size() - 2, line_set_surf_normals->points_.size() - 1);
         }
+        if (!pcd_surf_points->points_.empty()) { line_set_surf_normals->PaintUniformColor({1.0, 0.0, 0.0}); }
 
         const auto t_end = std::chrono::high_resolution_clock::now();
         const auto duration_total = std::chrono::duration<Dtype, std::milli>(t_end - t_start).count();
@@ -319,11 +311,11 @@ TestImpl3D() {
     visualizer.SetAnimationCallback(callback);
     visualizer.Show();
 
-    auto drawer_setting = std::make_shared<typename SurfaceMappingOctreeDrawer::Setting>();
+    auto drawer_setting = std::make_shared<typename OctreeDrawer::Setting>();
     drawer_setting->area_min = area_min.template cast<double>();
     drawer_setting->area_max = area_max.template cast<double>();
     drawer_setting->occupied_only = true;
-    SurfaceMappingOctreeDrawer octree_drawer(drawer_setting, gp.GetTree());
+    OctreeDrawer octree_drawer(drawer_setting, gp.GetTree());
     auto mesh = geometries[0];
     geometries = octree_drawer.GetBlankGeometries();
     geometries.push_back(mesh);
@@ -333,18 +325,14 @@ TestImpl3D() {
     visualizer.Show();
 }
 
-TEST(GpOccSurfaceMapping, 3Dd) { TestImpl3D<double>(); }
-
-TEST(GpOccSurfaceMapping, 3Df) { TestImpl3D<float>(); }
-
 template<typename Dtype>
 void
 TestImpl2D() {
     GTEST_PREPARE_OUTPUT_DIR();
     using namespace erl::common;
     using GpOccSurfaceMapping = erl::sdf_mapping::GpOccSurfaceMapping<Dtype, 2>;
-    using SurfaceMappingQuadtree = erl::sdf_mapping::SurfaceMappingQuadtree<Dtype>;
-    using SurfaceMappingQuadtreeDrawer = erl::geometry::OccupancyQuadtreeDrawer<SurfaceMappingQuadtree>;
+    using Quadtree = typename GpOccSurfaceMapping::Tree;
+    using QuadtreeDrawer = erl::geometry::OccupancyQuadtreeDrawer<Quadtree>;
     using Lidar2D = erl::geometry::Lidar2D;
     using Matrix2 = Eigen::Matrix2<Dtype>;
     using Matrix2X = Eigen::Matrix2X<Dtype>;
@@ -535,9 +523,6 @@ TestImpl2D() {
         train_ranges.resize(cnt);
         train_poses.resize(cnt);
         cur_traj.conservativeResize(2, cnt);
-    } else {
-        std::cerr << "Please specify one of --use-gazebo-room-2d, --use-house-expo-lidar-2d, --use-ucsd-fah-2d." << std::endl;
-        return;
     }
     max_update_cnt = cur_traj.cols();
 
@@ -550,45 +535,14 @@ TestImpl2D() {
     GpOccSurfaceMapping gp(gp_setting);
 
     // prepare the visualizer
-    auto drawer_setting = std::make_shared<typename SurfaceMappingQuadtreeDrawer::Setting>();
+    auto drawer_setting = std::make_shared<typename QuadtreeDrawer::Setting>();
     drawer_setting->area_min = map_min;
     drawer_setting->area_max = map_max;
     drawer_setting->resolution = map_resolution[0];
+    drawer_setting->scaling = gp_setting->scaling;
     drawer_setting->padding = map_padding[0];
     drawer_setting->border_color = cv::Scalar(255, 0, 0, 255);
-    auto drawer = std::make_shared<SurfaceMappingQuadtreeDrawer>(drawer_setting);
-
-    std::vector<std::pair<cv::Point, cv::Point>> arrowed_lines;
-    auto &surface_data_manager = gp.GetSurfaceDataManager();
-    drawer->SetDrawTreeCallback([&](const SurfaceMappingQuadtreeDrawer *self, cv::Mat &img, typename SurfaceMappingQuadtree::TreeIterator &it) {
-        const uint32_t cluster_depth = gp_setting->cluster_depth;
-        const auto grid_map_info = self->GetGridMapInfo();
-        if (it->GetDepth() == cluster_depth) {
-            Eigen::Vector2i position_px = grid_map_info->MeterToPixelForPoints(Vector2(it.GetX(), it.GetY()));
-            const cv::Point position_px_cv(position_px[0], position_px[1]);
-            cv::circle(img, position_px_cv, 2, cv::Scalar(0, 0, 255, 255), -1);  // draw surface point
-            return;
-        }
-        if (!it->HasSurfaceData()) { return; }
-        auto &surface_data = surface_data_manager[it->surface_data_index];
-        Eigen::Vector2i position_px = grid_map_info->MeterToPixelForPoints(surface_data.position);
-        cv::Point position_px_cv(position_px[0], position_px[1]);
-        cv::circle(img, cv::Point(position_px[0], position_px[1]), 1, cv::Scalar(0, 0, 255, 255), -1);  // draw surface point
-        Eigen::Vector2i normal_px = grid_map_info->MeterToPixelForVectors(surface_data.normal * options.surf_normal_scale);
-        cv::Point arrow_end_px(position_px[0] + normal_px[0], position_px[1] + normal_px[1]);
-        arrowed_lines.emplace_back(position_px_cv, arrow_end_px);
-    });
-    drawer->SetDrawLeafCallback([&](const SurfaceMappingQuadtreeDrawer *self, cv::Mat &img, typename SurfaceMappingQuadtree::LeafIterator &it) {
-        if (!it->HasSurfaceData()) { return; }
-        const auto grid_map_info = self->GetGridMapInfo();
-        auto &surface_data = surface_data_manager[it->surface_data_index];
-        Eigen::Vector2i position_px = grid_map_info->MeterToPixelForPoints(surface_data.position);
-        cv::Point position_px_cv(position_px[0], position_px[1]);
-        cv::circle(img, position_px_cv, 1, cv::Scalar(0, 0, 255, 255), -1);  // draw surface point
-        Eigen::Vector2i normal_px = grid_map_info->MeterToPixelForVectors(surface_data.normal * options.surf_normal_scale);
-        cv::Point arrow_end_px(position_px[0] + normal_px[0], position_px[1] + normal_px[1]);
-        arrowed_lines.emplace_back(position_px_cv, arrow_end_px);
-    });
+    QuadtreeDrawer drawer(drawer_setting);
 
     cv::Scalar trajectory_color(0, 0, 0, 255);
     cv::Mat img;
@@ -596,9 +550,9 @@ TestImpl2D() {
     const bool update_occupancy = gp_setting->update_occupancy;
     if (options.visualize) {
         if (update_occupancy) {
-            drawer->DrawLeaves(img);
+            drawer.DrawLeaves(img);
         } else {
-            drawer->DrawTree(img);
+            drawer.DrawTree(img);
         }
     }
     if (options.hold) {
@@ -607,7 +561,6 @@ TestImpl2D() {
     }
 
     // start the mapping
-    auto grid_map_info = drawer->GetGridMapInfo();
     const std::string bin_file = test_output_dir / fmt::format("gp_occ_surface_mapping_2d_{}.bin", type_name<Dtype>());
     double t_ms = 0;
     for (long i = 0; i < max_update_cnt; i++) {
@@ -623,22 +576,26 @@ TestImpl2D() {
         if (options.visualize) {
             bool pixel_based = true;
             if (!drawer_connected) {
-                drawer->SetQuadtree(gp.GetTree());
+                drawer.SetQuadtree(gp.GetTree());
                 drawer_connected = true;
             }
             img.setTo(cv::Scalar(128, 128, 128, 255));
-            arrowed_lines.clear();
             if (update_occupancy) {
-                drawer->DrawLeaves(img);
+                drawer.DrawLeaves(img);
             } else {
-                drawer->DrawTree(img);
+                drawer.DrawTree(img);
             }
-            for (auto &[position_px_cv, arrow_end_px]: arrowed_lines) {
-                cv::arrowedLine(img, position_px_cv, arrow_end_px, cv::Scalar(0, 0, 255, 255), 1, 8, 0, 0.1);
+            for (auto it = gp.BeginSurfaceData(), end = gp.EndSurfaceData(); it != end; ++it) {
+                Eigen::Vector2i position_px = drawer.GetPixelCoordsForPositions(it->position, true);
+                cv::Point position_px_cv(position_px[0], position_px[1]);
+                cv::circle(img, position_px_cv, 2, cv::Scalar(0, 0, 255, 255), -1);  // draw surface point
+                Eigen::Vector2i normal_px = drawer.GetPixelCoordsForVectors(it->normal * options.surf_normal_scale);
+                cv::Point arrow_end_px(position_px[0] + normal_px[0], position_px[1] + normal_px[1]);
+                cv::arrowedLine(img, position_px_cv, arrow_end_px, cv::Scalar(0, 0, 255, 255), 1, cv::LINE_8, 0, 0.1);
             }
 
             // draw trajectory
-            DrawTrajectoryInplace<Dtype>(img, cur_traj.block(0, 0, 2, i), grid_map_info, trajectory_color, 2, pixel_based);
+            DrawTrajectoryInplace<Dtype>(img, cur_traj.block(0, 0, 2, i), drawer.GetGridMapInfo(), trajectory_color, 2, pixel_based);
 
             // draw fps
             cv::putText(img, std::to_string(1000.0 / dt), cv::Point(10, 30), cv::FONT_HERSHEY_SIMPLEX, 1, cv::Scalar(0, 255, 0, 255), 2);
@@ -674,6 +631,10 @@ TestImpl2D() {
         }
     }
 }
+
+TEST(GpOccSurfaceMapping, 3Dd) { TestImpl3D<double>(); }
+
+TEST(GpOccSurfaceMapping, 3Df) { TestImpl3D<float>(); }
 
 TEST(GpOccSurfaceMapping, 2Dd) { TestImpl2D<double>(); }
 

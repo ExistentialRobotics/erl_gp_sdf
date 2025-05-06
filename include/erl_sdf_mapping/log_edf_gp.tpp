@@ -8,17 +8,149 @@ namespace erl::sdf_mapping {
     YAML::Node
     LogEdfGaussianProcess<Dtype>::Setting::YamlConvertImpl::encode(const Setting &setting) {
         YAML::Node node = YAML::convert<typename Super::Setting>::encode(setting);
-        node["log_lambda"] = setting.log_lambda;
+        ERL_YAML_SAVE_ATTR(node, setting, log_lambda);
         return node;
     }
 
     template<typename Dtype>
     bool
-    LogEdfGaussianProcess<Dtype>::Setting::YamlConvertImpl::decode(const YAML::Node &node, Setting &setting) {
+    LogEdfGaussianProcess<Dtype>::Setting::YamlConvertImpl::decode(
+        const YAML::Node &node,
+        Setting &setting) {
         if (!node.IsMap()) { return false; }
         YAML::convert<typename Super::Setting>::decode(node, setting);
-        setting.log_lambda = node["log_lambda"].as<Dtype>();
+        ERL_YAML_LOAD_ATTR_TYPE(node, setting, log_lambda, Dtype);
         return true;
+    }
+
+    template<typename Dtype>
+    LogEdfGaussianProcess<Dtype>::TestResult::TestResult(
+        const LogEdfGaussianProcess *gp,
+        const Eigen::Ref<const MatrixX> &mat_x_test,
+        const bool will_predict_gradient)
+        : Super::TestResult(gp, mat_x_test, will_predict_gradient) {}
+
+    template<typename Dtype>
+    void
+    LogEdfGaussianProcess<Dtype>::TestResult::GetMean(
+        const long y_index,
+        Eigen::Ref<Eigen::VectorX<Dtype>> vec_f_out) const {
+        const long &num_test = this->m_num_test_;
+#ifndef NDEBUG
+        const long &y_dim = this->m_y_dim_;
+#endif
+        ERL_DEBUG_ASSERT(
+            y_index >= 0 && y_index < y_dim,
+            "y_index = {}, it should be in [0, {}).",
+            y_index,
+            y_dim);
+        ERL_DEBUG_ASSERT(
+            vec_f_out.size() >= num_test,
+            "vec_f_out.size() = {}, it should be >= {}.",
+            vec_f_out.size(),
+            num_test);
+        const auto gp = reinterpret_cast<const LogEdfGaussianProcess *>(this->m_gp_);
+        const auto alpha = gp->m_mat_alpha_.col(y_index).head(gp->m_k_train_cols_);
+        const auto &mat_k_test = this->m_mat_k_test_;
+        const Dtype a = -1.0f / gp->m_setting_->log_lambda;
+        Dtype *f = vec_f_out.data();
+        for (long index = 0; index < num_test; ++index, ++f) {
+            const Dtype f_log_gpis = mat_k_test.col(index).dot(alpha);
+            *f = a * std::log(std::abs(f_log_gpis));
+        }
+    }
+
+    template<typename Dtype>
+    void
+    LogEdfGaussianProcess<Dtype>::TestResult::GetMean(
+        const long index,
+        const long y_index,
+        Dtype &f) const {
+        const auto &mat_k_test = this->m_mat_k_test_;
+        const auto gp = reinterpret_cast<const LogEdfGaussianProcess *>(this->m_gp_);
+        const auto alpha = gp->m_mat_alpha_.col(y_index).head(gp->m_k_train_cols_);
+        f = mat_k_test.col(index).dot(alpha);  // std::log(std::abs(f_log_gpis)) / -log_lambda
+        // we only apply the log transformation to the first output dimension
+        if (y_index == 0) { f = std::log(std::abs(f)) / -gp->m_setting_->log_lambda; }
+    }
+
+    template<typename Dtype>
+    void
+    LogEdfGaussianProcess<Dtype>::TestResult::GetGradient(
+        const long y_index,
+        Eigen::Ref<MatrixX> mat_grad_out) const {
+        const long &num_test = this->m_num_test_;
+        const long &x_dim = this->m_x_dim_;
+        const auto gp = reinterpret_cast<const LogEdfGaussianProcess *>(this->m_gp_);
+        const Dtype a = 1.0e15f / gp->m_mat_alpha_(0, y_index);
+        using VectorX = Eigen::VectorX<Dtype>;
+        const VectorX alpha = a * gp->m_mat_alpha_.col(y_index).head(gp->m_k_train_cols_);
+        const auto &mat_k_test = this->m_mat_k_test_;
+        for (long index = 0; index < num_test; ++index) {
+            Dtype *grad = mat_grad_out.col(index).data();
+            Dtype norm = 0.0f;
+            for (long j = 0, jj = index + num_test; j < x_dim; ++j, jj += num_test) {
+                grad[j] = mat_k_test.col(jj).dot(alpha);
+                if (y_index == 0) { norm += grad[j] * grad[j]; }
+            }
+            if (y_index != 0) { continue; }
+            norm = -std::sqrt(norm);
+            for (long j = 0; j < x_dim; ++j) { grad[j] /= norm; }
+        }
+    }
+
+    template<typename Dtype>
+    void
+    LogEdfGaussianProcess<Dtype>::TestResult::GetGradient(
+        const long index,
+        const long y_index,
+        Dtype *grad) const {
+        const auto gp = reinterpret_cast<const LogEdfGaussianProcess *>(this->m_gp_);
+        const long &num_test = this->m_num_test_;
+        const long &x_dim = this->m_x_dim_;
+        const auto &mat_k_test = this->m_mat_k_test_;
+        using VectorX = Eigen::VectorX<Dtype>;
+        // `a` is a scale factor to avoid zero division.
+        const Dtype a = 1.0e15f / gp->m_mat_alpha_(0, y_index);
+        const VectorX alpha = a * gp->m_mat_alpha_.col(y_index).head(gp->m_k_train_cols_);
+        // d = -ln(f)/lambda, grad_d = -1/(lambda*f)*grad_f
+        // SDF gradient norm is always 1. https://en.wikipedia.org/wiki/Eikonal_equation
+        // So, we only need the normalized grad_d.
+        // It is fine that we don't know the f value.
+        Dtype norm = 0.0f;
+        for (long j = 0, jj = index + num_test; j < x_dim; ++j, jj += num_test) {
+            grad[j] = mat_k_test.col(jj).dot(alpha);
+            norm += grad[j] * grad[j];
+        }
+        norm = -std::sqrt(norm);
+        for (long j = 0; j < x_dim; ++j) { grad[j] /= norm; }
+    }
+
+    template<typename Dtype>
+    template<int Dim>
+    void
+    LogEdfGaussianProcess<Dtype>::TestResult::GetGradientD(
+        const long index,
+        const long y_index,
+        Dtype *grad) const {
+        ERL_DEBUG_ASSERT(
+            this->m_x_dim_ == Dim,
+            "x_dim = {}, it should be {}.",
+            this->m_x_dim_,
+            Dim);
+        const auto gp = reinterpret_cast<const LogEdfGaussianProcess *>(this->m_gp_);
+        const long &num_test = this->m_num_test_;
+        const auto &mat_k_test = this->m_mat_k_test_;
+        using VectorX = Eigen::VectorX<Dtype>;
+        const Dtype a = 1.0e15f / gp->m_mat_alpha_(0, y_index);
+        const VectorX alpha = a * gp->m_mat_alpha_.col(y_index).head(gp->m_k_train_cols_);
+        Dtype norm = 0.0f;
+        for (long j = 0, jj = index + num_test; j < Dim; ++j, jj += num_test) {
+            grad[j] = mat_k_test.col(jj).dot(alpha);
+            norm += grad[j] * grad[j];
+        }
+        norm = -std::sqrt(norm);
+        for (long j = 0; j < Dim; ++j) { grad[j] /= norm; }
     }
 
     template<typename Dtype>
@@ -53,35 +185,39 @@ namespace erl::sdf_mapping {
         const Dtype invalid_position_var) {
 
         this->SetKernelCoordOrigin(coord_origin);
-        const long max_num_samples = std::min(m_setting_->max_num_samples, static_cast<long>(surface_data_vec.size()));
+        const long max_num_samples =
+            std::min(m_setting_->max_num_samples, static_cast<long>(surface_data_vec.size()));
         this->Reset(max_num_samples, Dim, load_normals ? Dim + 1 : 1);
-        std::sort(surface_data_indices.begin(), surface_data_indices.end(), [](const auto &a, const auto &b) { return a.first < b.first; });
+        std::sort(
+            surface_data_indices.begin(),
+            surface_data_indices.end(),
+            [](const auto &a, const auto &b) { return a.first < b.first; });
 
         long count = 0;
-        typename gaussian_process::NoisyInputGaussianProcess<Dtype>::TrainSet &train_set = this->m_train_set_;
+        typename gaussian_process::NoisyInputGaussianProcess<Dtype>::TrainSet &train_set =
+            this->m_train_set_;
         for (auto &[distance, surface_data_index]: surface_data_indices) {
             auto &surface_data = surface_data_vec[surface_data_index];
             if (offset_distance == 0.0f) {
                 train_set.x.col(count) = surface_data.position;
             } else {
-                train_set.x.col(count) = surface_data.position - offset_distance * surface_data.normal;
+                train_set.x.col(count) =
+                    surface_data.position - offset_distance * surface_data.normal;
             }
             train_set.y.col(0)[count] = 1.0f;
             if (load_normals) {
-                for (long i = 0; i < Dim; ++i) { train_set.y.col(i + 1)[count] = normal_scale * surface_data.normal[i]; }
+                for (long i = 0; i < Dim; ++i) {
+                    train_set.y.col(i + 1)[count] = normal_scale * surface_data.normal[i];
+                }
             }
             train_set.var_x[count] = surface_data.var_position;
-            if ((surface_data.var_normal > max_valid_gradient_var) ||                             // invalid gradient
-                (surface_data.normal.norm() < 0.9f)) {                                            // invalid normal
-                train_set.var_x[count] = std::max(train_set.var_x[count], invalid_position_var);  // position is unreliable
+            if ((surface_data.var_normal > max_valid_gradient_var) ||  // invalid gradient
+                (surface_data.normal.norm() < 0.9f)) {                 // invalid normal
+                train_set.var_x[count] = std::max(
+                    train_set.var_x[count],
+                    invalid_position_var);  // position is unreliable
             }
             train_set.var_y[count] = sensor_noise;
-
-            // this->m_vec_var_h_[count] = sensor_noise;
-            // this->m_vec_var_x_[count] = surface_data.var_position;
-            // this->m_vec_grad_flag_[count] = false;  // m_setting_->no_gradient_observation is true, so no need to set this
-            // if (++count >= this->m_mat_x_train_.cols()) { break; }  // reached max_num_samples
-
             if (++count >= train_set.x.cols()) { break; }  // reached max_num_samples
         }
         train_set.num_samples = count;
@@ -91,37 +227,11 @@ namespace erl::sdf_mapping {
     }
 
     template<typename Dtype>
-    bool
+    std::shared_ptr<typename gaussian_process::NoisyInputGaussianProcess<Dtype>::TestResult>
     LogEdfGaussianProcess<Dtype>::Test(
         const Eigen::Ref<const MatrixX> &mat_x_test,
-        const std::vector<std::pair<long, bool>> &y_index_grad_pairs,
-        Eigen::Ref<MatrixX> mat_f_out,
-        Eigen::Ref<MatrixX> mat_var_out,
-        Eigen::Ref<MatrixX> mat_cov_out) const {
-
-        if (!Super::Test(mat_x_test, y_index_grad_pairs, mat_f_out, mat_var_out, mat_cov_out)) { return false; }
-        const long dim = mat_x_test.rows();
-        const long n = mat_x_test.cols();
-        const Dtype log_lambda = m_setting_->log_lambda;
-        for (long i = 0; i < n; ++i) {
-            // edf
-            Dtype *f = mat_f_out.col(i).data();
-            const Dtype f_log_gpis = f[0];
-            f[0] = std::log(std::abs(f_log_gpis)) / -log_lambda;
-            // gradient
-            Dtype norm = 0.0f;
-            const Dtype d = -1.0f / (log_lambda * std::abs(f_log_gpis));  // d = -ln(f)/lambda, grad_d = -1/(lambda*f)*grad_f
-            for (long j = 1; j <= dim; ++j) {                             // gradient
-                Dtype &grad = f[j];                                       // grad_f
-                grad *= d;                                                // grad_d
-                norm += grad * grad;
-            }
-            norm = std::sqrt(norm);
-            if (norm > 1.e-15f) {                                  // avoid zero division
-                for (long j = 1; j <= dim; ++j) { f[j] /= norm; }  // gradient norm is always 1. https://en.wikipedia.org/wiki/Eikonal_equation
-            }
-        }
-        return true;
+        bool predict_gradient) const {
+        return std::make_shared<TestResult>(this, mat_x_test, predict_gradient);
     }
 
     template<typename Dtype>
@@ -129,96 +239,10 @@ namespace erl::sdf_mapping {
     LogEdfGaussianProcess<Dtype>::operator==(const LogEdfGaussianProcess &other) const {
         if (!Super::operator==(other)) { return false; }
         if (m_setting_ == nullptr && other.m_setting_ != nullptr) { return false; }
-        if (m_setting_ != nullptr && (other.m_setting_ == nullptr || *m_setting_ != *other.m_setting_)) { return false; }
+        if (m_setting_ != nullptr &&
+            (other.m_setting_ == nullptr || *m_setting_ != *other.m_setting_)) {
+            return false;
+        }
         return true;
-    }
-
-    template<typename Dtype>
-    bool
-    LogEdfGaussianProcess<Dtype>::Write(std::ostream &s) const {
-        if (!Super::Write(s)) {
-            ERL_WARN("Failed to write parent class NoisyInputGaussianProcess.");
-            return false;
-        }
-        s << kFileHeader << std::endl  //
-          << "# (feel free to add / change comments, but leave the first line as it is!)" << std::endl
-          << "setting" << std::endl;
-        // write setting
-        if (!m_setting_->Write(s)) {
-            ERL_WARN("Failed to write setting.");
-            return false;
-        }
-        s << "end_of_LogEdfGaussianProcess" << std::endl;
-        return s.good();
-    }
-
-    template<typename Dtype>
-    bool
-    LogEdfGaussianProcess<Dtype>::Read(std::istream &s) {
-        if (!Super::Read(s)) {
-            ERL_WARN("Failed to read parent class NoisyInputGaussianProcess.");
-            return false;
-        }
-
-        if (!s.good()) {
-            ERL_WARN("Input stream is not ready for reading");
-            return false;
-        }
-
-        // check if the first line is valid
-        std::string line;
-        std::getline(s, line);
-        if (line.compare(0, kFileHeader.length(), kFileHeader) != 0) {  // check if the first line is valid
-            ERL_WARN("Header does not start with \"{}\"", kFileHeader.c_str());
-            return false;
-        }
-
-        auto skip_line = [&s]() {
-            char c;
-            do { c = static_cast<char>(s.get()); } while (s.good() && c != '\n');
-        };
-
-        static const char *tokens[] = {
-            "setting",
-            "end_of_LogEdfGaussianProcess",
-        };
-
-        // read data
-        std::string token;
-        int token_idx = 0;
-        while (s.good()) {
-            s >> token;
-            if (token.compare(0, 1, "#") == 0) {
-                skip_line();  // comment line, skip forward until end of line
-                continue;
-            }
-            // non-comment line
-            if (token != tokens[token_idx]) {
-                ERL_WARN("Expected token {}, got {}.", tokens[token_idx], token);  // check token
-                return false;
-            }
-            // reading state machine
-            switch (token_idx) {
-                case 0: {  // setting
-                    skip_line();
-                    if (!m_setting_->Read(s)) {
-                        ERL_WARN("Failed to read setting.");
-                        return false;
-                    }
-                    break;
-                }
-                case 1: {  // end_of_LogEdfGaussianProcess
-                    skip_line();
-                    return true;
-                }
-                default: {
-                    ERL_WARN("Unknown token: {}", token);
-                    return false;
-                }
-            }
-            ++token_idx;
-        }
-        ERL_WARN("Failed to read NoisyInputGaussianProcess. Truncated file?");
-        return false;  // should not reach here
     }
 }  // namespace erl::sdf_mapping

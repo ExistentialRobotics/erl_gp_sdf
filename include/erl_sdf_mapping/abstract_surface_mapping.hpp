@@ -25,36 +25,7 @@ namespace erl::sdf_mapping {
         // IO
 
         [[nodiscard]] virtual bool
-        Write(const std::string &filename) const {
-            ERL_INFO("Writing {} to file: {}", demangle(typeid(*this).name()), filename);
-            std::filesystem::create_directories(std::filesystem::path(filename).parent_path());
-            std::ofstream file(filename, std::ios_base::out | std::ios_base::binary);
-            if (!file.is_open()) {
-                ERL_WARN("Failed to open file: {}", filename);
-                return false;
-            }
-
-            const bool success = Write(file);
-            file.close();
-            return success;
-        }
-
-        [[nodiscard]] virtual bool
         Write(std::ostream &s) const = 0;
-
-        [[nodiscard]] virtual bool
-        Read(const std::string &filename) {
-            ERL_INFO("Reading {} from file: {}", demangle(typeid(*this).name()), filename);
-            std::ifstream file(filename.c_str(), std::ios_base::in | std::ios_base::binary);
-            if (!file.is_open()) {
-                ERL_WARN("Failed to open file: {}", filename.c_str());
-                return false;
-            }
-
-            const bool success = Read(file);
-            file.close();
-            return success;
-        }
 
         [[nodiscard]] virtual bool
         Read(std::istream &s) = 0;

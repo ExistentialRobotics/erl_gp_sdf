@@ -2,36 +2,50 @@
 
 #include "abstract_surface_mapping.hpp"
 #include "surface_data_manager.hpp"
-#include "surface_mapping_octree.hpp"
-#include "surface_mapping_quadtree.hpp"
 
 #include "erl_gaussian_process/lidar_gp_2d.hpp"
 #include "erl_gaussian_process/range_sensor_gp_3d.hpp"
+#include "erl_geometry/occupancy_octree.hpp"
+#include "erl_geometry/occupancy_quadtree.hpp"
 
 namespace erl::sdf_mapping {
 
     template<typename Dtype, int Dim>
     class GpOccSurfaceMapping : public AbstractSurfaceMapping {
         static_assert(Dim == 2 || Dim == 3, "Dim must be 2 or 3.");
-        inline static const std::string kClassName = type_name<GpOccSurfaceMapping>();
-        inline static const std::string kFileHeader = fmt::format("# {}", kClassName);
-        inline static auto kFileFooter = "end_of_GpOccSurfaceMapping";
 
     public:
         // type definitions required by GpSdfMapping
         using Key = std::conditional_t<Dim == 2, geometry::QuadtreeKey, geometry::OctreeKey>;
-        using KeySet = std::conditional_t<Dim == 2, geometry::QuadtreeKeySet, geometry::OctreeKeySet>;
-        using KeyVector = std::conditional_t<Dim == 2, geometry::QuadtreeKeyVector, geometry::OctreeKeyVector>;
-        using Tree = std::conditional_t<Dim == 2, SurfaceMappingQuadtree<Dtype>, SurfaceMappingOctree<Dtype>>;
-        using TreeNode = std::conditional_t<Dim == 2, SurfaceMappingQuadtreeNode, SurfaceMappingOctreeNode>;
+        using KeySet = std::conditional_t<  //
+            Dim == 2,
+            geometry::QuadtreeKeySet,
+            geometry::OctreeKeySet>;
+        using KeyVector = std::conditional_t<  //
+            Dim == 2,
+            geometry::QuadtreeKeyVector,
+            geometry::OctreeKeyVector>;
+        using Tree = std::conditional_t<
+            Dim == 2,
+            geometry::OccupancyQuadtree<Dtype>,
+            geometry::OccupancyOctree<Dtype>>;
+        using TreeNode = std::conditional_t<  //
+            Dim == 2,
+            geometry::OccupancyQuadtreeNode,
+            geometry::OccupancyOctreeNode>;
         using SurfDataManager = SurfaceDataManager<Dtype, Dim>;
         using SurfData = typename SurfDataManager::Data;
 
         // other types
-        using SensorGp = std::conditional_t<Dim == 2, gaussian_process::LidarGaussianProcess2D<Dtype>, gaussian_process::RangeSensorGaussianProcess3D<Dtype>>;
+        using SensorGp = std::conditional_t<
+            Dim == 2,
+            gaussian_process::LidarGaussianProcess2D<Dtype>,
+            gaussian_process::RangeSensorGaussianProcess3D<Dtype>>;
         using SensorGpSetting = typename SensorGp::Setting;
         using TreeSetting = typename Tree::Setting;
         using Aabb = geometry::Aabb<Dtype, Dim>;
+        using SurfIndices0Type = absl::flat_hash_map<Key, std::size_t>;
+        using SurfIndices1Type = absl::flat_hash_map<Key, absl::flat_hash_map<int, std::size_t>>;
 
         // eigen types
         using Scalar = Eigen::Matrix<Dtype, 1, 1>;
@@ -46,34 +60,51 @@ namespace erl::sdf_mapping {
 
         struct Setting : common::Yamlable<Setting> {
             struct ComputeVariance {
-                Dtype zero_gradient_position_var = 1.;  // position variance to set when the estimated gradient is almost zero.
-                Dtype zero_gradient_gradient_var = 1.;  // gradient variance to set when the estimated gradient is almost zero.
-                Dtype position_var_alpha = 0.01f;       // scaling number of position variance.
-                Dtype min_distance_var = 1.0f;          // allowed minimum distance variance.
-                Dtype max_distance_var = 100.0f;        // allowed maximum distance variance.
-                Dtype min_gradient_var = 0.01f;         // allowed minimum gradient variance.
-                Dtype max_gradient_var = 1.0f;          // allowed maximum gradient variance.
+                // position variance to set when the estimated gradient is almost zero.
+                Dtype zero_gradient_position_var = 1.;
+                // gradient variance to set when the estimated gradient is almost zero.
+                Dtype zero_gradient_gradient_var = 1.;
+                Dtype position_var_alpha = 0.01f;  // scaling number of the position variance.
+                Dtype min_distance_var = 1.0f;     // allowed minimum distance variance.
+                Dtype max_distance_var = 100.0f;   // allowed maximum distance variance.
+                Dtype min_gradient_var = 0.01f;    // allowed minimum gradient variance.
+                Dtype max_gradient_var = 1.0f;     // allowed maximum gradient variance.
             };
 
             struct UpdateMapPoints {
                 int max_adjust_tries = 10;
-                Dtype min_observable_occ = -0.1f;     // points of OCC smaller than this value is considered unobservable, i.e. inside the object.
-                Dtype min_position_var = 0.001f;      // minimum position variance.
-                Dtype min_gradient_var = 0.001f;      // minimum gradient variance.
-                Dtype max_surface_abs_occ = 0.02f;    // maximum absolute value of surface points' OCC, which should be zero ideally.
-                Dtype max_valid_gradient_var = 0.5f;  // maximum valid gradient variance, above this threshold, it won't be used for the Bayes Update.
-                Dtype max_bayes_position_var = 1.0f;  // if the position variance by Bayes Update is above this threshold, it will be discarded.
-                Dtype max_bayes_gradient_var = 0.6f;  // if the gradient variance by Bayes Update is above this threshold, it will be discarded.
+                // points of OCC smaller than this value are considered unobservable.
+                // i.e., inside the object.
+                Dtype min_observable_occ = -0.1f;
+                Dtype min_position_var = 0.001f;  // minimum position variance.
+                Dtype min_gradient_var = 0.001f;  // minimum gradient variance.
+
+                // maximum absolute value of surface points' OCC, which should be zero ideally.
+                Dtype max_surface_abs_occ = 0.02f;
+                // maximum valid gradient variance, above this threshold, it won't be used for the
+                // Bayes Update.
+                Dtype max_valid_gradient_var = 0.5f;
+                // if the position variance by Bayes Update is above this threshold, it will be
+                // discarded.
+                Dtype max_bayes_position_var = 1.0f;
+                // if the gradient variance by Bayes Update is above this threshold, it will be
+                // discarded.
+                Dtype max_bayes_gradient_var = 0.6f;
             };
 
             ComputeVariance compute_variance;
             UpdateMapPoints update_map_points;
             std::shared_ptr<SensorGpSetting> sensor_gp = std::make_shared<SensorGpSetting>();
             std::shared_ptr<TreeSetting> tree = std::make_shared<TreeSetting>();
-            Dtype scaling = 1.0f;                     // internal scaling factor.
-            Dtype perturb_delta = 0.01f;              // perturbation delta for gradient estimation.
-            Dtype zero_gradient_threshold = 1.e-15f;  // gradient below this threshold is considered zero.
-            bool update_occupancy = true;             // whether to update the occupancy of the occupancy tree.
+            // resolution to track the surface points; when <= 0, each leaf node contains only one
+            // surface point.
+            Dtype surface_resolution = 0.01f;
+            Dtype scaling = 1.0f;         // internal scaling factor.
+            Dtype perturb_delta = 0.01f;  // perturbation delta for gradient estimation.
+
+            // a gradient with norm below this threshold is considered zero.
+            Dtype zero_gradient_threshold = 1.e-15f;
+            bool update_occupancy = true;  // whether to update the occupancy of the occupancy tree.
             uint32_t cluster_depth = 14;
 
             struct YamlConvertImpl {
@@ -85,12 +116,56 @@ namespace erl::sdf_mapping {
             };
         };
 
+        class SurfaceDataIterator {
+            GpOccSurfaceMapping *m_mapping_;
+            bool m_use0_ = true;
+            typename SurfIndices0Type::iterator m_it0_;
+            typename SurfIndices1Type::iterator m_it1_;
+            absl::flat_hash_map<int, std::size_t>::iterator m_it2_;
+
+        public:
+            explicit SurfaceDataIterator(GpOccSurfaceMapping *mapping);
+
+            SurfaceDataIterator(const SurfaceDataIterator &other) = default;
+            SurfaceDataIterator &
+            operator=(const SurfaceDataIterator &other) = default;
+            SurfaceDataIterator(SurfaceDataIterator &&other) = default;
+            SurfaceDataIterator &
+            operator=(SurfaceDataIterator &&other) = default;
+
+            [[nodiscard]] bool
+            operator==(const SurfaceDataIterator &other) const;
+
+            [[nodiscard]] bool
+            operator!=(const SurfaceDataIterator &other) const;
+
+            SurfData &
+            operator*();
+
+            SurfData *
+            operator->();
+
+            SurfaceDataIterator &
+            operator++();
+
+            SurfaceDataIterator
+            operator++(int);
+        };
+
     private:
         std::shared_ptr<Setting> m_setting_ = std::make_shared<Setting>();
         std::shared_ptr<SensorGp> m_sensor_gp_ = nullptr;
         std::shared_ptr<Tree> m_tree_ = nullptr;
+        // strides for the grid indices
+        Eigen::Vector<int, Dim> m_strides_ = Eigen::Vector<int, Dim>::Zero();
+        // key -> surface data index (used when the surface resolution is <= 0)
+        SurfIndices0Type m_surf_indices0_;
+        // key -> [grid_min, (grid index -> surface data index)]
+        SurfIndices1Type m_surf_indices1_;
+        // surface data manager to manage the surface data buffer
         SurfDataManager m_surf_data_manager_;
         Eigen::Matrix<Dtype, Dim, 2 * Dim> m_pos_perturb_ = {};
+        Dtype m_surface_resolution_inv_ = 0.0f;  // inverse of the tree resolution
         KeySet m_changed_keys_ = {};
         std::mutex m_mutex_;
 
@@ -110,16 +185,18 @@ namespace erl::sdf_mapping {
         GetSurfaceDataManager() const;
 
         bool
-        Update(const Eigen::Ref<const Rotation> &rotation, const Eigen::Ref<const Translation> &translation, const Eigen::Ref<const Ranges> &ranges);
+        Update(
+            const Eigen::Ref<const Rotation> &rotation,
+            const Eigen::Ref<const Translation> &translation,
+            const Eigen::Ref<const Ranges> &ranges);
+
+        SurfaceDataIterator
+        BeginSurfaceData();
+
+        SurfaceDataIterator
+        EndSurfaceData();
 
         // implement the methods required by GpSdfMapping
-
-        /**
-         * Check if the mapping is ready.
-         * @return true if the mapping is ready.
-         */
-        [[nodiscard]] bool
-        Ready() const;
 
         /**
          * Lock the mutex of the mapping.
@@ -174,10 +251,12 @@ namespace erl::sdf_mapping {
         /**
          * Collect surface data in the given axis-aligned bounding box.
          * @param aabb the axis-aligned bounding box to collect surface data.
-         * @param surface_data_indices vector of pairs of distance to the surface and the index of the surface data.
+         * @param surface_data_indices vector of (distance to point, surface point index).
          */
         void
-        CollectSurfaceDataInAabb(const Aabb &aabb, std::vector<std::pair<Dtype, std::size_t>> &surface_data_indices) const;
+        CollectSurfaceDataInAabb(
+            const Aabb &aabb,
+            std::vector<std::pair<Dtype, std::size_t>> &surface_data_indices) const;
 
         /**
          * Get the boundary of the map.
@@ -189,8 +268,10 @@ namespace erl::sdf_mapping {
         /**
          * Check if the given positions are in free space.
          * @param positions the positions to check.
-         * @param in_free_space the vector to store the result. 1.0 if the position is in free space, -1.0 otherwise.
-         * @return true if this method is successful. false if the algorithm fails / is not implemented.
+         * @param in_free_space the vector to store the result. 1.0 if the position is in free
+         * space, -1.0 otherwise.
+         * @return true if this method is successful. false if the algorithm fails / is not
+         * implemented.
          */
         [[nodiscard]] bool
         IsInFreeSpace(const Positions &positions, VectorX &in_free_space) const;
@@ -214,15 +295,34 @@ namespace erl::sdf_mapping {
         Cartesian2Polar(Dtype x, Dtype y);
 
         void
-        UpdateMapPoints();
+        UpdateMapPoints0();
+
+        void
+        UpdateMapPoints1();
+
+        void
+        UpdateMapPoint(SurfData &surface_data, bool &updated, bool &to_remove);
+
+        [[nodiscard]] std::pair<Key, int>
+        ComputeSurfaceIndex1(const Position &pos_global) const;
 
         template<int D = Dim>
         [[nodiscard]] std::enable_if_t<D == 2, bool>
-        ComputeOcc(const Position &pos_local, Dtype &distance_local, Eigen::Ref<Scalar> distance_pred, Eigen::Ref<Scalar> distance_pred_var, Dtype &occ) const;
+        ComputeOcc(
+            const Position &pos_local,
+            Dtype &distance_local,
+            Eigen::Ref<Scalar> distance_pred,
+            Eigen::Ref<Scalar> distance_pred_var,
+            Dtype &occ) const;
 
         template<int D = Dim>
         [[nodiscard]] std::enable_if_t<D == 3, bool>
-        ComputeOcc(const Position &pos_local, Dtype &distance_local, Eigen::Ref<Scalar> distance_pred, Eigen::Ref<Scalar> distance_pred_var, Dtype &occ) const;
+        ComputeOcc(
+            const Position &pos_local,
+            Dtype &distance_local,
+            Eigen::Ref<Scalar> distance_pred,
+            Eigen::Ref<Scalar> distance_pred_var,
+            Dtype &occ) const;
 
         template<int D = Dim>
         std::enable_if_t<D == 2>
@@ -236,16 +336,26 @@ namespace erl::sdf_mapping {
         UpdateOccupancy();
 
         void
-        AddNewMeasurement();
+        AddNewMeasurement0();
+
+        void
+        AddNewMeasurement1();
 
         void
         RecordChangedKey(const Key &key);
 
         bool
-        ComputeGradient1(const Position &pos_local, Gradient &gradient, Dtype &occ_mean, Dtype &distance_var);
+        ComputeGradient1(
+            const Position &pos_local,
+            Gradient &gradient,
+            Dtype &occ_mean,
+            Dtype &distance_var);
 
         bool
-        ComputeGradient2(const Eigen::Ref<const Position> &pos_local, Gradient &gradient, Dtype &occ_mean);
+        ComputeGradient2(
+            const Eigen::Ref<const Position> &pos_local,
+            Gradient &gradient,
+            Dtype &occ_mean);
 
         void
         ComputeVariance(
@@ -270,13 +380,17 @@ namespace erl::sdf_mapping {
 #include "gp_occ_surface_mapping.tpp"
 
 template<>
-struct YAML::convert<erl::sdf_mapping::GpOccSurfaceMapping3Dd::Setting> : erl::sdf_mapping::GpOccSurfaceMapping3Dd::Setting::YamlConvertImpl {};
+struct YAML::convert<erl::sdf_mapping::GpOccSurfaceMapping3Dd::Setting>
+    : erl::sdf_mapping::GpOccSurfaceMapping3Dd::Setting::YamlConvertImpl {};
 
 template<>
-struct YAML::convert<erl::sdf_mapping::GpOccSurfaceMapping3Df::Setting> : erl::sdf_mapping::GpOccSurfaceMapping3Df::Setting::YamlConvertImpl {};
+struct YAML::convert<erl::sdf_mapping::GpOccSurfaceMapping3Df::Setting>
+    : erl::sdf_mapping::GpOccSurfaceMapping3Df::Setting::YamlConvertImpl {};
 
 template<>
-struct YAML::convert<erl::sdf_mapping::GpOccSurfaceMapping2Dd::Setting> : erl::sdf_mapping::GpOccSurfaceMapping2Dd::Setting::YamlConvertImpl {};
+struct YAML::convert<erl::sdf_mapping::GpOccSurfaceMapping2Dd::Setting>
+    : erl::sdf_mapping::GpOccSurfaceMapping2Dd::Setting::YamlConvertImpl {};
 
 template<>
-struct YAML::convert<erl::sdf_mapping::GpOccSurfaceMapping2Df::Setting> : erl::sdf_mapping::GpOccSurfaceMapping2Df::Setting::YamlConvertImpl {};
+struct YAML::convert<erl::sdf_mapping::GpOccSurfaceMapping2Df::Setting>
+    : erl::sdf_mapping::GpOccSurfaceMapping2Df::Setting::YamlConvertImpl {};

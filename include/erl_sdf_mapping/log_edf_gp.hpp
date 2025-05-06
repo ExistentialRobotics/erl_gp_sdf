@@ -27,8 +27,28 @@ namespace erl::sdf_mapping {
             };
         };
 
-    private:
-        inline static const std::string kFileHeader = fmt::format("# {}", type_name<LogEdfGaussianProcess>());
+        struct TestResult : Super::TestResult {
+            TestResult(
+                const LogEdfGaussianProcess *gp,
+                const Eigen::Ref<const MatrixX> &mat_x_test,
+                bool will_predict_gradient);
+
+            void
+            GetMean(long y_index, Eigen::Ref<Eigen::VectorX<Dtype>> vec_f_out) const override;
+
+            void
+            GetMean(long index, long y_index, Dtype &f) const override;
+
+            void
+            GetGradient(long y_index, Eigen::Ref<MatrixX> mat_grad_out) const override;
+
+            void
+            GetGradient(long index, long y_index, Dtype *grad) const override;
+
+            template<int Dim>
+            void
+            GetGradientD(long index, long y_index, Dtype *grad) const;
+        };
 
     protected:
         std::shared_ptr<Setting> m_setting_ = nullptr;
@@ -59,13 +79,8 @@ namespace erl::sdf_mapping {
             Dtype max_valid_gradient_var,
             Dtype invalid_position_var);
 
-        [[nodiscard]] bool
-        Test(
-            const Eigen::Ref<const MatrixX> &mat_x_test,
-            const std::vector<std::pair<long, bool>> &y_index_grad_pairs,
-            Eigen::Ref<MatrixX> mat_f_out,
-            Eigen::Ref<MatrixX> mat_var_out,
-            Eigen::Ref<MatrixX> mat_cov_out) const override;
+        [[nodiscard]] std::shared_ptr<typename Super::TestResult>
+        Test(const Eigen::Ref<const MatrixX> &mat_x_test, bool predict_gradient) const override;
 
         [[nodiscard]] bool
         operator==(const LogEdfGaussianProcess &other) const;
@@ -74,12 +89,6 @@ namespace erl::sdf_mapping {
         operator!=(const LogEdfGaussianProcess &other) const {
             return !(*this == other);
         }
-
-        [[nodiscard]] bool
-        Write(std::ostream &s) const override;
-
-        [[nodiscard]] bool
-        Read(std::istream &s) override;
     };
 
     using LogEdfGaussianProcessD = LogEdfGaussianProcess<double>;
@@ -89,7 +98,9 @@ namespace erl::sdf_mapping {
 #include "log_edf_gp.tpp"
 
 template<>
-struct YAML::convert<erl::sdf_mapping::LogEdfGaussianProcessD::Setting> : erl::sdf_mapping::LogEdfGaussianProcessD::Setting::YamlConvertImpl {};
+struct YAML::convert<erl::sdf_mapping::LogEdfGaussianProcessD::Setting>
+    : erl::sdf_mapping::LogEdfGaussianProcessD::Setting::YamlConvertImpl {};
 
 template<>
-struct YAML::convert<erl::sdf_mapping::LogEdfGaussianProcessF::Setting> : erl::sdf_mapping::LogEdfGaussianProcessF::Setting::YamlConvertImpl {};
+struct YAML::convert<erl::sdf_mapping::LogEdfGaussianProcessF::Setting>
+    : erl::sdf_mapping::LogEdfGaussianProcessF::Setting::YamlConvertImpl {};

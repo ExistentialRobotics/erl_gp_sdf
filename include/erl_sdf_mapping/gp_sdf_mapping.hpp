@@ -16,7 +16,8 @@
 namespace erl::sdf_mapping {
 
     class AbstractGpSdfMapping {
-        inline static std::unordered_map<std::string, std::string> s_surface_mapping_to_sdf_mapping_ = {};
+        inline static std::unordered_map<std::string, std::string>
+            s_surface_mapping_to_sdf_mapping_ = {};
 
     public:
         using Factory = common::FactoryPattern<
@@ -30,7 +31,9 @@ namespace erl::sdf_mapping {
         GetSdfMappingId(const std::string& surface_mapping_id) {
             const auto it = s_surface_mapping_to_sdf_mapping_.find(surface_mapping_id);
             if (it == s_surface_mapping_to_sdf_mapping_.end()) {
-                ERL_WARN("Failed to find sdf mapping for surface mapping: {}. Do you register it?", surface_mapping_id);
+                ERL_WARN(
+                    "Failed to find sdf mapping for surface mapping: {}. Do you register it?",
+                    surface_mapping_id);
                 return "";
             }
             return it->second;
@@ -41,7 +44,10 @@ namespace erl::sdf_mapping {
             const std::string& mapping_type,
             const std::shared_ptr<common::YamlableBase>& surface_mapping_setting,
             const std::shared_ptr<common::YamlableBase>& sdf_mapping_setting) {
-            return Factory::GetInstance().Create(mapping_type, surface_mapping_setting, sdf_mapping_setting);
+            return Factory::GetInstance().Create(
+                mapping_type,
+                surface_mapping_setting,
+                sdf_mapping_setting);
         }
 
         template<typename Derived>
@@ -54,20 +60,28 @@ namespace erl::sdf_mapping {
             return Factory::GetInstance().Register<Derived>(
                 mapping_type,
                 [](const std::shared_ptr<common::YamlableBase>& surface_mapping_setting,
-                   const std::shared_ptr<common::YamlableBase>& sdf_mapping_setting) -> std::shared_ptr<AbstractGpSdfMapping> {
+                   const std::shared_ptr<common::YamlableBase>& sdf_mapping_setting)
+                    -> std::shared_ptr<AbstractGpSdfMapping> {
                     using SurfaceMappingSetting = typename SurfaceMapping::Setting;
 
-                    auto casted_surface_mapping_setting = std::dynamic_pointer_cast<SurfaceMappingSetting>(surface_mapping_setting);
+                    auto casted_surface_mapping_setting =
+                        std::dynamic_pointer_cast<SurfaceMappingSetting>(surface_mapping_setting);
                     if (casted_surface_mapping_setting == nullptr) {
-                        ERL_WARN("Failed to cast surface_mapping_setting to {}", type_name<SurfaceMappingSetting>());
+                        ERL_WARN(
+                            "Failed to cast surface_mapping_setting to {}",
+                            type_name<SurfaceMappingSetting>());
                         return nullptr;
                     }
-                    auto surface_mapping = std::make_shared<SurfaceMapping>(casted_surface_mapping_setting);
+                    auto surface_mapping =
+                        std::make_shared<SurfaceMapping>(casted_surface_mapping_setting);
 
                     using SdfMappingSetting = typename Derived::Setting;
-                    auto casted_sdf_mapping_setting = std::dynamic_pointer_cast<SdfMappingSetting>(sdf_mapping_setting);
+                    auto casted_sdf_mapping_setting =
+                        std::dynamic_pointer_cast<SdfMappingSetting>(sdf_mapping_setting);
                     if (casted_sdf_mapping_setting == nullptr) {
-                        ERL_WARN("Failed to cast sdf_mapping_setting to {}", type_name<SdfMappingSetting>());
+                        ERL_WARN(
+                            "Failed to cast sdf_mapping_setting to {}",
+                            type_name<SdfMappingSetting>());
                         return nullptr;
                     }
                     return std::make_shared<Derived>(casted_sdf_mapping_setting, surface_mapping);
@@ -131,9 +145,12 @@ namespace erl::sdf_mapping {
             std::unique_ptr<Eigen::Ref<const Positions>> positions = nullptr;
             std::unique_ptr<Eigen::Ref<Distances>> distances = nullptr;
             std::unique_ptr<Eigen::Ref<Gradients>> gradients = nullptr;
-            std::unique_ptr<Eigen::Ref<Variances>> variances = nullptr;      // var(d, grad.x, grad.y, grad.z)
-            std::unique_ptr<Eigen::Ref<Covariances>> covariances = nullptr;  // cov (gx, d), (gy, d), (gz, d), (gy, gx), (gz, gx), (gz, gy)
-            MatrixX gp_buffer;  // for caching intermediate results used for testing, (num_neighbors * (2 * Dim + 1), num_queries)
+            // var(d, grad.x, grad.y, grad.z)
+            std::unique_ptr<Eigen::Ref<Variances>> variances = nullptr;
+            // cov (gx, d), (gy, d), (gz, d), (gy, gx), (gz, gx), (gz, gy)
+            std::unique_ptr<Eigen::Ref<Covariances>> covariances = nullptr;
+            // for caching intermediate results used for testing
+            MatrixX gp_buffer;  //(num_neighbors * (2 * Dim + 1), num_queries)
 
             [[nodiscard]] std::size_t
             Size() const {
@@ -159,37 +176,46 @@ namespace erl::sdf_mapping {
 
         std::shared_ptr<Setting> m_setting_ = std::make_shared<Setting>();
         std::mutex m_mutex_;
-        std::shared_ptr<SurfaceMapping> m_surface_mapping_ = nullptr;                // for getting surface points, RACING CONDITION.
-        KeyGpMap m_gp_map_ = {};                                                     // for getting GP from Octree key, RACING CONDITION.
-        KeyVector m_affected_clusters_ = {};                                         // stores clusters to update after a new observation
-        KeyQueueMap m_cluster_queue_keys_ = {};                                      // caching keys of clusters in the queue to be updated
-        PriorityQueue m_cluster_queue_;                                              // ordering clusters, smaller time_stamp first (FIFO)
-        std::vector<KeyGpPair> m_clusters_to_train_ = {};                            // stores clusters to train, RACING CONDITION.
-        std::vector<KeyGpPair> m_candidate_gps_ = {};                                // for testing
-        std::shared_ptr<KdTree> m_kdtree_candidate_gps_ = nullptr;                   // for testing to search candidate GPs
-        Aabb m_map_boundary_ = {};                                                   // for testing, boundary of the surface map
+        std::shared_ptr<SurfaceMapping> m_surface_mapping_ = nullptr;  // RACING CONDITION.
+        KeyGpMap m_gp_map_ = {};                 // key -> gp, RACING CONDITION.
+        KeyVector m_affected_clusters_ = {};     // stores clusters to update
+        KeyQueueMap m_cluster_queue_keys_ = {};  // caching clusters in the queue to be updated
+        PriorityQueue m_cluster_queue_;          // queue clusters, smaller time_stamp first (FIFO)
+        std::vector<KeyGpPair> m_clusters_to_train_ = {};  // clusters to train, RACING CONDITION.
+        std::vector<KeyGpPair> m_candidate_gps_ = {};      // for testing
+        std::shared_ptr<KdTree> m_kdtree_candidate_gps_ = nullptr;  // to search candidate GPs
+        Aabb m_map_boundary_ = {};  // for testing, boundary of the surface map
         std::vector<std::vector<std::pair<Dtype, KeyGpPair>>> m_query_to_gps_ = {};  // for testing
-        VectorX m_query_signs_ = {};                                                 // sign of query positions
-        double m_train_gp_time_us_ = 10;                                             // time spent for training GPs
+        VectorX m_query_signs_ = {};      // sign of query positions
+        double m_train_gp_time_us_ = 10;  // time spent for training GPs
         TestBuffer m_test_buffer_ = {};
-        std::vector<std::array<std::shared_ptr<SdfGp>, (Dim - 1) * 2>> m_query_used_gps_ = {};  // for testing
+        std::vector<std::array<std::shared_ptr<SdfGp>, (Dim - 1) * 2>> m_query_used_gps_ = {};
 
     public:
-        GpSdfMapping(std::shared_ptr<Setting> setting, std::shared_ptr<SurfaceMapping> surface_mapping);
+        GpSdfMapping(
+            std::shared_ptr<Setting> setting,
+            std::shared_ptr<SurfaceMapping> surface_mapping);
 
         [[nodiscard]] std::shared_ptr<const Setting>
         GetSetting() const;
 
         /**
          * Call this method to update the surface mapping and then update the GP SDF mapping.
-         * You can call this method or call the surface mapping update first and then UpdateGpSdf separately.
-         * @param rotation the rotation of the sensor. For 2D, it is a 2x2 matrix. For 3D, it is a 3x3 matrix.
-         * @param translation the translation of the sensor. For 2D, it is a 2x1 vector. For 3D, it is a 3x1 vector.
-         * @param ranges the range observations. For 2D, it is a vector of ranges. For 3D, it is a matrix of ranges.
+         * You can call this method or call the surface mapping update first and then UpdateGpSdf
+         * separately.
+         * @param rotation The rotation of the sensor. For 2D, it is a 2x2 matrix. For 3D, it is a
+         * 3x3 matrix.
+         * @param translation The translation of the sensor. For 2D, it is a 2x1 vector. For 3D, it
+         * is a 3x1 vector.
+         * @param ranges The observation of ranges assumed organized in the order of ray angles. For
+         * 2D, it is a vector of ranges. For 3D, it is a matrix of ranges.
          * @return true if the update is successful.
          */
         bool
-        Update(const Eigen::Ref<const Rotation>& rotation, const Eigen::Ref<const Translation>& translation, const Eigen::Ref<const Ranges>& ranges);
+        Update(
+            const Eigen::Ref<const Rotation>& rotation,
+            const Eigen::Ref<const Translation>& translation,
+            const Eigen::Ref<const Ranges>& ranges);
 
         bool
         UpdateGpSdf(double time_budget_us = 0);
@@ -225,6 +251,12 @@ namespace erl::sdf_mapping {
         GetLockGuard();
 
         void
+        CollectChangedClusters();
+
+        void
+        UpdateClusterQueue();
+
+        void
         TrainGps();
 
         void
@@ -234,7 +266,11 @@ namespace erl::sdf_mapping {
         SearchCandidateGps(const Eigen::Ref<const Positions>& positions_in);
 
         void
-        SearchGpThread(uint32_t thread_idx, std::size_t start_idx, std::size_t end_idx, std::vector<std::size_t>& no_gps_indices);
+        SearchGpThread(
+            uint32_t thread_idx,
+            std::size_t start_idx,
+            std::size_t end_idx,
+            std::vector<std::size_t>& no_gps_indices);
 
         void
         SearchGpFallback(const std::vector<std::size_t>& no_gps_indices);

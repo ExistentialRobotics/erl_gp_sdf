@@ -30,14 +30,16 @@ namespace erl::sdf_mapping {
         operator=(SurfaceData &&other) noexcept = default;
 
         [[nodiscard]] bool
-        operator==(const SurfaceData &other) const {
-            return position == other.position && normal == other.normal && var_position == other.var_position && var_normal == other.var_normal;
-        }
+        operator==(const SurfaceData &other) const;
 
         [[nodiscard]] bool
-        operator!=(const SurfaceData &other) const {
-            return !(*this == other);
-        }
+        operator!=(const SurfaceData &other) const;
+
+        [[nodiscard]] bool
+        Write(std::ostream &s) const;
+
+        [[nodiscard]] bool
+        Read(std::istream &s);
     };
 
     template<typename Dtype, int Dim>
@@ -56,3 +58,5 @@ namespace erl::sdf_mapping {
     };
 
 }  // namespace erl::sdf_mapping
+
+#include "surface_data_manager.tpp"
