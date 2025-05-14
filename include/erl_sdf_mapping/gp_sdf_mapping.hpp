@@ -149,8 +149,9 @@ namespace erl::sdf_mapping {
             std::unique_ptr<Eigen::Ref<Variances>> variances = nullptr;
             // cov (gx, d), (gy, d), (gz, d), (gy, gx), (gz, gx), (gz, gy)
             std::unique_ptr<Eigen::Ref<Covariances>> covariances = nullptr;
-            // for caching intermediate results used for testing
-            MatrixX gp_buffer;  //(num_neighbors * (2 * Dim + 1), num_queries)
+            // for caching intermediate results used for testing, the shape is
+            // (num_neighbors * (2 * Dim + 1), num_queries).
+            MatrixX gp_buffer{};
 
             [[nodiscard]] std::size_t
             Size() const {

@@ -80,6 +80,23 @@ namespace erl::sdf_mapping {
     }
 
     template<typename Dtype, int Dim>
+    bool
+    BayesianHilbertSurfaceMapping<Dtype, Dim>::LocalBayesianHilbertMap::Surface::operator==(
+        const Surface &other) const {
+        if (position != other.position) { return false; }
+        if (normal != other.normal) { return false; }
+        if (prob_occupied != other.prob_occupied) { return false; }
+        return true;
+    }
+
+    template<typename Dtype, int Dim>
+    bool
+    BayesianHilbertSurfaceMapping<Dtype, Dim>::LocalBayesianHilbertMap::Surface::operator!=(
+        const Surface &other) const {
+        return !(*this == other);
+    }
+
+    template<typename Dtype, int Dim>
     BayesianHilbertSurfaceMapping<Dtype, Dim>::LocalBayesianHilbertMap::LocalBayesianHilbertMap(
         std::shared_ptr<LocalBayesianHilbertMapSetting<Dtype>> setting_,
         Positions hinged_points,
@@ -347,6 +364,37 @@ namespace erl::sdf_mapping {
             },
         };
         return ReadTokens(s, this, token_function_pairs);
+    }
+
+    template<typename Dtype, int Dim>
+    bool
+    BayesianHilbertSurfaceMapping<Dtype, Dim>::LocalBayesianHilbertMap::operator==(
+        const LocalBayesianHilbertMap &other) const {
+        if (setting == nullptr && other.setting != nullptr) { return false; }
+        if (setting != nullptr && (other.setting == nullptr || *setting != *other.setting)) {
+            return false;
+        }
+        if (tracked_surface_boundary != other.tracked_surface_boundary) { return false; }
+        if (bhm != other.bhm) { return false; }
+        if (strides != other.strides) { return false; }
+        if (surface_indices != other.surface_indices) { return false; }
+        if (surface != other.surface) { return false; }
+        if (num_dataset_points != other.num_dataset_points) { return false; }
+
+        if (!common::SafeEigenMatrixEqual(dataset_points, other.dataset_points)) { return false; }
+        if (!common::SafeEigenMatrixEqual(dataset_labels, other.dataset_labels)) { return false; }
+
+        if (hit_indices != other.hit_indices) { return false; }
+        if (hit_buffer != other.hit_buffer) { return false; }
+        if (hit_buffer_head != other.hit_buffer_head) { return false; }
+        return true;
+    }
+
+    template<typename Dtype, int Dim>
+    bool
+    BayesianHilbertSurfaceMapping<Dtype, Dim>::LocalBayesianHilbertMap::operator!=(
+        const LocalBayesianHilbertMap &other) const {
+        return !(*this == other);
     }
 
     template<typename Dtype, int Dim>
@@ -744,9 +792,19 @@ namespace erl::sdf_mapping {
             (other_ptr->m_tree_ == nullptr || *m_tree_ != *other_ptr->m_tree_)) {
             return false;
         }
-        // if (m_key_bhm_dict_ != other_ptr->m_key_bhm_dict_) { return false; }  // TODO: compare
-        // the content of the map
         if (m_hinged_points_ != other_ptr->m_hinged_points_) { return false; }
+        if (m_key_bhm_positions_ != other_ptr->m_key_bhm_positions_) { return false; }
+        // because m_key_bhm_dict_ maps a key to a shared pointer,
+        // we cannot use the operator!= directly.
+        if (m_key_bhm_dict_.size() != other_ptr->m_key_bhm_dict_.size()) { return false; }
+        for (auto [key, bhm_ptr]: m_key_bhm_dict_) {
+            auto it = other_ptr->m_key_bhm_dict_.find(key);
+            if (it == other_ptr->m_key_bhm_dict_.end()) { return false; }
+            if (bhm_ptr == nullptr && it->second != nullptr) { return false; }
+            if (bhm_ptr != nullptr && (it->second == nullptr || *bhm_ptr != *(it->second))) {
+                return false;
+            }
+        }
         return true;
     }
 

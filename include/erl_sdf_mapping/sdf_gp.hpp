@@ -128,7 +128,7 @@ namespace erl::sdf_mapping {
         operator!=(const SdfGaussianProcess& other) const;
 
         [[nodiscard]] bool
-        Write(std::ostream& s) const;  // TODO: check implementation
+        Write(std::ostream& s) const;
 
         [[nodiscard]] bool
         Read(std::istream& s);

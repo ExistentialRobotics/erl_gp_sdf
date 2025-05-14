@@ -286,7 +286,7 @@ def getTrainingData(data, robot_pos, max_laser_distance, unoccupied_points_per_m
         laser_endpoint = data[n, :3]
         para = np.sort(np.random.random(np.int16(dist * unoccupied_points_per_meter)) * (1 - 2 * margin) + margin)[
             :, np.newaxis
-        ]  # TODO: Uniform[0.05, 0.95]
+        ]
         points_scan_i = robot_pos + para * (
             laser_endpoint - robot_pos
         )  # y = <x0, y0, z0> + para <x, y, z>; para \in [0, 1]

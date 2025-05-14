@@ -14,7 +14,11 @@ BindGpSdfMappingImpl(const py::module &m, const char *name) {
 
     py::class_<T, std::shared_ptr<T>> sdf_mapping(m, name);
 
-    sdf_mapping.def(py::init<std::shared_ptr<Setting>, std::shared_ptr<SurfaceMapping>>(), py::arg("setting"), py::arg("surface_mapping"))
+    sdf_mapping
+        .def(
+            py::init<std::shared_ptr<Setting>, std::shared_ptr<SurfaceMapping>>(),
+            py::arg("setting"),
+            py::arg("surface_mapping"))
         .def_property_readonly("setting", &T::GetSetting)
         .def("update", &T::Update, py::arg("rotation"), py::arg("translation"), py::arg("ranges"))
         .def("update_gp_sdf", &T::UpdateGpSdf, py::arg("time_budget_us"))
@@ -26,7 +30,9 @@ BindGpSdfMappingImpl(const py::module &m, const char *name) {
                 typename T::Variances variances;
                 typename T::Covariances covariances;
 
-                if (self.Test(positions, distances, gradients, variances, covariances)) { return py::make_tuple(distances, gradients, variances, covariances); }
+                if (self.Test(positions, distances, gradients, variances, covariances)) {
+                    return py::make_tuple(distances, gradients, variances, covariances);
+                }
                 return py::make_tuple(py::none(), py::none(), py::none(), py::none());
             },
             py::arg("positions"))
@@ -36,8 +42,9 @@ BindGpSdfMappingImpl(const py::module &m, const char *name) {
     // TODO: add more bindings
     // .def("__eq__", &T::operator==)
     // .def("__ne__", &T::operator!=)
-    // .def("write", py::overload_cast<const std::string &>(&T::Write, py::const_), py::arg("filename"))
-    // .def("read", py::overload_cast<const std::string &>(&T::Read), py::arg("filename"));
+    // .def("write", py::overload_cast<const std::string &>(&T::Write, py::const_),
+    // py::arg("filename")) .def("read", py::overload_cast<const std::string &>(&T::Read),
+    // py::arg("filename"));
 }
 
 void

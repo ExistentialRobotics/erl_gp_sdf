@@ -548,6 +548,9 @@ namespace erl::sdf_mapping {
             if (key != other_key) { return false; }
             if ((*handle).time_stamp != (*other_handle).time_stamp) { return false; }
         }
+        // when m_cluster_queue_keys_ is the same, m_cluster_queue_ is the same
+        // m_clusters_to_train_, m_candidate_gps_, m_kdtree_candidate_gps_, m_map_boundary_,
+        // m_query_to_gps_, m_query_signs_, m_test_buffer and m_query_used_gps_ are temporary data.
         if (m_train_gp_time_us_ != other.m_train_gp_time_us_) { return false; }
         return true;
     }

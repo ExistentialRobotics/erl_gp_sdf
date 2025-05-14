@@ -99,6 +99,12 @@ namespace erl::sdf_mapping {
 
                 explicit Surface(Position position_)
                     : position(std::move(position_)) {}
+
+                [[nodiscard]] bool
+                operator==(const Surface &other) const;
+
+                [[nodiscard]] bool
+                operator!=(const Surface &other) const;
             };
 
             using Setting = LocalBayesianHilbertMapSetting<Dtype>;
@@ -129,10 +135,16 @@ namespace erl::sdf_mapping {
                 const Eigen::Ref<const Positions> &points);
 
             [[nodiscard]] bool
-            Write(std::ostream &s) const;  // TODO: check implementation
+            Write(std::ostream &s) const;
 
             [[nodiscard]] bool
             Read(std::istream &s);
+
+            [[nodiscard]] bool
+            operator==(const LocalBayesianHilbertMap &other) const;
+
+            [[nodiscard]] bool
+            operator!=(const LocalBayesianHilbertMap &other) const;
 
         private:
             bool
@@ -238,7 +250,7 @@ namespace erl::sdf_mapping {
         using AbstractSurfaceMapping::Write;
 
         [[nodiscard]] bool
-        Write(std::ostream &s) const override;  // TODO: check implementation
+        Write(std::ostream &s) const override;
 
         [[nodiscard]] bool
         Read(std::istream &s) override;

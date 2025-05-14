@@ -837,9 +837,9 @@ TestImpl2D() {
         cv::Mat iter_cnt_img(
             grid_map_info->Shape(1),
             grid_map_info->Shape(0),
-            sizeof(Dtype) == 4 ? CV_32FC1 : CV_64FC1,
+            CV_32SC1,
             iter_cnt.data());
-        cv::normalize(iter_cnt_img, iter_cnt_img, 0, 255, cv::NORM_MINMAX);
+        cv::normalize(iter_cnt_img, iter_cnt_img, 0, 255, cv::NORM_MINMAX, CV_8UC1);
         iter_cnt_img.convertTo(iter_cnt_img, CV_8UC1);
         cv::applyColorMap(iter_cnt_img, iter_cnt_img, cv::COLORMAP_JET);
         cv::flip(iter_cnt_img, iter_cnt_img, 0);
@@ -873,11 +873,10 @@ TestImpl2D() {
 
         /// draw the log odds
         cv::Mat logodd_img(
-            grid_map_info->Shape(0),
             grid_map_info->Shape(1),
+            grid_map_info->Shape(0),
             sizeof(Dtype) == 4 ? CV_32FC1 : CV_64FC1,
             logodd_values.data());
-        logodd_img = logodd_img.t();
         cv::normalize(logodd_img, logodd_img, 0, 255, cv::NORM_MINMAX);
         logodd_img.convertTo(logodd_img, CV_8UC1);
         cv::applyColorMap(logodd_img, logodd_img, cv::COLORMAP_JET);
@@ -894,12 +893,11 @@ TestImpl2D() {
         }
 
         /// draw the occupancy probability
-        MatrixX prob_occupied_mat = Eigen::Map<MatrixX>(
-            prob_occupied.data(),
+        cv::Mat prob_occupied_img(
             grid_map_info->Shape(1),
-            grid_map_info->Shape(0));
-        cv::Mat prob_occupied_img;
-        cv::eigen2cv(prob_occupied_mat, prob_occupied_img);
+            grid_map_info->Shape(0),
+            sizeof(Dtype) == 4 ? CV_32FC1 : CV_64FC1,
+            prob_occupied.data());
         cv::normalize(prob_occupied_img, prob_occupied_img, 0, 255, cv::NORM_MINMAX);
         prob_occupied_img.convertTo(prob_occupied_img, CV_8UC1);
         cv::applyColorMap(prob_occupied_img, prob_occupied_img, cv::COLORMAP_JET);
@@ -923,12 +921,11 @@ TestImpl2D() {
 
         /// draw the gradient
         VectorX gradient_norms = gradients.colwise().norm();
-        MatrixX gradient_norms_mat = Eigen::Map<MatrixX>(
-            gradient_norms.data(),
+        cv::Mat gradient_norms_img(
             grid_map_info->Shape(1),
-            grid_map_info->Shape(0));
-        cv::Mat gradient_norms_img;
-        cv::eigen2cv(gradient_norms_mat, gradient_norms_img);
+            grid_map_info->Shape(0),
+            sizeof(Dtype) == 4 ? CV_32FC1 : CV_64FC1,
+            gradient_norms.data());
         cv::normalize(gradient_norms_img, gradient_norms_img, 0, 255, cv::NORM_MINMAX);
         gradient_norms_img.convertTo(gradient_norms_img, CV_8UC1);
         cv::applyColorMap(gradient_norms_img, gradient_norms_img, cv::COLORMAP_JET);
@@ -980,6 +977,8 @@ TestImpl2D() {
         cv::imshow("prob_occupied", prob_occupied_img);
         cv::imshow("gradient_norms", gradient_norms_img);
         cv::waitKey(10);
+
+        break;
     }
     if (options.hold) { cv::waitKey(0); }
     if (options.test_io) { TestIo<Dtype, 2>(&bhsm); }

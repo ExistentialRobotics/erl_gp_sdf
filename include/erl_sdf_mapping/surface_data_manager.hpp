@@ -16,7 +16,11 @@ namespace erl::sdf_mapping {
 
         SurfaceData() = default;
 
-        SurfaceData(VectorD position, VectorD normal, const Dtype var_position, const Dtype var_normal)
+        SurfaceData(
+            VectorD position,
+            VectorD normal,
+            const Dtype var_position,
+            const Dtype var_normal)
             : position(std::move(position)),
               normal(std::move(normal)),
               var_position(var_position),
@@ -36,7 +40,7 @@ namespace erl::sdf_mapping {
         operator!=(const SurfaceData &other) const;
 
         [[nodiscard]] bool
-        Write(std::ostream &s) const;  // TODO: check implementation
+        Write(std::ostream &s) const;
 
         [[nodiscard]] bool
         Read(std::istream &s);

@@ -405,178 +405,172 @@ namespace erl::sdf_mapping {
     bool
     SdfGaussianProcess<Dtype, Dim>::Write(std::ostream &s) const {
         // no need to write the setting, as it will be written externally.
-        static const std::vector<std::pair<
-            const char *,
-            std::function<bool(const SdfGaussianProcess *, std::ostream &)>>>
-            token_function_pairs = {
-                {
-                    "active",
-                    [](const SdfGaussianProcess *gp, std::ostream &stream) -> bool {
-                        stream << gp->active;
-                        return stream.good();
-                    },
+        using namespace common;
+        static const TokenWriteFunctionPairs<SdfGaussianProcess> token_function_pairs = {
+            {
+                "active",
+                [](const SdfGaussianProcess *gp, std::ostream &stream) -> bool {
+                    stream << gp->active;
+                    return stream.good();
                 },
-                {
-                    "outdated",
-                    [](const SdfGaussianProcess *gp, std::ostream &stream) -> bool {
-                        stream << gp->outdated;
-                        return stream.good();
-                    },
+            },
+            {
+                "outdated",
+                [](const SdfGaussianProcess *gp, std::ostream &stream) -> bool {
+                    stream << gp->outdated;
+                    return stream.good();
                 },
-                {
-                    "use_normal_gp",
-                    [](const SdfGaussianProcess *gp, std::ostream &stream) -> bool {
-                        stream << gp->use_normal_gp;
-                        return stream.good();
-                    },
+            },
+            {
+                "use_normal_gp",
+                [](const SdfGaussianProcess *gp, std::ostream &stream) -> bool {
+                    stream << gp->use_normal_gp;
+                    return stream.good();
                 },
-                {
-                    "offset_distance",
-                    [](const SdfGaussianProcess *gp, std::ostream &stream) -> bool {
-                        stream.write(
-                            reinterpret_cast<const char *>(&gp->offset_distance),
-                            sizeof(gp->offset_distance));
-                        return stream.good();
-                    },
+            },
+            {
+                "offset_distance",
+                [](const SdfGaussianProcess *gp, std::ostream &stream) -> bool {
+                    stream.write(
+                        reinterpret_cast<const char *>(&gp->offset_distance),
+                        sizeof(gp->offset_distance));
+                    return stream.good();
                 },
-                {
-                    "locked_for_test",
-                    [](const SdfGaussianProcess *gp, std::ostream &stream) -> bool {
-                        stream << gp->locked_for_test.load();
-                        return stream.good();
-                    },
+            },
+            {
+                "locked_for_test",
+                [](const SdfGaussianProcess *gp, std::ostream &stream) -> bool {
+                    stream << gp->locked_for_test.load();
+                    return stream.good();
                 },
-                {
-                    "position",
-                    [](const SdfGaussianProcess *gp, std::ostream &stream) -> bool {
-                        return common::SaveEigenMatrixToBinaryStream(stream, gp->position) &&
-                               stream.good();
-                    },
+            },
+            {
+                "position",
+                [](const SdfGaussianProcess *gp, std::ostream &stream) -> bool {
+                    return SaveEigenMatrixToBinaryStream(stream, gp->position) && stream.good();
                 },
-                {
-                    "half_size",
-                    [](const SdfGaussianProcess *gp, std::ostream &stream) -> bool {
-                        stream.write(
-                            reinterpret_cast<const char *>(&gp->half_size),
-                            sizeof(gp->half_size));
-                        return stream.good();
-                    },
+            },
+            {
+                "half_size",
+                [](const SdfGaussianProcess *gp, std::ostream &stream) -> bool {
+                    stream.write(
+                        reinterpret_cast<const char *>(&gp->half_size),
+                        sizeof(gp->half_size));
+                    return stream.good();
                 },
-                {
-                    "sign_gp",
-                    [](const SdfGaussianProcess *gp, std::ostream &stream) -> bool {
-                        stream << (gp->sign_gp != nullptr) << '\n';
-                        if (gp->sign_gp != nullptr && !gp->sign_gp->Write(stream)) { return false; }
-                        return stream.good();
-                    },
+            },
+            {
+                "sign_gp",
+                [](const SdfGaussianProcess *gp, std::ostream &stream) -> bool {
+                    stream << (gp->sign_gp != nullptr) << '\n';
+                    if (gp->sign_gp != nullptr && !gp->sign_gp->Write(stream)) { return false; }
+                    return stream.good();
                 },
-                {
-                    "edf_gp",
-                    [](const SdfGaussianProcess *gp, std::ostream &stream) -> bool {
-                        stream << (gp->edf_gp != nullptr) << '\n';
-                        if (gp->edf_gp != nullptr && !gp->edf_gp->Write(stream)) { return false; }
-                        return stream.good();
-                    },
+            },
+            {
+                "edf_gp",
+                [](const SdfGaussianProcess *gp, std::ostream &stream) -> bool {
+                    stream << (gp->edf_gp != nullptr) << '\n';
+                    if (gp->edf_gp != nullptr && !gp->edf_gp->Write(stream)) { return false; }
+                    return stream.good();
                 },
-            };
-        return common::WriteTokens(s, this, token_function_pairs);
+            },
+        };
+        return WriteTokens(s, this, token_function_pairs);
     }
 
     template<typename Dtype, int Dim>
     bool
     SdfGaussianProcess<Dtype, Dim>::Read(std::istream &s) {
-        static const std::vector<
-            std::pair<const char *, std::function<bool(SdfGaussianProcess *, std::istream &)>>>
-            token_function_pairs = {
-                {
-                    "active",
-                    [](SdfGaussianProcess *gp, std::istream &stream) -> bool {
-                        stream >> gp->active;
+        using namespace common;
+        static const TokenReadFunctionPairs<SdfGaussianProcess> token_function_pairs = {
+            {
+                "active",
+                [](SdfGaussianProcess *gp, std::istream &stream) -> bool {
+                    stream >> gp->active;
+                    return stream.good();
+                },
+            },
+            {
+                "outdated",
+                [](SdfGaussianProcess *gp, std::istream &stream) -> bool {
+                    stream >> gp->outdated;
+                    return stream.good();
+                },
+            },
+            {
+                "use_normal_gp",
+                [](SdfGaussianProcess *gp, std::istream &stream) -> bool {
+                    stream >> gp->use_normal_gp;
+                    return stream.good();
+                },
+            },
+            {
+                "offset_distance",
+                [](SdfGaussianProcess *gp, std::istream &stream) -> bool {
+                    stream.read(
+                        reinterpret_cast<char *>(&gp->offset_distance),
+                        sizeof(gp->offset_distance));
+                    return stream.good();
+                },
+            },
+            {
+                "locked_for_test",
+                [](SdfGaussianProcess *gp, std::istream &stream) -> bool {
+                    bool locked;
+                    stream >> locked;
+                    gp->locked_for_test.store(locked);
+                    return stream.good();
+                },
+            },
+            {
+                "position",
+                [](SdfGaussianProcess *gp, std::istream &stream) -> bool {
+                    return common::LoadEigenMatrixFromBinaryStream(stream, gp->position) &&
+                           stream.good();
+                },
+            },
+            {
+                "half_size",
+                [](SdfGaussianProcess *gp, std::istream &stream) -> bool {
+                    stream.read(reinterpret_cast<char *>(&gp->half_size), sizeof(gp->half_size));
+                    return stream.good();
+                },
+            },
+            {
+                "sign_gp",
+                [](SdfGaussianProcess *gp, std::istream &stream) -> bool {
+                    bool has_gp;
+                    stream >> has_gp;
+                    SkipLine(stream);
+                    if (!has_gp) {  // no sign GP, skip
+                        gp->sign_gp = nullptr;
                         return stream.good();
-                    },
+                    }
+                    if (gp->sign_gp == nullptr) {
+                        gp->sign_gp = std::make_shared<SignGp>(gp->setting->sign_gp);
+                    }
+                    return gp->sign_gp->Read(stream) && stream.good();
                 },
-                {
-                    "outdated",
-                    [](SdfGaussianProcess *gp, std::istream &stream) -> bool {
-                        stream >> gp->outdated;
+            },
+            {
+                "edf_gp",
+                [](SdfGaussianProcess *gp, std::istream &stream) -> bool {
+                    bool has_gp;
+                    stream >> has_gp;
+                    SkipLine(stream);
+                    if (!has_gp) {  // no EDF GP, skip
+                        gp->edf_gp = nullptr;
                         return stream.good();
-                    },
+                    }
+                    if (gp->edf_gp == nullptr) {
+                        gp->edf_gp = std::make_shared<EdfGp>(gp->setting->edf_gp);
+                    }
+                    return gp->edf_gp->Read(stream) && stream.good();
                 },
-                {
-                    "use_normal_gp",
-                    [](SdfGaussianProcess *gp, std::istream &stream) -> bool {
-                        stream >> gp->use_normal_gp;
-                        return stream.good();
-                    },
-                },
-                {
-                    "offset_distance",
-                    [](SdfGaussianProcess *gp, std::istream &stream) -> bool {
-                        stream.read(
-                            reinterpret_cast<char *>(&gp->offset_distance),
-                            sizeof(gp->offset_distance));
-                        return stream.good();
-                    },
-                },
-                {
-                    "locked_for_test",
-                    [](SdfGaussianProcess *gp, std::istream &stream) -> bool {
-                        bool locked;
-                        stream >> locked;
-                        gp->locked_for_test.store(locked);
-                        return stream.good();
-                    },
-                },
-                {
-                    "position",
-                    [](SdfGaussianProcess *gp, std::istream &stream) -> bool {
-                        return common::LoadEigenMatrixFromBinaryStream(stream, gp->position) &&
-                               stream.good();
-                    },
-                },
-                {
-                    "half_size",
-                    [](SdfGaussianProcess *gp, std::istream &stream) -> bool {
-                        stream.read(
-                            reinterpret_cast<char *>(&gp->half_size),
-                            sizeof(gp->half_size));
-                        return stream.good();
-                    },
-                },
-                {
-                    "sign_gp",
-                    [](SdfGaussianProcess *gp, std::istream &stream) -> bool {
-                        bool has_gp;
-                        stream >> has_gp;
-                        common::SkipLine(stream);
-                        if (!has_gp) {  // no sign GP, skip
-                            gp->sign_gp = nullptr;
-                            return stream.good();
-                        }
-                        if (gp->sign_gp == nullptr) {
-                            gp->sign_gp = std::make_shared<SignGp>(gp->setting->sign_gp);
-                        }
-                        return gp->sign_gp->Read(stream) && stream.good();
-                    },
-                },
-                {
-                    "edf_gp",
-                    [](SdfGaussianProcess *gp, std::istream &stream) -> bool {
-                        bool has_gp;
-                        stream >> has_gp;
-                        common::SkipLine(stream);
-                        if (!has_gp) {  // no EDF GP, skip
-                            gp->edf_gp = nullptr;
-                            return stream.good();
-                        }
-                        if (gp->edf_gp == nullptr) {
-                            gp->edf_gp = std::make_shared<EdfGp>(gp->setting->edf_gp);
-                        }
-                        return gp->edf_gp->Read(stream) && stream.good();
-                    },
-                },
-            };
-        return common::ReadTokens(s, this, token_function_pairs);
+            },
+        };
+        return ReadTokens(s, this, token_function_pairs);
     }
 
     template<typename Dtype, int Dim>

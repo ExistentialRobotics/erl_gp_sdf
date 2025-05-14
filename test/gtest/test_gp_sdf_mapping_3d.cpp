@@ -48,7 +48,7 @@ ConvertDepthToImage(const Eigen::MatrixX<Dtype> &ranges) {
 
 template<typename Dtype>
 std::pair<cv::Mat, cv::Mat>
-ConvertSdfToImage(Eigen::VectorX<Dtype> &distances, const long rows, const long cols) {
+ConvertSdfToImage(Eigen::VectorX<Dtype> &distances, const int rows, const int cols) {
     cv::Mat img_sdf(cols, rows, sizeof(Dtype) == 4 ? CV_32FC1 : CV_64FC1, distances.data());
     img_sdf = img_sdf.t();
     cv::normalize(img_sdf, img_sdf, 0, 255, cv::NORM_MINMAX, CV_8UC1);
