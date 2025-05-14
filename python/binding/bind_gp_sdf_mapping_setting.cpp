@@ -14,11 +14,14 @@ BindGpSdfMappingSettingImpl(const py::module &m, const char *name) {
     py::class_<TestQuery>(sdf_mapping_setting, "TestQuery")
         .def_readwrite("max_test_valid_distance_var", &TestQuery::max_test_valid_distance_var)
         .def_readwrite("search_area_half_size", &TestQuery::search_area_half_size)
-        .def_readwrite("softmax_temperature", &TestQuery::softmin_temperature)
         .def_readwrite("num_neighbor_gps", &TestQuery::num_neighbor_gps)
         .def_readwrite("use_smallest", &TestQuery::use_smallest)
+        .def_readwrite("compute_gradient", &TestQuery::compute_gradient)
+        .def_readwrite("compute_gradient_variance", &TestQuery::compute_gradient_variance)
         .def_readwrite("compute_covariance", &TestQuery::compute_covariance)
-        .def_readwrite("use_gp_covariance", &TestQuery::use_gp_covariance);
+        .def_readwrite("use_gp_covariance", &TestQuery::use_gp_covariance)
+        .def_readwrite("retrain_outdated", &TestQuery::retrain_outdated)
+        .def_readwrite("use_global_buffer", &TestQuery::use_global_buffer);
     sdf_mapping_setting.def(py::init<>([]() { return std::make_shared<T>(); }))
         .def_readwrite("test_query", &T::test_query)
         .def_readwrite("num_threads", &T::num_threads)
@@ -27,8 +30,6 @@ BindGpSdfMappingSettingImpl(const py::module &m, const char *name) {
         .def_readwrite("gp_sdf_area_scale", &T::gp_sdf_area_scale)
         .def_readwrite("max_valid_gradient_var", &T::max_valid_gradient_var)
         .def_readwrite("invalid_position_var", &T::invalid_position_var)
-        .def_readwrite("offset_distance", &T::offset_distance)
-        .def_readwrite("use_sign_from_surface_mapping", &T::use_sign_from_surface_mapping)
         .def_readwrite("sdf_gp", &T::sdf_gp);
 }
 

@@ -13,6 +13,8 @@
 #include <boost/program_options.hpp>
 
 const std::filesystem::path kProjectRootDir = ERL_SDF_MAPPING_ROOT_DIR;
+const std::filesystem::path kDataDir = kProjectRootDir / "data";
+const std::filesystem::path kConfigDir = kProjectRootDir / "config";
 int g_argc = 0;
 char **g_argv = nullptr;
 
@@ -95,7 +97,6 @@ DrawGp(
     const cv::Scalar &data_color = {0, 255, 125, 255},
     const cv::Scalar &pos_color = {255, 125, 0, 255},
     const cv::Scalar &rect_color = {125, 255, 0, 255}) {
-
     if (gp == nullptr) { return; }
 
     Eigen::Vector2i gp1_position_px = drawer.GetPixelCoordsForPositions(gp->position, true);
@@ -135,11 +136,13 @@ DrawGp(
 
 template<typename Dtype, typename Drawer>
 struct OpenCvUserData {
+    using SurfaceMapping = erl::sdf_mapping::GpOccSurfaceMapping<Dtype, 2>;
+    using SdfMapping = erl::sdf_mapping::GpSdfMapping<Dtype, 2, SurfaceMapping>;
+
     std::string window_name;
     Drawer *drawer = nullptr;
-    erl::sdf_mapping::GpOccSurfaceMapping<Dtype, 2> *surface_mapping = nullptr;
-    erl::sdf_mapping::GpSdfMapping<Dtype, 2, erl::sdf_mapping::GpOccSurfaceMapping<Dtype, 2>>
-        *sdf_mapping = nullptr;
+    SurfaceMapping *surface_mapping = nullptr;
+    SdfMapping *sdf_mapping = nullptr;
     cv::Mat img;
 };
 
@@ -170,7 +173,7 @@ OpenCvMouseCallback(const int event, const int x, const int y, int /*flags*/, vo
             ERL_INFO("pick {}", reinterpret_cast<uint64_t>(gp.get()));
             ERL_INFO("position: {}, half_size: {}", gp->position.transpose(), gp->half_size);
             erl::geometry::Aabb<Dtype, 2> aabb(gp->position, gp->half_size);
-            std::vector<std::pair<Dtype, std::size_t>> distances_indices;
+            std::vector<std::pair<Dtype, std::size_t> > distances_indices;
             data->surface_mapping->CollectSurfaceDataInAabb(aabb, distances_indices);
             ERL_INFO("Found {} surface data points in the area.", distances_indices.size());
 
@@ -179,24 +182,10 @@ OpenCvMouseCallback(const int event, const int x, const int y, int /*flags*/, vo
             // draw sdf
             const Dtype resolution = data->drawer->GetGridMapInfo()->Resolution(0);
             DrawSdf(img, x, y, distance[0], resolution);
-            // auto radius = static_cast<int>(std::abs(distance[0]) / resolution);
-            // cv::Mat circle_layer(img.rows, img.cols, CV_8UC4, cv::Scalar(0));
-            // cv::Mat circle_mask(img.rows, img.cols, CV_8UC1, cv::Scalar(0));
-            // cv::circle(circle_mask, cv::Point2i(x, y), radius, cv::Scalar(255), cv::FILLED);
-            // cv::circle(circle_layer, cv::Point2i(x, y), radius, cv::Scalar(0, 255, 0, 25),
-            // cv::FILLED); cv::add(img * 0.5, circle_layer * 0.5, img, circle_mask);
-
             // draw sdf variance
             DrawSdfVariance(img, x, y, distance[0], variances(0, 0), resolution);
-            // radius = static_cast<int>((std::sqrt(variances(0, 0)) + std::abs(distance[0])) /
-            // resolution); cv::circle(img, cv::Point2i(x, y), radius, cv::Scalar(0, 0, 255, 25),
-            // 1);
-
             // draw sdf gradient
             DrawSdfGradient<Dtype, Drawer>(img, data->drawer, x, y, gradient.col(0));
-            // Eigen::VectorXi grad_pixel = data->drawer->GetPixelCoordsForVectors(gradient.col(0));
-            // cv::arrowedLine(img, cv::Point(x, y), cv::Point(x + grad_pixel[0], y +
-            // grad_pixel[1]), cv::Scalar(255, 0, 0, 255), 1);
 
             auto &[gp1, gp2] = data->sdf_mapping->GetUsedGps()[0];
             DrawGp<Dtype>(img, gp1, *data->drawer, {0, 125, 255, 255});
@@ -247,19 +236,16 @@ TestImpl2D() {
     using Matrix2 = Eigen::Matrix2<Dtype>;
     using Matrix2X = Eigen::Matrix2X<Dtype>;
     using Matrix3X = Eigen::Matrix3X<Dtype>;
-    using MatrixX = Eigen::MatrixX<Dtype>;
-    using MatrixX8U = Eigen::MatrixX<uint8_t>;
     using Vector2 = Eigen::Vector2<Dtype>;
     using VectorX = Eigen::VectorX<Dtype>;
 
     struct Options {
-        std::string gazebo_train_file = kProjectRootDir / "data" / "gazebo";
-        std::string house_expo_map_file = kProjectRootDir / "data" / "house_expo_room_1451.json";
-        std::string house_expo_traj_file = kProjectRootDir / "data" / "house_expo_room_1451.csv";
-        std::string ucsd_fah_2d_file = kProjectRootDir / "data" / "ucsd_fah_2d.dat";
-        std::string surface_mapping_config_file =
-            kProjectRootDir / "config" / "surface_mapping_2d.yaml";
-        std::string sdf_mapping_config_file = kProjectRootDir / "config" / "sdf_mapping_2d.yaml";
+        std::string gazebo_train_file = kDataDir / "gazebo";
+        std::string house_expo_map_file = kDataDir / "house_expo_room_1451.json";
+        std::string house_expo_traj_file = kDataDir / "house_expo_room_1451.csv";
+        std::string ucsd_fah_2d_file = kDataDir / "ucsd_fah_2d.dat";
+        std::string surface_mapping_config_file = kConfigDir / "surface_mapping_2d.yaml";
+        std::string sdf_mapping_config_file = kConfigDir / "sdf_mapping_2d.yaml";
         bool use_gazebo_room_2d = false;
         bool use_house_expo_lidar_2d = false;
         bool use_ucsd_fah_2d = false;
@@ -354,7 +340,7 @@ TestImpl2D() {
     long max_update_cnt;
     std::vector<VectorX> train_angles;
     std::vector<VectorX> train_ranges;
-    std::vector<std::pair<Matrix2, Vector2>> train_poses;
+    std::vector<std::pair<Matrix2, Vector2> > train_poses;
     Vector2 map_min(0, 0);
     Vector2 map_max(0, 0);
     Vector2 map_resolution(options.map_resolution, options.map_resolution);
@@ -362,9 +348,10 @@ TestImpl2D() {
     Matrix2X cur_traj;
     double tic = 0.2;
 
+    using namespace erl::geometry;
+
     if (options.use_gazebo_room_2d) {
-        auto train_data_loader =
-            erl::geometry::GazeboRoom2D::TrainDataLoader(options.gazebo_train_file);
+        auto train_data_loader = GazeboRoom2D::TrainDataLoader(options.gazebo_train_file);
         max_update_cnt =
             static_cast<long>(train_data_loader.size() - options.init_frame) / options.stride + 1;
         train_angles.reserve(max_update_cnt);
@@ -384,8 +371,8 @@ TestImpl2D() {
             cur_traj.col(cnt) << df.translation.cast<Dtype>();
             bar->Update();
         }
-        map_min = erl::geometry::GazeboRoom2D::kMapMin.cast<Dtype>();
-        map_max = erl::geometry::GazeboRoom2D::kMapMax.cast<Dtype>();
+        map_min = GazeboRoom2D::kMapMin.cast<Dtype>();
+        map_max = GazeboRoom2D::kMapMax.cast<Dtype>();
         map_padding.setZero();
 
         train_angles.resize(cnt);
@@ -393,7 +380,7 @@ TestImpl2D() {
         train_poses.resize(cnt);
         cur_traj.conservativeResize(2, cnt);
     } else if (options.use_house_expo_lidar_2d) {
-        erl::geometry::HouseExpoMap house_expo_map(options.house_expo_map_file, 0.2);
+        HouseExpoMap house_expo_map(options.house_expo_map_file, 0.2);
         map_min = house_expo_map.GetMeterSpace()
                       ->GetSurface()
                       ->vertices.rowwise()
@@ -441,10 +428,10 @@ TestImpl2D() {
         train_poses.resize(cnt);
         cur_traj.conservativeResize(2, cnt);
     } else if (options.use_ucsd_fah_2d) {
-        erl::geometry::UcsdFah2D ucsd_fah(options.ucsd_fah_2d_file);
+        UcsdFah2D ucsd_fah(options.ucsd_fah_2d_file);
         tic = ucsd_fah.GetTimeStep();
-        map_min = erl::geometry::UcsdFah2D::kMapMin.cast<Dtype>();
-        map_max = erl::geometry::UcsdFah2D::kMapMax.cast<Dtype>();
+        map_min = UcsdFah2D::kMapMin.cast<Dtype>();
+        map_max = UcsdFah2D::kMapMax.cast<Dtype>();
         // prepare buffer
         max_update_cnt = (ucsd_fah.Size() - options.init_frame) / options.stride + 1;
         train_angles.reserve(max_update_cnt);
@@ -584,8 +571,7 @@ TestImpl2D() {
     }
 
     // start the mapping
-    const std::string bin_file =
-        test_output_dir / fmt::format("sdf_mapping_2d_{}.bin", type_name<Dtype>());
+    auto bin_file = test_output_dir / fmt::format("sdf_mapping_2d_{}.bin", type_name<Dtype>());
     double t_ms = 0;
     double traj_t = 0;
     std::vector<double> timestamps_second;
@@ -888,14 +874,16 @@ TestImpl2D() {
         ERL_INFO("Average update time: {:f} ms, Average fps: {:f}", avg_dt, fps);
         std::cout << "=====================================" << std::endl;
 
-        if (options.test_io && (i == 0 || i == max_update_cnt - 1)) {  // test io
-            // TODO: test io
-            // ASSERT_TRUE(sdf_mapping.Write(bin_file)) << "Failed to write to " << bin_file;
-            // SdfMapping
-            // sdf_mapping_load(std::make_shared<erl::sdf_mapping::GpSdfMapping2D::Setting>());
-            // ASSERT_TRUE(sdf_mapping_load.Read(bin_file)) << "Failed to read from " << bin_file;
-            // ASSERT_TRUE(sdf_mapping == sdf_mapping_load) << "Loaded SDF mapping is not equal to
-            // the original one.";
+        if (options.test_io && (i == 0 || i == max_update_cnt - 1)) {
+            ASSERT_TRUE(Serialization<SdfMapping>::Write(bin_file, &sdf_mapping));
+            auto surface_mapping_read = std::make_shared<SurfaceMapping>(
+                std::make_shared<typename SurfaceMapping::Setting>());
+            SdfMapping sdf_mapping_read(
+                std::make_shared<typename SdfMapping::Setting>(),
+                surface_mapping_read);
+            ASSERT_TRUE(Serialization<SdfMapping>::Read(bin_file, &sdf_mapping_read));
+            ASSERT_TRUE(sdf_mapping == sdf_mapping_read)
+                << "Loaded SDF mapping is not equal to the original one.";
         }
     }
 
@@ -926,12 +914,14 @@ TestImpl2D() {
         t_per_point);
 
     EXPECT_TRUE(success) << "Failed to test SDF estimation at the end.";
-    ERL_ASSERT(surface_mapping->GetTree()->WriteBinary("tree.bt"));
-    ERL_ASSERT(surface_mapping->GetTree()->Write("tree.ot"));
+    ASSERT_TRUE(Serialization<typename SurfaceMapping::Tree>::Write(
+        test_output_dir / "tree.bt",
+        [&](std::ostream &s) -> bool { return surface_mapping->GetTree()->WriteBinary(s); }));
+    ASSERT_TRUE(Serialization<typename SurfaceMapping::Tree>::Write(
+        test_output_dir / "tree.ot",
+        surface_mapping->GetTree()));
 
     if (success && options.visualize) {
-        MatrixX sdf_out_mat =
-            distances_out.reshaped(grid_map_info->Height(), grid_map_info->Width());
         Dtype min_distance = distances_out.minCoeff();
         Dtype max_distance = distances_out.maxCoeff();
         ERL_INFO("min distance: {:f}, max distance: {:f}.", min_distance, max_distance);
@@ -944,41 +934,46 @@ TestImpl2D() {
             drawer.DrawTree(img);
         }
 
-        max_distance = sdf_out_mat.maxCoeff();
-        MatrixX8U distances_out_mat_normalized =
-            ((sdf_out_mat.array() - min_distance) / (max_distance - min_distance) * 255)
-                .template cast<uint8_t>();
-        cv::Mat src, dst;
-        cv::eigen2cv(distances_out_mat_normalized, src);
-        cv::flip(src, src, 0);  // flip along y axis
-        cv::applyColorMap(src, dst, cv::COLORMAP_JET);
-        cv::cvtColor(dst, dst, cv::COLOR_BGR2BGRA);
-        cv::addWeighted(dst, 0.5, img, 0.5, 0.0, dst);
-        cv::imshow(window_name + ": sdf", dst);
+        cv::Mat img_sdf(
+            grid_map_info->Width(),
+            grid_map_info->Height(),
+            sizeof(Dtype) == 4 ? CV_32FC1 : CV_64FC1,
+            distances_out.data());
+        img_sdf = img_sdf.t();
 
-        MatrixX8U sdf_sign_mat(sdf_out_mat.rows(), sdf_out_mat.cols());
-        uint8_t *sdf_sign_mat_ptr = sdf_sign_mat.data();
-        const Dtype *sdf_out_mat_ptr = sdf_out_mat.data();
-        for (int i = 0; i < sdf_out_mat.size(); ++i) {
-            sdf_sign_mat_ptr[i] = sdf_out_mat_ptr[i] >= 0 ? 255 : 0;
-        }
-        cv::eigen2cv(sdf_sign_mat, src);
-        cv::flip(src, src, 0);  // flip along y axis
-        cv::imshow(window_name + ": sdf sign", src);
+        cv::normalize(img_sdf, img_sdf, 0, 255, cv::NORM_MINMAX, CV_8UC1);
+        cv::flip(img_sdf, img_sdf, 0);
+        cv::applyColorMap(img_sdf, img_sdf, cv::COLORMAP_JET);
+        cv::cvtColor(img_sdf, img_sdf, cv::COLOR_BGR2BGRA);
+        cv::addWeighted(img_sdf, 0.5, img, 0.5, 0.0, img_sdf);
+        cv::imshow(window_name + ": sdf", img_sdf);
 
-        MatrixX sdf_variances_mat =
-            variances_out.row(0).reshaped(grid_map_info->Height(), grid_map_info->Width());
-        Dtype min_variance = sdf_variances_mat.minCoeff();
-        Dtype max_variance = sdf_variances_mat.maxCoeff();
-        MatrixX8U variances_out_mat_normalized =
-            ((sdf_variances_mat.array() - min_variance) / (max_variance - min_variance) * 255)
-                .template cast<uint8_t>();
-        cv::eigen2cv(variances_out_mat_normalized, src);
-        cv::flip(src, src, 0);  // flip along y axis
-        cv::applyColorMap(src, dst, cv::COLORMAP_JET);
-        cv::cvtColor(dst, dst, cv::COLOR_BGR2BGRA);
-        cv::addWeighted(dst, 0.5, img, 0.5, 0.0, dst);
-        cv::imshow(window_name + ": sdf variances", dst);
+        // convert to binary image: 0 for negative, 255 for positive
+
+        Eigen::VectorXi sdf_sign = (distances_out.array() >= 0).template cast<int>();
+        cv::Mat img_sign(
+            grid_map_info->Width(),
+            grid_map_info->Height(),
+            CV_32SC1,
+            sdf_sign.data());
+        img_sign = img_sign.t();
+        cv::normalize(img_sign, img_sign, 0, 255, cv::NORM_MINMAX, CV_8UC1);
+        cv::flip(img_sign, img_sign, 0);  // flip along y axis
+        cv::imshow(window_name + ": sdf sign", img_sign);
+
+        VectorX sdf_variances = variances_out.row(0).transpose();
+        cv::Mat img_sdf_variance(
+            grid_map_info->Width(),
+            grid_map_info->Height(),
+            sizeof(Dtype) == 4 ? CV_32FC1 : CV_64FC1,
+            sdf_variances.data());
+        img_sdf_variance = img_sdf_variance.t();
+        cv::normalize(img_sdf_variance, img_sdf_variance, 0, 255, cv::NORM_MINMAX, CV_8UC1);
+        cv::flip(img_sdf_variance, img_sdf_variance, 0);
+        cv::applyColorMap(img_sdf_variance, img_sdf_variance, cv::COLORMAP_JET);
+        cv::cvtColor(img_sdf_variance, img_sdf_variance, cv::COLOR_BGR2BGRA);
+        cv::addWeighted(img_sdf_variance, 0.5, img, 0.5, 0.0, img_sdf_variance);
+        cv::imshow(window_name + ": sdf variances", img_sdf_variance);
         cv::waitKey(1);
     }
 
@@ -991,7 +986,6 @@ TestImpl2D() {
     }
 
     if (options.interactive) {
-
         if (!drawer_connected) { drawer.SetQuadtree(surface_mapping->GetTree()); }
         img.setTo(cv::Scalar(128, 128, 128, 255));
         if (update_occupancy) {

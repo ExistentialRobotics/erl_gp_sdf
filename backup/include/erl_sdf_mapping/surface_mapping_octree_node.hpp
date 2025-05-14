@@ -7,7 +7,10 @@ namespace erl::sdf_mapping {
     struct SurfaceMappingOctreeNode : geometry::OccupancyOctreeNode {
         std::size_t surface_data_index = -1;
 
-        explicit SurfaceMappingOctreeNode(const uint32_t depth = 0, const int child_index = -1, const float log_odds = 0)
+        explicit SurfaceMappingOctreeNode(
+            const uint32_t depth = 0,
+            const int child_index = -1,
+            const float log_odds = 0)
             : OccupancyOctreeNode(depth, child_index, log_odds) {}
 
         SurfaceMappingOctreeNode(const SurfaceMappingOctreeNode &other)
@@ -45,15 +48,15 @@ namespace erl::sdf_mapping {
 
         [[nodiscard]] AbstractOctreeNode *
         Create(const uint32_t depth, const int child_index) const override {
-            AbstractOctreeNode *node = new SurfaceMappingOctreeNode(depth, child_index, /*log_odds*/ 0);
-            ERL_TRACY_RECORD_ALLOC(node, sizeof(SurfaceMappingOctreeNode));
+            CheckRuntimeType<SurfaceMappingOctreeNode>(this, /*debug_only*/ true);
+            const auto node = new SurfaceMappingOctreeNode(depth, child_index, /*log_odds*/ 0);
             return node;
         }
 
         [[nodiscard]] AbstractOctreeNode *
         Clone() const override {
-            AbstractOctreeNode *node = new SurfaceMappingOctreeNode(*this);
-            ERL_TRACY_RECORD_ALLOC(node, sizeof(SurfaceMappingOctreeNode));
+            CheckRuntimeType<SurfaceMappingOctreeNode>(this, /*debug_only*/ true);
+            const auto node = new SurfaceMappingOctreeNode(*this);
             return node;
         }
 
@@ -66,12 +69,14 @@ namespace erl::sdf_mapping {
         }
 
         // uncomment this to block merging when surface_data_index is not -1
-        // then the occupancy tree cannot help to reject noise points, the surface mapping algorithm has to do it well
+        // then the occupancy tree cannot help to reject noise points, the surface mapping algorithm
+        // has to do it well
         // [[nodiscard]] bool
         // AllowMerge(const AbstractOctreeNode *other) const override {
         //     if (surface_data_index != static_cast<std::size_t>(-1)) { return false; }
-        //     ERL_DEBUG_ASSERT(dynamic_cast<const SurfaceMappingOctreeNode *>(other) != nullptr, "other node is not SurfaceMappingOctreeNode.");
-        //     if (const auto *other_node = reinterpret_cast<const SurfaceMappingOctreeNode *>(other);
+        //     ERL_DEBUG_ASSERT(dynamic_cast<const SurfaceMappingOctreeNode *>(other) != nullptr,
+        //     "other node is not SurfaceMappingOctreeNode."); if (const auto *other_node =
+        //     reinterpret_cast<const SurfaceMappingOctreeNode *>(other);
         //         other_node->surface_data_index != static_cast<std::size_t>(-1)) {
         //         return false;
         //     }

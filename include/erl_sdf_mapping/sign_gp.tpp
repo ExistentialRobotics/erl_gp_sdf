@@ -13,7 +13,9 @@ namespace erl::sdf_mapping {
     void
     SignGaussianProcess<Dtype>::TestResult::GetMean(
         const long y_index,
-        Eigen::Ref<Eigen::VectorX<Dtype>> vec_f_out) const {
+        Eigen::Ref<Eigen::VectorX<Dtype>> vec_f_out,
+        const bool parallel) const {
+        (void) parallel;
         const long &num_test = this->m_num_test_;
 #ifndef NDEBUG
         const long &y_dim = this->m_y_dim_;
@@ -33,8 +35,9 @@ namespace erl::sdf_mapping {
         const auto &mat_k_test = this->m_mat_k_test_;
         const Dtype offset = gp->m_train_set_.y.data()[0];
         Dtype *f = vec_f_out.data();
-        for (long index = 0; index < num_test; ++index, ++f) {
-            *f = mat_k_test.col(index).dot(alpha) - offset;
+#pragma omp parallel for if (parallel) default(none) shared(num_test, mat_k_test, f, offset, alpha)
+        for (long index = 0; index < num_test; ++index) {
+            f[index] = mat_k_test.col(index).dot(alpha) - offset;
         }
     }
 
@@ -97,7 +100,8 @@ namespace erl::sdf_mapping {
             surface_data_indices.begin(),
             surface_data_indices.end(),
             [](const auto &a, const auto &b) { return a.first < b.first; });
-        typename Super::TrainSet &train_set = this->GetTrainSet();
+        typename Super::TrainSet &train_set = this->m_train_set_;
+        const bool load_gradient = !this->m_setting_->no_gradient_observation;
         long count = 0;
         long count_grad = 0;
         for (auto &[distance, surface_data_index]: surface_data_indices) {
@@ -105,25 +109,25 @@ namespace erl::sdf_mapping {
 
             train_set.x.col(count) = surface_data.position;
             train_set.y.col(0)[count] = offset_distance;
-            train_set.grad.col(count) = surface_data.normal;
             train_set.var_x[count] = surface_data.var_position;
             train_set.var_y[count] = sensor_noise;
-            train_set.var_grad[count] = surface_data.var_normal;
-            train_set.grad_flag[count] = true;
+            if (load_gradient) {
+                train_set.grad.col(count) = surface_data.normal;
+                train_set.var_grad[count] = surface_data.var_normal;
+            }
+            train_set.grad_flag[count] = load_gradient;
             ++count_grad;
 
             if ((surface_data.var_normal > max_valid_gradient_var) ||  // invalid gradient
                 (surface_data.normal.norm() < 0.9f)) {                 // invalid normal
-                train_set.var_x[count] = std::max(
-                    train_set.var_x[count],
-                    invalid_position_var);           // position is unreliable
-                train_set.grad_flag[count] = false;  // gradient is unreliable
-                --count_grad;                        // revert gradient count
+                train_set.var_x[count] = std::max(train_set.var_x[count], invalid_position_var);
+                train_set.grad_flag[count] = false;
+                --count_grad;  // revert gradient count
             }
             if (++count >= train_set.x.cols()) { break; }  // reached max_num_samples
         }
         train_set.num_samples = count;
-        train_set.num_samples_with_grad = count_grad;
+        train_set.num_samples_with_grad = load_gradient ? count_grad : 0;
 
         // for GPIS, y=0 does not work, as y* = ktest * K^-1 * y
         // the trick is to set y = offset_distance, then y* = ktest * K^-1 * y - offset_distance

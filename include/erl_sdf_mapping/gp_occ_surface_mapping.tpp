@@ -51,33 +51,33 @@ namespace erl::sdf_mapping {
 
         const YAML::Node cv_node = node["compute_variance"];
         auto &compute_variance = setting.compute_variance;
-        ERL_YAML_LOAD_ATTR_TYPE(cv_node, compute_variance, zero_gradient_position_var, Dtype);
-        ERL_YAML_LOAD_ATTR_TYPE(cv_node, compute_variance, zero_gradient_gradient_var, Dtype);
-        ERL_YAML_LOAD_ATTR_TYPE(cv_node, compute_variance, position_var_alpha, Dtype);
-        ERL_YAML_LOAD_ATTR_TYPE(cv_node, compute_variance, min_distance_var, Dtype);
-        ERL_YAML_LOAD_ATTR_TYPE(cv_node, compute_variance, max_distance_var, Dtype);
-        ERL_YAML_LOAD_ATTR_TYPE(cv_node, compute_variance, min_gradient_var, Dtype);
-        ERL_YAML_LOAD_ATTR_TYPE(cv_node, compute_variance, max_gradient_var, Dtype);
+        ERL_YAML_LOAD_ATTR(cv_node, compute_variance, zero_gradient_position_var);
+        ERL_YAML_LOAD_ATTR(cv_node, compute_variance, zero_gradient_gradient_var);
+        ERL_YAML_LOAD_ATTR(cv_node, compute_variance, position_var_alpha);
+        ERL_YAML_LOAD_ATTR(cv_node, compute_variance, min_distance_var);
+        ERL_YAML_LOAD_ATTR(cv_node, compute_variance, max_distance_var);
+        ERL_YAML_LOAD_ATTR(cv_node, compute_variance, min_gradient_var);
+        ERL_YAML_LOAD_ATTR(cv_node, compute_variance, max_gradient_var);
 
         const YAML::Node ump_node = node["update_map_points"];
         auto &update_map_points = setting.update_map_points;
-        ERL_YAML_LOAD_ATTR_TYPE(ump_node, update_map_points, max_adjust_tries, int);
-        ERL_YAML_LOAD_ATTR_TYPE(ump_node, update_map_points, min_observable_occ, Dtype);
-        ERL_YAML_LOAD_ATTR_TYPE(ump_node, update_map_points, min_position_var, Dtype);
-        ERL_YAML_LOAD_ATTR_TYPE(ump_node, update_map_points, min_gradient_var, Dtype);
-        ERL_YAML_LOAD_ATTR_TYPE(ump_node, update_map_points, max_surface_abs_occ, Dtype);
-        ERL_YAML_LOAD_ATTR_TYPE(ump_node, update_map_points, max_valid_gradient_var, Dtype);
-        ERL_YAML_LOAD_ATTR_TYPE(ump_node, update_map_points, max_bayes_position_var, Dtype);
-        ERL_YAML_LOAD_ATTR_TYPE(ump_node, update_map_points, max_bayes_gradient_var, Dtype);
+        ERL_YAML_LOAD_ATTR(ump_node, update_map_points, max_adjust_tries);
+        ERL_YAML_LOAD_ATTR(ump_node, update_map_points, min_observable_occ);
+        ERL_YAML_LOAD_ATTR(ump_node, update_map_points, min_position_var);
+        ERL_YAML_LOAD_ATTR(ump_node, update_map_points, min_gradient_var);
+        ERL_YAML_LOAD_ATTR(ump_node, update_map_points, max_surface_abs_occ);
+        ERL_YAML_LOAD_ATTR(ump_node, update_map_points, max_valid_gradient_var);
+        ERL_YAML_LOAD_ATTR(ump_node, update_map_points, max_bayes_position_var);
+        ERL_YAML_LOAD_ATTR(ump_node, update_map_points, max_bayes_gradient_var);
 
         ERL_YAML_LOAD_ATTR(node, setting, sensor_gp);
         ERL_YAML_LOAD_ATTR(node, setting, tree);
-        ERL_YAML_LOAD_ATTR_TYPE(node, setting, surface_resolution, Dtype);
-        ERL_YAML_LOAD_ATTR_TYPE(node, setting, scaling, Dtype);
-        ERL_YAML_LOAD_ATTR_TYPE(node, setting, perturb_delta, Dtype);
-        ERL_YAML_LOAD_ATTR_TYPE(node, setting, zero_gradient_threshold, Dtype);
-        ERL_YAML_LOAD_ATTR_TYPE(node, setting, update_occupancy, bool);
-        ERL_YAML_LOAD_ATTR_TYPE(node, setting, cluster_depth, uint32_t);
+        ERL_YAML_LOAD_ATTR(node, setting, surface_resolution);
+        ERL_YAML_LOAD_ATTR(node, setting, scaling);
+        ERL_YAML_LOAD_ATTR(node, setting, perturb_delta);
+        ERL_YAML_LOAD_ATTR(node, setting, zero_gradient_threshold);
+        ERL_YAML_LOAD_ATTR(node, setting, update_occupancy);
+        ERL_YAML_LOAD_ATTR(node, setting, cluster_depth);
         return true;
     }
 
@@ -429,266 +429,240 @@ namespace erl::sdf_mapping {
     template<typename Dtype, int Dim>
     bool
     GpOccSurfaceMapping<Dtype, Dim>::Write(std::ostream &s) const {
-        static const std::vector<std::pair<
-            const char *,
-            std::function<bool(const GpOccSurfaceMapping *, std::ostream &)>>>
-            token_function_pairs = {
-                {
-                    "setting",
-                    [](const GpOccSurfaceMapping *gp, std::ostream &stream) {
-                        return gp->m_setting_->Write(stream) && stream.good();
-                    },
+        using namespace common;
+        static const TokenWriteFunctionPairs<GpOccSurfaceMapping> token_function_pairs = {
+            {
+                "setting",
+                [](const GpOccSurfaceMapping *gp, std::ostream &stream) {
+                    return gp->m_setting_->Write(stream) && stream.good();
                 },
-                {
-                    "sensor_gp",
-                    [](const GpOccSurfaceMapping *gp, std::ostream &stream) {
-                        return gp->m_sensor_gp_->Write(stream) && stream.good();
-                    },
+            },
+            {
+                "sensor_gp",
+                [](const GpOccSurfaceMapping *gp, std::ostream &stream) {
+                    return gp->m_sensor_gp_->Write(stream) && stream.good();
                 },
-                {
-                    "tree",
-                    [](const GpOccSurfaceMapping *gp, std::ostream &stream) {
-                        return gp->m_tree_->Write(stream) && stream.good();
-                    },
+            },
+            {
+                "tree",
+                [](const GpOccSurfaceMapping *gp, std::ostream &stream) {
+                    return gp->m_tree_->Write(stream) && stream.good();
                 },
-                {
-                    "strides",
-                    [](const GpOccSurfaceMapping *gp, std::ostream &stream) {
-                        return common::SaveEigenMatrixToBinaryStream(stream, gp->m_strides_) &&
-                               stream.good();
-                    },
+            },
+            {
+                "strides",
+                [](const GpOccSurfaceMapping *gp, std::ostream &stream) {
+                    return SaveEigenMatrixToBinaryStream(stream, gp->m_strides_) && stream.good();
                 },
-                {
-                    "surf_indices0",
-                    [](const GpOccSurfaceMapping *gp, std::ostream &stream) {
-                        const std::size_t num_entries = gp->m_surf_indices0_.size();
+            },
+            {
+                "surf_indices0",
+                [](const GpOccSurfaceMapping *gp, std::ostream &stream) {
+                    const std::size_t num_entries = gp->m_surf_indices0_.size();
+                    stream.write(reinterpret_cast<const char *>(&num_entries), sizeof(num_entries));
+                    for (const auto &[key, surf_index]: gp->m_surf_indices0_) {
+                        for (int i = 0; i < Dim; ++i) {
+                            stream.write(
+                                reinterpret_cast<const char *>(&key[i]),
+                                sizeof(typename Key::KeyType));
+                        }
                         stream.write(
-                            reinterpret_cast<const char *>(&num_entries),
-                            sizeof(num_entries));
-                        for (const auto &[key, surf_index]: gp->m_surf_indices0_) {
-                            for (int i = 0; i < Dim; ++i) {
-                                stream.write(
-                                    reinterpret_cast<const char *>(&key[i]),
-                                    sizeof(typename Key::KeyType));
-                            }
+                            reinterpret_cast<const char *>(&surf_index),
+                            sizeof(surf_index));
+                    }
+                    return stream.good();
+                },
+            },
+            {
+                "surf_indices1",
+                [](const GpOccSurfaceMapping *gp, std::ostream &stream) {
+                    const std::size_t num_entries = gp->m_surf_indices1_.size();
+                    stream.write(reinterpret_cast<const char *>(&num_entries), sizeof(num_entries));
+                    for (const auto &[key, surf_indices]: gp->m_surf_indices1_) {
+                        for (int i = 0; i < Dim; ++i) {
+                            stream.write(
+                                reinterpret_cast<const char *>(&key[i]),
+                                sizeof(typename Key::KeyType));
+                        }
+                        const std::size_t num_surf_indices = surf_indices.size();
+                        stream.write(
+                            reinterpret_cast<const char *>(&num_surf_indices),
+                            sizeof(num_surf_indices));
+                        for (const auto &[grid_index, surf_index]: surf_indices) {
+                            stream.write(
+                                reinterpret_cast<const char *>(&grid_index),
+                                sizeof(grid_index));
                             stream.write(
                                 reinterpret_cast<const char *>(&surf_index),
                                 sizeof(surf_index));
                         }
-                        return stream.good();
-                    },
+                    }
+                    return stream.good();
                 },
-                {
-                    "surf_indices1",
-                    [](const GpOccSurfaceMapping *gp, std::ostream &stream) {
-                        const std::size_t num_entries = gp->m_surf_indices1_.size();
-                        stream.write(
-                            reinterpret_cast<const char *>(&num_entries),
-                            sizeof(num_entries));
-                        for (const auto &[key, surf_indices]: gp->m_surf_indices1_) {
-                            for (int i = 0; i < Dim; ++i) {
-                                stream.write(
-                                    reinterpret_cast<const char *>(&key[i]),
-                                    sizeof(typename Key::KeyType));
-                            }
-                            const std::size_t num_surf_indices = surf_indices.size();
+            },
+            {
+                "surf_data_manager",
+                [](const GpOccSurfaceMapping *gp, std::ostream &stream) {
+                    return gp->m_surf_data_manager_.Write(stream) && stream.good();
+                },
+            },
+            {
+                "pos_perturb",
+                [](const GpOccSurfaceMapping *gp, std::ostream &stream) {
+                    return SaveEigenMatrixToBinaryStream(stream, gp->m_pos_perturb_) &&
+                           stream.good();
+                },
+            },
+            {
+                "surface_resolution_inv",
+                [](const GpOccSurfaceMapping *gp, std::ostream &stream) {
+                    return stream.write(
+                               reinterpret_cast<const char *>(&gp->m_surface_resolution_inv_),
+                               sizeof(gp->m_surface_resolution_inv_)) &&
+                           stream.good();
+                },
+            },
+            {
+                "changed_keys",
+                [](const GpOccSurfaceMapping *gp, std::ostream &stream) {
+                    const std::size_t num_entries = gp->m_changed_keys_.size();
+                    stream.write(reinterpret_cast<const char *>(&num_entries), sizeof(num_entries));
+                    for (const Key &key: gp->m_changed_keys_) {
+                        for (int i = 0; i < Dim; ++i) {
                             stream.write(
-                                reinterpret_cast<const char *>(&num_surf_indices),
-                                sizeof(num_surf_indices));
-                            for (const auto &[grid_index, surf_index]: surf_indices) {
-                                stream.write(
-                                    reinterpret_cast<const char *>(&grid_index),
-                                    sizeof(grid_index));
-                                stream.write(
-                                    reinterpret_cast<const char *>(&surf_index),
-                                    sizeof(surf_index));
-                            }
+                                reinterpret_cast<const char *>(&key[i]),
+                                sizeof(typename Key::KeyType));
                         }
-                        return stream.good();
-                    },
+                    }
+                    return stream.good();
                 },
-                {
-                    "surf_data_manager",
-                    [](const GpOccSurfaceMapping *gp, std::ostream &stream) {
-                        return gp->m_surf_data_manager_.Write(stream) && stream.good();
-                    },
-                },
-                {
-                    "pos_perturb",
-                    [](const GpOccSurfaceMapping *gp, std::ostream &stream) {
-                        return common::SaveEigenMatrixToBinaryStream(stream, gp->m_pos_perturb_) &&
-                               stream.good();
-                    },
-                },
-                {
-                    "surface_resolution_inv",
-                    [](const GpOccSurfaceMapping *gp, std::ostream &stream) {
-                        return stream.write(
-                                   reinterpret_cast<const char *>(&gp->m_surface_resolution_inv_),
-                                   sizeof(gp->m_surface_resolution_inv_)) &&
-                               stream.good();
-                    },
-                },
-                {
-                    "changed_keys",
-                    [](const GpOccSurfaceMapping *gp, std::ostream &stream) {
-                        const std::size_t num_entries = gp->m_changed_keys_.size();
-                        stream.write(
-                            reinterpret_cast<const char *>(&num_entries),
-                            sizeof(num_entries));
-                        for (const Key &key: gp->m_changed_keys_) {
-                            for (int i = 0; i < Dim; ++i) {
-                                stream.write(
-                                    reinterpret_cast<const char *>(&key[i]),
-                                    sizeof(typename Key::KeyType));
-                            }
-                        }
-                        return stream.good();
-                    },
-                },
-            };
-        return common::WriteTokens(s, this, token_function_pairs);
+            },
+        };
+        return WriteTokens(s, this, token_function_pairs);
     }
 
     template<typename Dtype, int Dim>
     bool
     GpOccSurfaceMapping<Dtype, Dim>::Read(std::istream &s) {
-        static const std::vector<
-            std::pair<const char *, std::function<bool(GpOccSurfaceMapping *, std::istream &)>>>
-            token_function_pairs = {
-                {
-                    "setting",
-                    [](GpOccSurfaceMapping *gp, std::istream &stream) {
-                        return gp->m_setting_->Read(stream) && stream.good();
-                    },
+        using namespace common;
+        static const TokenReadFunctionPairs<GpOccSurfaceMapping> token_function_pairs = {
+            {
+                "setting",
+                [](GpOccSurfaceMapping *gp, std::istream &stream) {
+                    return gp->m_setting_->Read(stream) && stream.good();
                 },
-                {
-                    "sensor_gp",
-                    [](GpOccSurfaceMapping *gp, std::istream &stream) {
-                        common::SkipLine(stream);
-                        gp->m_sensor_gp_ = std::make_shared<SensorGp>(gp->m_setting_->sensor_gp);
-                        return gp->m_sensor_gp_->Read(stream) && stream.good();
-                    },
+            },
+            {
+                "sensor_gp",
+                [](GpOccSurfaceMapping *gp, std::istream &stream) {
+                    gp->m_sensor_gp_ = std::make_shared<SensorGp>(gp->m_setting_->sensor_gp);
+                    return gp->m_sensor_gp_->Read(stream) && stream.good();
                 },
-                {
-                    "tree",
-                    [](GpOccSurfaceMapping *gp, std::istream &stream) {
-                        common::SkipLine(stream);
-                        gp->m_tree_ = std::make_shared<Tree>(gp->m_setting_->tree);
-                        return gp->m_tree_->LoadData(stream) && stream.good();
-                    },
+            },
+            {
+                "tree",
+                [](GpOccSurfaceMapping *gp, std::istream &stream) {
+                    gp->m_tree_ = std::make_shared<Tree>(gp->m_setting_->tree);
+                    return gp->m_tree_->Read(stream) && stream.good();
                 },
-                {
-                    "strides",
-                    [](GpOccSurfaceMapping *gp, std::istream &stream) {
-                        common::SkipLine(stream);
-                        return common::LoadEigenMatrixFromBinaryStream(stream, gp->m_strides_) &&
-                               stream.good();
-                    },
+            },
+            {
+                "strides",
+                [](GpOccSurfaceMapping *gp, std::istream &stream) {
+                    return LoadEigenMatrixFromBinaryStream(stream, gp->m_strides_) && stream.good();
                 },
-                {
-                    "surf_indices0",
-                    [](GpOccSurfaceMapping *gp, std::istream &stream) {
-                        common::SkipLine(stream);
-                        std::size_t num_entries;
-                        stream.read(reinterpret_cast<char *>(&num_entries), sizeof(num_entries));
-                        gp->m_surf_indices0_.clear();
-                        for (std::size_t i = 0; i < num_entries; ++i) {
-                            Key key;
-                            for (int j = 0; j < Dim; ++j) {
-                                stream.read(
-                                    reinterpret_cast<char *>(&key[j]),
-                                    sizeof(typename Key::KeyType));
-                            }
-                            std::size_t surf_index;
-                            stream.read(reinterpret_cast<char *>(&surf_index), sizeof(surf_index));
-                            gp->m_surf_indices0_[key] = surf_index;
-                        }
-                        return stream.good();
-                    },
-                },
-                {
-                    "surf_indices1",
-                    [](GpOccSurfaceMapping *gp, std::istream &stream) {
-                        common::SkipLine(stream);
-                        std::size_t num_entries;
-                        stream.read(reinterpret_cast<char *>(&num_entries), sizeof(num_entries));
-                        gp->m_surf_indices1_.clear();
-                        for (std::size_t i = 0; i < num_entries; ++i) {
-                            Key key;
-                            for (int j = 0; j < Dim; ++j) {
-                                stream.read(
-                                    reinterpret_cast<char *>(&key[j]),
-                                    sizeof(typename Key::KeyType));
-                            }
-                            std::size_t num_surf_indices;
+            },
+            {
+                "surf_indices0",
+                [](GpOccSurfaceMapping *gp, std::istream &stream) {
+                    std::size_t num_entries;
+                    stream.read(reinterpret_cast<char *>(&num_entries), sizeof(num_entries));
+                    gp->m_surf_indices0_.clear();
+                    for (std::size_t i = 0; i < num_entries; ++i) {
+                        Key key;
+                        for (int j = 0; j < Dim; ++j) {
                             stream.read(
-                                reinterpret_cast<char *>(&num_surf_indices),
-                                sizeof(num_surf_indices));
-                            auto &surf_indices = gp->m_surf_indices1_[key];
-                            for (std::size_t j = 0; j < num_surf_indices; ++j) {
-                                int grid_index;
-                                std::size_t surf_index;
-                                stream.read(
-                                    reinterpret_cast<char *>(&grid_index),
-                                    sizeof(grid_index));
-                                stream.read(
-                                    reinterpret_cast<char *>(&surf_index),
-                                    sizeof(surf_index));
-                                surf_indices[grid_index] = surf_index;
-                            }
+                                reinterpret_cast<char *>(&key[j]),
+                                sizeof(typename Key::KeyType));
                         }
-                        return stream.good();
-                    },
+                        std::size_t surf_index;
+                        stream.read(reinterpret_cast<char *>(&surf_index), sizeof(surf_index));
+                        gp->m_surf_indices0_[key] = surf_index;
+                    }
+                    return stream.good();
                 },
-                {
-                    "surf_data_manager",
-                    [](GpOccSurfaceMapping *gp, std::istream &stream) {
-                        common::SkipLine(stream);
-                        return gp->m_surf_data_manager_.Read(stream) && stream.good();
-                    },
-                },
-                {
-                    "pos_perturb",
-                    [](GpOccSurfaceMapping *gp, std::istream &stream) {
-                        common::SkipLine(stream);
-                        return common::LoadEigenMatrixFromBinaryStream(
-                                   stream,
-                                   gp->m_pos_perturb_) &&
-                               stream.good();
-                    },
-                },
-                {
-                    "surface_resolution_inv",
-                    [](GpOccSurfaceMapping *gp, std::istream &stream) {
-                        common::SkipLine(stream);
+            },
+            {
+                "surf_indices1",
+                [](GpOccSurfaceMapping *gp, std::istream &stream) {
+                    std::size_t num_entries;
+                    stream.read(reinterpret_cast<char *>(&num_entries), sizeof(num_entries));
+                    gp->m_surf_indices1_.clear();
+                    for (std::size_t i = 0; i < num_entries; ++i) {
+                        Key key;
+                        for (int j = 0; j < Dim; ++j) {
+                            stream.read(
+                                reinterpret_cast<char *>(&key[j]),
+                                sizeof(typename Key::KeyType));
+                        }
+                        std::size_t num_surf_indices;
                         stream.read(
-                            reinterpret_cast<char *>(&gp->m_surface_resolution_inv_),
-                            sizeof(gp->m_surface_resolution_inv_));
-                        return stream.good();
-                    },
-                },
-                {
-                    "changed_keys",
-                    [](GpOccSurfaceMapping *gp, std::istream &stream) {
-                        common::SkipLine(stream);
-                        std::size_t num_entries;
-                        stream.read(reinterpret_cast<char *>(&num_entries), sizeof(num_entries));
-                        gp->m_changed_keys_.clear();
-                        for (std::size_t i = 0; i < num_entries; ++i) {
-                            Key key;
-                            for (int j = 0; j < Dim; ++j) {
-                                stream.read(
-                                    reinterpret_cast<char *>(&key[j]),
-                                    sizeof(typename Key::KeyType));
-                            }
-                            gp->m_changed_keys_.insert(key);
+                            reinterpret_cast<char *>(&num_surf_indices),
+                            sizeof(num_surf_indices));
+                        auto &surf_indices = gp->m_surf_indices1_[key];
+                        for (std::size_t j = 0; j < num_surf_indices; ++j) {
+                            int grid_index;
+                            std::size_t surf_index;
+                            stream.read(reinterpret_cast<char *>(&grid_index), sizeof(grid_index));
+                            stream.read(reinterpret_cast<char *>(&surf_index), sizeof(surf_index));
+                            surf_indices[grid_index] = surf_index;
                         }
-                        return stream.good();
-                    },
+                    }
+                    return stream.good();
                 },
-            };
-        return common::ReadTokens(s, this, token_function_pairs);
+            },
+            {
+                "surf_data_manager",
+                [](GpOccSurfaceMapping *gp, std::istream &stream) {
+                    return gp->m_surf_data_manager_.Read(stream) && stream.good();
+                },
+            },
+            {
+                "pos_perturb",
+                [](GpOccSurfaceMapping *gp, std::istream &stream) {
+                    return LoadEigenMatrixFromBinaryStream(stream, gp->m_pos_perturb_) &&
+                           stream.good();
+                },
+            },
+            {
+                "surface_resolution_inv",
+                [](GpOccSurfaceMapping *gp, std::istream &stream) {
+                    stream.read(
+                        reinterpret_cast<char *>(&gp->m_surface_resolution_inv_),
+                        sizeof(gp->m_surface_resolution_inv_));
+                    return stream.good();
+                },
+            },
+            {
+                "changed_keys",
+                [](GpOccSurfaceMapping *gp, std::istream &stream) {
+                    std::size_t num_entries;
+                    stream.read(reinterpret_cast<char *>(&num_entries), sizeof(num_entries));
+                    gp->m_changed_keys_.clear();
+                    for (std::size_t i = 0; i < num_entries; ++i) {
+                        Key key;
+                        for (int j = 0; j < Dim; ++j) {
+                            stream.read(
+                                reinterpret_cast<char *>(&key[j]),
+                                sizeof(typename Key::KeyType));
+                        }
+                        gp->m_changed_keys_.insert(key);
+                    }
+                    return stream.good();
+                },
+            },
+        };
+        return ReadTokens(s, this, token_function_pairs);
     }
 
     template<typename Dtype, int Dim>
@@ -903,11 +877,8 @@ namespace erl::sdf_mapping {
         Position pos_local_old = sensor_frame->PosWorldToFrame(pos_global_old);
         if (!sensor_frame->PointIsInFrame(pos_local_old)) { return; }
 
-        Dtype occ, distance_old;
-        Scalar distance_pred, distance_pred_var;
-        if (!ComputeOcc(pos_local_old, distance_old, distance_pred, distance_pred_var, occ)) {
-            return;
-        }
+        Dtype occ, distance_old, distance_pred;
+        if (!ComputeOcc(pos_local_old, distance_old, distance_pred, occ)) { return; }
         if (occ < min_observable_occ) { return; }
 
         const Gradient &grad_global_old = surface_data.normal;
@@ -931,16 +902,9 @@ namespace erl::sdf_mapping {
 
             // test the new point
             Dtype occ_new;
-            if (!ComputeOcc(
-                    pos_local_new,
-                    distance_new,
-                    distance_pred,
-                    distance_pred_var,
-                    occ_new)) {
-                break;  // fail to estimate occ
-            }
+            if (!ComputeOcc(pos_local_new, distance_new, distance_pred, occ_new)) { break; }
             occ_abs = std::fabs(occ_new);
-            distance_new = distance_pred[0];
+            distance_new = distance_pred;
             if (occ_abs < max_surface_abs_occ) { break; }
             if (occ * occ_new < 0.0f) {
                 delta *= 0.5f;  // too big, make it smaller
@@ -1036,19 +1000,13 @@ namespace erl::sdf_mapping {
     GpOccSurfaceMapping<Dtype, Dim>::ComputeOcc(
         const Position &pos_local,
         Dtype &distance_local,
-        Eigen::Ref<Scalar> distance_pred,
-        Eigen::Ref<Scalar> distance_pred_var,
+        Dtype &distance_pred,
         Dtype &occ) const {
 
         Scalar angle_local;
         distance_local = pos_local.norm();
         angle_local[0] = std::atan2(pos_local.y(), pos_local.x());
-        bool success = m_sensor_gp_->ComputeOcc(  //
-            angle_local,
-            distance_local,
-            distance_pred,
-            distance_pred_var,
-            occ);
+        bool success = m_sensor_gp_->ComputeOcc(angle_local, distance_local, distance_pred, occ);
         return success;
     }
 
@@ -1058,8 +1016,7 @@ namespace erl::sdf_mapping {
     GpOccSurfaceMapping<Dtype, Dim>::ComputeOcc(
         const Position &pos_local,
         Dtype &distance_local,
-        Eigen::Ref<Scalar> distance_pred,
-        Eigen::Ref<Scalar> distance_pred_var,
+        Dtype &distance_pred,
         Dtype &occ) const {
 
         distance_local = pos_local.norm();
@@ -1067,7 +1024,6 @@ namespace erl::sdf_mapping {
             pos_local / distance_local,
             distance_local,
             distance_pred,
-            distance_pred_var,
             occ);
         return success;
     }
@@ -1133,8 +1089,8 @@ namespace erl::sdf_mapping {
             sensor_frame->GetHitPointsWorld().data()->data(),
             Dim,
             sensor_frame->GetNumHitRays());
-        constexpr bool parallel = false;
-        constexpr bool lazy_eval = false;
+        constexpr bool parallel = true;
+        constexpr bool lazy_eval = true;
         constexpr bool discrete = true;
         m_tree_->InsertPointCloud(
             map_points,
@@ -1143,6 +1099,10 @@ namespace erl::sdf_mapping {
             parallel,
             lazy_eval,
             discrete);
+        if (lazy_eval) {
+            m_tree_->UpdateInnerOccupancy();  // update the occupancy
+            m_tree_->Prune();
+        }
     }
 
     template<typename Dtype, int Dim>
@@ -1312,39 +1272,30 @@ namespace erl::sdf_mapping {
         distance_var = std::numeric_limits<Dtype>::infinity();
 
         Dtype occ[Dim << 1];
-        Dtype distance_sum = 0.0f;
-        Dtype distance_square_mean = 0.0f;
+        Dtype dist_sum = 0.0f;
+        Dtype dist_square_mean = 0.0f;
         const Dtype delta = m_setting_->perturb_delta;
 
         for (int i = 0; i < Dim; ++i) {
-
             for (int j: {i << 1, (i << 1) + 1}) {
                 const Position pos_perturbed = pos_local + m_pos_perturb_.col(j);
-                Scalar distance_pred, distance_pred_var;
-                if (Dtype distance; !ComputeOcc(
-                        pos_perturbed,
-                        distance,
-                        distance_pred,
-                        distance_pred_var,
-                        occ[j])) {
-                    return false;
-                }
+                Dtype dist_local, dist_pred;
+                if (!ComputeOcc(pos_perturbed, dist_local, dist_pred, occ[j])) { return false; }
                 occ_mean += occ[j];
-                distance_sum += distance_pred[0];
-                distance_square_mean += distance_pred[0] * distance_pred[0];
+                dist_sum += dist_pred;
+                dist_square_mean += dist_pred * dist_pred;
             }
             gradient[i] = (occ[i << 1] - occ[(i << 1) + 1]) / delta;
         }
 
-        occ_mean /= static_cast<Dtype>(Dim << 1);  // occ_mean = sum(occ) / size(occ)
+        constexpr Dtype Dim2 = static_cast<Dtype>(Dim << 1);
+        occ_mean /= Dim2;  // occ_mean = sum(occ) / size(occ)
         // 2*Dim samples in total, to calculate the unbiased variance
         // var(r) = sum((r_i - mean(r))^2) / (2*Dim-1)
         //        = (mean(r^2) - mean(r) * mean(r)) * (2*Dim) / (2*Dim-1)
         //        = (sum(r^2) - sum(r) * sum(r) / (2*Dim)) / (2*Dim-1)
         // to remove the numerical approximation's influence, let var(r) = var(r) / delta
-        distance_var =
-            (distance_square_mean - distance_sum * distance_sum / static_cast<Dtype>(Dim << 1)) /
-            (static_cast<Dtype>((Dim << 1) - 1) * delta);
+        distance_var = (dist_square_mean - dist_sum * dist_sum / Dim2) / ((Dim2 - 1.0f) * delta);
         const Dtype gradient_norm = gradient.norm();
         // zero gradient
         if (gradient_norm <= m_setting_->zero_gradient_threshold) { return false; }
@@ -1370,15 +1321,10 @@ namespace erl::sdf_mapping {
         for (int i = 0; i < Dim; ++i) {
             for (int j: {i << 1, (i << 1) + 1}) {
                 const Position pos_perturbed = pos_local + m_pos_perturb_.col(j);
-                Scalar distance_pred, distance_pred_var;
-                if (Dtype distance; !ComputeOcc(
-                                        pos_perturbed,
-                                        distance,
-                                        distance_pred,
-                                        distance_pred_var,
-                                        occ[j]) ||
-                                    distance_pred[0] < valid_range_min ||
-                                    distance_pred[0] > valid_range_max) {
+                Dtype distance_pred;
+                if (Dtype distance; !ComputeOcc(pos_perturbed, distance, distance_pred, occ[j]) ||
+                                    distance_pred < valid_range_min ||
+                                    distance_pred > valid_range_max) {
                     return false;
                 }
                 occ_mean += occ[j];

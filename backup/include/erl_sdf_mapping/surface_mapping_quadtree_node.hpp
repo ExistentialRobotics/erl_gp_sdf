@@ -7,7 +7,10 @@ namespace erl::sdf_mapping {
     struct SurfaceMappingQuadtreeNode : geometry::OccupancyQuadtreeNode {
         std::size_t surface_data_index = -1;
 
-        explicit SurfaceMappingQuadtreeNode(const uint32_t depth = 0, const int child_index = -1, const float log_odds = 0)
+        explicit SurfaceMappingQuadtreeNode(
+            const uint32_t depth = 0,
+            const int child_index = -1,
+            const float log_odds = 0)
             : OccupancyQuadtreeNode(depth, child_index, log_odds) {}
 
         SurfaceMappingQuadtreeNode(const SurfaceMappingQuadtreeNode &) = default;
@@ -19,15 +22,15 @@ namespace erl::sdf_mapping {
 
         [[nodiscard]] AbstractQuadtreeNode *
         Create(const uint32_t depth, const int child_index) const override {
-            AbstractQuadtreeNode *node = new SurfaceMappingQuadtreeNode(depth, child_index, /*log_odds*/ 0);
-            ERL_TRACY_RECORD_ALLOC(node, sizeof(SurfaceMappingQuadtreeNode));
+            CheckRuntimeType<SurfaceMappingQuadtreeNode>(this, /*debug_only*/ true);
+            const auto node = new SurfaceMappingQuadtreeNode(depth, child_index, /*log_odds*/ 0);
             return node;
         }
 
         [[nodiscard]] AbstractQuadtreeNode *
         Clone() const override {
+            CheckRuntimeType<SurfaceMappingQuadtreeNode>(this, /*debug_only*/ true);
             AbstractQuadtreeNode *node = new SurfaceMappingQuadtreeNode(*this);
-            ERL_TRACY_RECORD_ALLOC(node, sizeof(SurfaceMappingQuadtreeNode));
             return node;
         }
 
@@ -40,12 +43,14 @@ namespace erl::sdf_mapping {
         }
 
         // uncomment this to block merging when surface_data_index is not -1
-        // then the occupancy tree cannot help to reject noise points, the surface mapping algorithm has to do it well
+        // then the occupancy tree cannot help to reject noise points, the surface mapping algorithm
+        // has to do it well
         // [[nodiscard]] bool
         // AllowMerge(const AbstractQuadtreeNode *other) const override {
         //     if (surface_data_index != static_cast<std::size_t>(-1)) { return false; }
-        //     ERL_DEBUG_ASSERT(dynamic_cast<const SurfaceMappingQuadtreeNode *>(other) != nullptr, "other node is not SurfaceMappingQuadtreeNode.");
-        //     if (const auto *other_node = reinterpret_cast<const SurfaceMappingQuadtreeNode *>(other);
+        //     ERL_DEBUG_ASSERT(dynamic_cast<const SurfaceMappingQuadtreeNode *>(other) != nullptr,
+        //     "other node is not SurfaceMappingQuadtreeNode."); if (const auto *other_node =
+        //     reinterpret_cast<const SurfaceMappingQuadtreeNode *>(other);
         //         other_node->surface_data_index != static_cast<std::size_t>(-1)) {
         //         return false;
         //     }

@@ -58,7 +58,7 @@ namespace erl::sdf_mapping {
         using Gradient = Position;
         using Positions = Eigen::Matrix<Dtype, Dim, Eigen::Dynamic>;
 
-        struct Setting : common::Yamlable<Setting> {
+        struct Setting : public common::Yamlable<Setting> {
             struct ComputeVariance {
                 // position variance to set when the estimated gradient is almost zero.
                 Dtype zero_gradient_position_var = 1.;
@@ -281,9 +281,6 @@ namespace erl::sdf_mapping {
         [[nodiscard]] bool
         operator==(const AbstractSurfaceMapping &other) const override;
 
-        using AbstractSurfaceMapping::Read;
-        using AbstractSurfaceMapping::Write;
-
         [[nodiscard]] bool
         Write(std::ostream &s) const override;
 
@@ -311,8 +308,9 @@ namespace erl::sdf_mapping {
         ComputeOcc(
             const Position &pos_local,
             Dtype &distance_local,
-            Eigen::Ref<Scalar> distance_pred,
-            Eigen::Ref<Scalar> distance_pred_var,
+            Dtype &distance_pred,
+            // Eigen::Ref<Scalar> distance_pred,
+            // Eigen::Ref<Scalar> distance_pred_var,
             Dtype &occ) const;
 
         template<int D = Dim>
@@ -320,8 +318,9 @@ namespace erl::sdf_mapping {
         ComputeOcc(
             const Position &pos_local,
             Dtype &distance_local,
-            Eigen::Ref<Scalar> distance_pred,
-            Eigen::Ref<Scalar> distance_pred_var,
+            Dtype &distance_pred,
+            // Eigen::Ref<Scalar> distance_pred,
+            // Eigen::Ref<Scalar> distance_pred_var,
             Dtype &occ) const;
 
         template<int D = Dim>

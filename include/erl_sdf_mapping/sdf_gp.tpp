@@ -59,6 +59,8 @@ namespace erl::sdf_mapping {
         ERL_YAML_SAVE_ATTR(node, setting, hybrid_sign_threshold);
         ERL_YAML_SAVE_ATTR(node, setting, normal_scale);
         ERL_YAML_SAVE_ATTR(node, setting, softmin_temperature);
+        ERL_YAML_SAVE_ATTR(node, setting, sign_gp_offset_distance);
+        ERL_YAML_SAVE_ATTR(node, setting, edf_gp_offset_distance);
         ERL_YAML_SAVE_ATTR(node, setting, sign_gp);
         ERL_YAML_SAVE_ATTR(node, setting, edf_gp);
         return node;
@@ -70,11 +72,13 @@ namespace erl::sdf_mapping {
         const YAML::Node &node,
         SdfGaussianProcessSetting &setting) {
         if (!node.IsMap()) { return false; }
-        ERL_YAML_LOAD_ATTR_TYPE(node, setting, sign_method, SignMethod);
+        ERL_YAML_LOAD_ATTR(node, setting, sign_method);
         ERL_YAML_LOAD_ATTR(node, setting, hybrid_sign_methods);
-        ERL_YAML_LOAD_ATTR_TYPE(node, setting, hybrid_sign_threshold, Dtype);
-        ERL_YAML_LOAD_ATTR_TYPE(node, setting, normal_scale, Dtype);
-        ERL_YAML_LOAD_ATTR_TYPE(node, setting, softmin_temperature, Dtype);
+        ERL_YAML_LOAD_ATTR(node, setting, hybrid_sign_threshold);
+        ERL_YAML_LOAD_ATTR(node, setting, normal_scale);
+        ERL_YAML_LOAD_ATTR(node, setting, softmin_temperature);
+        ERL_YAML_LOAD_ATTR(node, setting, sign_gp_offset_distance);
+        ERL_YAML_LOAD_ATTR(node, setting, edf_gp_offset_distance);
         ERL_YAML_LOAD_ATTR(node, setting, sign_gp);
         ERL_YAML_LOAD_ATTR(node, setting, edf_gp);
         return true;
@@ -224,7 +228,6 @@ namespace erl::sdf_mapping {
     SdfGaussianProcess<Dtype, Dim>::LoadSurfaceData(
         std::vector<std::pair<Dtype, std::size_t>> &surface_data_indices,
         const std::vector<SurfaceData<Dtype, Dim>> &surface_data_vec,
-        Dtype offset_distance,
         Dtype sensor_noise,
         Dtype max_valid_gradient_var,
         Dtype invalid_position_var) {
@@ -234,7 +237,7 @@ namespace erl::sdf_mapping {
                 surface_data_indices,
                 surface_data_vec,
                 position,
-                offset_distance,
+                setting->sign_gp_offset_distance,
                 sensor_noise,
                 max_valid_gradient_var,
                 invalid_position_var);
@@ -246,7 +249,7 @@ namespace erl::sdf_mapping {
                 position,
                 use_normal_gp,
                 setting->normal_scale,
-                offset_distance,
+                setting->edf_gp_offset_distance,
                 sensor_noise,
                 max_valid_gradient_var,
                 invalid_position_var);
@@ -446,11 +449,8 @@ namespace erl::sdf_mapping {
                 {
                     "position",
                     [](const SdfGaussianProcess *gp, std::ostream &stream) -> bool {
-                        if (!common::SaveEigenMatrixToBinaryStream(stream, gp->position)) {
-                            ERL_WARN("Failed to write position.");
-                            return false;
-                        }
-                        return stream.good();
+                        return common::SaveEigenMatrixToBinaryStream(stream, gp->position) &&
+                               stream.good();
                     },
                 },
                 {
@@ -466,10 +466,7 @@ namespace erl::sdf_mapping {
                     "sign_gp",
                     [](const SdfGaussianProcess *gp, std::ostream &stream) -> bool {
                         stream << (gp->sign_gp != nullptr) << '\n';
-                        if (gp->sign_gp != nullptr && !gp->sign_gp->Write(stream)) {
-                            ERL_WARN("Failed to write sign GP.");
-                            return false;
-                        }
+                        if (gp->sign_gp != nullptr && !gp->sign_gp->Write(stream)) { return false; }
                         return stream.good();
                     },
                 },
@@ -477,10 +474,7 @@ namespace erl::sdf_mapping {
                     "edf_gp",
                     [](const SdfGaussianProcess *gp, std::ostream &stream) -> bool {
                         stream << (gp->edf_gp != nullptr) << '\n';
-                        if (gp->edf_gp != nullptr && !gp->edf_gp->Write(stream)) {
-                            ERL_WARN("Failed to write EDF GP.");
-                            return false;
-                        }
+                        if (gp->edf_gp != nullptr && !gp->edf_gp->Write(stream)) { return false; }
                         return stream.good();
                     },
                 },
@@ -536,11 +530,8 @@ namespace erl::sdf_mapping {
                 {
                     "position",
                     [](SdfGaussianProcess *gp, std::istream &stream) -> bool {
-                        if (!common::LoadEigenMatrixFromBinaryStream(stream, gp->position)) {
-                            ERL_WARN("Failed to read position.");
-                            return false;
-                        }
-                        return stream.good();
+                        return common::LoadEigenMatrixFromBinaryStream(stream, gp->position) &&
+                               stream.good();
                     },
                 },
                 {
@@ -557,19 +548,15 @@ namespace erl::sdf_mapping {
                     [](SdfGaussianProcess *gp, std::istream &stream) -> bool {
                         bool has_gp;
                         stream >> has_gp;
+                        common::SkipLine(stream);
                         if (!has_gp) {  // no sign GP, skip
                             gp->sign_gp = nullptr;
                             return stream.good();
                         }
-                        common::SkipLine(stream);
                         if (gp->sign_gp == nullptr) {
                             gp->sign_gp = std::make_shared<SignGp>(gp->setting->sign_gp);
                         }
-                        if (!gp->sign_gp->Read(stream)) {
-                            ERL_WARN("Failed to read sign GP.");
-                            return false;
-                        }
-                        return stream.good();
+                        return gp->sign_gp->Read(stream) && stream.good();
                     },
                 },
                 {
@@ -577,19 +564,15 @@ namespace erl::sdf_mapping {
                     [](SdfGaussianProcess *gp, std::istream &stream) -> bool {
                         bool has_gp;
                         stream >> has_gp;
+                        common::SkipLine(stream);
                         if (!has_gp) {  // no EDF GP, skip
                             gp->edf_gp = nullptr;
                             return stream.good();
                         }
-                        common::SkipLine(stream);
                         if (gp->edf_gp == nullptr) {
                             gp->edf_gp = std::make_shared<EdfGp>(gp->setting->edf_gp);
                         }
-                        if (!gp->edf_gp->Read(stream)) {
-                            ERL_WARN("Failed to read EDF GP.");
-                            return false;
-                        }
-                        return stream.good();
+                        return gp->edf_gp->Read(stream) && stream.good();
                     },
                 },
             };

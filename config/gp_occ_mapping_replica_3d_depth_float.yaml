@@ -1,27 +1,28 @@
 sensor_gp:
-    row_group_size: 10
-    row_overlap_size: 3
+    row_group_size: 6
+    row_overlap_size: 2
     row_margin: &row_margin 0
-    col_group_size: 10
-    col_overlap_size: 3
+    col_group_size: 6
+    col_overlap_size: 2
     col_margin: &col_margin 0
     init_variance: 1000000
     sensor_range_var: 0.01
     max_valid_range_var: 0.1
     occ_test_temperature: 30
-    sensor_frame_type: erl::geometry::LidarFrame3D<float>
-    sensor_frame_setting_type: erl::geometry::LidarFrame3D<float>::Setting
+    sensor_frame_type: erl::geometry::DepthFrame3D<float>
+    sensor_frame_setting_type: erl::geometry::DepthFrame3D<float>::Setting
     sensor_frame:
         row_margin: *row_margin
         col_margin: *col_margin
         valid_range_min: 0.1
         valid_range_max: 30
-        azimuth_min: -3.1415926535897931
-        azimuth_max: 3.1415926535897931
-        elevation_min: -1.5707963267948966
-        elevation_max: 1.5707963267948966
-        num_azimuth_lines: 360
-        num_elevation_lines: 90
+        camera_intrinsic:
+            image_height: 480
+            image_width: 640
+            camera_fx: 525
+            camera_fy: 525
+            camera_cx: 319.5
+            camera_cy: 239.5
     gp:
         kernel_type: erl::covariance::OrnsteinUhlenbeck<float, 2>
         kernel_setting_type: erl::covariance::Covariance<float>::Setting
@@ -31,7 +32,7 @@ sensor_gp:
             scale: 0.5
             scale_mix: 1
             weights: [ ]
-        max_num_samples: 160
+        max_num_samples: 40
     mapping:
         type: kInverseSqrt
         scale: 1

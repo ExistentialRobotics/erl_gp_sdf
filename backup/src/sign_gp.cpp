@@ -160,22 +160,22 @@ namespace erl::sdf_mapping {
         return true;
     }
 
-    bool
-    SignGaussianProcess::Write(const std::string &filename) const {
-        ERL_INFO("Writing SignGaussianProcess to file: {}", filename);
-        std::filesystem::create_directories(std::filesystem::path(filename).parent_path());
-        std::ofstream file(filename, std::ios_base::out | std::ios_base::binary);
-        if (!file.is_open()) {
-            ERL_WARN("Failed to open file: {}", filename);
-            return false;
-        }
+    // bool
+    // SignGaussianProcess::Write(const std::string &filename) const {
+    //     ERL_INFO("Writing SignGaussianProcess to file: {}", filename);
+    //     std::filesystem::create_directories(std::filesystem::path(filename).parent_path());
+    //     std::ofstream file(filename, std::ios_base::out | std::ios_base::binary);
+    //     if (!file.is_open()) {
+    //         ERL_WARN("Failed to open file: {}", filename);
+    //         return false;
+    //     }
+    //
+    //     const bool success = Write(file);
+    //     file.close();
+    //     return success;
+    // }
 
-        const bool success = Write(file);
-        file.close();
-        return success;
-    }
-
-    static const std::string kFileHeader = "# erl::sdf_mapping::SignGaussianProcess";
+    // static const std::string kFileHeader = "# erl::sdf_mapping::SignGaussianProcess";
 
     bool
     SignGaussianProcess::Write(std::ostream &s) const {
@@ -195,19 +195,19 @@ namespace erl::sdf_mapping {
         return s.good();
     }
 
-    bool
-    SignGaussianProcess::Read(const std::string &filename) {
-        ERL_INFO("Reading SignGaussianProcess from file: {}", std::filesystem::absolute(filename));
-        std::ifstream file(filename.c_str(), std::ios_base::in | std::ios_base::binary);
-        if (!file.is_open()) {
-            ERL_WARN("Failed to open file: {}", filename.c_str());
-            return false;
-        }
-
-        const bool success = Read(file);
-        file.close();
-        return success;
-    }
+    // bool
+    // SignGaussianProcess::Read(const std::string &filename) {
+    //     ERL_INFO("Reading SignGaussianProcess from file: {}", std::filesystem::absolute(filename));
+    //     std::ifstream file(filename.c_str(), std::ios_base::in | std::ios_base::binary);
+    //     if (!file.is_open()) {
+    //         ERL_WARN("Failed to open file: {}", filename.c_str());
+    //         return false;
+    //     }
+    //
+    //     const bool success = Read(file);
+    //     file.close();
+    //     return success;
+    // }
 
     bool
     SignGaussianProcess::Read(std::istream &s) {

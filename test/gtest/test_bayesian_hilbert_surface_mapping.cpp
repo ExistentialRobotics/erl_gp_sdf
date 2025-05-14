@@ -1,3 +1,4 @@
+#include "erl_common/block_timer.hpp"
 #include "erl_common/csv.hpp"
 #include "erl_common/progress_bar.hpp"
 #include "erl_common/test_helper.hpp"
@@ -11,6 +12,7 @@
 #include "erl_geometry/lidar_frame_3d.hpp"
 #include "erl_geometry/occupancy_octree_drawer.hpp"
 #include "erl_geometry/occupancy_quadtree_drawer.hpp"
+#include "erl_geometry/open3d_helper.hpp"
 #include "erl_geometry/open3d_visualizer_wrapper.hpp"
 #include "erl_geometry/trajectory.hpp"
 #include "erl_geometry/ucsd_fah_2d.hpp"
@@ -21,27 +23,48 @@
 int g_argc = 0;
 char **g_argv = nullptr;
 const std::filesystem::path kProjectRootDir = ERL_SDF_MAPPING_ROOT_DIR;
+const std::filesystem::path kDataDir = kProjectRootDir / "data";
+const std::filesystem::path kConfigDir = kProjectRootDir / "config";
 
 template<typename Dtype>
 void
-ConvertToVoxelGrid(const cv::Mat &img_sdf, const Eigen::Matrix3X<Dtype> &positions, const std::shared_ptr<open3d::geometry::VoxelGrid> &voxel_grid_sdf) {
+ConvertToVoxelGrid(
+    const cv::Mat &img_sdf,
+    const Eigen::Matrix3X<Dtype> &positions,
+    const std::shared_ptr<open3d::geometry::VoxelGrid> &voxel_grid_sdf) {
     voxel_grid_sdf->voxels_.clear();
     for (int j = 0; j < img_sdf.cols; ++j) {  // column major
         for (int i = 0; i < img_sdf.rows; ++i) {
             Eigen::Vector3d position = positions.col(i + j * img_sdf.rows).template cast<double>();
             const auto &color = img_sdf.at<cv::Vec3b>(i, j);
-            voxel_grid_sdf->AddVoxel({voxel_grid_sdf->GetVoxel(position), Eigen::Vector3d(color[2] / 255.0, color[1] / 255.0, color[0] / 255.0)});
+            voxel_grid_sdf->AddVoxel(
+                {voxel_grid_sdf->GetVoxel(position),
+                 Eigen::Vector3d(color[2] / 255.0, color[1] / 255.0, color[0] / 255.0)});
         }
     }
+}
+
+template<typename Dtype, int Dim>
+void
+TestIo(const erl::sdf_mapping::BayesianHilbertSurfaceMapping<Dtype, Dim> *bhm_surf_mapping) {
+    ERL_BLOCK_TIMER_MSG("IO");
+    using Mapping = erl::sdf_mapping::BayesianHilbertSurfaceMapping<Dtype, Dim>;
+    using Serializer = erl::common::Serialization<Mapping>;
+    GTEST_PREPARE_OUTPUT_DIR();
+    std::string filename = fmt::format("bhm_surf_mapping_{}d_{}.bin", Dim, type_name<Dtype>());
+    filename = test_output_dir / filename;
+    ASSERT_TRUE(Serializer::Write(filename, bhm_surf_mapping));
+    Mapping bhm_surf_mapping_read(std::make_shared<typename Mapping::Setting>());
+    ASSERT_TRUE(Serializer::Read(filename, &bhm_surf_mapping_read));
+    ASSERT_TRUE(*bhm_surf_mapping == bhm_surf_mapping_read);
 }
 
 template<typename Dtype>
 void
 TestImpl3D() {
-
     GTEST_PREPARE_OUTPUT_DIR();
     using BayesianHilbertSurfaceMapping = erl::sdf_mapping::BayesianHilbertSurfaceMapping<Dtype, 3>;
-    using TreeDrawer = erl::geometry::OccupancyOctreeDrawer<typename BayesianHilbertSurfaceMapping::Tree>;
+    // using BhsmSerializer = erl::common::Serialization<BayesianHilbertSurfaceMapping>;
     using RangeSensor3D = erl::geometry::RangeSensor3D<Dtype>;
     using RangeSensorFrame3D = erl::geometry::RangeSensorFrame3D<Dtype>;
     using Lidar3D = erl::geometry::Lidar3D<Dtype>;
@@ -59,11 +82,12 @@ TestImpl3D() {
     struct Options {
         bool use_cow_and_lady = false;
         std::string cow_and_lady_dir;
-        std::string mesh_file = kProjectRootDir / "data" / "replica-hotel-0.ply";
-        std::string traj_file = kProjectRootDir / "data" / "replica-hotel-0-traj.txt";
-        std::string surface_mapping_config_file = kProjectRootDir / "config" / fmt::format("bayesian_hilbert_mapping_3d_{}.yaml", type_name<Dtype>());
+        std::string mesh_file = kDataDir / "replica-hotel-0.ply";
+        std::string traj_file = kDataDir / "replica-hotel-0-traj.txt";
+        std::string surface_mapping_config_file =
+            kConfigDir / fmt::format("bayesian_hilbert_mapping_3d_{}.yaml", type_name<Dtype>());
         std::string sensor_frame_type = type_name<LidarFrame3D>();
-        std::string sensor_frame_config_file = kProjectRootDir / "config" / "lidar_3d_271.yaml";
+        std::string sensor_frame_config_file = kConfigDir / "lidar_3d_271.yaml";
         long stride = 1;
         Dtype surf_normal_scale = 0.25;
         Dtype test_res = 0.02;
@@ -135,25 +159,28 @@ TestImpl3D() {
     ASSERT_TRUE(options_parsed);
 
     // prepare the data
+    using namespace erl::common;
+    using namespace erl::geometry;
+
     std::vector<std::shared_ptr<open3d::geometry::Geometry>> geometries;  // for visualization
-    std::shared_ptr<erl::geometry::CowAndLady> cow_and_lady = nullptr;
+    std::shared_ptr<CowAndLady> cow_and_lady = nullptr;
     std::shared_ptr<RangeSensorFrame3D> range_sensor_frame = nullptr;
     std::shared_ptr<RangeSensor3D> range_sensor = nullptr;
     bool is_lidar = false;
     std::vector<std::pair<Matrix3, Vector3>> poses;
     Vector3 area_min, area_max;
     if (options.use_cow_and_lady) {
-        cow_and_lady = std::make_shared<erl::geometry::CowAndLady>(options.cow_and_lady_dir);
+        cow_and_lady = std::make_shared<CowAndLady>(options.cow_and_lady_dir);
         geometries.push_back(cow_and_lady->GetGroundTruthPointCloud());
         area_min = cow_and_lady->GetMapMin().cast<Dtype>();
         area_max = cow_and_lady->GetMapMax().cast<Dtype>();
         const auto depth_frame_setting = std::make_shared<typename DepthFrame3D::Setting>();
-        depth_frame_setting->camera_intrinsic.image_height = erl::geometry::CowAndLady::kImageHeight;
-        depth_frame_setting->camera_intrinsic.image_width = erl::geometry::CowAndLady::kImageWidth;
-        depth_frame_setting->camera_intrinsic.camera_fx = erl::geometry::CowAndLady::kCameraFx;
-        depth_frame_setting->camera_intrinsic.camera_fy = erl::geometry::CowAndLady::kCameraFy;
-        depth_frame_setting->camera_intrinsic.camera_cx = erl::geometry::CowAndLady::kCameraCx;
-        depth_frame_setting->camera_intrinsic.camera_cy = erl::geometry::CowAndLady::kCameraCy;
+        depth_frame_setting->camera_intrinsic.image_height = CowAndLady::kImageHeight;
+        depth_frame_setting->camera_intrinsic.image_width = CowAndLady::kImageWidth;
+        depth_frame_setting->camera_intrinsic.camera_fx = CowAndLady::kCameraFx;
+        depth_frame_setting->camera_intrinsic.camera_fy = CowAndLady::kCameraFy;
+        depth_frame_setting->camera_intrinsic.camera_cx = CowAndLady::kCameraCx;
+        depth_frame_setting->camera_intrinsic.camera_cy = CowAndLady::kCameraCy;
         range_sensor_frame = std::make_shared<DepthFrame3D>(depth_frame_setting);
     } else {
         const auto mesh = open3d::io::CreateMeshFromFile(options.mesh_file);
@@ -164,7 +191,7 @@ TestImpl3D() {
 
         if (options.sensor_frame_type == type_name<LidarFrame3D>()) {
             const auto lidar_frame_setting = std::make_shared<typename LidarFrame3D::Setting>();
-            lidar_frame_setting->FromYamlFile(options.sensor_frame_config_file);
+            ASSERT_TRUE(lidar_frame_setting->FromYamlFile(options.sensor_frame_config_file));
             range_sensor_frame = std::make_shared<LidarFrame3D>(lidar_frame_setting);
             const auto lidar_setting = std::make_shared<typename Lidar3D::Setting>();
             lidar_setting->azimuth_min = lidar_frame_setting->azimuth_min;
@@ -177,29 +204,35 @@ TestImpl3D() {
             is_lidar = true;
         } else if (options.sensor_frame_type == type_name<DepthFrame3D>()) {
             const auto depth_frame_setting = std::make_shared<typename DepthFrame3D::Setting>();
-            depth_frame_setting->FromYamlFile(options.sensor_frame_config_file);
+            ASSERT_TRUE(depth_frame_setting->FromYamlFile(options.sensor_frame_config_file));
             range_sensor_frame = std::make_shared<DepthFrame3D>(depth_frame_setting);
-            range_sensor = std::make_shared<DepthCamera3D>(std::make_shared<typename DepthCamera3D::Setting>(depth_frame_setting->camera_intrinsic));
+            range_sensor =
+                std::make_shared<DepthCamera3D>(std::make_shared<typename DepthCamera3D::Setting>(
+                    depth_frame_setting->camera_intrinsic));
         } else {
             ERL_FATAL("Unknown sensor_frame_type: {}", options.sensor_frame_type);
         }
         range_sensor->AddMesh(options.mesh_file);
-        poses = erl::geometry::Trajectory<Dtype>::LoadSe3(options.traj_file, false);
+        poses = Trajectory<Dtype>::LoadSe3(options.traj_file, false);
     }
+    (void) is_lidar, (void) area_min, (void) area_max, (void) range_sensor_frame;
 
     // prepare the mapping
     const auto bhsm_setting = std::make_shared<typename BayesianHilbertSurfaceMapping::Setting>();
     ASSERT_TRUE(bhsm_setting->FromYamlFile(options.surface_mapping_config_file));
     BayesianHilbertSurfaceMapping bhsm(bhsm_setting);
 
+    if (options.test_io) { TestIo<Dtype, 3>(&bhsm); }  // test IO of empty mapping
+
     // prepare the visualizer
-    const auto visualizer_setting = std::make_shared<erl::geometry::Open3dVisualizerWrapper::Setting>();
+    const auto visualizer_setting = std::make_shared<Open3dVisualizerWrapper::Setting>();
     visualizer_setting->window_name = test_info->name();
     visualizer_setting->mesh_show_back_face = false;
-    erl::geometry::Open3dVisualizerWrapper visualizer(visualizer_setting);
+    Open3dVisualizerWrapper visualizer(visualizer_setting);
     const auto o3d_mesh_sensor = open3d::geometry::TriangleMesh::CreateSphere(0.05);
     o3d_mesh_sensor->PaintUniformColor({1.0, 0.5, 0.0});
-    const auto o3d_mesh_sensor_xyz = erl::geometry::CreateAxisMesh(Matrix4::Identity().template cast<double>(), 0.1);
+    const auto o3d_mesh_sensor_xyz =
+        CreateAxisMesh(Matrix4::Identity().template cast<double>(), 0.1);
     const auto o3d_pcd_obs = std::make_shared<open3d::geometry::PointCloud>();
     const auto o3d_pcd_surf_points = std::make_shared<open3d::geometry::PointCloud>();
     const auto o3d_line_set_surf_normals = std::make_shared<open3d::geometry::LineSet>();
@@ -215,11 +248,18 @@ TestImpl3D() {
     visualizer.AddGeometries(geometries);
 
     // prepare the test positions
-    Eigen::MatrixX<Vector3> positions(options.test_xs, options.test_ys);  // test position in the sensor frame
-    const Vector3 offset(-0.5f * options.test_res * static_cast<Dtype>(options.test_xs), -0.5f * options.test_res * static_cast<Dtype>(options.test_ys), 0.0f);
+    Eigen::MatrixX<Vector3> positions(options.test_xs, options.test_ys);
+    const Vector3 offset(
+        -0.5f * options.test_res * static_cast<Dtype>(options.test_xs),
+        -0.5f * options.test_res * static_cast<Dtype>(options.test_ys),
+        0.0f);
     for (long j = 0; j < positions.cols(); ++j) {
         for (long i = 0; i < positions.rows(); ++i) {
-            positions(i, j) = Vector3(static_cast<Dtype>(i) * options.test_res, static_cast<Dtype>(j) * options.test_res, 0) + offset;
+            positions(i, j) = Vector3(
+                                  static_cast<Dtype>(i) * options.test_res,
+                                  static_cast<Dtype>(j) * options.test_res,
+                                  0) +
+                              offset;
         }
     }
 
@@ -227,7 +267,9 @@ TestImpl3D() {
     double bhsm_update_dt = 0.0;
     double bhsm_update_fps = 0.0;
     double cnt = 0.0;
-    const long max_wp_idx = options.use_cow_and_lady ? cow_and_lady->Size() : static_cast<long>(poses.size());
+    (void) bhsm_update_dt, (void) bhsm_update_fps, (void) cnt;
+    const long max_wp_idx =
+        options.use_cow_and_lady ? cow_and_lady->Size() : static_cast<long>(poses.size());
     Matrix4 last_pose = Matrix4::Identity();
     cv::Mat ranges_img;
     MatrixX ranges;
@@ -243,46 +285,46 @@ TestImpl3D() {
             pose.template topLeftCorner<3, 3>() = rotation;
             pose.template topRightCorner<3, 1>() = translation;
             pose = pose * DepthCamera3D::cTo;
-            rotation_sensor = pose.template topLeftCorner<3, 3>();
-            translation_sensor = pose.template topRightCorner<3, 1>();
             ranges = frame.depth.cast<Dtype>();
             ranges_img = frame.depth_jet;
+            std::tie(rotation_sensor, translation_sensor) =
+                CameraBase3D<Dtype>::ComputeCameraPose(rotation, translation);
         } else {
             std::tie(rotation_sensor, translation_sensor) = poses[wp_idx];
             ranges = range_sensor->Scan(rotation_sensor, translation_sensor);
-            std::tie(rotation, translation) = range_sensor->GetOpticalPose(rotation_sensor, translation_sensor);
+            std::tie(rotation, translation) =
+                range_sensor->GetOpticalPose(rotation_sensor, translation_sensor);
         }
         wp_idx += options.stride;
 
-        range_sensor_frame->UpdateRanges(rotation, translation, ranges, false);
+        range_sensor_frame->UpdateRanges(rotation, translation, ranges);
         double dt;
         {
             ERL_BLOCK_TIMER_MSG_TIME("bhm_mapping.Update", dt);
-            Eigen::Map<const Matrix3X> points(range_sensor_frame->GetEndPointsInWorld().data()->data(), 3, range_sensor_frame->GetNumRays());
+            Eigen::Map<const Matrix3X> points(
+                range_sensor_frame->GetHitPointsWorld().data()->data(),
+                3,
+                range_sensor_frame->GetNumHitRays());
             bhsm.Update(translation, points, true /*parallel*/);
         }
 
         bhsm_update_dt = (bhsm_update_dt * cnt + dt) / (cnt + 1.0);
         cnt += 1.0;
         bhsm_update_fps = 1000.0 / bhsm_update_dt;
-        ERL_INFO("bhsm_update_dt: {:.3f} ms, bhsm_update_fps: {:.3f} fps", bhsm_update_dt, bhsm_update_fps);
+        ERL_INFO(
+            "bhsm_update_dt: {:.3f} ms, bhsm_update_fps: {:.3f} fps",
+            bhsm_update_dt,
+            bhsm_update_fps);
         ERL_TRACY_PLOT("bhsm_update (ms)", bhsm_update_dt);
         ERL_TRACY_PLOT("bhsm_update (fps)", bhsm_update_fps);
     };
 
-    auto callback = [&](erl::geometry::Open3dVisualizerWrapper *wrapper, open3d::visualization::Visualizer *vis) -> bool {
+    auto callback = [&](Open3dVisualizerWrapper *wrapper,
+                        open3d::visualization::Visualizer *vis) -> bool {
         ERL_TRACY_FRAME_MARK_START();
 
         if (wp_idx >= max_wp_idx) {
-            if (options.test_io) {
-                const erl::common::BlockTimer<std::chrono::milliseconds> timer("IO");
-                (void) timer;
-                const auto filename = test_output_dir / fmt::format("bayesian_hilbert_surface_mapping_3d_{}.bin", type_name<Dtype>());
-                ERL_ASSERTM(bhsm.Write(filename), "Failed to write to file: {}", filename);
-                BayesianHilbertSurfaceMapping bhsm_load(std::make_shared<typename BayesianHilbertSurfaceMapping::Setting>());
-                ERL_ASSERTM(bhsm_load.Read(filename), "Failed to read from file: {}", filename);
-                ERL_ASSERTM(bhsm == bhsm_load, "bhsm != bhsm_load");
-            }
+            if (options.test_io) { TestIo<Dtype, 3>(&bhsm); }
             wrapper->SetAnimationCallback(nullptr);  // stop calling this callback
             vis->Close();                            // close the window
             return false;
@@ -301,9 +343,13 @@ TestImpl3D() {
                 if (range < 0.0 || range > 1000.0) { range = 0.0; }
             }
             if (is_lidar) {
-                cv::eigen2cv(MatrixX(ranges.transpose()), ranges_img);
+                ranges_img = cv::Mat(
+                    ranges.cols(),
+                    ranges.rows(),
+                    sizeof(Dtype) == 4 ? CV_32FC1 : CV_64FC1,
+                    ranges.data());
                 cv::flip(ranges_img, ranges_img, 0);
-                cv::resize(ranges_img, ranges_img, {0, 0}, 2, 2);
+                cv::resize(ranges_img, ranges_img, {0, 0}, 2.5, 2.5);
             } else {
                 cv::eigen2cv(ranges, ranges_img);
             }
@@ -334,7 +380,9 @@ TestImpl3D() {
         o3d_pcd_obs->points_.clear();
         o3d_pcd_obs->colors_.clear();
         o3d_pcd_obs->points_.reserve(range_sensor_frame->GetHitPointsWorld().size());
-        for (const auto &point: range_sensor_frame->GetHitPointsWorld()) { o3d_pcd_obs->points_.emplace_back(point.template cast<double>()); }
+        for (const auto &point: range_sensor_frame->GetHitPointsWorld()) {
+            o3d_pcd_obs->points_.emplace_back(point.template cast<double>());
+        }
         o3d_pcd_obs->PaintUniformColor({0.0, 1.0, 0.0});
         /// update the surface point cloud and normals
         o3d_pcd_surf_points->points_.clear();
@@ -343,9 +391,13 @@ TestImpl3D() {
         for (auto &[key, local_bhm]: bhsm.GetLocalBayesianHilbertMaps()) {
             for (auto &[idx, pt]: local_bhm->surface) {
                 o3d_pcd_surf_points->points_.emplace_back(pt.position.template cast<double>());
-                o3d_line_set_surf_normals->points_.emplace_back(pt.position.template cast<double>());
-                o3d_line_set_surf_normals->points_.emplace_back((pt.position + options.surf_normal_scale * pt.normal).template cast<double>());
-                o3d_line_set_surf_normals->lines_.emplace_back(o3d_line_set_surf_normals->points_.size() - 2, o3d_line_set_surf_normals->points_.size() - 1);
+                o3d_line_set_surf_normals->points_.emplace_back(
+                    pt.position.template cast<double>());
+                o3d_line_set_surf_normals->points_.emplace_back(
+                    (pt.position + options.surf_normal_scale * pt.normal).template cast<double>());
+                o3d_line_set_surf_normals->lines_.emplace_back(
+                    o3d_line_set_surf_normals->points_.size() - 2,
+                    o3d_line_set_surf_normals->points_.size() - 1);
             }
         }
         o3d_line_set_surf_normals->PaintUniformColor({1.0, 0.0, 0.0});
@@ -354,7 +406,8 @@ TestImpl3D() {
         for (long j = 0; j < positions.cols(); ++j) {
             for (long i = 0; i < positions.rows(); ++i) {
                 const Vector3 &position = positions(i, j);
-                positions_test.col(i + j * positions.rows()) = rotation_sensor * position + translation_sensor;  // sensor frame to world frame
+                positions_test.col(i + j * positions.rows()) =  // sensor frame to world frame
+                    rotation_sensor * position + translation_sensor;
             }
         }
         VectorX prob_occupied;
@@ -363,28 +416,24 @@ TestImpl3D() {
             Matrix3X gradient;
             bhsm.Predict(positions_test, false, true, false, false, true, prob_occupied, gradient);
         }
-        cv::Mat prob_occupied_img;
-        cv::eigen2cv(MatrixX(prob_occupied.reshaped(options.test_xs, options.test_ys)), prob_occupied_img);
+        cv::Mat prob_occupied_img(
+            options.test_ys,
+            options.test_xs,
+            sizeof(Dtype) == 4 ? CV_32FC1 : CV_64FC1,
+            prob_occupied.data());
+        prob_occupied_img = prob_occupied_img.t();
         cv::normalize(prob_occupied_img, prob_occupied_img, 0, 255, cv::NORM_MINMAX);
         prob_occupied_img.convertTo(prob_occupied_img, CV_8UC1);
         cv::applyColorMap(prob_occupied_img, prob_occupied_img, cv::COLORMAP_JET);
         ConvertToVoxelGrid<Dtype>(prob_occupied_img, positions_test, o3d_voxel_grid_sdf);
 
         const auto t_end = std::chrono::high_resolution_clock::now();
-        const auto duration_total = std::chrono::duration<Dtype, std::milli>(t_end - t_start).count();
+        auto duration_total = std::chrono::duration<Dtype, std::milli>(t_end - t_start).count();
         ERL_INFO("duration_total: {:.3f} ms", duration_total);
         ERL_TRACY_PLOT("gui_update (ms)", duration_total);
         ERL_TRACY_PLOT("gui_update (fps)", 1000.0 / duration_total);
 
-        if (wp_idx == 1 && options.test_io) {
-            const erl::common::BlockTimer<std::chrono::milliseconds> timer("IO");
-            (void) timer;
-            const auto filename = test_output_dir / fmt::format("bayesian_hilbert_surface_mapping_3d_{}.bin", type_name<Dtype>());
-            ERL_ASSERTM(bhsm.Write(filename), "Failed to write to file: {}", filename);
-            BayesianHilbertSurfaceMapping bhsm_load(std::make_shared<typename BayesianHilbertSurfaceMapping::Setting>());
-            ERL_ASSERTM(bhsm_load.Read(filename), "Failed to read from file: {}", filename);
-            ERL_ASSERTM(bhsm == bhsm_load, "bhsm != bhsm_load");
-        }
+        if (wp_idx == 1 && options.test_io) { TestIo<Dtype, 3>(&bhsm); }
 
         ERL_TRACY_FRAME_MARK_END();
         return true;
@@ -398,32 +447,7 @@ TestImpl3D() {
         visualizer.Show();
     }
 
-    // save results
-    // const auto local_bhms = bhsm.GetLocalBayesianHilbertMaps();
-    // const long size = local_bhms.begin()->second->bhm.GetHingedPoints().cols();
-    // MatrixX mu(size, static_cast<long>(local_bhms.size()));
-    // MatrixX sigma(size, static_cast<long>(local_bhms.size()));
-    // long idx = 0;
-    // for (const auto &[key, local_bhm]: local_bhms) {
-    //     mu.col(idx) = local_bhm->bhm.GetWeights();
-    //     sigma.col(idx) = local_bhm->bhm.GetWeightsCovariance().col(0);
-    //     ++idx;
-    // }
-    // erl::common::SaveEigenMatrixToTextFile<Dtype>(test_output_dir / "mu.txt", mu, erl::common::EigenTextFormat::kCsvFmt);
-    // erl::common::SaveEigenMatrixToTextFile<Dtype>(test_output_dir / "sigma.txt", sigma, erl::common::EigenTextFormat::kCsvFmt);
-
-    // auto drawer_setting = std::make_shared<typename TreeDrawer::Setting>();
-    // drawer_setting->area_min = area_min.template cast<double>();
-    // drawer_setting->area_max = area_max.template cast<double>();
-    // drawer_setting->occupied_only = true;
-    // TreeDrawer octree_drawer(drawer_setting, bhsm.GetTree());
-    // auto mesh = geometries[0];
-    // geometries = octree_drawer.GetBlankGeometries();
-    // geometries.push_back(mesh);
-    // octree_drawer.DrawLeaves(geometries);
-    // visualizer.Reset();
-    // visualizer.AddGeometries(geometries);
-    // visualizer.Show();
+    if (options.test_io) { TestIo<Dtype, 3>(&bhsm); }
 }
 
 template<typename Dtype>
@@ -444,21 +468,22 @@ TestImpl2D() {
 
     // load setting from the command line
     struct Options {
-        std::string gazebo_train_file = kProjectRootDir / "data" / "gazebo";
-        std::string house_expo_map_file = kProjectRootDir / "data" / "house_expo_room_1451.json";
-        std::string house_expo_traj_file = kProjectRootDir / "data" / "house_expo_room_1451.csv";
-        std::string ucsd_fah_2d_file = kProjectRootDir / "data" / "ucsd_fah_2d.dat";
-        std::string surface_mapping_config_file = kProjectRootDir / "config" / "bayesian_hilbert_mapping_2d_float.yaml";
+        std::string gazebo_train_file = kDataDir / "gazebo";
+        std::string house_expo_map_file = kDataDir / "house_expo_room_1451.json";
+        std::string house_expo_traj_file = kDataDir / "house_expo_room_1451.csv";
+        std::string ucsd_fah_2d_file = kDataDir / "ucsd_fah_2d.dat";
+        std::string surface_mapping_config_file =
+            kConfigDir / fmt::format("bayesian_hilbert_mapping_2d_{}.yaml", type_name<Dtype>());
         bool use_gazebo_room_2d = false;
         bool use_house_expo_lidar_2d = false;
         bool use_ucsd_fah_2d = false;
         bool visualize = false;
-        // bool test_io = false;
+        bool test_io = false;
         bool hold = false;
         int stride = 5;
         int init_frame = 0;
-        float map_resolution = 0.025;
-        float surf_normal_scale = 0.35;
+        Dtype map_resolution = 0.025;
+        Dtype surf_normal_scale = 0.35;
     };
 
     Options options;
@@ -475,7 +500,7 @@ TestImpl2D() {
             ("map-resolution", po::value<Dtype>(&options.map_resolution)->default_value(options.map_resolution), "Map resolution")
             ("surf-normal-scale", po::value<Dtype>(&options.surf_normal_scale)->default_value(options.surf_normal_scale), "Surface normal scale")
             ("visualize", po::bool_switch(&options.visualize)->default_value(options.visualize), "Visualize the mapping")
-            // ("test-io", po::bool_switch(&options.test_io)->default_value(options.test_io), "Test IO")
+            ("test-io", po::bool_switch(&options.test_io)->default_value(options.test_io), "Test IO")
             ("hold", po::bool_switch(&options.hold)->default_value(options.hold), "Hold the test until a key is pressed")
             ("stride", po::value<int>(&options.stride)->default_value(options.stride), "stride for running the sequence")
             ("init-frame", po::value<int>(&options.init_frame)->default_value(options.init_frame), "Initial frame index")
@@ -512,18 +537,23 @@ TestImpl2D() {
     } catch (std::exception &e) { std::cerr << e.what() << "\n"; }
     ASSERT_TRUE(options_parsed);
 
-    ASSERT_TRUE(options.use_gazebo_room_2d || options.use_house_expo_lidar_2d || options.use_ucsd_fah_2d)
-        << "Please specify one of --use-gazebo-room-2d, --use-house-expo-lidar-2d, --use-ucsd-fah-2d.";
+    ASSERT_TRUE(
+        options.use_gazebo_room_2d || options.use_house_expo_lidar_2d || options.use_ucsd_fah_2d)
+        << "Please specify one of --use-gazebo-room-2d, --use-house-expo-lidar-2d, "
+           "--use-ucsd-fah-2d.";
     if (options.use_gazebo_room_2d) {
-        ASSERT_TRUE(std::filesystem::exists(options.gazebo_train_file)) << "Gazebo train data file " << options.gazebo_train_file << " does not exist.";
+        ASSERT_TRUE(std::filesystem::exists(options.gazebo_train_file))
+            << "Gazebo train data file " << options.gazebo_train_file << " does not exist.";
     }
     if (options.use_house_expo_lidar_2d) {
-        ASSERT_TRUE(std::filesystem::exists(options.house_expo_map_file)) << "HouseExpo map file " << options.house_expo_map_file << " does not exist.";
+        ASSERT_TRUE(std::filesystem::exists(options.house_expo_map_file))
+            << "HouseExpo map file " << options.house_expo_map_file << " does not exist.";
         ASSERT_TRUE(std::filesystem::exists(options.house_expo_traj_file))
             << "HouseExpo trajectory file " << options.house_expo_traj_file << " does not exist.";
     }
     if (options.use_ucsd_fah_2d) {
-        ASSERT_TRUE(std::filesystem::exists(options.ucsd_fah_2d_file)) << "ROS bag dat file " << options.ucsd_fah_2d_file << " does not exist.";
+        ASSERT_TRUE(std::filesystem::exists(options.ucsd_fah_2d_file))
+            << "ROS bag dat file " << options.ucsd_fah_2d_file << " does not exist.";
     }
 
     // load the scene
@@ -537,9 +567,12 @@ TestImpl2D() {
     Eigen::Vector2i map_padding(10, 10);
     Matrix2X cur_traj;
 
+    using namespace erl::geometry;
+
     if (options.use_gazebo_room_2d) {
-        auto train_data_loader = erl::geometry::GazeboRoom2D::TrainDataLoader(options.gazebo_train_file);
-        max_update_cnt = static_cast<long>(train_data_loader.size() - options.init_frame) / options.stride + 1;
+        auto train_data_loader = GazeboRoom2D::TrainDataLoader(options.gazebo_train_file);
+        max_update_cnt =
+            static_cast<long>(train_data_loader.size() - options.init_frame) / options.stride + 1;
         train_angles.reserve(max_update_cnt);
         train_ranges.reserve(max_update_cnt);
         train_poses.reserve(max_update_cnt);
@@ -548,7 +581,8 @@ TestImpl2D() {
         bar_setting->total = max_update_cnt;
         const auto bar = ProgressBar::Open(bar_setting, std::cout);
         int cnt = 0;
-        for (int i = options.init_frame; i < static_cast<int>(train_data_loader.size()); i += options.stride, ++cnt) {
+        for (int i = options.init_frame; i < static_cast<int>(train_data_loader.size());
+             i += options.stride, ++cnt) {
             auto &df = train_data_loader[i];
             train_angles.push_back(df.angles.cast<Dtype>());
             train_ranges.push_back(df.ranges.cast<Dtype>());
@@ -556,8 +590,8 @@ TestImpl2D() {
             cur_traj.col(cnt) << df.translation.cast<Dtype>();
             bar->Update();
         }
-        map_min = erl::geometry::GazeboRoom2D::kMapMin.cast<Dtype>();
-        map_max = erl::geometry::GazeboRoom2D::kMapMax.cast<Dtype>();
+        map_min = GazeboRoom2D::kMapMin.cast<Dtype>();
+        map_max = GazeboRoom2D::kMapMax.cast<Dtype>();
         map_padding.setZero();
 
         train_angles.resize(cnt);
@@ -565,14 +599,25 @@ TestImpl2D() {
         train_poses.resize(cnt);
         cur_traj.conservativeResize(2, cnt);
     } else if (options.use_house_expo_lidar_2d) {
-        erl::geometry::HouseExpoMap house_expo_map(options.house_expo_map_file, 0.2);
-        map_min = house_expo_map.GetMeterSpace()->GetSurface()->vertices.rowwise().minCoeff().cast<Dtype>();
-        map_max = house_expo_map.GetMeterSpace()->GetSurface()->vertices.rowwise().maxCoeff().cast<Dtype>();
+        HouseExpoMap house_expo_map(options.house_expo_map_file, 0.2);
+        map_min = house_expo_map.GetMeterSpace()
+                      ->GetSurface()
+                      ->vertices.rowwise()
+                      .minCoeff()
+                      .cast<Dtype>();
+        map_max = house_expo_map.GetMeterSpace()
+                      ->GetSurface()
+                      ->vertices.rowwise()
+                      .maxCoeff()
+                      .cast<Dtype>();
         auto lidar_setting = std::make_shared<Lidar2D::Setting>();
         lidar_setting->num_lines = 720;
         Lidar2D lidar(lidar_setting, house_expo_map.GetMeterSpace());
-        auto trajectory = LoadAndCastCsvFile<double>(options.house_expo_traj_file.c_str(), [](const std::string &str) -> double { return std::stod(str); });
-        max_update_cnt = static_cast<long>(trajectory.size() - options.init_frame) / options.stride + 1;
+        auto trajectory = LoadAndCastCsvFile<double>(
+            options.house_expo_traj_file.c_str(),
+            [](const std::string &str) -> double { return std::stod(str); });
+        max_update_cnt =
+            static_cast<long>(trajectory.size() - options.init_frame) / options.stride + 1;
         train_angles.reserve(max_update_cnt);
         train_ranges.reserve(max_update_cnt);
         train_poses.reserve(max_update_cnt);
@@ -581,14 +626,16 @@ TestImpl2D() {
         bar_setting->total = max_update_cnt;
         const auto bar = ProgressBar::Open(bar_setting, std::cout);
         int cnt = 0;
-        for (std::size_t i = options.init_frame; i < trajectory.size(); i += options.stride, cnt++) {
+        for (std::size_t i = options.init_frame; i < trajectory.size();
+             i += options.stride, cnt++) {
             bool scan_in_parallel = true;
             std::vector<double> &waypoint = trajectory[i];
             cur_traj.col(cnt) << static_cast<Dtype>(waypoint[0]), static_cast<Dtype>(waypoint[1]);
 
             Eigen::Matrix2d rotation = Eigen::Rotation2Dd(waypoint[2]).toRotationMatrix();
             Eigen::Vector2d translation(waypoint[0], waypoint[1]);
-            VectorX lidar_ranges = lidar.Scan(rotation, translation, scan_in_parallel).cast<Dtype>();
+            VectorX lidar_ranges =
+                lidar.Scan(rotation, translation, scan_in_parallel).cast<Dtype>();
             lidar_ranges += GenerateGaussianNoise<Dtype>(lidar_ranges.size(), 0.0, 0.01);
             train_angles.push_back(lidar.GetAngles().cast<Dtype>());
             train_ranges.push_back(lidar_ranges);
@@ -600,9 +647,9 @@ TestImpl2D() {
         train_poses.resize(cnt);
         cur_traj.conservativeResize(2, cnt);
     } else if (options.use_ucsd_fah_2d) {
-        erl::geometry::UcsdFah2D ucsd_fah(options.ucsd_fah_2d_file);
-        map_min = erl::geometry::UcsdFah2D::kMapMin.cast<Dtype>();
-        map_max = erl::geometry::UcsdFah2D::kMapMax.cast<Dtype>();
+        UcsdFah2D ucsd_fah(options.ucsd_fah_2d_file);
+        map_min = UcsdFah2D::kMapMin.cast<Dtype>();
+        map_max = UcsdFah2D::kMapMax.cast<Dtype>();
         // prepare buffer
         max_update_cnt = (ucsd_fah.Size() - options.init_frame) / options.stride + 1;
         train_angles.reserve(max_update_cnt);
@@ -615,7 +662,14 @@ TestImpl2D() {
         const auto bar = ProgressBar::Open(bar_setting, std::cout);
         long cnt = 0;
         for (long i = options.init_frame; i < ucsd_fah.Size(); i += options.stride, ++cnt) {
-            auto [sequence_number, timestamp, header_timestamp, rotation, translation, angles, ranges] = ucsd_fah[i];
+            auto
+                [sequence_number,
+                 timestamp,
+                 header_timestamp,
+                 rotation,
+                 translation,
+                 angles,
+                 ranges] = ucsd_fah[i];
             cur_traj.col(cnt) << translation.cast<Dtype>();
             train_angles.emplace_back(angles.cast<Dtype>());
             train_ranges.emplace_back(ranges.cast<Dtype>());
@@ -632,9 +686,12 @@ TestImpl2D() {
     max_update_cnt = cur_traj.cols();
 
     // load setting
-    const auto bhm_mapping_setting = std::make_shared<typename BayesianHilbertSurfaceMapping::Setting>();
+    const auto bhm_mapping_setting =
+        std::make_shared<typename BayesianHilbertSurfaceMapping::Setting>();
     ASSERT_TRUE(bhm_mapping_setting->FromYamlFile(options.surface_mapping_config_file));
     BayesianHilbertSurfaceMapping bhsm(bhm_mapping_setting);
+
+    if (options.test_io) { TestIo<Dtype, 2>(&bhsm); }
 
     // prepare the visualizer
     auto drawer_setting = std::make_shared<typename QuadtreeDrawer::Setting>();
@@ -674,14 +731,12 @@ TestImpl2D() {
     }
 
     auto grid_map_info = drawer->GetGridMapInfo();
-    Matrix2X grid_points = grid_map_info->GenerateMeterCoordinates(true);
+    Matrix2X grid_points = grid_map_info->GenerateMeterCoordinates(false /*c_stride*/);
     VectorX logodd_values;
     VectorX prob_occupied;
     Matrix2X gradients;
     std::vector<cv::Point2i> surface_points_cv;
 
-    std::filesystem::path folder = "/home/daizhirui/results/erl_sdf_mapping/bhm_mapping";
-    std::filesystem::create_directories(folder);
     double bhsm_update_dt_ms = 0.0;
     double bhsm_update_fps = 0.0;
     double bhsm_predict_dt_ms = 0.0;
@@ -696,7 +751,10 @@ TestImpl2D() {
         Matrix2X points(2, angles.size());
         surface_points_cv.clear();
         for (long j = 0; j < angles.size(); ++j) {
-            points.col(j) = rotation * Vector2(ranges[j] * std::cos(angles[j]), ranges[j] * std::sin(angles[j])) + translation;
+            points.col(j) =
+                rotation *
+                    Vector2(ranges[j] * std::cos(angles[j]), ranges[j] * std::sin(angles[j])) +
+                translation;
             Eigen::Vector2i px = grid_map_info->MeterToPixelForPoints(points.col(j));
             surface_points_cv.emplace_back(px[0], px[1]);
         }
@@ -705,33 +763,12 @@ TestImpl2D() {
             ERL_BLOCK_TIMER_MSG_TIME("bhm_mapping.Update", dt);
             bhsm.Update(translation, points, true /*parallel*/);
         }
-        bhsm_update_dt_ms = (bhsm_update_dt_ms * static_cast<double>(i) + dt) / static_cast<double>(i + 1);
+        bhsm_update_dt_ms =
+            (bhsm_update_dt_ms * static_cast<double>(i) + dt) / static_cast<double>(i + 1);
         bhsm_update_fps = 1000.0 / bhsm_update_dt_ms;
 
         // save local bhms
         auto local_bhms = bhsm.GetLocalBayesianHilbertMaps();
-        // for (auto &[key, local_bhm]: local_bhms) {
-        //     std::string key_str(key);
-        //     std::filesystem::path bhm_folder = folder / key_str;
-        //     std::filesystem::create_directories(bhm_folder);
-        //     // save hinged points
-        //     SaveEigenMatrixToTextFile<Dtype>(bhm_folder / "hinged_points.txt", local_bhm->bhm.GetHingedPoints(), EigenTextFormat::kCsvFmt);
-        //     SaveEigenMatrixToTextFile<Dtype>(bhm_folder / "map_min.txt", local_bhm->bhm.GetMapBoundary().min(), EigenTextFormat::kCsvFmt);
-        //     SaveEigenMatrixToTextFile<Dtype>(bhm_folder / "map_max.txt", local_bhm->bhm.GetMapBoundary().max(), EigenTextFormat::kCsvFmt);
-        //     SaveEigenMatrixToTextFile<Dtype>(bhm_folder / fmt::format("{}_sensor_origin.txt", i), translation, EigenTextFormat::kCsvFmt);
-        //     SaveEigenMatrixToTextFile<Dtype>(bhm_folder / fmt::format("{}_sensor_points.txt", i), points, EigenTextFormat::kCsvFmt);
-        //     SaveEigenMatrixToTextFile<Dtype>(
-        //         bhm_folder / fmt::format("{}_dataset_points.txt", i),
-        //         local_bhm->dataset_points.leftCols(local_bhm->num_dataset_points),
-        //         EigenTextFormat::kCsvFmt);
-        //     SaveEigenMatrixToTextFile<Dtype>(
-        //         bhm_folder / fmt::format("{}_dataset_labels.txt", i),
-        //         local_bhm->dataset_labels.head(local_bhm->num_dataset_points),
-        //         EigenTextFormat::kCsvFmt);
-        //     std::ofstream output_file(bhm_folder / fmt::format("{}_iteration_count.txt", i));
-        //     output_file << local_bhm->bhm.GetIterationCount() << std::endl;
-        //     output_file.close();
-        // }
         // save results
         const long size = local_bhms.begin()->second->bhm.GetHingedPoints().cols();
         MatrixX mu(size, static_cast<long>(local_bhms.size()));
@@ -743,7 +780,10 @@ TestImpl2D() {
             ++idx;
         }
         SaveEigenMatrixToTextFile<Dtype>(test_output_dir / "mu.txt", mu, EigenTextFormat::kCsvFmt);
-        SaveEigenMatrixToTextFile<Dtype>(test_output_dir / "sigma.txt", sigma, EigenTextFormat::kCsvFmt);
+        SaveEigenMatrixToTextFile<Dtype>(
+            test_output_dir / "sigma.txt",
+            sigma,
+            EigenTextFormat::kCsvFmt);
 
         // visualize the result
         if (!options.visualize) { continue; }
@@ -760,83 +800,167 @@ TestImpl2D() {
                 logodd_values,
                 gradients);
         }
-        bhsm_predict_dt_ms = (bhsm_predict_dt_ms * static_cast<double>(i) + dt) / static_cast<double>(i + 1);
+        bhsm_predict_dt_ms =
+            (bhsm_predict_dt_ms * static_cast<double>(i) + dt) / static_cast<double>(i + 1);
         bhsm_predict_fps = 1000.0 / bhsm_predict_dt_ms;
 
         prob_occupied.resize(logodd_values.size());
-        for (long j = 0; j < logodd_values.size(); ++j) { prob_occupied[j] = erl::geometry::logodd::Probability(logodd_values[j]); }
+        for (long j = 0; j < logodd_values.size(); ++j) {
+            prob_occupied[j] = logodd::Probability(logodd_values[j]);
+        }
 
         /// draw the tree
         tree_img.setTo(cv::Scalar(128, 128, 128, 255));
         drawer->DrawLeaves(tree_img);
-        DrawTrajectoryInplace<Dtype>(tree_img, cur_traj.block(0, 0, 2, i), grid_map_info, trajectory_color, 2, true);
-        for (const auto &px: surface_points_cv) { cv::drawMarker(tree_img, px, cv::Scalar(0, 0, 255, 255), cv::MARKER_CROSS, 10, 2); }
+        DrawTrajectoryInplace<Dtype>(
+            tree_img,
+            cur_traj.block(0, 0, 2, i),
+            grid_map_info,
+            trajectory_color,
+            2,
+            true);
+        for (const auto &px: surface_points_cv) {
+            cv::drawMarker(tree_img, px, cv::Scalar(0, 0, 255, 255), cv::MARKER_CROSS, 10, 2);
+        }
 
         /// draw the iteration count
         Eigen::VectorXi iter_cnt = Eigen::VectorXi::Zero(prob_occupied.size());
         auto tree = bhsm.GetTree();
         for (long j = 0; j < grid_points.cols(); ++j) {
-            erl::geometry::QuadtreeKey key;
-            if (!tree->CoordToKeyChecked(grid_points.col(j), bhm_mapping_setting->bhm_depth, key)) { continue; }
+            QuadtreeKey key;
+            if (!tree->CoordToKeyChecked(grid_points.col(j), bhm_mapping_setting->bhm_depth, key)) {
+                continue;
+            }
             if (!local_bhms.contains(key)) { continue; }
             iter_cnt[j] = local_bhms.at(key)->bhm.GetIterationCount();
         }
-        MatrixX iter_cnt_mat = iter_cnt.cast<Dtype>().reshaped(grid_map_info->Shape(1), grid_map_info->Shape(0));
-        cv::Mat iter_cnt_img;
-        cv::eigen2cv(iter_cnt_mat, iter_cnt_img);
+        cv::Mat iter_cnt_img(
+            grid_map_info->Shape(1),
+            grid_map_info->Shape(0),
+            sizeof(Dtype) == 4 ? CV_32FC1 : CV_64FC1,
+            iter_cnt.data());
         cv::normalize(iter_cnt_img, iter_cnt_img, 0, 255, cv::NORM_MINMAX);
         iter_cnt_img.convertTo(iter_cnt_img, CV_8UC1);
         cv::applyColorMap(iter_cnt_img, iter_cnt_img, cv::COLORMAP_JET);
         cv::flip(iter_cnt_img, iter_cnt_img, 0);
-        DrawTrajectoryInplace<Dtype>(iter_cnt_img, cur_traj.block(0, 0, 2, i), grid_map_info, trajectory_color, 2, true);
-        for (const auto &px: surface_points_cv) { cv::drawMarker(iter_cnt_img, px, cv::Scalar(255, 255, 255, 255), cv::MARKER_CROSS, 10, 2); }
+        DrawTrajectoryInplace<Dtype>(
+            iter_cnt_img,
+            cur_traj.block(0, 0, 2, i),
+            grid_map_info,
+            trajectory_color,
+            2,
+            true);
+        for (const auto &px: surface_points_cv) {
+            cv::drawMarker(
+                iter_cnt_img,
+                px,
+                cv::Scalar(255, 255, 255, 255),
+                cv::MARKER_CROSS,
+                10,
+                2);
+        }
         for (const auto &[key, bhm]: local_bhms) {
             const auto &boundary = bhm->bhm.GetMapBoundary();
             Eigen::Vector2i px1 = grid_map_info->MeterToPixelForPoints(boundary.min());
             Eigen::Vector2i px2 = grid_map_info->MeterToPixelForPoints(boundary.max());
-            cv::rectangle(iter_cnt_img, cv::Point(px1[0], px1[1]), cv::Point(px2[0], px2[1]), cv::Scalar(0, 0, 0, 255), 1);
+            cv::rectangle(
+                iter_cnt_img,
+                cv::Point(px1[0], px1[1]),
+                cv::Point(px2[0], px2[1]),
+                cv::Scalar(0, 0, 0, 255),
+                1);
         }
 
         /// draw the log odds
-        MatrixX logodd_mat = logodd_values.reshaped(grid_map_info->Shape(1), grid_map_info->Shape(0));
-        cv::Mat logodd_img;
-        cv::eigen2cv(logodd_mat, logodd_img);
+        cv::Mat logodd_img(
+            grid_map_info->Shape(0),
+            grid_map_info->Shape(1),
+            sizeof(Dtype) == 4 ? CV_32FC1 : CV_64FC1,
+            logodd_values.data());
+        logodd_img = logodd_img.t();
         cv::normalize(logodd_img, logodd_img, 0, 255, cv::NORM_MINMAX);
         logodd_img.convertTo(logodd_img, CV_8UC1);
         cv::applyColorMap(logodd_img, logodd_img, cv::COLORMAP_JET);
         cv::flip(logodd_img, logodd_img, 0);
-        DrawTrajectoryInplace<Dtype>(logodd_img, cur_traj.block(0, 0, 2, i), grid_map_info, trajectory_color, 2, true);
-        for (const auto &px: surface_points_cv) { cv::drawMarker(logodd_img, px, cv::Scalar(255, 255, 255, 255), cv::MARKER_CROSS, 10, 2); }
+        DrawTrajectoryInplace<Dtype>(
+            logodd_img,
+            cur_traj.block(0, 0, 2, i),
+            grid_map_info,
+            trajectory_color,
+            2,
+            true);
+        for (const auto &px: surface_points_cv) {
+            cv::drawMarker(logodd_img, px, cv::Scalar(255, 255, 255, 255), cv::MARKER_CROSS, 10, 2);
+        }
 
         /// draw the occupancy probability
-        MatrixX prob_occupied_mat = prob_occupied.reshaped(grid_map_info->Shape(1), grid_map_info->Shape(0));
+        MatrixX prob_occupied_mat = Eigen::Map<MatrixX>(
+            prob_occupied.data(),
+            grid_map_info->Shape(1),
+            grid_map_info->Shape(0));
         cv::Mat prob_occupied_img;
         cv::eigen2cv(prob_occupied_mat, prob_occupied_img);
         cv::normalize(prob_occupied_img, prob_occupied_img, 0, 255, cv::NORM_MINMAX);
         prob_occupied_img.convertTo(prob_occupied_img, CV_8UC1);
         cv::applyColorMap(prob_occupied_img, prob_occupied_img, cv::COLORMAP_JET);
         cv::flip(prob_occupied_img, prob_occupied_img, 0);
-        DrawTrajectoryInplace<Dtype>(prob_occupied_img, cur_traj.block(0, 0, 2, i), grid_map_info, trajectory_color, 2, true);
-        for (const auto &px: surface_points_cv) { cv::drawMarker(prob_occupied_img, px, cv::Scalar(255, 255, 255, 255), cv::MARKER_CROSS, 10, 2); }
+        DrawTrajectoryInplace<Dtype>(
+            prob_occupied_img,
+            cur_traj.block(0, 0, 2, i),
+            grid_map_info,
+            trajectory_color,
+            2,
+            true);
+        for (const auto &px: surface_points_cv) {
+            cv::drawMarker(
+                prob_occupied_img,
+                px,
+                cv::Scalar(255, 255, 255, 255),
+                cv::MARKER_CROSS,
+                10,
+                2);
+        }
 
         /// draw the gradient
         VectorX gradient_norms = gradients.colwise().norm();
-        MatrixX gradient_norms_mat = gradient_norms.reshaped(grid_map_info->Shape(1), grid_map_info->Shape(0));
+        MatrixX gradient_norms_mat = Eigen::Map<MatrixX>(
+            gradient_norms.data(),
+            grid_map_info->Shape(1),
+            grid_map_info->Shape(0));
         cv::Mat gradient_norms_img;
         cv::eigen2cv(gradient_norms_mat, gradient_norms_img);
         cv::normalize(gradient_norms_img, gradient_norms_img, 0, 255, cv::NORM_MINMAX);
         gradient_norms_img.convertTo(gradient_norms_img, CV_8UC1);
         cv::applyColorMap(gradient_norms_img, gradient_norms_img, cv::COLORMAP_JET);
         cv::flip(gradient_norms_img, gradient_norms_img, 0);
-        DrawTrajectoryInplace<Dtype>(gradient_norms_img, cur_traj.block(0, 0, 2, i), grid_map_info, trajectory_color, 2, true);
-        for (const auto &px: surface_points_cv) { cv::drawMarker(gradient_norms_img, px, cv::Scalar(255, 255, 255, 255), cv::MARKER_CROSS, 10, 2); }
+        DrawTrajectoryInplace<Dtype>(
+            gradient_norms_img,
+            cur_traj.block(0, 0, 2, i),
+            grid_map_info,
+            trajectory_color,
+            2,
+            true);
+        for (const auto &px: surface_points_cv) {
+            cv::drawMarker(
+                gradient_norms_img,
+                px,
+                cv::Scalar(255, 255, 255, 255),
+                cv::MARKER_CROSS,
+                10,
+                2);
+        }
         //// draw the surface normals
         for (auto &[key, local_bhm]: local_bhms) {
-            // ERL_DEBUG("num surface points: {}", local_bhm->surface.size());
-            for (auto &[idx, surface]: local_bhm->surface) {
-                Eigen::Vector2i px1 = grid_map_info->MeterToPixelForPoints(surface.position);
-                Eigen::Vector2i px2 = grid_map_info->MeterToPixelForPoints(surface.position + surface.normal);
-                cv::arrowedLine(gradient_norms_img, cv::Point(px1[0], px1[1]), cv::Point(px2[0], px2[1]), cv::Scalar(255, 255, 255, 255), 2, cv::LINE_AA);
+            for (auto &[idx, surf]: local_bhm->surface) {
+                auto px1 = grid_map_info->MeterToPixelForPoints(surf.position);
+                auto px2 = grid_map_info->MeterToPixelForPoints(surf.position + surf.normal);
+                cv::arrowedLine(
+                    gradient_norms_img,
+                    cv::Point(px1(0, 0), px1(1, 0)),
+                    cv::Point(px2(0, 0), px2(1, 0)),
+                    cv::Scalar(255, 255, 255, 255),
+                    2,
+                    cv::LINE_AA);
             }
         }
 
@@ -858,11 +982,18 @@ TestImpl2D() {
         cv::waitKey(10);
     }
     if (options.hold) { cv::waitKey(0); }
+    if (options.test_io) { TestIo<Dtype, 2>(&bhsm); }
 }
 
-// TEST(BayesianHilbertSurfaceMapping, 3Dd) { TestImpl3D<double>(); }
+// Update FPS:
+// Gazebo Room: 1500-1700 fps (float), 1400-1600 fps (double)
+// Replica Lidar-271: 40-70 fps (float/double)
+
+TEST(BayesianHilbertSurfaceMapping, 3Dd) { TestImpl3D<double>(); }
 
 TEST(BayesianHilbertSurfaceMapping, 3Df) { TestImpl3D<float>(); }
+
+TEST(BayesianHilbertSurfaceMapping, 2Dd) { TestImpl2D<double>(); }
 
 TEST(BayesianHilbertSurfaceMapping, 2Df) { TestImpl2D<float>(); }
 

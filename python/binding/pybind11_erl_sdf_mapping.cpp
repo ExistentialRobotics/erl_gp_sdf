@@ -1,22 +1,13 @@
 #include "erl_common/pybind11.hpp"
 
 void
-BindSurfaceMappingQuadtreeNode(const py::module &m);
-
-void
-BindSurfaceMappingQuadtree(const py::module &m);
-
-void
-BindSurfaceMappingOctreeNode(const py::module &m);
-
-void
-BindSurfaceMappingOctree(const py::module &m);
-
-void
 BindSurfaceDataManager(const py::module &m);
 
 void
 BindLogEdfGaussianProcess(const py::module &m);
+
+void
+BindSdfGpSetting(const py::module &m);
 
 void
 BindSdfGp(const py::module &m);
@@ -36,13 +27,9 @@ BindGpSdfMapping(const py::module &m);
 PYBIND11_MODULE(PYBIND_MODULE_NAME, m) {
     m.doc() = "Python 3 Interface of erl_sdf_mapping";
 
-    BindSurfaceMappingQuadtreeNode(m);
-    BindSurfaceMappingQuadtree(m);
-    BindSurfaceMappingOctreeNode(m);
-    BindSurfaceMappingOctree(m);
-
     BindSurfaceDataManager(m);
     BindLogEdfGaussianProcess(m);
+    BindSdfGpSetting(m);
     BindSdfGp(m);
 
     BindAbstractSurfaceMapping(m);

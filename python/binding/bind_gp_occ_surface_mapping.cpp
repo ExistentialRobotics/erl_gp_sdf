@@ -16,8 +16,12 @@ BindGpOccSurfaceMappingImpl(const py::module &m, const char *name) {
     py::class_<T, AbstractSurfaceMapping, std::shared_ptr<T>> surface_mapping(m, name);
     py::class_<Setting, YamlableBase, std::shared_ptr<Setting>> setting(surface_mapping, "Setting");
     py::class_<SettingComputeVariance>(setting, "ComputeVariance")
-        .def_readwrite("zero_gradient_position_var", &SettingComputeVariance::zero_gradient_position_var)
-        .def_readwrite("zero_gradient_gradient_var", &SettingComputeVariance::zero_gradient_gradient_var)
+        .def_readwrite(
+            "zero_gradient_position_var",
+            &SettingComputeVariance::zero_gradient_position_var)
+        .def_readwrite(
+            "zero_gradient_gradient_var",
+            &SettingComputeVariance::zero_gradient_gradient_var)
         .def_readwrite("position_var_alpha", &SettingComputeVariance::position_var_alpha)
         .def_readwrite("min_distance_var", &SettingComputeVariance::min_distance_var)
         .def_readwrite("max_distance_var", &SettingComputeVariance::max_distance_var)
@@ -48,7 +52,6 @@ BindGpOccSurfaceMappingImpl(const py::module &m, const char *name) {
         .def_property_readonly("tree", &T::GetTree)
         .def_property_readonly("surface_data_manager", &T::GetSurfaceDataManager)
         .def("update", &T::Update, py::arg("rotation"), py::arg("translation"), py::arg("ranges"))
-        .def_property_readonly("ready", &T::Ready)
         .def_property_readonly("scaling", &T::GetScaling)
         .def_property_readonly("cluster_size", &T::GetClusterSize)
         .def("get_cluster_center", &T::GetClusterCenter, py::arg("cluster_key"))
@@ -68,11 +71,26 @@ BindGpOccSurfaceMappingImpl(const py::module &m, const char *name) {
             },
             py::arg("aabb"))
         .def_property_readonly("map_boundary", &T::GetMapBoundary)
-        .def("is_in_free_space", [](T &self, const typename T::Positions &positions) {
-            typename T::VectorX in_free_space;
-            self.IsInFreeSpace(positions, in_free_space);
-            return in_free_space;
-        });
+        .def(
+            "is_in_free_space",
+            [](T &self, const typename T::Positions &positions) {
+                typename T::VectorX in_free_space;
+                bool success = self.IsInFreeSpace(positions, in_free_space);
+                return std::make_tuple(success, in_free_space);
+            })
+        .def(
+            "write",
+            [](const T *self, const char *filename) {
+                return erl::common::Serialization<T>::Write(filename, self);
+            },
+            py::arg("filename"))
+        .def(
+            "read",
+            [](T *self, const char *filename) {
+                return erl::common::Serialization<T>::Read(filename, self);
+            },
+            py::arg("filename"));
+    ;
 }
 
 void

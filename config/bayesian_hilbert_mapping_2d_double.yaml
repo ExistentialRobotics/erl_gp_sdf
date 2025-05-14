@@ -1,0 +1,46 @@
+local_bhm:
+    bhm:
+        diagonal_sigma: true
+        max_distance: 50
+        free_points_per_meter: 2
+        free_sampling_margin: 0.005
+        init_sigma: 10000
+        num_em_iterations: 3
+        sparse_zero_threshold: 1.0e-6
+        use_sparse: true
+    kernel_type: erl::covariance::RadialBiasFunction<double, 2>
+    kernel_setting_type: erl::covariance::Covariance<double>::Setting
+    kernel:
+        x_dim: 2
+        alpha: 1
+        scale: 0.075
+        scale_mix: 1
+        weights: [ ]
+    max_dataset_size: -1
+    hit_buffer_size: 16
+    track_surface: true
+    surface_resolution: 0.1
+    surface_occ_prob_threshold: 0.0   # 0.55
+    surface_occ_prob_target: 0.99
+    surface_adjust_step: 0.0   # 0.02
+    var_scale: 1.0
+tree:
+    resolution: 0.35
+    tree_depth: 16
+    log_odd_min: -2
+    log_odd_max: 4
+    log_odd_hit: 0.85
+    log_odd_miss: -0.4
+    log_odd_occ_threshold: 0
+    use_change_detection: false
+    use_aabb_limit: false
+    aabb:
+        center: [ 0, 0 ]
+        half_sizes: [ 0, 0 ]
+hinged_grid_size: 9
+bhm_depth: 15
+bhm_overlap: 0.3
+bhm_test_margin: 0.15
+test_knn: 1
+test_batch_size: 10000
+build_bhm_on_hit: true

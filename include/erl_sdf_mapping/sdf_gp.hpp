@@ -27,6 +27,8 @@ namespace erl::sdf_mapping {
         Dtype hybrid_sign_threshold = 0.2f;
         Dtype normal_scale = 1.0f;  // scale for normal gp
         Dtype softmin_temperature = 1.0f;
+        Dtype sign_gp_offset_distance = 0.01f;  // distance to shift for surface data for sign_gp.
+        Dtype edf_gp_offset_distance = 0.0f;    // distance to shift for surface data for edf_gp.
         std::shared_ptr<SignGpSetting> sign_gp = std::make_shared<SignGpSetting>();
         std::shared_ptr<EdfGpSetting> edf_gp = std::make_shared<EdfGpSetting>();
 
@@ -97,7 +99,6 @@ namespace erl::sdf_mapping {
         LoadSurfaceData(
             std::vector<std::pair<Dtype, std::size_t>>& surface_data_indices,
             const std::vector<SurfaceData<Dtype, Dim>>& surface_data_vec,
-            Dtype offset_distance,
             Dtype sensor_noise,
             Dtype max_valid_gradient_var,
             Dtype invalid_position_var);
@@ -127,7 +128,7 @@ namespace erl::sdf_mapping {
         operator!=(const SdfGaussianProcess& other) const;
 
         [[nodiscard]] bool
-        Write(std::ostream& s) const;
+        Write(std::ostream& s) const;  // TODO: check implementation
 
         [[nodiscard]] bool
         Read(std::istream& s);

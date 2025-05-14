@@ -4,7 +4,8 @@ namespace erl::sdf_mapping {
 
     template<typename Dtype>
     YAML::Node
-    LocalBayesianHilbertMapSetting<Dtype>::YamlConvertImpl::encode(const LocalBayesianHilbertMapSetting &setting) {
+    LocalBayesianHilbertMapSetting<Dtype>::YamlConvertImpl::encode(
+        const LocalBayesianHilbertMapSetting &setting) {
         YAML::Node node;
         node["bhm"] = setting.bhm;
         node["kernel_type"] = setting.kernel_type;
@@ -23,7 +24,9 @@ namespace erl::sdf_mapping {
 
     template<typename Dtype>
     bool
-    LocalBayesianHilbertMapSetting<Dtype>::YamlConvertImpl::decode(const YAML::Node &node, LocalBayesianHilbertMapSetting &setting) {
+    LocalBayesianHilbertMapSetting<Dtype>::YamlConvertImpl::decode(
+        const YAML::Node &node,
+        LocalBayesianHilbertMapSetting &setting) {
         if (!node.IsMap()) { return false; }
         setting.bhm = node["bhm"].as<decltype(setting.bhm)>();
         setting.kernel_type = node["kernel_type"].as<std::string>();
@@ -43,33 +46,36 @@ namespace erl::sdf_mapping {
 
     template<typename Dtype, int Dim>
     YAML::Node
-    BayesianHilbertSurfaceMapping<Dtype, Dim>::Setting::YamlConvertImpl::encode(const Setting &setting) {
+    BayesianHilbertSurfaceMapping<Dtype, Dim>::Setting::YamlConvertImpl::encode(
+        const Setting &setting) {
         YAML::Node node;
-        node["local_bhm"] = setting.local_bhm;
-        node["tree"] = setting.tree;
-        node["hinged_grid_size"] = setting.hinged_grid_size;
-        node["bhm_depth"] = setting.bhm_depth;
-        node["bhm_overlap"] = setting.bhm_overlap;
-        node["bhm_test_margin"] = setting.bhm_test_margin;
-        node["test_knn"] = setting.test_knn;
-        node["test_batch_size"] = setting.test_batch_size;
-        node["build_bhm_on_hit"] = setting.build_bhm_on_hit;
+        ERL_YAML_SAVE_ATTR(node, setting, local_bhm);
+        ERL_YAML_SAVE_ATTR(node, setting, tree);
+        ERL_YAML_SAVE_ATTR(node, setting, hinged_grid_size);
+        ERL_YAML_SAVE_ATTR(node, setting, bhm_depth);
+        ERL_YAML_SAVE_ATTR(node, setting, bhm_overlap);
+        ERL_YAML_SAVE_ATTR(node, setting, bhm_test_margin);
+        ERL_YAML_SAVE_ATTR(node, setting, test_knn);
+        ERL_YAML_SAVE_ATTR(node, setting, test_batch_size);
+        ERL_YAML_SAVE_ATTR(node, setting, build_bhm_on_hit);
         return node;
     }
 
     template<typename Dtype, int Dim>
     bool
-    BayesianHilbertSurfaceMapping<Dtype, Dim>::Setting::YamlConvertImpl::decode(const YAML::Node &node, Setting &setting) {
+    BayesianHilbertSurfaceMapping<Dtype, Dim>::Setting::YamlConvertImpl::decode(
+        const YAML::Node &node,
+        Setting &setting) {
         if (!node.IsMap()) { return false; }
-        setting.local_bhm = node["local_bhm"].as<decltype(setting.local_bhm)>();
-        setting.tree = node["tree"].as<decltype(setting.tree)>();
-        setting.hinged_grid_size = node["hinged_grid_size"].as<int>();
-        setting.bhm_depth = node["bhm_depth"].as<uint32_t>();
-        setting.bhm_overlap = node["bhm_overlap"].as<Dtype>();
-        setting.bhm_test_margin = node["bhm_test_margin"].as<Dtype>();
-        setting.test_knn = node["test_knn"].as<int>();
-        setting.test_batch_size = node["test_batch_size"].as<int>();
-        setting.build_bhm_on_hit = node["build_bhm_on_hit"].as<bool>();
+        ERL_YAML_LOAD_ATTR(node, setting, local_bhm);
+        ERL_YAML_LOAD_ATTR(node, setting, tree);
+        ERL_YAML_LOAD_ATTR(node, setting, hinged_grid_size);
+        ERL_YAML_LOAD_ATTR(node, setting, bhm_depth);
+        ERL_YAML_LOAD_ATTR(node, setting, bhm_overlap);
+        ERL_YAML_LOAD_ATTR(node, setting, bhm_test_margin);
+        ERL_YAML_LOAD_ATTR(node, setting, test_knn);
+        ERL_YAML_LOAD_ATTR(node, setting, test_batch_size);
+        ERL_YAML_LOAD_ATTR(node, setting, build_bhm_on_hit);
         return true;
     }
 
@@ -81,15 +87,23 @@ namespace erl::sdf_mapping {
         uint64_t seed,
         std::optional<Aabb> track_surface_boundary_)
         : setting(std::move(setting_)),
-          tracked_surface_boundary(track_surface_boundary_.has_value() ? track_surface_boundary_.value() : map_boundary),
-          bhm(setting->bhm, Covariance::CreateCovariance(setting->kernel_type, setting->kernel), std::move(hinged_points), std::move(map_boundary), seed) {
+          tracked_surface_boundary(
+              track_surface_boundary_.has_value() ? track_surface_boundary_.value() : map_boundary),
+          bhm(setting->bhm,
+              Covariance::CreateCovariance(setting->kernel_type, setting->kernel),
+              std::move(hinged_points),
+              std::move(map_boundary),
+              seed) {
 
         const Position map_size = tracked_surface_boundary.sizes();
         Eigen::Vector<int, Dim> map_shape;
-        for (long dim = 0; dim < Dim; ++dim) { map_shape[dim] = static_cast<int>(std::ceil(map_size[dim] / setting->surface_resolution)); }
+        for (long dim = 0; dim < Dim; ++dim) {
+            Dtype dim_shape = map_size[dim] / setting->surface_resolution;
+            map_shape[dim] = static_cast<int>(std::ceil(dim_shape));
+        }
         strides = common::ComputeCStrides<int>(map_shape, 1);
 
-        if (setting->hit_buffer_size > 0) { hit_buffer.reserve(setting->hit_buffer_size); }  // reserve the hit buffer size
+        if (setting->hit_buffer_size > 0) { hit_buffer.reserve(setting->hit_buffer_size); }
     }
 
     template<typename Dtype, int Dim>
@@ -106,19 +120,253 @@ namespace erl::sdf_mapping {
 
     template<typename Dtype, int Dim>
     bool
+    BayesianHilbertSurfaceMapping<Dtype, Dim>::LocalBayesianHilbertMap::Write(
+        std::ostream &s) const {
+        using namespace common;
+        static const TokenWriteFunctionPairs<LocalBayesianHilbertMap> token_function_pairs = {
+            // setting is loaded externally.
+            // tracked_surface_boundary is loaded externally.
+            {
+                "bhm",
+                [](const LocalBayesianHilbertMap *self, std::ostream &stream) {
+                    return self->bhm.Write(stream) && stream.good();
+                },
+            },
+            // `strides` is computed by the constructor.
+            {
+                "surface_indices",
+                [](const LocalBayesianHilbertMap *self, std::ostream &stream) {
+                    const std::size_t n = self->surface_indices.size();
+                    stream.write(reinterpret_cast<const char *>(&n), sizeof(n));
+                    if (n == 0) { return stream.good(); }
+                    stream.write(
+                        reinterpret_cast<const char *>(self->surface_indices.data()),
+                        sizeof(int) * n);
+                    return stream.good();
+                },
+            },
+            {
+                "surface",
+                [](const LocalBayesianHilbertMap *self, std::ostream &stream) {
+                    const std::size_t n = self->surface.size();
+                    stream.write(reinterpret_cast<const char *>(&n), sizeof(n));
+                    for (const auto &[index, surface]: self->surface) {
+                        stream.write(reinterpret_cast<const char *>(&index), sizeof(index));
+                        stream.write(
+                            reinterpret_cast<const char *>(surface.position.data()),
+                            sizeof(Position));
+                        stream.write(
+                            reinterpret_cast<const char *>(surface.normal.data()),
+                            sizeof(Gradient));
+                        stream.write(
+                            reinterpret_cast<const char *>(&surface.prob_occupied),
+                            sizeof(Dtype));
+                    }
+                    return stream.good();
+                },
+            },
+            {
+                "num_dataset_points",
+                [](const LocalBayesianHilbertMap *self, std::ostream &stream) {
+                    stream.write(
+                        reinterpret_cast<const char *>(&self->num_dataset_points),
+                        sizeof(self->num_dataset_points));
+                    return stream.good();
+                },
+            },
+            {
+                "dataset_points",
+                [](const LocalBayesianHilbertMap *self, std::ostream &stream) {
+                    return SaveEigenMatrixToBinaryStream(stream, self->dataset_points) &&
+                           stream.good();
+                },
+            },
+            {
+                "dataset_labels",
+                [](const LocalBayesianHilbertMap *self, std::ostream &stream) {
+                    return SaveEigenMatrixToBinaryStream(stream, self->dataset_labels) &&
+                           stream.good();
+                },
+            },
+            {
+                "hit_indices",
+                [](const LocalBayesianHilbertMap *self, std::ostream &stream) {
+                    const std::size_t n = self->hit_indices.size();
+                    stream.write(reinterpret_cast<const char *>(&n), sizeof(n));
+                    stream.write(
+                        reinterpret_cast<const char *>(self->hit_indices.data()),
+                        sizeof(long) * n);
+                    return stream.good();
+                },
+            },
+            {
+                "hit_buffer",
+                [](const LocalBayesianHilbertMap *self, std::ostream &stream) {
+                    const std::size_t n = self->hit_buffer.size();
+                    stream.write(reinterpret_cast<const char *>(&n), sizeof(n));
+                    if (n == 0) { return stream.good(); }
+                    stream.write(
+                        reinterpret_cast<const char *>(self->hit_buffer.data()),
+                        sizeof(Position) * n);
+                    return stream.good();
+                },
+            },
+            {
+                "hit_buffer_head",
+                [](const LocalBayesianHilbertMap *self, std::ostream &stream) {
+                    stream.write(
+                        reinterpret_cast<const char *>(&self->hit_buffer_head),
+                        sizeof(self->hit_buffer_head));
+                    return stream.good();
+                },
+            },
+        };
+        return WriteTokens(s, this, token_function_pairs);
+    }
+
+    template<typename Dtype, int Dim>
+    bool
+    BayesianHilbertSurfaceMapping<Dtype, Dim>::LocalBayesianHilbertMap::Read(std::istream &s) {
+        using namespace common;
+        static const TokenReadFunctionPairs<LocalBayesianHilbertMap> token_function_pairs = {
+            // setting is loaded externally.
+            // tracked_surface_boundary is loaded externally.
+            {
+                "bhm",
+                [](LocalBayesianHilbertMap *self, std::istream &stream) {
+                    return self->bhm.Read(stream) && stream.good();
+                },
+            },
+            // `strides` is computed by the constructor.
+            {
+                "surface_indices",
+                [](LocalBayesianHilbertMap *self, std::istream &stream) {
+                    std::size_t n;
+                    stream.read(reinterpret_cast<char *>(&n), sizeof(n));
+                    if (n == 0) {
+                        self->surface_indices.clear();
+                        return stream.good();
+                    }
+                    self->surface_indices.resize(n);
+                    stream.read(
+                        reinterpret_cast<char *>(self->surface_indices.data()),
+                        sizeof(int) * n);
+                    return stream.good();
+                },
+            },
+            {
+                "surface",
+                [](LocalBayesianHilbertMap *self, std::istream &stream) {
+                    std::size_t n;
+                    stream.read(reinterpret_cast<char *>(&n), sizeof(n));
+                    self->surface.reserve(n);
+                    for (std::size_t i = 0; i < n; ++i) {
+                        int index;
+                        stream.read(reinterpret_cast<char *>(&index), sizeof(index));
+                        Surface surface(Position::Zero());
+                        stream.read(
+                            reinterpret_cast<char *>(surface.position.data()),
+                            sizeof(Position));
+                        stream.read(
+                            reinterpret_cast<char *>(surface.normal.data()),
+                            sizeof(Gradient));
+                        stream.read(
+                            reinterpret_cast<char *>(&surface.prob_occupied),
+                            sizeof(Dtype));
+                        if (!self->surface.try_emplace(index, std::move(surface)).second) {
+                            ERL_WARN("Duplicate surface index: {}.", index);
+                            return false;
+                        }
+                    }
+                    return stream.good();
+                },
+            },
+            {
+                "num_dataset_points",
+                [](LocalBayesianHilbertMap *self, std::istream &stream) {
+                    stream.read(
+                        reinterpret_cast<char *>(&self->num_dataset_points),
+                        sizeof(self->num_dataset_points));
+                    return stream.good();
+                },
+            },
+            {
+                "dataset_points",
+                [](LocalBayesianHilbertMap *self, std::istream &stream) {
+                    return LoadEigenMatrixFromBinaryStream(stream, self->dataset_points) &&
+                           stream.good();
+                },
+            },
+            {
+                "dataset_labels",
+                [](LocalBayesianHilbertMap *self, std::istream &stream) {
+                    return LoadEigenMatrixFromBinaryStream(stream, self->dataset_labels) &&
+                           stream.good();
+                },
+            },
+            {
+                "hit_indices",
+                [](LocalBayesianHilbertMap *self, std::istream &stream) {
+                    std::size_t n;
+                    stream.read(reinterpret_cast<char *>(&n), sizeof(n));
+                    if (n == 0) {
+                        self->hit_indices.clear();
+                        return stream.good();
+                    }
+                    self->hit_indices.resize(n);
+                    stream.read(
+                        reinterpret_cast<char *>(self->hit_indices.data()),
+                        sizeof(long) * n);
+                    return stream.good();
+                },
+            },
+            {
+                "hit_buffer",
+                [](LocalBayesianHilbertMap *self, std::istream &stream) {
+                    std::size_t n;
+                    stream.read(reinterpret_cast<char *>(&n), sizeof(n));
+                    if (n == 0) {
+                        self->hit_buffer.clear();
+                        return stream.good();
+                    }
+                    self->hit_buffer.resize(n);
+                    stream.read(
+                        reinterpret_cast<char *>(self->hit_buffer.data()),
+                        sizeof(Position) * n);
+                    return stream.good();
+                },
+            },
+            {
+                "hit_buffer_head",
+                [](LocalBayesianHilbertMap *self, std::istream &stream) {
+                    stream.read(
+                        reinterpret_cast<char *>(&self->hit_buffer_head),
+                        sizeof(self->hit_buffer_head));
+                    return stream.good();
+                },
+            },
+        };
+        return ReadTokens(s, this, token_function_pairs);
+    }
+
+    template<typename Dtype, int Dim>
+    bool
     BayesianHilbertSurfaceMapping<Dtype, Dim>::LocalBayesianHilbertMap::UpdateBhm(
         const Eigen::Ref<const Position> &sensor_origin,
         const Eigen::Ref<const Positions> &points) {
-        // ERL_BLOCK_TIMER_MSG("local bhm update");
 
         const long max_dataset_size = setting->max_dataset_size;
-        {
-            // ERL_BLOCK_TIMER_MSG("bhm generate dataset");
-            bhm.GenerateDataset(sensor_origin, points, max_dataset_size, num_dataset_points, dataset_points, dataset_labels, hit_indices);
-        }
+        bhm.GenerateDataset(
+            sensor_origin,
+            points,
+            max_dataset_size,
+            num_dataset_points,
+            dataset_points,
+            dataset_labels,
+            hit_indices);
         if (num_dataset_points == 0) { return false; }
-        if (!hit_buffer.empty() && (max_dataset_size < 0 || num_dataset_points < max_dataset_size)) {
-            // ERL_BLOCK_TIMER_MSG("bhm add hit buffer");
+        if (!hit_buffer.empty() &&
+            (max_dataset_size < 0 || num_dataset_points < max_dataset_size)) {
 
             // there is data in the hit buffer, and
             // 1. no dataset size limit
@@ -133,16 +381,13 @@ namespace erl::sdf_mapping {
                 dataset_points.col(num_dataset_points) = point;
                 dataset_labels[num_dataset_points] = 1;
                 ++num_dataset_points;
-                if (num_dataset_points >= n) { break; }  // stop if the dataset size limit is reached
+                if (num_dataset_points >= n) {
+                    break;
+                }  // stop if the dataset size limit is reached
             }
         }
-        {
-            // ERL_BLOCK_TIMER_MSG("bhm run expectation maximization");
-            bhm.RunExpectationMaximization(dataset_points, dataset_labels, num_dataset_points);
-        }
+        bhm.RunExpectationMaximization(dataset_points, dataset_labels, num_dataset_points);
         if (setting->hit_buffer_size > 0 && !hit_indices.empty()) {
-            // ERL_BLOCK_TIMER_MSG("bhm update hit buffer");
-
             // hit buffer has space and there are hit points
             for (const long &hit_index: hit_indices) {
                 hit_buffer[hit_buffer_head] = points.col(hit_index);
@@ -154,31 +399,40 @@ namespace erl::sdf_mapping {
 
     template<typename Dtype, int Dim>
     void
-    BayesianHilbertSurfaceMapping<Dtype, Dim>::LocalBayesianHilbertMap::TrackSurface(const Eigen::Ref<const Positions> &points) {
+    BayesianHilbertSurfaceMapping<Dtype, Dim>::LocalBayesianHilbertMap::TrackSurface(
+        const Eigen::Ref<const Positions> &points) {
         // ERL_BLOCK_TIMER_MSG("track surface");
 
         // add new surface points, update the existing surface points
         const Position map_min = tracked_surface_boundary.min();
         const Dtype surface_resolution = setting->surface_resolution;
-        for (const auto &hit_index: hit_indices) {                            // for each hit point
-            const Position hit_point = points.col(hit_index);                 // get the hit point
-            if (!tracked_surface_boundary.contains(hit_point)) { continue; }  // skip if the hit point is out of the surface boundary
-            Eigen::Vector<int, Dim> grid_coords;                              // grid coordinates of the hit point
-            for (long dim = 0; dim < Dim; ++dim) { grid_coords[dim] = common::MeterToGrid<Dtype>(hit_point[dim], map_min[dim], surface_resolution); }
-            const int surface_index = common::CoordsToIndex<Dim>(strides, grid_coords);  // compute the index of the surface point
-            auto it = surface.find(surface_index);                                       // find the surface point in the map
-            if (it != surface.end()) { continue; }                                       // already exist
-            surface_indices.push_back(surface_index);                                    // add the index to the list
-            surface.insert({surface_index, Surface(hit_point)});                         // add the new surface point
+        for (const auto &hit_index: hit_indices) {             // for each hit point
+            const Position hit_point = points.col(hit_index);  // get the hit point
+            // skip if the hit point is out of the surface boundary
+            if (!tracked_surface_boundary.contains(hit_point)) { continue; }
+            Eigen::Vector<int, Dim> grid_coords;  // grid coordinates of the hit point
+            for (long dim = 0; dim < Dim; ++dim) {
+                grid_coords[dim] =
+                    common::MeterToGrid<Dtype>(hit_point[dim], map_min[dim], surface_resolution);
+            }
+            // compute the index of the surface point
+            const int surface_index = common::CoordsToIndex<Dim>(strides, grid_coords);
+            auto it = surface.find(surface_index);     // find the surface point in the map
+            if (it != surface.end()) { continue; }     // already exist
+            surface_indices.push_back(surface_index);  // add the index to the list
+            surface.insert({surface_index, Surface(hit_point)});  // add the new surface point
         }
         // collect the points
         Positions surface_points(Dim, static_cast<long>(surface_indices.size()));
-        for (long i = 0; i < static_cast<long>(surface.size()); ++i) { surface_points.col(i) = surface.at(surface_indices[i]).position; }
+        for (long i = 0; i < static_cast<long>(surface.size()); ++i) {
+            surface_points.col(i) = surface.at(surface_indices[i]).position;
+        }
         // compute the normals
         VectorX prob_occupied;
         Gradients gradients;
         // by default, OMP_NESTED is false, omp_set_nested(1) is needed to enable nested parallelism
-        // parallel is set to true, but the parallelism will be disabled if this function is called in a parallel region
+        // parallel is set to true, but the parallelism will be disabled if this function is called
+        // in a parallel region
         bhm.Predict(
             surface_points,
             false /*logodd*/,
@@ -194,13 +448,17 @@ namespace erl::sdf_mapping {
         for (long i = surface_points.cols() - 1; i >= 0; --i) {
             const int surface_point_index = surface_indices[i];
             if (prob_occupied[i] < prob_threshold) {
-                surface.erase(surface_point_index);                  // remove the surface point if the occupancy probability is too low
-                surface_indices.erase(surface_indices.begin() + i);  // remove the index from the list
+                surface.erase(surface_point_index);  // remove the surface point if the occupancy
+                                                     // probability is too low
+                surface_indices.erase(
+                    surface_indices.begin() + i);  // remove the index from the list
                 continue;
             }
             Gradient normal = -gradients.col(i);
             const Dtype norm = normal.norm();
-            if (norm < std::numeric_limits<Dtype>::epsilon()) { continue; }  // skip if the normal is too small
+            if (norm < std::numeric_limits<Dtype>::epsilon()) {
+                continue;
+            }  // skip if the normal is too small
             normal /= norm;
 
             auto &surf_pt = surface.at(surface_point_index);
@@ -213,7 +471,8 @@ namespace erl::sdf_mapping {
     }
 
     template<typename Dtype, int Dim>
-    BayesianHilbertSurfaceMapping<Dtype, Dim>::BayesianHilbertSurfaceMapping(std::shared_ptr<Setting> setting)
+    BayesianHilbertSurfaceMapping<Dtype, Dim>::BayesianHilbertSurfaceMapping(
+        std::shared_ptr<Setting> setting)
         : m_setting_(std::move(setting)) {
         ERL_ASSERTM(m_setting_ != nullptr, "setting is nullptr.");
         m_tree_ = std::make_shared<Tree>(m_setting_->tree);
@@ -235,7 +494,8 @@ namespace erl::sdf_mapping {
     template<typename Dtype, int Dim>
     const absl::flat_hash_map<
         typename BayesianHilbertSurfaceMapping<Dtype, Dim>::Key,
-        std::shared_ptr<typename BayesianHilbertSurfaceMapping<Dtype, Dim>::LocalBayesianHilbertMap>> &
+        std::shared_ptr<
+            typename BayesianHilbertSurfaceMapping<Dtype, Dim>::LocalBayesianHilbertMap>> &
     BayesianHilbertSurfaceMapping<Dtype, Dim>::GetLocalBayesianHilbertMaps() const {
         return m_key_bhm_dict_;
     }
@@ -247,13 +507,20 @@ namespace erl::sdf_mapping {
         const Eigen::Ref<const Positions> &points,
         const bool parallel) {
 
-        // to update the occupancy tree first, the resolution of the tree should not be too high so that we will not spend too much time on the tree update.
-        // the tree helps us find where to place local Bayesian Hilbert maps.
-        constexpr bool lazy_eval = false;
+        // to update the occupancy tree first, the resolution of the tree should not be too high so
+        // that we will not spend too much time on the tree update. the tree helps us find where to
+        // place local Bayesian Hilbert maps.
         constexpr bool discrete = true;
         {
+            constexpr bool lazy_eval = false;
             ERL_BLOCK_TIMER_MSG("tree update");
-            m_tree_->InsertPointCloud(points, sensor_origin, m_setting_->local_bhm->bhm->max_distance, false /*parallel*/, lazy_eval, discrete);
+            m_tree_->InsertPointCloud(
+                points,
+                sensor_origin,
+                m_setting_->local_bhm->bhm->max_distance,
+                false /*parallel*/,
+                lazy_eval,
+                discrete);
         }
 
         // find the local Bayesian Hilbert maps to build or update
@@ -263,13 +530,19 @@ namespace erl::sdf_mapping {
             ERL_BLOCK_TIMER_MSG("bhm find");
             if (m_setting_->build_bhm_on_hit) {
                 // any hit point will trigger building the corresponding local Bayesian Hilbert map
-                const auto &end_point_maps = discrete ? m_tree_->GetDiscreteEndPointMaps() : m_tree_->GetEndPointMaps();
-                for (const auto &[key, hit_indices]: end_point_maps) { bhm_keys_set.insert(m_tree_->AdjustKeyToDepth(key, bhm_depth)); }
-            } else {
-                // only the occupied node will trigger building the corresponding local Bayesian Hilbert map
-                const auto &end_point_maps = discrete ? m_tree_->GetDiscreteEndPointMaps() : m_tree_->GetEndPointMaps();
+                const auto &end_point_maps =
+                    discrete ? m_tree_->GetDiscreteEndPointMaps() : m_tree_->GetEndPointMaps();
                 for (const auto &[key, hit_indices]: end_point_maps) {
-                    if (const TreeNode *node = m_tree_->Search(key); node != nullptr && m_tree_->IsNodeOccupied(node)) {
+                    bhm_keys_set.insert(m_tree_->AdjustKeyToDepth(key, bhm_depth));
+                }
+            } else {
+                // only the occupied node will trigger building the corresponding local Bayesian
+                // Hilbert map
+                const auto &end_point_maps =
+                    discrete ? m_tree_->GetDiscreteEndPointMaps() : m_tree_->GetEndPointMaps();
+                for (const auto &[key, hit_indices]: end_point_maps) {
+                    if (const TreeNode *node = m_tree_->Search(key);
+                        node != nullptr && m_tree_->IsNodeOccupied(node)) {
                         bhm_keys_set.insert(m_tree_->AdjustKeyToDepth(key, bhm_depth));
                     }
                 }
@@ -288,13 +561,18 @@ namespace erl::sdf_mapping {
 
                 Position map_center = m_tree_->KeyToCoord(key, bhm_depth);
                 Positions hinged_points = m_hinged_points_.colwise() + map_center;
-                Aabb map_boundary(map_center, half_bhm_size);
-                uint64_t seed = typename Key::KeyHash()(key);
                 m_key_bhm_positions_.emplace_back(key, map_center);
-                m_key_bhm_dict_.insert(
-                    {key,
-                     std::make_shared<LocalBayesianHilbertMap>(m_setting_->local_bhm, hinged_points, map_boundary, seed, Aabb(map_center, half_surface_size))});
-                m_bhm_kdtree_needs_update_ = true;  // need to update the kdtree after adding new bhm
+                m_key_bhm_dict_.insert({
+                    key,
+                    std::make_shared<LocalBayesianHilbertMap>(
+                        m_setting_->local_bhm,
+                        hinged_points,
+                        Aabb(map_center, half_bhm_size) /*map_boundary*/,
+                        typename Key::KeyHash()(key) /*seed*/,
+                        Aabb(map_center, half_surface_size) /*track_surface_boundary*/),
+                });
+                // need to update the kdtree after adding new bhm
+                m_bhm_kdtree_needs_update_ = true;
             }
         }
 
@@ -304,11 +582,16 @@ namespace erl::sdf_mapping {
             ERL_BLOCK_TIMER_MSG("bhm update");
             (void) parallel;
             ERL_INFO("{} local bhm(s) to update", bhm_keys.size());
-#pragma omp parallel for if (parallel) default(none) shared(bhm_keys, updated, sensor_origin, points, std::cout)
-            for (std::size_t i = 0; i < bhm_keys.size(); ++i) { updated[i] = m_key_bhm_dict_[bhm_keys[i]]->Update(sensor_origin, points); }
+#pragma omp parallel for if (parallel) default(none) \
+    shared(bhm_keys, updated, sensor_origin, points, std::cout)
+            for (std::size_t i = 0; i < bhm_keys.size(); ++i) {
+                updated[i] = m_key_bhm_dict_[bhm_keys[i]]->Update(sensor_origin, points);
+            }
         }
 
-        return std::any_of(updated.begin(), updated.end(), [](const int i) { return i > 0; });  // return true if any local bhm is updated
+        return std::any_of(updated.begin(), updated.end(), [](const int i) {
+            return i > 0;
+        });  // return true if any local bhm is updated
     }
 
     template<typename Dtype, int Dim>
@@ -381,54 +664,6 @@ namespace erl::sdf_mapping {
 
         for (auto &thread: threads) { thread.join(); }
         threads.clear();
-
-        // absl::flat_hash_map<Key, std::vector<long>> key_to_point_indices;
-        // key_to_point_indices.reserve(points.size());
-        // std::vector<Key> bhm_keys_set;
-        // bhm_keys_set.reserve(points.size());
-        // const uint32_t bhm_depth = m_setting_->bhm_depth;
-        // const Dtype half_size = 0.5f * m_tree_->GetNodeSize(bhm_depth) + m_setting_->bhm_test_margin;
-        // long bhm_index = -1;
-        // Dtype bhm_distance = 0;
-        // for (long i = 0; i < points.cols(); ++i) {
-        //     m_bhm_kdtree_->Nearest(points.col(i), bhm_index, bhm_distance);             // find the nearest bhm
-        //     bhm_distance = std::sqrt(bhm_distance);                                     // distance is squared
-        //     if (bhm_distance > half_size || bhm_index < 0) {                            // too far from the bhm
-        //         Key key;                                                                // use the tree to predict the occupancy
-        //         if (!m_tree_->CoordToKeyChecked(points.col(i), key)) { continue; }      // outside the map
-        //         const TreeNode *node = m_tree_->Search(key);                            // use the tree to predict the occupancy
-        //         if (node == nullptr) { continue; }                                      // unknown
-        //         prob_occupied[i] = logodd ? node->GetLogOdds() : node->GetOccupancy();  // get the occupancy from the tree
-        //         continue;
-        //     }
-        //
-        //     const Key bhm_key = m_key_bhm_positions_[bhm_index].first;
-        //     auto it = key_to_point_indices.insert({bhm_key, std::vector<long>()});  // insert the key if not exist
-        //     if (it.second) { bhm_keys_set.push_back(bhm_key); }                     // if the key is new, add it to the set
-        //     it.first->second.push_back(i);
-        // }
-        //
-        // pragma omp parallel for if (parallel) default(none) \
-//     shared(bhm_keys_set, key_to_point_indices, points, logodd, faster, compute_gradient, gradient_with_sigmoid, parallel, prob_occupied, gradient)
-        // for (const Key &bhm_key: bhm_keys_set) {
-        //     const auto &indices = key_to_point_indices[bhm_key];
-        //
-        //     // copy the points of this key to a new matrix
-        //     Positions points_of_key(Dim, static_cast<long>(indices.size()));
-        //     for (long i = 0; i < points_of_key.cols(); ++i) { points_of_key.col(i) = points.col(indices[i]); }
-        //
-        //     // predict
-        //     VectorX prob_occupied_of_key;
-        //     Gradients gradients_of_key;
-        //     std::shared_ptr<LocalBayesianHilbertMap> bhm = m_key_bhm_dict_.at(bhm_key);
-        //     bhm->bhm.Predict(points_of_key, logodd, faster, compute_gradient, gradient_with_sigmoid, !parallel, prob_occupied_of_key, gradients_of_key);
-        //
-        //     // copy the results back to the original matrix
-        //     for (long i = 0; i < points_of_key.cols(); ++i) {
-        //         prob_occupied[indices[i]] = prob_occupied_of_key[i];
-        //         if (compute_gradient) { gradient.col(indices[i]) = gradients_of_key.col(i); }
-        //     }
-        // }
     }
 
     template<typename Dtype, int Dim>
@@ -451,7 +686,8 @@ namespace erl::sdf_mapping {
         std::vector<Key> bhm_keys_set;
         bhm_keys_set.reserve(points.size());
         const uint32_t bhm_depth = m_setting_->bhm_depth;
-        const Dtype half_size = 0.5f * m_tree_->GetNodeSize(bhm_depth) + m_setting_->bhm_test_margin;
+        const Dtype half_size =
+            0.5f * m_tree_->GetNodeSize(bhm_depth) + m_setting_->bhm_test_margin;
         long bhm_index = -1;
         Dtype bhm_distance = 0;
         for (long i = 0; i < points.size(); ++i) {
@@ -460,39 +696,56 @@ namespace erl::sdf_mapping {
             if (bhm_distance > half_size) { continue; }                      // too far from the bhm
 
             const Key bhm_key = m_key_bhm_positions_[bhm_index].first;
-            auto it = key_to_point_indices.insert({bhm_key, std::vector<long>()});  // insert the key if not exist
-            if (it.second) { bhm_keys_set.push_back(bhm_key); }                     // if the key is new, add it to the set
+            auto it = key_to_point_indices.insert(
+                {bhm_key, std::vector<long>()});  // insert the key if not exist
+            if (it.second) {
+                bhm_keys_set.push_back(bhm_key);
+            }  // if the key is new, add it to the set
             it.first->second.push_back(i);
         }
 
-#pragma omp parallel for if (parallel) default(none) shared(bhm_keys_set, key_to_point_indices, points, faster, with_sigmoid, parallel, gradient)
+#pragma omp parallel for if (parallel) default(none) \
+    shared(bhm_keys_set, key_to_point_indices, points, faster, with_sigmoid, parallel, gradient)
         for (const Key &bhm_key: bhm_keys_set) {
             const auto &indices = key_to_point_indices[bhm_key];
 
             // copy the points of this key to a new matrix
             Positions points_of_key(Dim, static_cast<long>(indices.size()));
-            for (long i = 0; i < points_of_key.cols(); ++i) { points_of_key.col(i) = points.col(indices[i]); }
+            for (long i = 0; i < points_of_key.cols(); ++i) {
+                points_of_key.col(i) = points.col(indices[i]);
+            }
 
             // predict
             Gradients gradients_of_key;
             std::shared_ptr<LocalBayesianHilbertMap> bhm = m_key_bhm_dict_[bhm_key];
-            bhm->bhm.PredictGradient(points_of_key, faster, with_sigmoid, !parallel, gradients_of_key);
+            bhm->bhm
+                .PredictGradient(points_of_key, faster, with_sigmoid, !parallel, gradients_of_key);
 
             // copy the results back to the original matrix
-            for (long i = 0; i < points_of_key.cols(); ++i) { gradient.col(indices[i]) = gradients_of_key.col(i); }
+            for (long i = 0; i < points_of_key.cols(); ++i) {
+                gradient.col(indices[i]) = gradients_of_key.col(i);
+            }
         }
     }
 
     template<typename Dtype, int Dim>
     bool
-    BayesianHilbertSurfaceMapping<Dtype, Dim>::operator==(const AbstractSurfaceMapping &other) const {
+    BayesianHilbertSurfaceMapping<Dtype, Dim>::operator==(
+        const AbstractSurfaceMapping &other) const {
         const auto *other_ptr = dynamic_cast<const BayesianHilbertSurfaceMapping *>(&other);
         if (other_ptr == nullptr) { return false; }
         if (m_setting_ == nullptr && other_ptr->m_setting_ != nullptr) { return false; }
-        if (m_setting_ != nullptr && (other_ptr->m_setting_ == nullptr || *m_setting_ != *other_ptr->m_setting_)) { return false; }
+        if (m_setting_ != nullptr &&
+            (other_ptr->m_setting_ == nullptr || *m_setting_ != *other_ptr->m_setting_)) {
+            return false;
+        }
         if (m_tree_ == nullptr && other_ptr->m_tree_ != nullptr) { return false; }
-        if (m_tree_ != nullptr && (other_ptr->m_tree_ == nullptr || *m_tree_ != *other_ptr->m_tree_)) { return false; }
-        // if (m_key_bhm_dict_ != other_ptr->m_key_bhm_dict_) { return false; }  // TODO: compare the content of the map
+        if (m_tree_ != nullptr &&
+            (other_ptr->m_tree_ == nullptr || *m_tree_ != *other_ptr->m_tree_)) {
+            return false;
+        }
+        // if (m_key_bhm_dict_ != other_ptr->m_key_bhm_dict_) { return false; }  // TODO: compare
+        // the content of the map
         if (m_hinged_points_ != other_ptr->m_hinged_points_) { return false; }
         return true;
     }
@@ -500,45 +753,141 @@ namespace erl::sdf_mapping {
     template<typename Dtype, int Dim>
     bool
     BayesianHilbertSurfaceMapping<Dtype, Dim>::Write(std::ostream &s) const {
-        s << kFileHeader << std::endl  //
-          << "# (feel free to add / change comments, but leave the first line as it is!)" << std::endl
-          << "setting" << std::endl;
-        // write setting
-        if (!m_setting_->Write(s)) {
-            ERL_WARN("Failed to write setting.");
-            return false;
-        }
-        // write data
-        // TODO: write data
-        return s.good();
+        using namespace common;
+        static const TokenWriteFunctionPairs<BayesianHilbertSurfaceMapping> pairs = {
+            {
+                "setting",
+                [](const BayesianHilbertSurfaceMapping *self, std::ostream &stream) {
+                    return self->m_setting_->Write(stream) && stream.good();
+                },
+            },
+            {
+                "tree",
+                [](const BayesianHilbertSurfaceMapping *self, std::ostream &stream) {
+                    return self->m_tree_->Write(stream) && stream.good();
+                },
+            },
+            {
+                "hinged_points",
+                [](const BayesianHilbertSurfaceMapping *self, std::ostream &stream) {
+                    return SaveEigenMatrixToBinaryStream(stream, self->m_hinged_points_) &&
+                           stream.good();
+                },
+            },
+            {
+                "key_bhm_positions",
+                [](const BayesianHilbertSurfaceMapping *self, std::ostream &stream) {
+                    const std::size_t n = self->m_key_bhm_positions_.size();
+                    stream.write(reinterpret_cast<const char *>(&n), sizeof(std::size_t));
+                    for (const auto &[key, center]: self->m_key_bhm_positions_) {
+                        stream.write(reinterpret_cast<const char *>(&key), sizeof(Key));
+                        stream.write(
+                            reinterpret_cast<const char *>(center.data()),
+                            sizeof(Position));
+                    }
+                    return stream.good();
+                },
+            },
+            {
+                "key_bhm_dict",
+                [](const BayesianHilbertSurfaceMapping *self, std::ostream &stream) {
+                    const std::size_t n = self->m_key_bhm_dict_.size();
+                    stream.write(reinterpret_cast<const char *>(&n), sizeof(std::size_t));
+                    for (const auto &[key, bhm]: self->m_key_bhm_dict_) {
+                        stream.write(reinterpret_cast<const char *>(&key), sizeof(Key));
+                        const bool has_bhm = bhm != nullptr;
+                        stream.write(reinterpret_cast<const char *>(&has_bhm), sizeof(bool));
+                        if (has_bhm && !bhm->Write(stream)) { return false; }
+                    }
+                    return stream.good();
+                },
+            },
+        };
+        return WriteTokens(s, this, pairs);
     }
 
     template<typename Dtype, int Dim>
     bool
     BayesianHilbertSurfaceMapping<Dtype, Dim>::Read(std::istream &s) {
-        if (!s.good()) {
-            ERL_WARN("Input stream is not ready for reading");
-            return false;
-        }
+        using namespace common;
+        m_bhm_kdtree_needs_update_ = true;
+        static const TokenReadFunctionPairs<BayesianHilbertSurfaceMapping> pairs = {
+            {
+                "setting",
+                [](BayesianHilbertSurfaceMapping *self, std::istream &stream) {
+                    return self->m_setting_->Read(stream) && stream.good();
+                },
+            },
+            {
+                "tree",
+                [](BayesianHilbertSurfaceMapping *self, std::istream &stream) {
+                    return self->m_tree_->Read(stream) && stream.good();
+                },
+            },
 
-        // check if the first line is valid
-        std::string line;
-        std::getline(s, line);
-        if (line.compare(0, kFileHeader.length(), kFileHeader) != 0) {  // check if the first line is valid
-            ERL_WARN("Header does not start with \"{}\"", kFileHeader);
-            return false;
-        }
-
-        auto skip_line = [&s] {
-            char c;
-            do { c = static_cast<char>(s.get()); } while (s.good() && c != '\n');
+            {
+                "hinged_points",
+                [](BayesianHilbertSurfaceMapping *self, std::istream &stream) {
+                    return LoadEigenMatrixFromBinaryStream(stream, self->m_hinged_points_) &&
+                           stream.good();
+                },
+            },
+            {
+                "key_bhm_positions",
+                [](BayesianHilbertSurfaceMapping *self, std::istream &stream) {
+                    std::size_t n;
+                    stream.read(reinterpret_cast<char *>(&n), sizeof(std::size_t));
+                    self->m_key_bhm_positions_.clear();
+                    self->m_key_bhm_positions_.reserve(n);
+                    for (std::size_t i = 0; i < n; ++i) {
+                        Key key;
+                        Position center;
+                        stream.read(reinterpret_cast<char *>(&key), sizeof(Key));
+                        stream.read(reinterpret_cast<char *>(center.data()), sizeof(Position));
+                        self->m_key_bhm_positions_.emplace_back(key, center);
+                    }
+                    return stream.good();
+                },
+            },
+            {
+                "key_bhm_dict",
+                [](BayesianHilbertSurfaceMapping *self, std::istream &stream) {
+                    std::size_t n;
+                    stream.read(reinterpret_cast<char *>(&n), sizeof(std::size_t));
+                    self->m_key_bhm_dict_.clear();
+                    self->m_key_bhm_dict_.reserve(n);
+                    const uint32_t bhm_depth = self->m_setting_->bhm_depth;
+                    const Dtype half_surface_size = self->m_tree_->GetNodeSize(bhm_depth) * 0.5f;
+                    const Dtype half_bhm_size = half_surface_size + self->m_setting_->bhm_overlap;
+                    for (std::size_t i = 0; i < n; ++i) {
+                        Key key;
+                        stream.read(reinterpret_cast<char *>(&key), sizeof(Key));
+                        auto [it, inserted] = self->m_key_bhm_dict_.try_emplace(key, nullptr);
+                        if (!inserted) {
+                            ERL_WARN("Duplicate key {} in key_bhm_dict", std::string(key));
+                            return false;
+                        }
+                        bool has_bhm;
+                        stream.read(reinterpret_cast<char *>(&has_bhm), sizeof(bool));
+                        if (!has_bhm) { continue; }
+                        Position map_center = self->m_tree_->KeyToCoord(key, bhm_depth);
+                        Positions hinged_points = self->m_hinged_points_.colwise() + map_center;
+                        it->second = std::make_shared<LocalBayesianHilbertMap>(
+                            self->m_setting_->local_bhm,
+                            hinged_points,
+                            Aabb(map_center, half_bhm_size) /*map_boundary*/,
+                            typename Key::KeyHash()(key) /*seed*/,
+                            Aabb(map_center, half_surface_size) /*track_surface_boundary*/);
+                        if (!it->second->Read(stream)) {
+                            ERL_WARN("Failed to read bhm for key {}", std::string(key));
+                            return false;
+                        }
+                    }
+                    return stream.good();
+                },
+            },
         };
-
-        // read data
-        // TODO: read data
-
-        ERL_WARN("Failed to read {}. Truncated file?", kClassName);
-        return false;  // should not reach here
+        return ReadTokens(s, this, pairs);
     }
 
     template<typename Dtype, int Dim>
@@ -546,8 +895,10 @@ namespace erl::sdf_mapping {
     BayesianHilbertSurfaceMapping<Dtype, Dim>::GenerateHingedPoints() {
         const Dtype map_size = m_setting_->tree->resolution + 2 * m_setting_->bhm_overlap;
         const Dtype half_map_size = map_size / 2;
-        const Eigen::Vector<int, Dim> grid_size = Eigen::Vector<int, Dim>::Constant(m_setting_->hinged_grid_size);
-        const Eigen::Vector<Dtype, Dim> grid_half_size = Eigen::Vector<Dtype, Dim>::Constant(half_map_size);
+        const Eigen::Vector<int, Dim> grid_size =
+            Eigen::Vector<int, Dim>::Constant(m_setting_->hinged_grid_size);
+        const Eigen::Vector<Dtype, Dim> grid_half_size =
+            Eigen::Vector<Dtype, Dim>::Constant(half_map_size);
         common::GridMapInfo<Dtype, Dim> grid_map_info(grid_size, -grid_half_size, grid_half_size);
         m_hinged_points_ = grid_map_info.GenerateMeterCoordinates(true);
     }
@@ -559,7 +910,8 @@ namespace erl::sdf_mapping {
         Positions bhm_positions(Dim, m_key_bhm_positions_.size());
         long i = 0;
         for (const auto &[key, center]: m_key_bhm_positions_) { bhm_positions.col(i++) = center; }
-        const_cast<BayesianHilbertSurfaceMapping *>(this)->m_bhm_kdtree_ = std::make_shared<Kdtree>(bhm_positions);
+        const_cast<BayesianHilbertSurfaceMapping *>(this)->m_bhm_kdtree_ =
+            std::make_shared<Kdtree>(bhm_positions);
         const_cast<BayesianHilbertSurfaceMapping *>(this)->m_bhm_kdtree_needs_update_ = true;
     }
 
@@ -590,34 +942,53 @@ namespace erl::sdf_mapping {
         const long num_points = end - start;
         const long knn = m_setting_->test_knn;
         const uint32_t bhm_depth = m_setting_->bhm_depth;
-        const Dtype half_size = 0.5f * m_tree_->GetNodeSize(bhm_depth) + m_setting_->bhm_test_margin;
+        Dtype half_size = 0.5f * m_tree_->GetNodeSize(bhm_depth) + m_setting_->bhm_test_margin;
 
         (void) parallel;
 #pragma omp parallel for if (parallel) default(none) \
-    shared(num_points, knn, half_size, logodd, faster, compute_gradient, gradient_with_sigmoid, points_ptr, prob_occupied_ptr, gradient_ptr)
+    shared(num_points,                               \
+               knn,                                  \
+               half_size,                            \
+               logodd,                               \
+               faster,                               \
+               compute_gradient,                     \
+               gradient_with_sigmoid,                \
+               points_ptr,                           \
+               prob_occupied_ptr,                    \
+               gradient_ptr)
         for (long i = 0; i < num_points; ++i) {
 
-            // auto point = points.col(i);
             Eigen::Map<const Position> point(points_ptr + i * Dim, Dim);
 
             if (knn == 1) {
                 long bhm_index = -1;
                 Dtype bhm_distance = 0.0f;
-                m_bhm_kdtree_->Nearest(point, bhm_index, bhm_distance);                         // find the nearest bhm
-                bhm_distance = std::sqrt(bhm_distance);                                         // distance is squared
-                if (bhm_distance > half_size || bhm_index < 0) {                                // too far from the bhm or no bhm
-                    Key key;                                                                    // use the tree to predict the occupancy
-                    if (!m_tree_->CoordToKeyChecked(point, key)) { continue; }                  // outside the map
-                    const TreeNode *node = m_tree_->Search(key);                                // use the tree to predict the occupancy
-                    if (node == nullptr) { continue; }                                          // unknown
-                    prob_occupied_ptr[i] = logodd ? node->GetLogOdds() : node->GetOccupancy();  // get the occupancy from the tree
+                m_bhm_kdtree_->Nearest(point, bhm_index, bhm_distance);  // find the nearest bhm
+                bhm_distance = std::sqrt(bhm_distance);                  // distance is squared
+                if (bhm_distance > half_size || bhm_index < 0) {  // too far from the bhm or no bhm
+                    Key key;  // use the tree to predict the occupancy
+                    if (!m_tree_->CoordToKeyChecked(point, key)) { continue; }  // outside the map
+                    // use the tree to predict the occupancy
+                    const TreeNode *node = m_tree_->Search(key);
+                    if (node == nullptr) { continue; }  // unknown
+                    // get the occupancy from the tree
+                    prob_occupied_ptr[i] = logodd ? node->GetLogOdds() : node->GetOccupancy();
                     continue;
                 }
-                const Key &bhm_key = m_key_bhm_positions_[bhm_index].first;        // obtain the key of the bhm
+                const Key &bhm_key =
+                    m_key_bhm_positions_[bhm_index].first;  // obtain the key of the bhm
                 const BayesianHilbertMap &bhm = m_key_bhm_dict_.at(bhm_key)->bhm;  // obtain the bhm
                 VectorX prob(1);
                 Gradients grad(Dim, 1);
-                bhm.Predict(point, logodd, faster, compute_gradient, gradient_with_sigmoid, false, prob, grad);  // predict
+                bhm.Predict(
+                    point,
+                    logodd,
+                    faster,
+                    compute_gradient,
+                    gradient_with_sigmoid,
+                    false,
+                    prob,
+                    grad);
                 prob_occupied_ptr[i] = prob[0];
                 if (compute_gradient) {
                     Dtype *grad_ptr = gradient_ptr + i * Dim;
@@ -630,38 +1001,53 @@ namespace erl::sdf_mapping {
             VectorX bhm_distances(knn);
             bhm_indices.fill(-1);
             bhm_distances.fill(0);
-            m_bhm_kdtree_->Knn(knn, point, bhm_indices, bhm_distances);  // find the neighboring bhms
+            m_bhm_kdtree_
+                ->Knn(knn, point, bhm_indices, bhm_distances);  // find the neighboring bhms
             Dtype weight_sum = 0.0f;
             Dtype prob_sum = 0.0f;
             Gradient gradient_sum = Gradient::Zero();
             for (long j = 0; j < knn; ++j) {  // iterate over the neighbors
                 const long &bhm_index = bhm_indices[j];
-                if (bhm_index < 0) { break; }                                      // no more neighbors
-                const Dtype bhm_distance = std::sqrt(bhm_distances[j]);            // distance is squared
-                if (bhm_distance > half_size) { break; }                           // too far from the bhm
-                const Key &bhm_key = m_key_bhm_positions_[bhm_index].first;        // obtain the key of the bhm
+                if (bhm_index < 0) { break; }                                // no more neighbors
+                const Dtype bhm_distance = std::sqrt(bhm_distances[j]);      // distance is squared
+                if (bhm_distance > half_size) { break; }                     // too far from the bhm
+                const Key &bhm_key = m_key_bhm_positions_[bhm_index].first;  // obtain the bhm key
                 const BayesianHilbertMap &bhm = m_key_bhm_dict_.at(bhm_key)->bhm;  // obtain the bhm
                 VectorX prob(1);
                 Gradients grad(Dim, 1);
-                bhm.Predict(point, logodd, faster, compute_gradient, gradient_with_sigmoid, false, prob, grad);  // predict
+                bhm.Predict(
+                    point,
+                    logodd,
+                    faster,
+                    compute_gradient,
+                    gradient_with_sigmoid,
+                    false,
+                    prob,
+                    grad);
                 const Dtype weight = 1.0f / (bhm.GetMapBoundary().center - point).cwiseAbs().prod();
                 weight_sum += weight;
                 prob_sum += prob[0] * weight;
                 if (compute_gradient) {
-                    for (int dim = 0; dim < Dim; ++dim) { gradient_sum[dim] += grad.data()[dim] * weight; }
+                    for (int dim = 0; dim < Dim; ++dim) {
+                        gradient_sum[dim] += grad.data()[dim] * weight;
+                    }
                 }
             }
-            if (weight_sum == 0.0f) {                                                       // no neighboring bhm
-                Key key;                                                                    // use the tree to predict the occupancy
-                if (!m_tree_->CoordToKeyChecked(point, key)) { continue; }                  // outside the map
-                const TreeNode *node = m_tree_->Search(key);                                // use the tree to predict the occupancy
-                if (node == nullptr) { continue; }                                          // unknown
-                prob_occupied_ptr[i] = logodd ? node->GetLogOdds() : node->GetOccupancy();  // get the occupancy from the tree, gradient is not available
+            if (weight_sum == 0.0f) {  // no neighboring bhm
+                Key key;               // use the tree to predict the occupancy
+                if (!m_tree_->CoordToKeyChecked(point, key)) { continue; }  // outside the map
+                // use the tree to predict the occupancy
+                const TreeNode *node = m_tree_->Search(key);
+                if (node == nullptr) { continue; }  // unknown
+                // get the occupancy from the tree, gradient is not available
+                prob_occupied_ptr[i] = logodd ? node->GetLogOdds() : node->GetOccupancy();
             } else {
                 prob_occupied_ptr[i] = prob_sum / weight_sum;
                 if (compute_gradient) {
                     Dtype *grad_ptr = gradient_ptr + i * Dim;
-                    for (int dim = 0; dim < Dim; ++dim) { grad_ptr[dim] = gradient_sum[dim] / weight_sum; }
+                    for (int dim = 0; dim < Dim; ++dim) {
+                        grad_ptr[dim] = gradient_sum[dim] / weight_sum;
+                    }
                 }
             }
         }

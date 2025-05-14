@@ -15,7 +15,7 @@ namespace erl::sdf_mapping {
         using Super = gaussian_process::NoisyInputGaussianProcess<Dtype>;
         using MatrixX = Eigen::MatrixX<Dtype>;
 
-        struct Setting : common::Yamlable<Setting, typename Super::Setting> {
+        struct Setting : public common::Yamlable<Setting, typename Super::Setting> {
             Dtype log_lambda = 40.0f;
 
             struct YamlConvertImpl {
@@ -34,13 +34,15 @@ namespace erl::sdf_mapping {
                 bool will_predict_gradient);
 
             void
-            GetMean(long y_index, Eigen::Ref<Eigen::VectorX<Dtype>> vec_f_out) const override;
+            GetMean(long y_index, Eigen::Ref<Eigen::VectorX<Dtype>> vec_f_out, bool parallel)
+                const override;
 
             void
             GetMean(long index, long y_index, Dtype &f) const override;
 
             void
-            GetGradient(long y_index, Eigen::Ref<MatrixX> mat_grad_out) const override;
+            GetGradient(long y_index, Eigen::Ref<MatrixX> mat_grad_out, bool parallel)
+                const override;
 
             void
             GetGradient(long index, long y_index, Dtype *grad) const override;

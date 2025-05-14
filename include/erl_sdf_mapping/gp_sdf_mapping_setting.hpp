@@ -32,7 +32,6 @@ namespace erl::sdf_mapping {
         Dtype gp_sdf_area_scale = 4.0f;       // ratio between GP area and cluster area
         Dtype max_valid_gradient_var = 0.1f;  // max gradient variance valid for training.
         Dtype invalid_position_var = 2.0f;    // position variance when > max_valid_gradient_var.
-        Dtype offset_distance = 0.04f;        // distance to shift for surface data.
         std::shared_ptr<SdfGpSetting> sdf_gp = std::make_shared<SdfGpSetting>();
 
         struct YamlConvertImpl {

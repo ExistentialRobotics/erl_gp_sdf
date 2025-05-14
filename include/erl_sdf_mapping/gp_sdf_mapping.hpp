@@ -246,6 +246,20 @@ namespace erl::sdf_mapping {
             return m_gp_map_;
         }
 
+        [[nodiscard]] bool
+        Write(std::ostream& s) const;
+
+        [[nodiscard]] bool
+        Read(std::istream& s);
+
+        [[nodiscard]] bool
+        operator==(const GpSdfMapping& other) const;
+
+        [[nodiscard]] bool
+        operator!=(const GpSdfMapping& other) const {
+            return !(*this == other);
+        }
+
     private:
         [[nodiscard]] std::lock_guard<std::mutex>
         GetLockGuard();

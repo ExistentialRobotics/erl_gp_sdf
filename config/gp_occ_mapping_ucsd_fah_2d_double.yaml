@@ -1,4 +1,6 @@
 sensor_gp:
+    partition_on_hit_rays: false
+    symmetric_partitions: true
     group_size: 26  # number of points in each group, including the overlap ones
     overlap_size: 6
     margin: 0
@@ -24,7 +26,7 @@ sensor_gp:
             scale: 0.5
             scale_mix: 1
             weights: [ ]
-        max_num_samples: 360
+        max_num_samples: 64
     mapping:
         type: kInverseSqrt
         scale: 1
@@ -37,7 +39,7 @@ compute_variance:
     min_gradient_var: 0.01
     max_gradient_var: 1
 update_map_points:
-    min_observable_occ: -0.1
+    min_observable_occ: -0.08
     max_surface_abs_occ: 0.02
     max_valid_gradient_var: 0.8
     max_adjust_tries: 5
@@ -59,7 +61,8 @@ tree:
         center: [ 0, 0 ]
         half_sizes: [ 0, 0 ]
 cluster_depth: 14
+surface_resolution: 0.0
 scaling: 1.0
-perturb_delta: 0.001  # this makes the SDF prediction more smooth over time
+perturb_delta: 0.001  # this makes the SDF prediction smoother over time
 zero_gradient_threshold: 1.0e-10
 update_occupancy: true

@@ -23,7 +23,8 @@ namespace erl::sdf_mapping {
                 bool will_predict_gradient);
 
             void
-            GetMean(long y_index, Eigen::Ref<Eigen::VectorX<Dtype>> vec_f_out) const override;
+            GetMean(long y_index, Eigen::Ref<Eigen::VectorX<Dtype>> vec_f_out, bool parallel)
+                const override;
 
             void
             GetMean(long index, long y_index, Dtype &f) const override;

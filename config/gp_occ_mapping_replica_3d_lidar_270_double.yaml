@@ -1,24 +1,3 @@
-compute_variance:
-    zero_gradient_position_var: 1
-    zero_gradient_gradient_var: 1
-    min_distance_var: 1
-    max_distance_var: 100
-    position_var_alpha: 0.01
-    min_gradient_var: 0.01
-    max_gradient_var: 1
-update_map_points:
-    min_observable_occ: -0.1
-    max_surface_abs_occ: 0.02
-    max_valid_gradient_var: 0.5
-    max_adjust_tries: 10
-    max_bayes_position_var: 1
-    max_bayes_gradient_var: 0.6
-    min_position_var: 0.001
-    min_gradient_var: 0.001
-cluster_level: 2
-perturb_delta: 0.05
-zero_gradient_threshold: 1.e-15
-update_occupancy: true
 sensor_gp:
     row_group_size: 10
     row_overlap_size: 3
@@ -35,19 +14,16 @@ sensor_gp:
     sensor_frame:
         row_margin: *row_margin
         col_margin: *col_margin
-        valid_range_min: 0.2
+        valid_range_min: 0.1
         valid_range_max: 30
-        discontinuity_factor: 10
-        rolling_diff_discount: 0.9
-        min_partition_size: 5
         azimuth_min: -2.3561944901923448
         azimuth_max: 2.3561944901923448
-        elevation_min: -1.5707963267948966
-        elevation_max: 1.5707963267948966
+        elevation_min: -1.0471975512
+        elevation_max: 1.0471975512
         num_azimuth_lines: 271
-        num_elevation_lines: 91
+        num_elevation_lines: 61
     gp:
-        kernel_type: erl::covariance::OrnsteinUhlenbeck<2, double>
+        kernel_type: erl::covariance::OrnsteinUhlenbeck<double, 2>
         kernel_setting_type: erl::covariance::Covariance<double>::Setting
         kernel:
             x_dim: 2
@@ -59,16 +35,39 @@ sensor_gp:
     mapping:
         type: kInverseSqrt
         scale: 1
-octree:
-    resolution: 0.1
+compute_variance:
+    zero_gradient_position_var: 1
+    zero_gradient_gradient_var: 1
+    min_distance_var: 1
+    max_distance_var: 100
+    position_var_alpha: 0.01
+    min_gradient_var: 0.01
+    max_gradient_var: 1
+update_map_points:
+    min_observable_occ: -0.08
+    max_surface_abs_occ: 0.02
+    max_valid_gradient_var: 0.5
+    max_adjust_tries: 5
+    max_bayes_position_var: 1
+    max_bayes_gradient_var: 0.6
+    min_position_var: 0.001
+    min_gradient_var: 0.001
+tree:
     tree_depth: 16
-    log_odd_min: -2
-    log_odd_max: 3.5
-    log_odd_hit: 0.85
+    log_odd_min: -3
+    log_odd_max: 10
+    log_odd_hit: 0.9
     log_odd_miss: -0.4
     log_odd_occ_threshold: 0
+    resolution: 0.1
     use_change_detection: false
     use_aabb_limit: false
     aabb:
         center: [ 0, 0, 0 ]
         half_sizes: [ 0, 0, 0 ]
+cluster_depth: 14
+surface_resolution: 0.0
+scaling: 1.0
+perturb_delta: 0.01
+zero_gradient_threshold: 1.0e-10
+update_occupancy: true

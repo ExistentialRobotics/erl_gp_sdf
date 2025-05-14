@@ -19,7 +19,7 @@ namespace erl::sdf_mapping {
         Setting &setting) {
         if (!node.IsMap()) { return false; }
         YAML::convert<typename Super::Setting>::decode(node, setting);
-        ERL_YAML_LOAD_ATTR_TYPE(node, setting, log_lambda, Dtype);
+        ERL_YAML_LOAD_ATTR(node, setting, log_lambda);
         return true;
     }
 
@@ -34,7 +34,9 @@ namespace erl::sdf_mapping {
     void
     LogEdfGaussianProcess<Dtype>::TestResult::GetMean(
         const long y_index,
-        Eigen::Ref<Eigen::VectorX<Dtype>> vec_f_out) const {
+        Eigen::Ref<Eigen::VectorX<Dtype>> vec_f_out,
+        const bool parallel) const {
+        (void) parallel;
         const long &num_test = this->m_num_test_;
 #ifndef NDEBUG
         const long &y_dim = this->m_y_dim_;
@@ -54,9 +56,10 @@ namespace erl::sdf_mapping {
         const auto &mat_k_test = this->m_mat_k_test_;
         const Dtype a = -1.0f / gp->m_setting_->log_lambda;
         Dtype *f = vec_f_out.data();
-        for (long index = 0; index < num_test; ++index, ++f) {
+#pragma omp parallel for if (parallel) default(none) shared(num_test, mat_k_test, f, a, alpha)
+        for (long index = 0; index < num_test; ++index) {
             const Dtype f_log_gpis = mat_k_test.col(index).dot(alpha);
-            *f = a * std::log(std::abs(f_log_gpis));
+            f[index] = a * std::log(std::abs(f_log_gpis));
         }
     }
 
@@ -78,7 +81,9 @@ namespace erl::sdf_mapping {
     void
     LogEdfGaussianProcess<Dtype>::TestResult::GetGradient(
         const long y_index,
-        Eigen::Ref<MatrixX> mat_grad_out) const {
+        Eigen::Ref<MatrixX> mat_grad_out,
+        const bool parallel) const {
+        (void) parallel;
         const long &num_test = this->m_num_test_;
         const long &x_dim = this->m_x_dim_;
         const auto gp = reinterpret_cast<const LogEdfGaussianProcess *>(this->m_gp_);
@@ -86,6 +91,8 @@ namespace erl::sdf_mapping {
         using VectorX = Eigen::VectorX<Dtype>;
         const VectorX alpha = a * gp->m_mat_alpha_.col(y_index).head(gp->m_k_train_cols_);
         const auto &mat_k_test = this->m_mat_k_test_;
+#pragma omp parallel for if (parallel) default(none) \
+    shared(num_test, mat_grad_out, x_dim, mat_k_test, a, alpha, y_index)
         for (long index = 0; index < num_test; ++index) {
             Dtype *grad = mat_grad_out.col(index).data();
             Dtype norm = 0.0f;
@@ -120,8 +127,9 @@ namespace erl::sdf_mapping {
         Dtype norm = 0.0f;
         for (long j = 0, jj = index + num_test; j < x_dim; ++j, jj += num_test) {
             grad[j] = mat_k_test.col(jj).dot(alpha);
-            norm += grad[j] * grad[j];
+            if (y_index == 0) { norm += grad[j] * grad[j]; }
         }
+        if (y_index != 0) { return; }
         norm = -std::sqrt(norm);
         for (long j = 0; j < x_dim; ++j) { grad[j] /= norm; }
     }
@@ -147,8 +155,9 @@ namespace erl::sdf_mapping {
         Dtype norm = 0.0f;
         for (long j = 0, jj = index + num_test; j < Dim; ++j, jj += num_test) {
             grad[j] = mat_k_test.col(jj).dot(alpha);
-            norm += grad[j] * grad[j];
+            if (y_index == 0) { norm += grad[j] * grad[j]; }
         }
+        if (y_index != 0) { return; }
         norm = -std::sqrt(norm);
         for (long j = 0; j < Dim; ++j) { grad[j] /= norm; }
     }
@@ -194,28 +203,24 @@ namespace erl::sdf_mapping {
             [](const auto &a, const auto &b) { return a.first < b.first; });
 
         long count = 0;
-        typename gaussian_process::NoisyInputGaussianProcess<Dtype>::TrainSet &train_set =
-            this->m_train_set_;
+        typename Super::TrainSet &train_set = this->m_train_set_;
         for (auto &[distance, surface_data_index]: surface_data_indices) {
-            auto &surface_data = surface_data_vec[surface_data_index];
+            auto &surf_data = surface_data_vec[surface_data_index];
             if (offset_distance == 0.0f) {
-                train_set.x.col(count) = surface_data.position;
+                train_set.x.col(count) = surf_data.position;
             } else {
-                train_set.x.col(count) =
-                    surface_data.position - offset_distance * surface_data.normal;
+                train_set.x.col(count) = surf_data.position - offset_distance * surf_data.normal;
             }
             train_set.y.col(0)[count] = 1.0f;
             if (load_normals) {
                 for (long i = 0; i < Dim; ++i) {
-                    train_set.y.col(i + 1)[count] = normal_scale * surface_data.normal[i];
+                    train_set.y.col(i + 1)[count] = normal_scale * surf_data.normal[i];
                 }
             }
-            train_set.var_x[count] = surface_data.var_position;
-            if ((surface_data.var_normal > max_valid_gradient_var) ||  // invalid gradient
-                (surface_data.normal.norm() < 0.9f)) {                 // invalid normal
-                train_set.var_x[count] = std::max(
-                    train_set.var_x[count],
-                    invalid_position_var);  // position is unreliable
+            train_set.var_x[count] = surf_data.var_position;
+            if ((surf_data.var_normal > max_valid_gradient_var) ||  // invalid gradient
+                (surf_data.normal.norm() < 0.9f)) {                 // invalid normal
+                train_set.var_x[count] = std::max(train_set.var_x[count], invalid_position_var);
             }
             train_set.var_y[count] = sensor_noise;
             if (++count >= train_set.x.cols()) { break; }  // reached max_num_samples

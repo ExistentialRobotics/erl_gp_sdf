@@ -36,7 +36,7 @@ namespace erl::sdf_mapping {
         operator!=(const SurfaceData &other) const;
 
         [[nodiscard]] bool
-        Write(std::ostream &s) const;
+        Write(std::ostream &s) const;  // TODO: check implementation
 
         [[nodiscard]] bool
         Read(std::istream &s);

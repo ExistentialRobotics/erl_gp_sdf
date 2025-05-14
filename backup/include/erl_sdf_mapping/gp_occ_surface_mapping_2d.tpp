@@ -103,21 +103,21 @@ namespace erl::sdf_mapping {
         return true;
     }
 
-    template<typename Dtype>
-    bool
-    GpOccSurfaceMapping2D<Dtype>::Write(const std::string &filename) const {
-        ERL_INFO("Writing GpOccSurfaceMapping2D to file: {}", filename);
-        std::filesystem::create_directories(std::filesystem::path(filename).parent_path());
-        std::ofstream file(filename, std::ios_base::out | std::ios_base::binary);
-        if (!file.is_open()) {
-            ERL_WARN("Failed to open file: {}", filename);
-            return false;
-        }
-
-        const bool success = Write(file);
-        file.close();
-        return success;
-    }
+    // template<typename Dtype>
+    // bool
+    // GpOccSurfaceMapping2D<Dtype>::Write(const std::string &filename) const {
+    //     ERL_INFO("Writing GpOccSurfaceMapping2D to file: {}", filename);
+    //     std::filesystem::create_directories(std::filesystem::path(filename).parent_path());
+    //     std::ofstream file(filename, std::ios_base::out | std::ios_base::binary);
+    //     if (!file.is_open()) {
+    //         ERL_WARN("Failed to open file: {}", filename);
+    //         return false;
+    //     }
+    //
+    //     const bool success = Write(file);
+    //     file.close();
+    //     return success;
+    // }
 
     template<typename Dtype>
     bool
@@ -157,20 +157,20 @@ namespace erl::sdf_mapping {
         return s.good();
     }
 
-    template<typename Dtype>
-    bool
-    GpOccSurfaceMapping2D<Dtype>::Read(const std::string &filename) {
-        ERL_INFO("Reading GpOccSurfaceMapping2D from file: {}", std::filesystem::absolute(filename));
-        std::ifstream file(filename.c_str(), std::ios_base::in | std::ios_base::binary);
-        if (!file.is_open()) {
-            ERL_WARN("Failed to open file: {}", filename.c_str());
-            return false;
-        }
-
-        const bool success = Read(file);
-        file.close();
-        return success;
-    }
+    // template<typename Dtype>
+    // bool
+    // GpOccSurfaceMapping2D<Dtype>::Read(const std::string &filename) {
+    //     ERL_INFO("Reading GpOccSurfaceMapping2D from file: {}", std::filesystem::absolute(filename));
+    //     std::ifstream file(filename.c_str(), std::ios_base::in | std::ios_base::binary);
+    //     if (!file.is_open()) {
+    //         ERL_WARN("Failed to open file: {}", filename.c_str());
+    //         return false;
+    //     }
+    //
+    //     const bool success = Read(file);
+    //     file.close();
+    //     return success;
+    // }
 
     template<typename Dtype>
     bool
