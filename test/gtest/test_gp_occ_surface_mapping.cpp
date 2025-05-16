@@ -183,7 +183,7 @@ TestImpl3D() {
     Open3dVisualizerWrapper visualizer(visualizer_setting);
     const auto mesh_sensor = open3d::geometry::TriangleMesh::CreateSphere(0.05);
     mesh_sensor->PaintUniformColor({1.0, 0.5, 0.0});
-    auto mesh_sensor_xyz = CreateAxisMesh(Matrix4::Identity().template cast<double>(), 0.1);
+    auto mesh_sensor_xyz = open3d::geometry::TriangleMesh::CreateCoordinateFrame(0.1);
     const auto pcd_obs = std::make_shared<open3d::geometry::PointCloud>();
     const auto pcd_surf_points = std::make_shared<open3d::geometry::PointCloud>();
     const auto line_set_surf_normals = std::make_shared<open3d::geometry::LineSet>();
