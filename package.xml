@@ -16,16 +16,16 @@
     <depend>tf2_ros</depend>
     <depend>tf2_eigen</depend>
     <depend>erl_common</depend>
-    <depend>erl_gaussian_process</depend>
+    <depend>erl_covariance</depend>
     <depend>erl_geometry</depend>
-    <depend>cv_bridge</depend>
+    <depend>erl_gaussian_process</depend>
 
     <build_depend>message_generation</build_depend>
     <exec_depend>message_runtime</exec_depend>
 
     <test_depend>rosunit</test_depend>
     <test_depend>erl_common</test_depend>
-    <test_depend>erl_gaussian_process</test_depend>
+    <test_depend>erl_covariance</test_depend>
     <test_depend>erl_geometry</test_depend>
-
+    <test_depend>erl_gaussian_process</test_depend>
 </package>

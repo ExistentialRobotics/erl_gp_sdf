@@ -12,8 +12,8 @@ endif ()
 erl_project_setup(
         ${PROJECT_NAME}
         ERL_PACKAGES erl_common erl_covariance erl_geometry erl_gaussian_process
-        CATKIN_COMPONENTS roscpp std_msgs sensor_msgs tf2_ros tf2_eigen cv_bridge message_generation
-        CATKIN_DEPENDS roscpp std_msgs sensor_msgs tf2_ros tf2_eigen cv_bridge message_runtime
+        CATKIN_COMPONENTS roscpp std_msgs sensor_msgs tf2_ros tf2_eigen message_generation
+        CATKIN_DEPENDS roscpp std_msgs sensor_msgs tf2_ros tf2_eigen message_runtime
 )
 erl_setup_ros(
         CATKIN_COMPONENTS ${${PROJECT_NAME}_CATKIN_COMPONENTS}
@@ -27,13 +27,7 @@ erl_catkin_package(
         DEPENDS ${${PROJECT_NAME}_DEPENDS})   # non-catkin dependencies are collected via erl_find_package
 
 if (NOT TARGET Open3D::Open3D)
-    message(STATUS "Adding Open3D in erl_gaussian_process")
-    erl_find_package(
-            PACKAGE Open3D
-            REQUIRED
-            COMMANDS GENERAL "visit http://www.open3d.org/"
-            COMMANDS ARCH_LINUX "try `paru -S open3d`"
-    )
+    erl_config_open3d()
 endif ()
 ####################################################################################################
 # BUILD
@@ -50,14 +44,16 @@ target_include_directories(${PROJECT_NAME}
         $<BUILD_INTERFACE:${${PROJECT_NAME}_INCLUDE_DIR}>
         $<INSTALL_INTERFACE:${${PROJECT_NAME}_INSTALL_INCLUDE_DIR}>)
 if (ROS_ACTIVATED)
-    if (DEFINED catkin_INCLUDE_DIRS)
-        target_include_directories(${PROJECT_NAME} SYSTEM PUBLIC ${catkin_INCLUDE_DIRS})
+    if (ROS_VERSION STREQUAL "1")
+        if (DEFINED catkin_INCLUDE_DIRS)
+            target_include_directories(${PROJECT_NAME} SYSTEM PUBLIC ${catkin_INCLUDE_DIRS})
+        endif ()
+        if (DEFINED catkin_LIBRARIES)
+            target_link_libraries(${PROJECT_NAME} PUBLIC ${catkin_LIBRARIES})
+        endif ()
+        #        add_executable(erl_sdf_mapping_node src/ros/erl_sdf_mapping_node.cpp)
+        #        target_link_libraries(erl_sdf_mapping_node PUBLIC ${PROJECT_NAME}::${PROJECT_NAME})
     endif ()
-    if (DEFINED catkin_LIBRARIES)
-        target_link_libraries(${PROJECT_NAME} PUBLIC ${catkin_LIBRARIES})
-    endif ()
-    add_executable(erl_sdf_mapping_node src/ros/erl_sdf_mapping_node.cpp)
-    target_link_libraries(erl_sdf_mapping_node PUBLIC ${PROJECT_NAME}::${PROJECT_NAME})
 else ()
     if (DEFINED ${PROJECT_NAME}_ERL_PACKAGES)
         target_link_libraries(${PROJECT_NAME} PUBLIC ${${PROJECT_NAME}_ERL_PACKAGES})
