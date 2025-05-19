@@ -1,0 +1,10 @@
+# SdfQuery.srv
+
+geometry_msgs/PointStamped[] query_points
+---
+float64[]               signed_distances
+geometry_msgs/Vector3[] gradients
+float64[]               variances
+float64[]               covariances
+bool[]                  successes
+string[]                messages

@@ -1132,13 +1132,9 @@ namespace erl::sdf_mapping {
         for (long i = 0; i < num_hit_rays; ++i) {
             const Position &hit_point_global = hit_points_global[i];
             Key key = m_tree_->CoordToKey(hit_point_global);
-            if (!new_measurement_keys.insert(key).second) {
-                continue;
-            }  // the key is already in the set
+            if (!new_measurement_keys.insert(key).second) { continue; }  // already in the set
             if (m_surf_indices0_.contains(key)) { continue; }  // the key is already in the index
-            if (!update_occupancy) {
-                m_tree_->InsertNode(key);
-            }  // insert the key into the tree so that it can be used in the future
+            if (!update_occupancy) { m_tree_->InsertNode(key); }
             new_measurements.emplace_back(key, i, false, 0.0f, Gradient::Zero());
         }
 

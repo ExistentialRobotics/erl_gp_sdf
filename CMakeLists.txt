@@ -12,13 +12,14 @@ endif ()
 erl_project_setup(
         ${PROJECT_NAME}
         ERL_PACKAGES erl_common erl_covariance erl_geometry erl_gaussian_process
-        CATKIN_COMPONENTS roscpp std_msgs sensor_msgs tf2_ros tf2_eigen message_generation
-        CATKIN_DEPENDS roscpp std_msgs sensor_msgs tf2_ros tf2_eigen message_runtime
+        CATKIN_COMPONENTS roscpp std_msgs sensor_msgs geometry_msgs tf2_ros tf2_eigen
+        message_generation
+        CATKIN_DEPENDS roscpp std_msgs sensor_msgs geometry_msgs tf2_ros tf2_eigen message_runtime
 )
 erl_setup_ros(
         CATKIN_COMPONENTS ${${PROJECT_NAME}_CATKIN_COMPONENTS}
-        SRV_FILES PredictSdf.srv
-        MSG_DEPENDENCIES std_msgs
+        SRV_FILES SdfQuery.srv SaveMap.srv
+        MSG_DEPENDENCIES std_msgs geometry_msgs
 )
 erl_catkin_package(
         INCLUDE_DIRS include
@@ -45,12 +46,8 @@ target_include_directories(${PROJECT_NAME}
         $<INSTALL_INTERFACE:${${PROJECT_NAME}_INSTALL_INCLUDE_DIR}>)
 if (ROS_ACTIVATED)
     if (ROS_VERSION STREQUAL "1")
-        if (DEFINED catkin_INCLUDE_DIRS)
-            target_include_directories(${PROJECT_NAME} SYSTEM PUBLIC ${catkin_INCLUDE_DIRS})
-        endif ()
-        if (DEFINED catkin_LIBRARIES)
-            target_link_libraries(${PROJECT_NAME} PUBLIC ${catkin_LIBRARIES})
-        endif ()
+        target_include_directories(${PROJECT_NAME} SYSTEM PUBLIC ${catkin_INCLUDE_DIRS})
+        target_link_libraries(${PROJECT_NAME} PUBLIC ${catkin_LIBRARIES})
         #        add_executable(erl_sdf_mapping_node src/ros/erl_sdf_mapping_node.cpp)
         #        target_link_libraries(erl_sdf_mapping_node PUBLIC ${PROJECT_NAME}::${PROJECT_NAME})
     endif ()
