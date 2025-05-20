@@ -23,4 +23,9 @@ namespace erl::sdf_mapping {
             surface_mapping_setting,
             sdf_mapping_setting);
     }
+
+    std::lock_guard<std::mutex>
+    AbstractGpSdfMapping::GetLockGuard() {
+        return std::lock_guard<std::mutex>(m_mutex_);
+    }
 }  // namespace erl::sdf_mapping

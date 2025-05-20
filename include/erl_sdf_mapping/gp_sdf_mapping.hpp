@@ -20,6 +20,7 @@ namespace erl::sdf_mapping {
     class AbstractGpSdfMapping {
         inline static std::unordered_map<std::string, std::string>
             s_surface_mapping_to_sdf_mapping_ = {};
+        std::mutex m_mutex_;
 
     public:
         using Factory = common::FactoryPattern<
@@ -46,6 +47,9 @@ namespace erl::sdf_mapping {
         template<typename Derived>
         static std::enable_if_t<std::is_base_of_v<AbstractGpSdfMapping, Derived>, bool>
         Register(const std::string& mapping_type = "");
+
+        [[nodiscard]] std::lock_guard<std::mutex>
+        GetLockGuard();
 
         /**
          * Update the SDF mapping with the sensor observation. Derived classes should implement this
@@ -182,7 +186,6 @@ namespace erl::sdf_mapping {
         };
 
         std::shared_ptr<Setting> m_setting_ = std::make_shared<Setting>();
-        std::mutex m_mutex_;
         std::shared_ptr<SurfaceMapping> m_surface_mapping_ = nullptr;  // RACING CONDITION.
         KeyGpMap m_gp_map_ = {};                 // key -> gp, RACING CONDITION.
         KeyVector m_affected_clusters_ = {};     // stores clusters to update
@@ -269,9 +272,6 @@ namespace erl::sdf_mapping {
         operator==(const AbstractGpSdfMapping& other) const override;
 
     private:
-        [[nodiscard]] std::lock_guard<std::mutex>
-        GetLockGuard();
-
         void
         CollectChangedClusters();
 

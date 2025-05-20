@@ -641,12 +641,6 @@ namespace erl::sdf_mapping {
     }
 
     template<typename Dtype, int Dim, typename SurfaceMapping>
-    std::lock_guard<std::mutex>
-    GpSdfMapping<Dtype, Dim, SurfaceMapping>::GetLockGuard() {
-        return std::lock_guard(m_mutex_);
-    }
-
-    template<typename Dtype, int Dim, typename SurfaceMapping>
     void
     GpSdfMapping<Dtype, Dim, SurfaceMapping>::CollectChangedClusters() {
         const Dtype cluster_size = m_surface_mapping_->GetClusterSize();

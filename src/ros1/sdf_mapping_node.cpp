@@ -56,8 +56,6 @@ struct SdfMappingNodeSetting : Yamlable<SdfMappingNodeSetting> {
 };
 
 class SdfMappingNode {
-public:
-private:
     enum class ScanType {
         Laser = 0,
         PointCloud = 1,
@@ -533,6 +531,7 @@ private:
         if (!ok) { return false; }
 
         // store the results in the response
+        res.dim = Dim;
         /// SDF
         res.signed_distances.resize(n);
         std::memcpy(
@@ -593,7 +592,11 @@ private:
         std::filesystem::path map_file = req.name;
         map_file = std::filesystem::absolute(map_file);
         std::filesystem::create_directories(map_file.parent_path());
-        res.success = Serialization<AbstractGpSdfMapping>::Write(map_file, m_sdf_mapping_.get());
+        {
+            auto lock = m_sdf_mapping_->GetLockGuard();
+            using Serializer = Serialization<AbstractGpSdfMapping>;
+            res.success = Serializer::Write(map_file, m_sdf_mapping_.get());
+        }
         return true;
     }
 };

@@ -11,10 +11,14 @@ if (NOT COMMAND erl_project_setup)
 endif ()
 erl_project_setup(
         ${PROJECT_NAME}
-        ERL_PACKAGES erl_common erl_covariance erl_geometry erl_gaussian_process
-        CATKIN_COMPONENTS roscpp std_msgs sensor_msgs geometry_msgs tf2_ros tf2_eigen
-        message_generation
-        CATKIN_DEPENDS roscpp std_msgs sensor_msgs geometry_msgs tf2_ros tf2_eigen message_runtime
+        ERL_PACKAGES
+        erl_common erl_covariance erl_geometry erl_gaussian_process
+        CATKIN_COMPONENTS
+        roscpp std_msgs sensor_msgs geometry_msgs tf2_ros tf2_eigen message_generation grid_map_ros
+        grid_map_msgs
+        CATKIN_DEPENDS
+        roscpp std_msgs sensor_msgs geometry_msgs tf2_ros tf2_eigen message_runtime grid_map_ros
+        grid_map_msgs
 )
 erl_setup_ros(
         CATKIN_COMPONENTS ${${PROJECT_NAME}_CATKIN_COMPONENTS}
@@ -51,6 +55,9 @@ if (ROS_ACTIVATED)
 
         add_executable(sdf_mapping_node src/ros1/sdf_mapping_node.cpp)
         target_link_libraries(sdf_mapping_node PUBLIC ${PROJECT_NAME}::${PROJECT_NAME})
+
+        add_executable(sdf_grid_map_node src/ros1/sdf_grid_map_node.cpp)
+        target_link_libraries(sdf_grid_map_node PUBLIC ${PROJECT_NAME}::${PROJECT_NAME})
     endif ()
 else ()
     if (DEFINED ${PROJECT_NAME}_ERL_PACKAGES)
