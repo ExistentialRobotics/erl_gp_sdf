@@ -184,11 +184,33 @@ namespace erl::sdf_mapping {
         [[nodiscard]] const SurfDataManager &
         GetSurfaceDataManager() const;
 
+        // implement the methods required by AbstractSurfaceMapping
+
+        bool
+        Update(
+            const Eigen::Ref<const Eigen::MatrixXd> &rotation,
+            const Eigen::Ref<const Eigen::VectorXd> &translation,
+            const Eigen::Ref<const Eigen::MatrixXd> &scan,
+            bool are_points,
+            bool are_local) override;
+
+        /**
+         * Update the surface mapping.
+         * @param rotation The rotation of the sensor. For 2D, it is a 2x2 matrix. For 3D, it is a
+         * 3x3 matrix.
+         * @param translation The translation of the sensor. For 2D, it is a 2x1 vector. For 3D, it
+         * is a 3x1 vector.
+         * @param ranges The observation of ranges assumed organized in the order of ray angles. For
+         * 2D, it is a vector of ranges. For 3D, it is a matrix of ranges.
+         * @return true if the update is successful.
+         */
         bool
         Update(
             const Eigen::Ref<const Rotation> &rotation,
             const Eigen::Ref<const Translation> &translation,
             const Eigen::Ref<const Ranges> &ranges);
+
+        // surface data access methods
 
         SurfaceDataIterator
         BeginSurfaceData();

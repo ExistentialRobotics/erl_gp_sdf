@@ -89,17 +89,14 @@ TestImpl3D() {
 
     using SurfaceMapping = erl::sdf_mapping::GpOccSurfaceMapping<Dtype, 3>;
     using SdfMapping = erl::sdf_mapping::GpSdfMapping<Dtype, 3, SurfaceMapping>;
-    using RangeSensor = erl::geometry::RangeSensor3D<Dtype>;
+    using RangeSensor = erl::geometry::RangeSensor3D<double>;
     using DepthFrame = erl::geometry::DepthFrame3D<Dtype>;
     using LidarFrame = erl::geometry::LidarFrame3D<Dtype>;
     using CowAndLady = erl::geometry::CowAndLady;
-    using DepthCamera = erl::geometry::DepthCamera3D<Dtype>;
-    using Lidar = erl::geometry::Lidar3D<Dtype>;
+    using DepthCamera = erl::geometry::DepthCamera3D<double>;
+    using Lidar = erl::geometry::Lidar3D<double>;
 
     using VectorX = Eigen::VectorX<Dtype>;
-    using MatrixX = Eigen::MatrixX<Dtype>;
-    using Matrix3 = Eigen::Matrix3<Dtype>;
-    using Matrix4 = Eigen::Matrix4<Dtype>;
     using Vector3 = Eigen::Vector3<Dtype>;
     using Matrix3X = Eigen::Matrix3X<Dtype>;
     using Matrix4X = Eigen::Matrix4X<Dtype>;
@@ -199,7 +196,7 @@ TestImpl3D() {
     std::vector<std::shared_ptr<open3d::geometry::Geometry>> geometries;  // for visualization
     std::shared_ptr<RangeSensor> range_sensor = nullptr;
     std::shared_ptr<CowAndLady> cow_and_lady = nullptr;
-    std::vector<std::pair<Matrix3, Vector3>> poses;
+    std::vector<std::pair<Eigen::Matrix3d, Eigen::Vector3d>> poses;
     Vector3 map_min, map_max;
     if (options.use_cow_and_lady) {
         ERL_INFO("Using Cow and Lady dataset.");
@@ -227,7 +224,7 @@ TestImpl3D() {
             const auto lidar_frame_setting =
                 std::dynamic_pointer_cast<typename LidarFrame::Setting>(
                     surface_mapping_setting->sensor_gp->sensor_frame);
-            const auto lidar_setting = std::make_shared<typename Lidar::Setting>();
+            const auto lidar_setting = std::make_shared<Lidar::Setting>();
             lidar_setting->azimuth_min = lidar_frame_setting->azimuth_min;
             lidar_setting->azimuth_max = lidar_frame_setting->azimuth_max;
             lidar_setting->num_azimuth_lines = lidar_frame_setting->num_azimuth_lines;
@@ -241,8 +238,13 @@ TestImpl3D() {
             const auto depth_frame_setting =
                 std::dynamic_pointer_cast<typename DepthFrame::Setting>(
                     surface_mapping_setting->sensor_gp->sensor_frame);
-            const auto depth_camera_setting = std::make_shared<typename DepthCamera::Setting>();
-            *depth_camera_setting = depth_frame_setting->camera_intrinsic;
+            auto depth_camera_setting = std::make_shared<DepthCamera::Setting>();
+            depth_camera_setting->image_height = depth_frame_setting->camera_intrinsic.image_height;
+            depth_camera_setting->image_width = depth_frame_setting->camera_intrinsic.image_width;
+            depth_camera_setting->camera_fx = depth_frame_setting->camera_intrinsic.camera_fx;
+            depth_camera_setting->camera_fy = depth_frame_setting->camera_intrinsic.camera_fy;
+            depth_camera_setting->camera_cx = depth_frame_setting->camera_intrinsic.camera_cx;
+            depth_camera_setting->camera_cy = depth_frame_setting->camera_intrinsic.camera_cy;
             range_sensor = std::make_shared<DepthCamera>(depth_camera_setting);
         } else {
             ERL_FATAL(
@@ -253,7 +255,7 @@ TestImpl3D() {
         }
         range_sensor->AddMesh(options.mesh_file);
         geometries.push_back(mesh);
-        poses = erl::geometry::Trajectory<Dtype>::LoadSe3(options.traj_file, false);
+        poses = erl::geometry::Trajectory<double>::LoadSe3(options.traj_file, false);
     }
     (void) map_min, (void) map_max;
 
@@ -291,22 +293,22 @@ TestImpl3D() {
         0.0);
     for (long j = 0; j < positions.cols(); ++j) {
         for (long i = 0; i < positions.rows(); ++i) {
-            positions(i, j) = Vector3(
-                                  static_cast<Dtype>(i) * options.test_res,
-                                  static_cast<Dtype>(j) * options.test_res,
-                                  0) +
-                              offset;
+            // clang-format off
+            positions(i, j) << static_cast<Dtype>(i) * options.test_res + offset[0],
+                               static_cast<Dtype>(j) * options.test_res + offset[1],
+                               offset[2];
+            // clang-format on
         }
     }
 
     // animation callback
     long wp_idx = 0;
     bool animation_ended = false;
-    (void) wp_idx, (void) animation_ended;
     const long max_wp_idx = std::min(
         options.use_cow_and_lady ? cow_and_lady->Size() : static_cast<long>(poses.size()),
         options.max_frames);
-    Matrix4 last_pose = Matrix4::Identity();
+    Eigen::Matrix4d last_pose = Eigen::Matrix4d::Identity();
+    (void) wp_idx, (void) animation_ended, (void) max_wp_idx, (void) last_pose;
 
     auto test_io = [&]() {
         ERL_BLOCK_TIMER_MSG("IO");
@@ -383,26 +385,26 @@ TestImpl3D() {
         }
 
         const auto t_start = std::chrono::high_resolution_clock::now();
-        Matrix3 rotation_sensor, rotation;
-        Vector3 translation_sensor, translation;
+        Eigen::Matrix3d rotation_sensor, rotation;
+        Eigen::Vector3d translation_sensor, translation;
         ERL_INFO("wp_idx: {}", wp_idx);
 
         cv::Mat depth_jet;
-        MatrixX ranges;
+        Eigen::MatrixXd ranges;
         double dt;
         {
             ERL_BLOCK_TIMER_MSG_TIME("data loading", dt);
             if (options.use_cow_and_lady) {
                 const auto frame = (*cow_and_lady)[wp_idx];
-                rotation = frame.rotation.cast<Dtype>();
-                translation = frame.translation.cast<Dtype>();
-                Matrix4 pose = Matrix4::Identity();
-                pose.template topLeftCorner<3, 3>() = rotation;
-                pose.template topRightCorner<3, 1>() = translation;
+                rotation = frame.rotation;
+                translation = frame.translation;
+                Eigen::Matrix4d pose = Eigen::Matrix4d::Identity();
+                pose.topLeftCorner<3, 3>() = rotation;
+                pose.topRightCorner<3, 1>() = translation;
                 pose = pose * DepthCamera::cTo;
-                rotation_sensor = pose.template topLeftCorner<3, 3>();
-                translation_sensor = pose.template topRightCorner<3, 1>();
-                ranges = frame.depth.cast<Dtype>();
+                rotation_sensor = pose.topLeftCorner<3, 3>();
+                translation_sensor = pose.topRightCorner<3, 1>();
+                ranges = frame.depth;
                 depth_jet = frame.depth_jet;
             } else {
                 std::tie(rotation_sensor, translation_sensor) = poses[wp_idx];
@@ -419,7 +421,7 @@ TestImpl3D() {
             ERL_BLOCK_TIMER_MSG_TIME("sdf_mapping.Update", dt);
             // provide ranges and frame pose in the world frame
             ERL_WARN_COND(
-                !sdf_mapping.Update(rotation, translation, ranges),
+                !sdf_mapping.Update(rotation, translation, ranges, false, false),
                 "sdf_mapping.Update failed.");
         }
         double gp_update_fps = 1000.0 / dt;
@@ -432,7 +434,7 @@ TestImpl3D() {
             for (long i = 0; i < positions.rows(); ++i) {
                 const Vector3 &position = positions(i, j);
                 positions_test.col(i + j * positions.rows()) =
-                    rotation_sensor * position + translation_sensor;  // sensor frame to world frame
+                    rotation_sensor.cast<Dtype>() * position + translation_sensor.cast<Dtype>();
             }
         }
         VectorX distances(positions_test.cols());
@@ -513,14 +515,14 @@ TestImpl3D() {
         cv::imshow("sdf_sign", img_sdf_sign);
         cv::waitKey(1);
         /// update the sensor mesh
-        Matrix4 last_pose_inv = last_pose.inverse();
-        Matrix4 cur_pose = Matrix4::Identity();
-        cur_pose.template topLeftCorner<3, 3>() = rotation_sensor;
-        cur_pose.template topRightCorner<3, 1>() = translation_sensor;
-        Matrix4 delta_pose = cur_pose * last_pose_inv;
+        Eigen::Matrix4d last_pose_inv = last_pose.inverse();
+        Eigen::Matrix4d cur_pose = Eigen::Matrix4d::Identity();
+        cur_pose.topLeftCorner<3, 3>() = rotation_sensor;
+        cur_pose.topRightCorner<3, 1>() = translation_sensor;
+        Eigen::Matrix4d delta_pose = cur_pose * last_pose_inv;
         last_pose = cur_pose;
-        mesh_sensor->Transform(delta_pose.template cast<double>());
-        mesh_sensor_xyz->Transform(delta_pose.template cast<double>());
+        mesh_sensor->Transform(delta_pose);
+        mesh_sensor_xyz->Transform(delta_pose);
         /// update the observation point cloud
         if (std::find(geometries.begin(), geometries.end(), pcd_obs) != geometries.end()) {
             pcd_obs->points_.clear();

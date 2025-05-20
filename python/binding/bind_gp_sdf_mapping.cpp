@@ -20,31 +20,28 @@ BindGpSdfMappingImpl(const py::module &m, const char *name) {
             py::arg("setting"),
             py::arg("surface_mapping"))
         .def_property_readonly("setting", &T::GetSetting)
-        .def("update", &T::Update, py::arg("rotation"), py::arg("translation"), py::arg("ranges"))
         .def("update_gp_sdf", &T::UpdateGpSdf, py::arg("time_budget_us"))
         .def(
             "test",
-            [](T &self, const Eigen::Ref<const Positions> &positions) {
+            [](T &self, const Eigen::Ref<const Positions> &positions) -> std::optional<py::dict> {
                 typename T::Distances distances;
                 typename T::Gradients gradients;
                 typename T::Variances variances;
                 typename T::Covariances covariances;
 
                 if (self.Test(positions, distances, gradients, variances, covariances)) {
-                    return py::make_tuple(distances, gradients, variances, covariances);
+                    py::dict result;
+                    result["distances"] = distances;
+                    result["gradients"] = gradients;
+                    result["variances"] = variances;
+                    result["covariances"] = covariances;
+                    return result;
                 }
-                return py::make_tuple(py::none(), py::none(), py::none(), py::none());
+                return std::nullopt;
             },
             py::arg("positions"))
         .def_property_readonly("used_gps", &T::GetUsedGps, "GPs used by the last test call")
         .def_property_readonly("gps", &T::GetGpMap);
-
-    // TODO: add more bindings
-    // .def("__eq__", &T::operator==)
-    // .def("__ne__", &T::operator!=)
-    // .def("write", py::overload_cast<const std::string &>(&T::Write, py::const_),
-    // py::arg("filename")) .def("read", py::overload_cast<const std::string &>(&T::Read),
-    // py::arg("filename"));
 }
 
 void

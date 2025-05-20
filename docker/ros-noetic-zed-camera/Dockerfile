@@ -134,6 +134,9 @@ RUN DEBIAN_FRONTEND=noninteractive apt install -y \
     libpng-dev \
     libgomp1
 RUN rosdep init && rosdep fix-permissions && rosdep update
+####################################################################################################
+# RealSense
+####################################################################################################
 # install realsense2
 # https://github.com/IntelRealSense/realsense-ros/tree/ros1-legacy
 # https://dev.intelrealsense.com/docs/ros1-wrapper
@@ -155,6 +158,9 @@ RUN echo "deb [signed-by=/etc/apt/keyrings/librealsense.pgp] https://librealsens
     librealsense2-gl \
     librealsense2-gl-dev \
     librealsense2-gl-dbg
+####################################################################################################
+# ZED camera
+####################################################################################################
 # install zed-ros-wrapper
 # https://www.stereolabs.com/developers/release/4.2
 # https://www.stereolabs.com/docs/installation/docker

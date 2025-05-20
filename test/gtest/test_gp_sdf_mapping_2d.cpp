@@ -233,7 +233,6 @@ TestImpl2D() {
     using QuadtreeDrawer = erl::geometry::OccupancyQuadtreeDrawer<Quadtree>;
     using Lidar2D = erl::geometry::Lidar2D;
 
-    using Matrix2 = Eigen::Matrix2<Dtype>;
     using Matrix2X = Eigen::Matrix2X<Dtype>;
     using Matrix3X = Eigen::Matrix3X<Dtype>;
     using Vector2 = Eigen::Vector2<Dtype>;
@@ -339,8 +338,8 @@ TestImpl2D() {
     // load the scene
     long max_update_cnt;
     std::vector<VectorX> train_angles;
-    std::vector<VectorX> train_ranges;
-    std::vector<std::pair<Matrix2, Vector2> > train_poses;
+    std::vector<Eigen::VectorXd> train_ranges;
+    std::vector<std::pair<Eigen::Matrix2d, Eigen::Vector2d> > train_poses;
     Vector2 map_min(0, 0);
     Vector2 map_max(0, 0);
     Vector2 map_resolution(options.map_resolution, options.map_resolution);
@@ -366,8 +365,8 @@ TestImpl2D() {
              i += options.stride, ++cnt) {
             auto &df = train_data_loader[i];
             train_angles.push_back(df.angles.cast<Dtype>());
-            train_ranges.push_back(df.ranges.cast<Dtype>());
-            train_poses.emplace_back(df.rotation.cast<Dtype>(), df.translation.cast<Dtype>());
+            train_ranges.push_back(df.ranges);
+            train_poses.emplace_back(df.rotation, df.translation);
             cur_traj.col(cnt) << df.translation.cast<Dtype>();
             bar->Update();
         }
@@ -415,12 +414,11 @@ TestImpl2D() {
 
             Eigen::Matrix2d rotation = Eigen::Rotation2Dd(waypoint[2]).toRotationMatrix();
             Eigen::Vector2d translation(waypoint[0], waypoint[1]);
-            VectorX lidar_ranges =
-                lidar.Scan(rotation, translation, scan_in_parallel).cast<Dtype>();
-            lidar_ranges += GenerateGaussianNoise<Dtype>(lidar_ranges.size(), 0.0, 0.01);
+            Eigen::VectorXd lidar_ranges = lidar.Scan(rotation, translation, scan_in_parallel);
+            lidar_ranges += GenerateGaussianNoise<double>(lidar_ranges.size(), 0.0, 0.01);
             train_angles.push_back(lidar.GetAngles().cast<Dtype>());
             train_ranges.push_back(lidar_ranges);
-            train_poses.emplace_back(rotation.cast<Dtype>(), translation.cast<Dtype>());
+            train_poses.emplace_back(rotation, translation);
             bar->Update();
         }
         train_angles.resize(cnt);
@@ -454,8 +452,8 @@ TestImpl2D() {
                  ranges] = ucsd_fah[i];
             cur_traj.col(cnt) << translation.cast<Dtype>();
             train_angles.emplace_back(angles.cast<Dtype>());
-            train_ranges.emplace_back(ranges.cast<Dtype>());
-            train_poses.emplace_back(rotation.cast<Dtype>(), translation.cast<Dtype>());
+            train_ranges.emplace_back(ranges);
+            train_poses.emplace_back(rotation, translation);
             bar->Update();
         }
         train_angles.resize(cnt);
@@ -592,9 +590,9 @@ TestImpl2D() {
     var_grad_y_values.reserve(max_update_cnt);
     for (long i = 0; i < max_update_cnt; i++) {
         const auto &[rotation, translation] = train_poses[i];
-        const VectorX &ranges = train_ranges[i];
+        const Eigen::VectorXd &ranges = train_ranges[i];
         auto t0 = std::chrono::high_resolution_clock::now();
-        EXPECT_TRUE(sdf_mapping.Update(rotation, translation, ranges));
+        EXPECT_TRUE(sdf_mapping.Update(rotation, translation, ranges, false, false));
         auto t1 = std::chrono::high_resolution_clock::now();
         auto dt = std::chrono::duration<double, std::milli>(t1 - t0).count();
         ERL_INFO("Update time: {:f} ms.", dt);
@@ -625,7 +623,7 @@ TestImpl2D() {
 
             // Visualize the results
             cv::Point position_px =
-                EigenToOpenCV(drawer.GetGridMapInfo()->MeterToPixelForPoints(cur_traj.col(i)));
+                EigenToOpenCV(drawer.GetGridMapInfo()->MeterToPixelForPoints(position));
             DrawSdf(img, position_px.x, position_px.y, distance[0], drawer_setting->resolution);
             DrawSdfVariance(
                 img,

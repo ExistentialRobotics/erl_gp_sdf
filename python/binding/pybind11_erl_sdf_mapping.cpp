@@ -22,6 +22,9 @@ void
 BindGpSdfMappingSetting(const py::module &m);
 
 void
+BindAbstractGpSdfMapping(const py::module &m);
+
+void
 BindGpSdfMapping(const py::module &m);
 
 PYBIND11_MODULE(PYBIND_MODULE_NAME, m) {
@@ -35,5 +38,6 @@ PYBIND11_MODULE(PYBIND_MODULE_NAME, m) {
     BindAbstractSurfaceMapping(m);
     BindGpOccSurfaceMapping(m);
     BindGpSdfMappingSetting(m);
+    BindAbstractGpSdfMapping(m);
     BindGpSdfMapping(m);
 }

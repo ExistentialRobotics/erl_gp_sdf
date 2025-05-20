@@ -51,7 +51,6 @@ BindGpOccSurfaceMappingImpl(const py::module &m, const char *name) {
         .def_property_readonly("sensor_gp", &T::GetSensorGp)
         .def_property_readonly("tree", &T::GetTree)
         .def_property_readonly("surface_data_manager", &T::GetSurfaceDataManager)
-        .def("update", &T::Update, py::arg("rotation"), py::arg("translation"), py::arg("ranges"))
         .def_property_readonly("scaling", &T::GetScaling)
         .def_property_readonly("cluster_size", &T::GetClusterSize)
         .def("get_cluster_center", &T::GetClusterCenter, py::arg("cluster_key"))

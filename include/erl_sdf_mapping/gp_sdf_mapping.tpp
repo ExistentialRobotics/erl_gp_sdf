@@ -1,8 +1,47 @@
 #pragma once
 
+#include "erl_common/block_timer.hpp"
 #include "erl_common/tracy.hpp"
 
 namespace erl::sdf_mapping {
+    template<typename Derived>
+    std::enable_if_t<std::is_base_of_v<AbstractGpSdfMapping, Derived>, bool>
+    AbstractGpSdfMapping::Register(const std::string &mapping_type) {
+        using SurfaceMapping = typename Derived::SurfaceMappingType;
+
+        s_surface_mapping_to_sdf_mapping_[type_name<SurfaceMapping>()] = mapping_type;
+
+        return Factory::GetInstance().Register<Derived>(
+            mapping_type,
+            [](const std::shared_ptr<common::YamlableBase> &surface_mapping_setting,
+               const std::shared_ptr<common::YamlableBase> &sdf_mapping_setting)
+                -> std::shared_ptr<AbstractGpSdfMapping> {
+                using SurfaceMappingSetting = typename SurfaceMapping::Setting;
+
+                auto casted_surface_mapping_setting =
+                    std::dynamic_pointer_cast<SurfaceMappingSetting>(surface_mapping_setting);
+                if (casted_surface_mapping_setting == nullptr) {
+                    ERL_WARN(
+                        "Failed to cast surface_mapping_setting to {}",
+                        type_name<SurfaceMappingSetting>());
+                    return nullptr;
+                }
+                auto surface_mapping =
+                    std::make_shared<SurfaceMapping>(casted_surface_mapping_setting);
+
+                using SdfMappingSetting = typename Derived::Setting;
+                auto casted_sdf_mapping_setting =
+                    std::dynamic_pointer_cast<SdfMappingSetting>(sdf_mapping_setting);
+                if (casted_sdf_mapping_setting == nullptr) {
+                    ERL_WARN(
+                        "Failed to cast sdf_mapping_setting to {}",
+                        type_name<SdfMappingSetting>());
+                    return nullptr;
+                }
+                return std::make_shared<Derived>(casted_sdf_mapping_setting, surface_mapping);
+            });
+    }
+
     template<typename Dtype, int Dim, typename SurfaceMapping>
     bool
     GpSdfMapping<Dtype, Dim, SurfaceMapping>::TestBuffer::ConnectBuffers(
@@ -24,11 +63,11 @@ namespace erl::sdf_mapping {
         gradients_out.resize(Gradients::RowsAtCompileTime, n);
         variances_out.resize(Variances::RowsAtCompileTime, n);
         if (compute_covariance) { covariances_out.resize(Covariances::RowsAtCompileTime, n); }
-        this->positions = std::make_unique<Eigen::Ref<const Positions> >(positions_in);
-        this->distances = std::make_unique<Eigen::Ref<Distances> >(distances_out);
-        this->gradients = std::make_unique<Eigen::Ref<Gradients> >(gradients_out);
-        this->variances = std::make_unique<Eigen::Ref<Variances> >(variances_out);
-        this->covariances = std::make_unique<Eigen::Ref<Covariances> >(covariances_out);
+        this->positions = std::make_unique<Eigen::Ref<const Positions>>(positions_in);
+        this->distances = std::make_unique<Eigen::Ref<Distances>>(distances_out);
+        this->gradients = std::make_unique<Eigen::Ref<Gradients>>(gradients_out);
+        this->variances = std::make_unique<Eigen::Ref<Variances>>(variances_out);
+        this->covariances = std::make_unique<Eigen::Ref<Covariances>>(covariances_out);
         return true;
     }
 
@@ -63,6 +102,8 @@ namespace erl::sdf_mapping {
         ERL_ASSERTM(m_setting_ != nullptr, "setting is nullptr.");
         ERL_ASSERTM(m_surface_mapping_ != nullptr, "surface_mapping is nullptr.");
         ERL_ASSERTM(m_setting_->gp_sdf_area_scale > 1, "GP area scale must be greater than 1.");
+        abstract_surface_mapping = m_surface_mapping_;
+        map_dim = Dim;
     }
 
     template<typename Dtype, int Dim, typename SurfaceMapping>
@@ -72,13 +113,21 @@ namespace erl::sdf_mapping {
     }
 
     template<typename Dtype, int Dim, typename SurfaceMapping>
+    std::shared_ptr<const SurfaceMapping>
+    GpSdfMapping<Dtype, Dim, SurfaceMapping>::GetSurfaceMapping() const {
+        return m_surface_mapping_;
+    }
+
+    template<typename Dtype, int Dim, typename SurfaceMapping>
     bool
     GpSdfMapping<Dtype, Dim, SurfaceMapping>::Update(
-        const Eigen::Ref<const Rotation> &rotation,
-        const Eigen::Ref<const Translation> &translation,
-        const Eigen::Ref<const Ranges> &ranges) {
+        const Eigen::Ref<const Eigen::MatrixXd> &rotation,
+        const Eigen::Ref<const Eigen::VectorXd> &translation,
+        const Eigen::Ref<const Eigen::MatrixXd> &scan,
+        const bool are_points,
+        const bool are_local) {
         ERL_TRACY_FRAME_MARK_START();
-        bool success = false;
+        bool ok = false;
         double time_budget_us = 1e6 / m_setting_->update_hz;  // us
         double total_update_time = 0;
         double surf_mapping_time = 0;
@@ -87,11 +136,10 @@ namespace erl::sdf_mapping {
             ERL_BLOCK_TIMER_MSG_TIME("GpSdfMapping Update", total_update_time);
             {
                 ERL_BLOCK_TIMER_MSG_TIME("Surface mapping update", surf_mapping_time);
-                success = m_surface_mapping_->Update(rotation, translation, ranges);
+                ok = m_surface_mapping_->Update(rotation, translation, scan, are_points, are_local);
             }
             time_budget_us -= surf_mapping_time * 1000;  // us
-
-            if (success) {
+            if (ok) {
                 ERL_BLOCK_TIMER_MSG_TIME("Update SDF GPs", sdf_gp_update_time);
                 UpdateGpSdf(time_budget_us);
             }
@@ -119,7 +167,7 @@ namespace erl::sdf_mapping {
                            return gps_memory_usage;
                        }()));
         ERL_TRACY_FRAME_MARK_END();
-        return success;
+        return ok;
     }
 
     template<typename Dtype, int Dim, typename SurfaceMapping>
@@ -259,7 +307,7 @@ namespace erl::sdf_mapping {
             m_kdtree_candidate_gps_ = std::make_shared<KdTree>(std::move(gp_positions));
         }
 
-        std::vector<std::vector<std::size_t> > no_gps_indices(num_threads);
+        std::vector<std::vector<std::size_t>> no_gps_indices(num_threads);
         {
             m_query_to_gps_.clear();              // clear the previous query to GPs
             m_query_to_gps_.resize(num_queries);  // allocate memory for n threads
@@ -370,6 +418,36 @@ namespace erl::sdf_mapping {
         }
 
         return true;
+    }
+
+    template<typename Dtype, int Dim, typename SurfaceMapping>
+    bool
+    GpSdfMapping<Dtype, Dim, SurfaceMapping>::Predict(
+        const Eigen::Ref<const Eigen::MatrixXd> &positions_in,
+        Eigen::VectorXd &distances_out,
+        Eigen::MatrixXd &gradients_out,
+        Eigen::MatrixXd &variances_out,
+        Eigen::MatrixXd &covariances_out) {
+
+        ERL_ASSERTM(positions_in.rows() >= Dim, "positions_in.rows() must be >={}.", Dim);
+        ERL_ASSERTM(positions_in.cols() > 0, "positions_in.cols() must be greater than 0.");
+
+        const long n = positions_in.cols();
+        Positions positions = positions_in.topRows<Dim>().template cast<Dtype>();
+        Distances distances(n);
+        Gradients gradients(Dim, n);
+        Variances variances(Dim + 1, n);
+        Covariances covariances(Dim * (Dim + 1) / 2, n);
+        const bool success = Test(positions, distances, gradients, variances, covariances);
+        if (success) {
+            distances_out = distances.template cast<double>();
+            gradients_out = gradients.template cast<double>();
+            variances_out = variances.template cast<double>();
+            covariances_out = covariances.template cast<double>();
+        } else {
+            ERL_WARN("Failed to test GPs.");
+        }
+        return success;
     }
 
     template<typename Dtype, int Dim, typename SurfaceMapping>
@@ -520,30 +598,37 @@ namespace erl::sdf_mapping {
 
     template<typename Dtype, int Dim, typename SurfaceMapping>
     bool
-    GpSdfMapping<Dtype, Dim, SurfaceMapping>::operator==(const GpSdfMapping &other) const {
-        if (m_setting_ == nullptr && other.m_setting_ != nullptr) { return false; }
+    GpSdfMapping<Dtype, Dim, SurfaceMapping>::operator==(const AbstractGpSdfMapping &other) const {
+        const auto *other_ptr = dynamic_cast<const GpSdfMapping *>(&other);
+        if (other_ptr == nullptr) { return false; }
+        if (m_setting_ == nullptr && other_ptr->m_setting_ != nullptr) { return false; }
         if (m_setting_ != nullptr &&
-            (other.m_setting_ == nullptr || *m_setting_ != *other.m_setting_)) {
+            (other_ptr->m_setting_ == nullptr || *m_setting_ != *other_ptr->m_setting_)) {
             return false;
         }
-        if (m_surface_mapping_ == nullptr && other.m_surface_mapping_ != nullptr) { return false; }
-        if (m_surface_mapping_ != nullptr && (other.m_surface_mapping_ == nullptr ||
-                                              *m_surface_mapping_ != *other.m_surface_mapping_)) {
+        if (m_surface_mapping_ == nullptr && other_ptr->m_surface_mapping_ != nullptr) {
             return false;
         }
-        if (m_gp_map_.size() != other.m_gp_map_.size()) { return false; }
+        if (m_surface_mapping_ != nullptr &&
+            (other_ptr->m_surface_mapping_ == nullptr ||
+             *m_surface_mapping_ != *other_ptr->m_surface_mapping_)) {
+            return false;
+        }
+        if (m_gp_map_.size() != other_ptr->m_gp_map_.size()) { return false; }
         for (const auto &[key, gp]: m_gp_map_) {
-            auto it = other.m_gp_map_.find(key);
-            if (it == other.m_gp_map_.end()) { return false; }
+            auto it = other_ptr->m_gp_map_.find(key);
+            if (it == other_ptr->m_gp_map_.end()) { return false; }
             const auto &[other_key, other_gp] = *it;
             if (key != other_key) { return false; }
             if (gp == nullptr && other_gp != nullptr) { return false; }
             if (gp != nullptr && (other_gp == nullptr || *gp != *other_gp)) { return false; }
         }
-        if (m_cluster_queue_keys_.size() != other.m_cluster_queue_keys_.size()) { return false; }
+        if (m_cluster_queue_keys_.size() != other_ptr->m_cluster_queue_keys_.size()) {
+            return false;
+        }
         for (const auto &[key, handle]: m_cluster_queue_keys_) {
-            auto it = other.m_cluster_queue_keys_.find(key);
-            if (it == other.m_cluster_queue_keys_.end()) { return false; }
+            auto it = other_ptr->m_cluster_queue_keys_.find(key);
+            if (it == other_ptr->m_cluster_queue_keys_.end()) { return false; }
             const auto &[other_key, other_handle] = *it;
             if (key != other_key) { return false; }
             if ((*handle).time_stamp != (*other_handle).time_stamp) { return false; }
@@ -551,7 +636,7 @@ namespace erl::sdf_mapping {
         // when m_cluster_queue_keys_ is the same, m_cluster_queue_ is the same
         // m_clusters_to_train_, m_candidate_gps_, m_kdtree_candidate_gps_, m_map_boundary_,
         // m_query_to_gps_, m_query_signs_, m_test_buffer and m_query_used_gps_ are temporary data.
-        if (m_train_gp_time_us_ != other.m_train_gp_time_us_) { return false; }
+        if (m_train_gp_time_us_ != other_ptr->m_train_gp_time_us_) { return false; }
         return true;
     }
 
@@ -662,7 +747,7 @@ namespace erl::sdf_mapping {
         const Dtype invalid_position_var = m_setting_->invalid_position_var;
         const auto &surface_data_buffer = m_surface_mapping_->GetSurfaceDataBuffer();
 
-        std::vector<std::pair<Dtype, std::size_t> > surface_data_indices;
+        std::vector<std::pair<Dtype, std::size_t>> surface_data_indices;
         const auto sdf_gp_setting = m_setting_->sdf_gp;
         const auto max_num_samples = std::max(
             sdf_gp_setting->edf_gp->max_num_samples,
@@ -755,7 +840,7 @@ namespace erl::sdf_mapping {
 
         for (std::size_t i = start_idx; i < end_idx; ++i) {
             const Position test_position = m_test_buffer_.positions->col(i);
-            std::vector<std::pair<Dtype, KeyGpPair> > &gps = m_query_to_gps_[i];
+            std::vector<std::pair<Dtype, KeyGpPair>> &gps = m_query_to_gps_[i];
 
             Dtype search_area_half_size = m_setting_->test_query.search_area_half_size;
 
@@ -858,7 +943,7 @@ namespace erl::sdf_mapping {
         Variances variances(Dim + 1, num_neighbor_gps);
         // cov (gx, d), (gy, d), (gz, d), (gy, gx), (gz, gx), (gz, gy)
         Covariances covariances((Dim + 1) * Dim / 2, num_neighbor_gps);
-        std::vector<std::pair<long, long> > tested_idx;  // (column index, gps index)
+        std::vector<std::pair<long, long>> tested_idx;  // (column index, gps index)
         tested_idx.reserve(num_neighbor_gps);
 
         std::vector<std::size_t> gp_indices;
@@ -970,7 +1055,10 @@ namespace erl::sdf_mapping {
                     // the first result is good enough
                     auto j = tested_idx[0].first;  // column j is the result
                     distance_out = fs(0, j);
-                    gradient_out << fs.col(j).template segment<Dim>(1);
+                    if (compute_gradient) {
+                        gradient_out << fs.col(j).template segment<Dim>(1);
+                        gradient_out.normalize();
+                    }
                     variance_out << variances.col(j);
                     if (compute_covariance) {
                         m_test_buffer_.covariances->col(i) = covariances.col(j);
@@ -983,12 +1071,14 @@ namespace erl::sdf_mapping {
             } else {
                 // the first column is the result
                 distance_out = fs(0, 0);
-                gradient_out << fs.col(0).template segment<Dim>(1);
+                if (compute_gradient) {
+                    gradient_out << fs.col(0).template segment<Dim>(1);
+                    gradient_out.normalize();
+                }
                 variance_out << variances.col(0);
                 if (compute_covariance) { m_test_buffer_.covariances->col(i) = covariances.col(0); }
                 used_gps[0] = gps[tested_idx[0].second].second.second;
             }
-            if (compute_gradient) { gradient_out.normalize(); }
 
             // flip the sign of the distance and gradient if necessary
             bool flip = false;
@@ -1011,14 +1101,16 @@ namespace erl::sdf_mapping {
     template<int D>
     std::enable_if_t<D == 3, void>
     GpSdfMapping<Dtype, Dim, SurfaceMapping>::ComputeWeightedSum(
-        const uint32_t i,
-        const std::vector<std::pair<long, long> > &tested_idx,
-        Eigen::Ref<Eigen::Matrix<Dtype, 7, Eigen::Dynamic> > fs,
-        Variances &variances,
-        Covariances &covariances) {
-        const Dtype max_test_valid_distance_var =
-            m_setting_->test_query.max_test_valid_distance_var;
+        uint32_t i,
+        const std::vector<std::pair<long, long>> &tested_idx,
+        const Eigen::Matrix<Dtype, 7, Eigen::Dynamic> &fs,
+        const Variances &variances,
+        const Covariances &covariances) {
+
+        const bool compute_gradient = m_setting_->test_query.compute_gradient;
+        const bool compute_gradient_variance = m_setting_->test_query.compute_gradient_variance;
         const bool compute_covariance = m_setting_->test_query.compute_covariance;
+        Dtype max_test_valid_distance_var = m_setting_->test_query.max_test_valid_distance_var;
         auto &gps = m_query_to_gps_[i];
         auto &used_gps = m_query_used_gps_[i];
         used_gps.fill(nullptr);
@@ -1040,40 +1132,58 @@ namespace erl::sdf_mapping {
         }
         f /= w_sum;
 
-        (*m_test_buffer_.distances)[i] = f[0];                     // distance
-        m_test_buffer_.gradients->col(i) << f.template tail<3>();  // gradient
-        m_test_buffer_.variances->col(i) << variance_f / w_sum;    // variance
-        if (compute_covariance) { m_test_buffer_.covariances->col(i) = covariance_f / w_sum; }
+        (*m_test_buffer_.distances)[i] = f[0];  // distance
+        if (compute_gradient) {                 // gradient
+            auto gradient = (*m_test_buffer_.gradients).col(i);
+            gradient << f.template tail<3>();
+            gradient.normalize();
+        }
+        auto var_out = (*m_test_buffer_.variances).col(i);
+        var_out[0] = variance_f[0] / w_sum;  // variance
+        if (compute_gradient_variance) {
+            var_out[1] = variance_f[1] / w_sum;
+            var_out[2] = variance_f[2] / w_sum;
+            var_out[3] = variance_f[3] / w_sum;
+        }
+        if (compute_covariance) { (*m_test_buffer_.covariances).col(i) = covariance_f / w_sum; }
     }
 
     template<typename Dtype, int Dim, typename SurfaceMapping>
     template<int D>
     std::enable_if_t<D == 2, void>
     GpSdfMapping<Dtype, Dim, SurfaceMapping>::ComputeWeightedSum(
-        const uint32_t i,
-        const std::vector<std::pair<long, long> > &tested_idx,
-        Eigen::Ref<Eigen::Matrix<Dtype, 5, Eigen::Dynamic> > fs,
-        Variances &variances,
-        Covariances &covariances) {
+        uint32_t i,
+        const std::vector<std::pair<long, long>> &tested_idx,
+        const Eigen::Matrix<Dtype, 5, Eigen::Dynamic> &fs,
+        const Variances &variances,
+        const Covariances &covariances) {
+
+        const bool compute_gradient = m_setting_->test_query.compute_gradient;
+        const bool compute_gradient_variance = m_setting_->test_query.compute_gradient_variance;
         const bool compute_covariance = m_setting_->test_query.compute_covariance;
+        Dtype max_test_valid_distance_var = m_setting_->test_query.max_test_valid_distance_var;
         auto &gps = m_query_to_gps_[i];
 
         // pick the best two results to do the weighted sum
         const long j1 = tested_idx[0].first;
         const long j2 = tested_idx[1].first;
-        const Dtype w1 = variances(0, j1) - m_setting_->test_query.max_test_valid_distance_var;
-        const Dtype w2 = variances(0, j2) - m_setting_->test_query.max_test_valid_distance_var;
+        const Dtype w1 = variances(0, j1) - max_test_valid_distance_var;
+        const Dtype w2 = variances(0, j2) - max_test_valid_distance_var;
         const Dtype w12 = w1 + w2;
         // clang-format off
-        (*m_test_buffer_.distances)[i] = (fs(0, j1) * w2 + fs(0, j2) * w1) / w12;     // distance
-        m_test_buffer_.gradients->col(i) << (fs(1, j1) * w2 + fs(1, j2) * w1) / w12,  // gradient
-                                            (fs(2, j1) * w2 + fs(2, j2) * w1) / w12;
-        m_test_buffer_.variances->col(i) <<                                           // variance
-            (variances(0, j1) * w2 + variances(0, j2) * w1) / w12,
-            (variances(1, j1) * w2 + variances(1, j2) * w1) / w12,
-            (variances(2, j1) * w2 + variances(2, j2) * w1) / w12;
+        (*m_test_buffer_.distances)[i] = (fs(0, j1) * w2 + fs(0, j2) * w1) / w12;  // distance
+        if (compute_gradient) {                                                    // gradient
+            (*m_test_buffer_.gradients).col(i) << (fs(1, j1) * w2 + fs(1, j2) * w1) / w12,
+                                                  (fs(2, j1) * w2 + fs(2, j2) * w1) / w12;
+        }
+        auto var_out = (*m_test_buffer_.variances).col(i);
+        var_out[0] = (variances(0, j1) * w2 + variances(0, j2) * w1) / w12;  // variance
+        if (compute_gradient_variance) {
+            var_out[1] = (variances(1, j1) * w2 + variances(1, j2) * w1) / w12;
+            var_out[2] = (variances(2, j1) * w2 + variances(2, j2) * w1) / w12;
+        }
         if (compute_covariance) {
-            m_test_buffer_.covariances->col(i) <<
+            (*m_test_buffer_.covariances).col(i) <<
                 (covariances(0, j1) * w2 + covariances(0, j2) * w1) / w12,
                 (covariances(1, j1) * w2 + covariances(1, j2) * w1) / w12,
                 (covariances(2, j1) * w2 + covariances(2, j2) * w1) / w12;

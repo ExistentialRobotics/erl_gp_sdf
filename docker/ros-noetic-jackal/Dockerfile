@@ -1,4 +1,4 @@
-ARG BASE_IMAGE=erl/geometry:20.04-cu12.9
+ARG BASE_IMAGE="ubuntu:20.04"
 FROM ${BASE_IMAGE}
 
 ARG APT_MIRROR=""
@@ -34,28 +34,29 @@ RUN DEBIAN_FRONTEND=noninteractive apt install -y \
 RUN rosdep init && rosdep fix-permissions && rosdep update
 
 ####################################################################################################
-# RealSense
+# Clearpath Jackal
 ####################################################################################################
-# https://github.com/IntelRealSense/realsense-ros/tree/ros1-legacy
-# https://dev.intelrealsense.com/docs/ros1-wrapper
-RUN DEBIAN_FRONTEND=noninteractive apt-get install -y \
-    ros-noetic-realsense2-camera \
-    ros-noetic-realsense2-description
-# https://github.com/IntelRealSense/librealsense/blob/master/doc/distribution_linux.md
-RUN mkdir -p /etc/apt/keyrings && \
-    curl -sSf https://librealsense.intel.com/Debian/librealsense.pgp | \
-    tee /etc/apt/keyrings/librealsense.pgp > /dev/null
-RUN echo "deb [signed-by=/etc/apt/keyrings/librealsense.pgp] https://librealsense.intel.com/Debian/apt-repo `lsb_release -cs` main" | \
-    tee /etc/apt/sources.list.d/librealsense.list && \
-    apt-get update && DEBIAN_FRONTEND=noninteractive apt install -y \
-    librealsense2-udev-rules \
-    librealsense2 \
-    librealsense2-utils \
-    librealsense2-dev \
-    librealsense2-dbg \
-    librealsense2-gl \
-    librealsense2-gl-dev \
-    librealsense2-gl-dbg
+# https://clearpathrobotics.com/assets/guides/noetic/jackal/index.html
+RUN apt-get install -y \
+    ros-noetic-jackal-simulator ros-noetic-jackal-desktop ros-noetic-jackal-navigation \
+    ros-noetic-tf2-tools \
+    ros-noetic-velodyne-gazebo-plugins
+
+
+# sensor models are set via environment variables
+# https://github.com/jackal/jackal/blob/noetic-devel/jackal_description/README.md
+## e.g. 2D LiDAR
+#ENV JACKAL_LASER=1
+## lms1xx, tim551, ust10 or utm30
+#ENV JACKAL_LASER_MODEL=lms1xx
+#ENV JACKAL_LASER_TOPIC="front/scan"
+## 3D LiDAR
+#ENV JACKAL_LASER_3D=1
+## vlp16 or hdl32e
+#ENV JACKAL_LASER_3D_MODEL="vlp16"
+#ENV JACKAL_LASER_3D_TOPIC="mid/points"
+
+RUN DEBIAN_FRONTEND=noninteractive apt-get install -y zsh
 
 RUN apt-get clean  && rm -rf /var/lib/apt/lists/*
 RUN if [ -n "$APT_MIRROR" ]; then \

@@ -1,9 +1,11 @@
 #pragma once
 
+#include "abstract_surface_mapping.hpp"
 #include "gp_sdf_mapping_setting.hpp"
 #include "sdf_gp.hpp"
 #include "surface_data_manager.hpp"
 
+#include "erl_common/exception.hpp"
 #include "erl_geometry/aabb.hpp"
 #include "erl_geometry/kdtree_eigen_adaptor.hpp"
 
@@ -27,66 +29,70 @@ namespace erl::sdf_mapping {
             std::shared_ptr<common::YamlableBase>,   // Args: surface_mapping_setting
             std::shared_ptr<common::YamlableBase>>;  // Args: sdf_mapping_setting
 
+        std::shared_ptr<AbstractSurfaceMapping> abstract_surface_mapping = nullptr;
+        int map_dim = 3;
+
+        virtual ~AbstractGpSdfMapping() = default;
+
         [[nodiscard]] static std::string
-        GetSdfMappingId(const std::string& surface_mapping_id) {
-            const auto it = s_surface_mapping_to_sdf_mapping_.find(surface_mapping_id);
-            if (it == s_surface_mapping_to_sdf_mapping_.end()) {
-                ERL_WARN(
-                    "Failed to find sdf mapping for surface mapping: {}. Do you register it?",
-                    surface_mapping_id);
-                return "";
-            }
-            return it->second;
-        }
+        GetSdfMappingId(const std::string& surface_mapping_id);
 
         static std::shared_ptr<AbstractGpSdfMapping>
         Create(
             const std::string& mapping_type,
             const std::shared_ptr<common::YamlableBase>& surface_mapping_setting,
-            const std::shared_ptr<common::YamlableBase>& sdf_mapping_setting) {
-            return Factory::GetInstance().Create(
-                mapping_type,
-                surface_mapping_setting,
-                sdf_mapping_setting);
-        }
+            const std::shared_ptr<common::YamlableBase>& sdf_mapping_setting);
 
         template<typename Derived>
         static std::enable_if_t<std::is_base_of_v<AbstractGpSdfMapping, Derived>, bool>
-        Register(const std::string& mapping_type = "") {
-            using SurfaceMapping = typename Derived::SurfaceMappingType;
+        Register(const std::string& mapping_type = "");
 
-            s_surface_mapping_to_sdf_mapping_[type_name<SurfaceMapping>()] = mapping_type;
+        /**
+         * Update the SDF mapping with the sensor observation. Derived classes should implement this
+         * method and call the surface mapping update method first.
+         * @param rotation The rotation of the sensor. For 2D, it is a 2x2 matrix. For 3D, it is a
+         * 3x3 matrix.
+         * @param translation The translation of the sensor. For 2D, it is a 2x1 vector. For 3D, it
+         * is a 3x1 vector.
+         * @param scan The sensor observation, which can be a point cloud or a range array.
+         * @param are_points true if the scan is a point cloud. false if the scan is a range array.
+         * @param are_local true if the points are in the local frame.
+         * @return true if the update is successful.
+         */
+        [[nodiscard]] virtual bool
+        Update(
+            const Eigen::Ref<const Eigen::MatrixXd>& rotation,
+            const Eigen::Ref<const Eigen::VectorXd>& translation,
+            const Eigen::Ref<const Eigen::MatrixXd>& scan,
+            bool are_points,
+            bool are_local) = 0;
 
-            return Factory::GetInstance().Register<Derived>(
-                mapping_type,
-                [](const std::shared_ptr<common::YamlableBase>& surface_mapping_setting,
-                   const std::shared_ptr<common::YamlableBase>& sdf_mapping_setting)
-                    -> std::shared_ptr<AbstractGpSdfMapping> {
-                    using SurfaceMappingSetting = typename SurfaceMapping::Setting;
+        [[nodiscard]] virtual bool
+        Predict(
+            const Eigen::Ref<const Eigen::MatrixXd>& positions_in,
+            Eigen::VectorXd& distances_out,
+            Eigen::MatrixXd& gradients_out,
+            Eigen::MatrixXd& variances_out,
+            Eigen::MatrixXd& covariances_out) = 0;
 
-                    auto casted_surface_mapping_setting =
-                        std::dynamic_pointer_cast<SurfaceMappingSetting>(surface_mapping_setting);
-                    if (casted_surface_mapping_setting == nullptr) {
-                        ERL_WARN(
-                            "Failed to cast surface_mapping_setting to {}",
-                            type_name<SurfaceMappingSetting>());
-                        return nullptr;
-                    }
-                    auto surface_mapping =
-                        std::make_shared<SurfaceMapping>(casted_surface_mapping_setting);
-
-                    using SdfMappingSetting = typename Derived::Setting;
-                    auto casted_sdf_mapping_setting =
-                        std::dynamic_pointer_cast<SdfMappingSetting>(sdf_mapping_setting);
-                    if (casted_sdf_mapping_setting == nullptr) {
-                        ERL_WARN(
-                            "Failed to cast sdf_mapping_setting to {}",
-                            type_name<SdfMappingSetting>());
-                        return nullptr;
-                    }
-                    return std::make_shared<Derived>(casted_sdf_mapping_setting, surface_mapping);
-                });
+        // Comparison
+        [[nodiscard]] virtual bool
+        operator==(const AbstractGpSdfMapping& /*other*/) const {
+            throw NotImplemented(__PRETTY_FUNCTION__);
         }
+
+        [[nodiscard]] bool
+        operator!=(const AbstractGpSdfMapping& other) const {
+            return !(*this == other);
+        }
+
+        // IO
+
+        [[nodiscard]] virtual bool
+        Write(std::ostream& s) const = 0;
+
+        [[nodiscard]] virtual bool
+        Read(std::istream& s) = 0;
     };
 
     template<typename Dtype, int Dim, typename SurfaceMapping>
@@ -200,6 +206,9 @@ namespace erl::sdf_mapping {
         [[nodiscard]] std::shared_ptr<const Setting>
         GetSetting() const;
 
+        [[nodiscard]] std::shared_ptr<const SurfaceMapping>
+        GetSurfaceMapping() const;
+
         /**
          * Call this method to update the surface mapping and then update the GP SDF mapping.
          * You can call this method or call the surface mapping update first and then UpdateGpSdf
@@ -208,26 +217,21 @@ namespace erl::sdf_mapping {
          * 3x3 matrix.
          * @param translation The translation of the sensor. For 2D, it is a 2x1 vector. For 3D, it
          * is a 3x1 vector.
-         * @param ranges The observation of ranges assumed organized in the order of ray angles. For
-         * 2D, it is a vector of ranges. For 3D, it is a matrix of ranges.
+         * @param scan The observation that can be a point cloud or a range array.
+         * @param are_points true if the scan is a point cloud. false if the scan is a range array.
+         * @param are_local true if the points are in the local frame.
          * @return true if the update is successful.
          */
-        bool
+        [[nodiscard]] bool
         Update(
-            const Eigen::Ref<const Rotation>& rotation,
-            const Eigen::Ref<const Translation>& translation,
-            const Eigen::Ref<const Ranges>& ranges);
+            const Eigen::Ref<const Eigen::MatrixXd>& rotation,
+            const Eigen::Ref<const Eigen::VectorXd>& translation,
+            const Eigen::Ref<const Eigen::MatrixXd>& scan,
+            bool are_points,
+            bool are_local) override;
 
         bool
         UpdateGpSdf(double time_budget_us = 0);
-
-        [[nodiscard]] bool
-        Test(const Eigen::Ref<const Positions>& positions, Distances& distances_out) {
-            Gradients gradients;
-            Variances variances;
-            Covariances covariances;
-            return Test(positions, distances_out, gradients, variances, covariances);
-        }
 
         [[nodiscard]] bool
         Test(
@@ -236,6 +240,14 @@ namespace erl::sdf_mapping {
             Gradients& gradients_out,
             Variances& variances_out,
             Covariances& covariances_out);
+
+        bool
+        Predict(
+            const Eigen::Ref<const Eigen::MatrixXd>& positions_in,
+            Eigen::VectorXd& distances_out,
+            Eigen::MatrixXd& gradients_out,
+            Eigen::MatrixXd& variances_out,
+            Eigen::MatrixXd& covariances_out) override;
 
         [[nodiscard]] const std::vector<std::array<std::shared_ptr<SdfGp>, (Dim - 1) * 2>>&
         GetUsedGps() const {
@@ -248,18 +260,13 @@ namespace erl::sdf_mapping {
         }
 
         [[nodiscard]] bool
-        Write(std::ostream& s) const;
+        Write(std::ostream& s) const override;
 
         [[nodiscard]] bool
-        Read(std::istream& s);
+        Read(std::istream& s) override;
 
         [[nodiscard]] bool
-        operator==(const GpSdfMapping& other) const;
-
-        [[nodiscard]] bool
-        operator!=(const GpSdfMapping& other) const {
-            return !(*this == other);
-        }
+        operator==(const AbstractGpSdfMapping& other) const override;
 
     private:
         [[nodiscard]] std::lock_guard<std::mutex>
@@ -298,18 +305,18 @@ namespace erl::sdf_mapping {
         ComputeWeightedSum(
             uint32_t i,
             const std::vector<std::pair<long, long>>& tested_idx,
-            Eigen::Ref<Eigen::Matrix<Dtype, 7, Eigen::Dynamic>> fs,
-            Variances& variances,
-            Covariances& covariances);
+            const Eigen::Matrix<Dtype, 7, Eigen::Dynamic>& fs,
+            const Variances& variances,
+            const Covariances& covariances);
 
         template<int D>
         std::enable_if_t<D == 2, void>
         ComputeWeightedSum(
             uint32_t i,
             const std::vector<std::pair<long, long>>& tested_idx,
-            Eigen::Ref<Eigen::Matrix<Dtype, 5, Eigen::Dynamic>> fs,
-            Variances& variances,
-            Covariances& covariances);
+            const Eigen::Matrix<Dtype, 5, Eigen::Dynamic>& fs,
+            const Variances& variances,
+            const Covariances& covariances);
     };
 
 }  // namespace erl::sdf_mapping

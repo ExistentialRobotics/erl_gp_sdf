@@ -1,10 +1,12 @@
 # SdfQuery.srv
 
-geometry_msgs/PointStamped[] query_points
+geometry_msgs/Vector3[] query_points
 ---
+bool                    success
+bool                    compute_gradient
+bool                    compute_gradient_variance
+bool                    compute_covariance
 float64[]               signed_distances
 geometry_msgs/Vector3[] gradients
 float64[]               variances
 float64[]               covariances
-bool[]                  successes
-string[]                messages

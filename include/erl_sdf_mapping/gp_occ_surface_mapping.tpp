@@ -227,6 +227,39 @@ namespace erl::sdf_mapping {
     template<typename Dtype, int Dim>
     bool
     GpOccSurfaceMapping<Dtype, Dim>::Update(
+        const Eigen::Ref<const Eigen::MatrixXd> &rotation,
+        const Eigen::Ref<const Eigen::VectorXd> &translation,
+        const Eigen::Ref<const Eigen::MatrixXd> &scan,
+        const bool are_points,
+        const bool are_local) {
+        ERL_ASSERTM(rotation.rows() == Dim, "rotation.rows() != Dim");
+        ERL_ASSERTM(rotation.cols() == Dim, "rotation.cols() != Dim");
+        ERL_ASSERTM(translation.rows() == Dim, "translation.rows() != Dim");
+        MatrixX rotation_ = rotation.cast<Dtype>();
+        VectorX translation_ = translation.cast<Dtype>();
+        MatrixX scan_ = scan.cast<Dtype>();
+        if (!are_points) { return Update(rotation_, translation_, scan_); }  // scan is ranges
+
+        // convert points to ranges
+        ERL_ASSERTM(scan.rows() == Dim, "scan.rows() != Dim");
+        Ranges ranges;
+        if (Dim == 2) {
+            using SensorGp2D = gaussian_process::LidarGaussianProcess2D<Dtype>;
+            ranges = std::reinterpret_pointer_cast<SensorGp2D>(m_sensor_gp_)
+                         ->GetSensorFrame()
+                         ->PointCloudToRanges(rotation_, translation_, scan_, are_local);
+        } else {
+            using SensorGp3D = gaussian_process::RangeSensorGaussianProcess3D<Dtype>;
+            ranges = std::reinterpret_pointer_cast<SensorGp3D>(m_sensor_gp_)
+                         ->GetSensorFrame()
+                         ->PointCloudToRanges(rotation_, translation_, scan_, are_local);
+        }
+        return Update(rotation_, translation_, ranges);
+    }
+
+    template<typename Dtype, int Dim>
+    bool
+    GpOccSurfaceMapping<Dtype, Dim>::Update(
         const Eigen::Ref<const Rotation> &rotation,
         const Eigen::Ref<const Translation> &translation,
         const Eigen::Ref<const Ranges> &ranges) {
