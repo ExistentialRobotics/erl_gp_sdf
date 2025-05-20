@@ -1,6 +1,7 @@
 #include "erl_common/yaml.hpp"
 #include "erl_sdf_mapping/gp_occ_surface_mapping.hpp"
 #include "erl_sdf_mapping/gp_sdf_mapping.hpp"
+#include "erl_sdf_mapping/SaveMap.h"
 #include "erl_sdf_mapping/SdfQuery.h"
 
 #include <geometry_msgs/Vector3.h>
@@ -13,22 +14,7 @@
 #include <tf/transform_datatypes.h>
 #include <tf2_eigen/tf2_eigen.h>
 #include <tf2_ros/transform_listener.h>
-// using Dtype = float;
-// static constexpr int Dim = 2;
 
-// alias your GP‐based surface+SDF mapping types:
-// using SurfaceMapping = erl::sdf_mapping::GpOccSurfaceMapping<Dtype, Dim>;
-
-// using SdfMapping = erl::sdf_mapping::GpSdfMapping<Dtype, Dim, SurfaceMapping>;
-
-// param list:
-//  - surface_mapping_config: path to the yaml file for surface mapping
-//  - sdf_mapping_config: path to the yaml file for SDF mapping
-//  - use_odom: whether to use the odometry topic to get the sensor pose (default: false)
-//  - odom_topic: name of the odometry topic (default: "/jackal_velocity_controller/odom")
-//  - world_frame: name of the world frame (default: "map")
-//  - sensor_frame: name of the sensor frame (default: "front_laser")
-//  - scan_topic: name of the laser scan topic (default: "/front/scan")
 using namespace erl::common;
 using namespace erl::sdf_mapping;
 
@@ -363,7 +349,7 @@ private:
     void
     CallbackOdom(const nav_msgs::Odometry::ConstPtr& msg) {
         std::lock_guard<std::mutex> lock(m_odom_queue_lock_);
-        if (m_odom_queue_.size() >= m_setting_.odom_queue_size) {
+        if (static_cast<int>(m_odom_queue_.size()) >= m_setting_.odom_queue_size) {
             m_odom_queue_[m_odom_queue_head_] = msg;
             m_odom_queue_head_ = (m_odom_queue_head_ + 1) % m_setting_.odom_queue_size;
         } else {
@@ -592,9 +578,23 @@ private:
 
     bool
     CallbackSaveMap(
-        erl_sdf_mapping::SdfQuery::Request& req,
-        erl_sdf_mapping::SdfQuery::Response& res) {
-        return false;
+        erl_sdf_mapping::SaveMap::Request& req,
+        erl_sdf_mapping::SaveMap::Response& res) {
+        if (!m_sdf_mapping_) {
+            ROS_WARN("SDF mapping is not initialized");
+            res.success = false;
+            return false;
+        }
+        if (req.name.empty()) {
+            ROS_WARN("Map file name is empty");
+            res.success = false;
+            return false;
+        }
+        std::filesystem::path map_file = req.name;
+        map_file = std::filesystem::absolute(map_file);
+        std::filesystem::create_directories(map_file.parent_path());
+        res.success = Serialization<AbstractGpSdfMapping>::Write(map_file, m_sdf_mapping_.get());
+        return true;
     }
 };
 

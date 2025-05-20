@@ -57,6 +57,13 @@ RUN echo "deb [signed-by=/etc/apt/keyrings/librealsense.pgp] https://librealsens
     librealsense2-gl-dev \
     librealsense2-gl-dbg
 
+####################################################################################################
+# erl_sdf_mapping dependencies
+####################################################################################################
+RUN DEBIAN_FRONTEND=noninteractive apt-get install -y \
+    ros-noetic-grid-map-ros \
+    ros-noetic-octomap-msgs
+
 RUN apt-get clean  && rm -rf /var/lib/apt/lists/*
 RUN if [ -n "$APT_MIRROR" ]; then \
         mv /etc/apt/sources.list.backup /etc/apt/sources.list; \
