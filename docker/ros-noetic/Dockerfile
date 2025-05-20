@@ -64,6 +64,17 @@ RUN DEBIAN_FRONTEND=noninteractive apt-get install -y \
     ros-noetic-grid-map-ros \
     ros-noetic-octomap-msgs
 
+####################################################################################################
+# Miscellaneous
+####################################################################################################
+# Install git-credential-manager for git authentication
+RUN wget https://github.com/git-ecosystem/git-credential-manager/releases/download/v2.6.1/gcm-linux_amd64.2.6.1.deb && \
+    DEBIAN_FRONTEND=noninteractive apt install -y ./gcm-linux_amd64.2.6.1.deb && \
+    rm gcm-linux_amd64.2.6.1.deb && ln -s /usr/local/bin/git-credential-manager /usr/bin/git-credential-manager
+
+####################################################################################################
+# Clean up
+####################################################################################################
 RUN apt-get clean  && rm -rf /var/lib/apt/lists/*
 RUN if [ -n "$APT_MIRROR" ]; then \
         mv /etc/apt/sources.list.backup /etc/apt/sources.list; \
