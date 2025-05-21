@@ -48,17 +48,15 @@ target_include_directories(${PROJECT_NAME}
         PUBLIC
         $<BUILD_INTERFACE:${${PROJECT_NAME}_INCLUDE_DIR}>
         $<INSTALL_INTERFACE:${${PROJECT_NAME}_INSTALL_INCLUDE_DIR}>)
-if (ROS_ACTIVATED)
-    if (ROS_VERSION STREQUAL "1")
-        target_include_directories(${PROJECT_NAME} SYSTEM PUBLIC ${catkin_INCLUDE_DIRS})
-        target_link_libraries(${PROJECT_NAME} PUBLIC ${catkin_LIBRARIES})
+if (ROS1_ACTIVATED)
+    target_include_directories(${PROJECT_NAME} SYSTEM PUBLIC ${catkin_INCLUDE_DIRS})
+    target_link_libraries(${PROJECT_NAME} PUBLIC ${catkin_LIBRARIES})
 
-        add_executable(sdf_mapping_node src/ros1/sdf_mapping_node.cpp)
-        target_link_libraries(sdf_mapping_node PUBLIC ${PROJECT_NAME}::${PROJECT_NAME})
+    add_executable(sdf_mapping_node src/ros1/sdf_mapping_node.cpp)
+    target_link_libraries(sdf_mapping_node PUBLIC ${PROJECT_NAME}::${PROJECT_NAME})
 
-        add_executable(sdf_grid_map_node src/ros1/sdf_grid_map_node.cpp)
-        target_link_libraries(sdf_grid_map_node PUBLIC ${PROJECT_NAME}::${PROJECT_NAME})
-    endif ()
+    add_executable(sdf_grid_map_node src/ros1/sdf_grid_map_node.cpp)
+    target_link_libraries(sdf_grid_map_node PUBLIC ${PROJECT_NAME}::${PROJECT_NAME})
 else ()
     if (DEFINED ${PROJECT_NAME}_ERL_PACKAGES)
         target_link_libraries(${PROJECT_NAME} PUBLIC ${${PROJECT_NAME}_ERL_PACKAGES})

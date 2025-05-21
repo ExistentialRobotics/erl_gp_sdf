@@ -61,8 +61,7 @@ RUN echo "deb [signed-by=/etc/apt/keyrings/librealsense.pgp] https://librealsens
 # erl_sdf_mapping dependencies
 ####################################################################################################
 RUN DEBIAN_FRONTEND=noninteractive apt-get install -y \
-    ros-noetic-grid-map-ros \
-    ros-noetic-octomap-msgs
+    ros-noetic-grid-map-ros
 
 ####################################################################################################
 # Miscellaneous
