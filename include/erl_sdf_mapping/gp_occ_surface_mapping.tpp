@@ -198,6 +198,9 @@ namespace erl::sdf_mapping {
             m_pos_perturb_(i, 2 * i) = d;
             m_pos_perturb_(i, 2 * i + 1) = -d;
         }
+
+        this->m_map_dim_ = Dim;
+        this->m_is_double_ = std::is_same_v<Dtype, double>;
     }
 
     template<typename Dtype, int Dim>
@@ -289,6 +292,42 @@ namespace erl::sdf_mapping {
     }
 
     template<typename Dtype, int Dim>
+    std::vector<SurfaceData<double, 3>>
+    GpOccSurfaceMapping<Dtype, Dim>::GetSurfaceData() const {
+        std::vector<SurfaceData<Dtype, Dim>> buffer;
+        std::vector<std::size_t> unused_indices;
+        {
+            auto lock = const_cast<GpOccSurfaceMapping *>(this)->GetLockGuard();
+            buffer = m_surf_data_manager_.GetBuffer();
+            unused_indices = m_surf_data_manager_.GetAvailableIndices();
+        }
+        std::sort(unused_indices.begin(), unused_indices.end());  // sort in ascending order
+        std::vector<SurfaceData<double, 3>> result;
+        result.reserve(buffer.size());
+        std::size_t remove_idx = 0;
+        for (std::size_t read_idx = 0; read_idx < buffer.size(); ++read_idx) {
+            if (remove_idx < unused_indices.size() && read_idx == unused_indices[remove_idx]) {
+                ++remove_idx;  // skip the unused index
+                continue;
+            }
+            auto &data = buffer[read_idx];
+            SurfaceData<double, 3> data3d;
+            for (int i = 0; i < Dim; ++i) {
+                data3d.position[i] = data.position[i];
+                data3d.normal[i] = data.normal[i];
+            }
+            if (Dim == 2) {
+                data3d.position[2] = 0.0;
+                data3d.normal[2] = 0.0;
+            }
+            data3d.var_position = data.var_position;
+            data3d.var_normal = data.var_normal;
+            result.emplace_back(std::move(data3d));
+        }
+        return result;
+    }
+
+    template<typename Dtype, int Dim>
     typename GpOccSurfaceMapping<Dtype, Dim>::SurfaceDataIterator
     GpOccSurfaceMapping<Dtype, Dim>::BeginSurfaceData() {
         return SurfaceDataIterator(this);
@@ -298,12 +337,6 @@ namespace erl::sdf_mapping {
     typename GpOccSurfaceMapping<Dtype, Dim>::SurfaceDataIterator
     GpOccSurfaceMapping<Dtype, Dim>::EndSurfaceData() {
         return SurfaceDataIterator(nullptr);
-    }
-
-    template<typename Dtype, int Dim>
-    std::lock_guard<std::mutex>
-    GpOccSurfaceMapping<Dtype, Dim>::GetLockGuard() {
-        return std::lock_guard(m_mutex_);
     }
 
     template<typename Dtype, int Dim>
@@ -348,7 +381,7 @@ namespace erl::sdf_mapping {
     template<typename Dtype, int Dim>
     const std::vector<typename GpOccSurfaceMapping<Dtype, Dim>::SurfData> &
     GpOccSurfaceMapping<Dtype, Dim>::GetSurfaceDataBuffer() const {
-        return m_surf_data_manager_.GetEntries();
+        return m_surf_data_manager_.GetBuffer();
     }
 
     template<typename Dtype, int Dim>

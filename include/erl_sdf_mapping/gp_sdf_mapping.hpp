@@ -20,7 +20,12 @@ namespace erl::sdf_mapping {
     class AbstractGpSdfMapping {
         inline static std::unordered_map<std::string, std::string>
             s_surface_mapping_to_sdf_mapping_ = {};
+
+    protected:
         std::mutex m_mutex_;
+        std::shared_ptr<AbstractSurfaceMapping> m_abstract_surface_mapping_ = nullptr;
+        int m_map_dim_ = 3;
+        bool m_is_double_ = false;
 
     public:
         using Factory = common::FactoryPattern<
@@ -29,9 +34,6 @@ namespace erl::sdf_mapping {
             false,                                   // RawPtr
             std::shared_ptr<common::YamlableBase>,   // Args: surface_mapping_setting
             std::shared_ptr<common::YamlableBase>>;  // Args: sdf_mapping_setting
-
-        std::shared_ptr<AbstractSurfaceMapping> abstract_surface_mapping = nullptr;
-        int map_dim = 3;
 
         virtual ~AbstractGpSdfMapping() = default;
 
@@ -49,7 +51,24 @@ namespace erl::sdf_mapping {
         Register(const std::string& mapping_type = "");
 
         [[nodiscard]] std::lock_guard<std::mutex>
-        GetLockGuard();
+        GetLockGuard() {
+            return std::lock_guard<std::mutex>(m_mutex_);
+        }
+
+        [[nodiscard]] std::shared_ptr<AbstractSurfaceMapping>
+        GetAbstractSurfaceMapping() const {
+            return m_abstract_surface_mapping_;
+        }
+
+        [[nodiscard]] int
+        GetMapDim() const {
+            return m_map_dim_;
+        }
+
+        [[nodiscard]] bool
+        IsDoublePrecision() const {
+            return m_is_double_;
+        }
 
         /**
          * Update the SDF mapping with the sensor observation. Derived classes should implement this

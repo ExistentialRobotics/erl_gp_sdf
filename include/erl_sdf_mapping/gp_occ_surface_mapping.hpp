@@ -167,7 +167,6 @@ namespace erl::sdf_mapping {
         Eigen::Matrix<Dtype, Dim, 2 * Dim> m_pos_perturb_ = {};
         Dtype m_surface_resolution_inv_ = 0.0f;  // inverse of the tree resolution
         KeySet m_changed_keys_ = {};
-        std::mutex m_mutex_;
 
     public:
         explicit GpOccSurfaceMapping(std::shared_ptr<Setting> setting);
@@ -210,6 +209,9 @@ namespace erl::sdf_mapping {
             const Eigen::Ref<const Translation> &translation,
             const Eigen::Ref<const Ranges> &ranges);
 
+        [[nodiscard]] std::vector<SurfaceData<double, 3>>
+        GetSurfaceData() const override;
+
         // surface data access methods
 
         SurfaceDataIterator
@@ -219,13 +221,6 @@ namespace erl::sdf_mapping {
         EndSurfaceData();
 
         // implement the methods required by GpSdfMapping
-
-        /**
-         * Lock the mutex of the mapping.
-         * @return the lock guard of the mutex.
-         */
-        [[nodiscard]] std::lock_guard<std::mutex>
-        GetLockGuard();
 
         /**
          * @return the scaling factor of the map.

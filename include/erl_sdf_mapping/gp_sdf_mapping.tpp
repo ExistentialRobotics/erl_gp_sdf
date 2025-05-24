@@ -102,8 +102,9 @@ namespace erl::sdf_mapping {
         ERL_ASSERTM(m_setting_ != nullptr, "setting is nullptr.");
         ERL_ASSERTM(m_surface_mapping_ != nullptr, "surface_mapping is nullptr.");
         ERL_ASSERTM(m_setting_->gp_sdf_area_scale > 1, "GP area scale must be greater than 1.");
-        abstract_surface_mapping = m_surface_mapping_;
-        map_dim = Dim;
+        this->m_abstract_surface_mapping_ = m_surface_mapping_;
+        this->m_map_dim_ = Dim;
+        this->m_is_double_ = std::is_same_v<Dtype, double>;
     }
 
     template<typename Dtype, int Dim, typename SurfaceMapping>

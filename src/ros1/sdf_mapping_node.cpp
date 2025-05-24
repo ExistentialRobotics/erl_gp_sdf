@@ -1,4 +1,8 @@
 #include "erl_common/yaml.hpp"
+#include "erl_geometry/abstract_occupancy_octree.hpp"
+#include "erl_geometry/abstract_occupancy_quadtree.hpp"
+#include "erl_geometry/ros_msgs/occupancy_tree_msg.hpp"
+#include "erl_sdf_mapping/bayesian_hilbert_surface_mapping.hpp"
 #include "erl_sdf_mapping/gp_occ_surface_mapping.hpp"
 #include "erl_sdf_mapping/gp_sdf_mapping.hpp"
 #include "erl_sdf_mapping/SaveMap.h"
@@ -7,6 +11,7 @@
 #include <geometry_msgs/Vector3.h>
 #include <nav_msgs/Odometry.h>
 #include <ros/ros.h>
+#include <rviz/default_plugin/point_cloud_transformers.h>
 #include <sensor_msgs/Image.h>
 #include <sensor_msgs/image_encodings.h>
 #include <sensor_msgs/LaserScan.h>
@@ -53,6 +58,20 @@ struct SdfMappingNodeSetting : Yamlable<SdfMappingNodeSetting> {
     bool scan_in_local_frame = false;
     // scale for depth image, 0.001 converts mm to m.
     float depth_scale = 0.001f;
+    // if true, publish the occupancy tree used by the surface mapping.
+    bool publish_tree = false;
+    // name of the topic to publish the occupancy tree
+    std::string publish_tree_topic = "surface_mapping_tree";
+    // if true, use binary format to publish the occupancy tree, which makes the message smaller.
+    bool publish_tree_binary = true;
+    // frequency to publish the occupancy tree
+    double publish_tree_frequency = 5.0;
+    // if true, publish the surface points used by the sdf mapping.
+    bool publish_surface_points = false;
+    // name of the topic to publish the surface points
+    std::string publish_surface_points_topic = "surface_points";
+    // frequency to publish the surface points
+    double publish_surface_points_frequency = 5.0;
 };
 
 class SdfMappingNode {
@@ -67,15 +86,30 @@ class SdfMappingNode {
     ros::NodeHandle m_nh_;
     ros::Subscriber m_sub_odom_, m_sub_scan_;
     ros::ServiceServer m_srv_query_sdf_, m_srv_save_map_;
+    ros::Publisher m_pub_tree_;
+    ros::Publisher m_pub_surface_points_;
+    ros::Timer m_pub_tree_timer_;
+    ros::Timer m_pub_surface_points_timer_;
+    erl_geometry::OccupancyTreeMsg m_msg_tree_;
+    sensor_msgs::PointCloud2 m_msg_surface_points_;
+
     std::shared_ptr<YamlableBase> m_surface_mapping_cfg_ = nullptr;
     std::shared_ptr<YamlableBase> m_sdf_mapping_cfg_ = nullptr;
     std::shared_ptr<AbstractGpSdfMapping> m_sdf_mapping_ = nullptr;
-    bool m_is_double_ = false;
+    std::shared_ptr<const void> m_tree_ = nullptr;  // used to store the occupancy tree
+    bool m_tree_is_2d_ = false;                     // is the occupancy tree 2D?
+    bool m_tree_is_double_ = false;                 // is the occupancy tree double precision?
+
+    // for the sensor pose
+
     std::mutex m_odom_queue_lock_;
     std::vector<nav_msgs::Odometry::ConstPtr> m_odom_queue_{};
     int m_odom_queue_head_ = -1;
     tf2_ros::Buffer m_tf_buffer_;
     tf2_ros::TransformListener m_tf_listener_{m_tf_buffer_};
+
+    // for the scan data
+
     sensor_msgs::LaserScan::ConstPtr m_lidar_scan_2d_ = nullptr;
     sensor_msgs::PointCloud2::ConstPtr m_lidar_scan_3d_ = nullptr;
     sensor_msgs::Image::ConstPtr m_depth_image_ = nullptr;
@@ -121,13 +155,6 @@ public:
             ros::shutdown();
             return;
         }
-        if (m_sdf_mapping_->map_dim == 2) {
-            auto setting = std::dynamic_pointer_cast<GpSdfMappingSetting2Dd>(m_sdf_mapping_cfg_);
-            m_is_double_ = setting != nullptr;
-        } else {
-            auto setting = std::dynamic_pointer_cast<GpSdfMappingSetting3Dd>(m_sdf_mapping_cfg_);
-            m_is_double_ = setting != nullptr;
-        }
 
         if (m_setting_.use_odom) {
             m_sub_odom_ =
@@ -167,6 +194,59 @@ public:
         m_srv_save_map_ =
             m_nh_.advertiseService("save_map", &SdfMappingNode::CallbackSaveMap, this);
 
+        // publish the occupancy tree used by the surface mapping
+        if (m_setting_.publish_tree) {
+            if (!TryToGetSurfaceMappingTree()) {
+                ROS_FATAL("Failed to get surface mapping tree");
+                ros::shutdown();
+                return;
+            }
+            m_pub_tree_ = m_nh_.advertise<erl_geometry::OccupancyTreeMsg>(
+                m_setting_.publish_tree_topic,
+                1,
+                true);
+            m_pub_tree_timer_ = m_nh_.createTimer(
+                ros::Duration(1.0 / m_setting_.publish_tree_frequency),
+                &SdfMappingNode::CallbackPublishTree,
+                this);
+            m_msg_tree_.header.frame_id = m_setting_.world_frame;
+            m_msg_tree_.header.seq = -1;
+        }
+
+        // publish the surface points used by the sdf mapping
+        if (m_setting_.publish_surface_points) {
+            m_pub_surface_points_ = m_nh_.advertise<sensor_msgs::PointCloud2>(
+                m_setting_.publish_surface_points_topic,
+                1,
+                true);
+            m_pub_surface_points_timer_ = m_nh_.createTimer(
+                ros::Duration(1.0 / m_setting_.publish_surface_points_frequency),
+                &SdfMappingNode::CallbackPublishSurfacePoints,
+                this);
+            m_msg_surface_points_.header.frame_id = m_setting_.world_frame;
+            m_msg_surface_points_.header.seq = -1;
+            m_msg_surface_points_.fields.resize(8);
+            static const char* kSurfacePointsFieldNames[] = {
+                "x",
+                "y",
+                "z",
+                "normal_x",
+                "normal_y",
+                "normal_z",
+                "var_position",
+                "var_normal",
+            };
+            for (int i = 0; i < 8; ++i) {
+                m_msg_surface_points_.fields[i].name = kSurfacePointsFieldNames[i];
+                m_msg_surface_points_.fields[i].offset = i * 4;  // each field is 4 bytes (float)
+                m_msg_surface_points_.fields[i].datatype = sensor_msgs::PointField::FLOAT32;
+            }
+            m_msg_surface_points_.point_step = 32;       // 8 fields * 4 bytes each
+            m_msg_surface_points_.is_bigendian = false;  // little-endian
+            m_msg_surface_points_.is_dense = false;      // there may be NaN values in the normals
+            m_msg_surface_points_.height = 1;            // unorganized point cloud
+        }
+
         ROS_INFO("SdfMappingNode ready. Waiting for scans + queries...");
     }
 
@@ -205,6 +285,7 @@ private:
         if (!LoadParam("sdf_mapping_setting_file", m_setting_.sdf_mapping_setting_file)) {
             return false;
         }
+        if (!LoadParam("sdf_mapping_type", m_setting_.sdf_mapping_type)) { return false; }
         if (!LoadParam("use_odom", m_setting_.use_odom)) { return false; }
         if (!LoadParam("odom_topic", m_setting_.odom_topic)) { return false; }
         if (!LoadParam("odom_queue_size", m_setting_.odom_queue_size)) { return false; }
@@ -212,25 +293,32 @@ private:
         if (!LoadParam("sensor_frame", m_setting_.sensor_frame)) { return false; }
         if (!LoadParam("scan_topic", m_setting_.scan_topic)) { return false; }
         if (!LoadParam("scan_type", m_setting_.scan_type)) { return false; }
-
+        if (!LoadParam("scan_in_local_frame", m_setting_.scan_in_local_frame)) { return false; }
+        if (!LoadParam("depth_scale", m_setting_.depth_scale)) { return false; }
+        if (!LoadParam("publish_tree", m_setting_.publish_tree)) { return false; }
+        if (!LoadParam("publish_tree_topic", m_setting_.publish_tree_topic)) { return false; }
+        if (!LoadParam("publish_tree_binary", m_setting_.publish_tree_binary)) { return false; }
+        if (!LoadParam("publish_tree_frequency", m_setting_.publish_tree_frequency)) {
+            return false;
+        }
+        if (!LoadParam("publish_surface_points", m_setting_.publish_surface_points)) {
+            return false;
+        }
+        if (!LoadParam("publish_surface_points_topic", m_setting_.publish_surface_points_topic)) {
+            return false;
+        }
+        if (!LoadParam(
+                "publish_surface_points_frequency",
+                m_setting_.publish_surface_points_frequency)) {
+            return false;
+        }
+        // check the parameters
         if (m_setting_.surface_mapping_setting_type.empty()) {
             ROS_WARN("You must set ~surface_mapping_setting_type");
             return false;
         }
-        if (m_setting_.sdf_mapping_setting_type.empty()) {
-            ROS_WARN("You must set ~sdf_mapping_setting_type");
-            return false;
-        }
-        if (m_setting_.sdf_mapping_type.empty()) {
-            ROS_WARN("You must set ~sdf_mapping_type");
-            return false;
-        }
         if (m_setting_.surface_mapping_setting_file.empty()) {
             ROS_WARN("You must set ~surface_mapping_config");
-            return false;
-        }
-        if (m_setting_.sdf_mapping_setting_file.empty()) {
-            ROS_WARN("You must set ~sdf_mapping_config");
             return false;
         }
         if (!std::filesystem::exists(m_setting_.surface_mapping_setting_file)) {
@@ -239,10 +327,22 @@ private:
                 m_setting_.surface_mapping_setting_file.c_str());
             return false;
         }
+        if (m_setting_.sdf_mapping_setting_type.empty()) {
+            ROS_WARN("You must set ~sdf_mapping_setting_type");
+            return false;
+        }
+        if (m_setting_.sdf_mapping_setting_file.empty()) {
+            ROS_WARN("You must set ~sdf_mapping_config");
+            return false;
+        }
         if (!std::filesystem::exists(m_setting_.sdf_mapping_setting_file)) {
             ROS_WARN(
                 "SDF mapping setting file %s does not exist",
                 m_setting_.sdf_mapping_setting_file.c_str());
+            return false;
+        }
+        if (m_setting_.sdf_mapping_type.empty()) {
+            ROS_WARN("You must set ~sdf_mapping_type");
             return false;
         }
         if (m_setting_.use_odom && m_setting_.odom_topic.empty()) {
@@ -251,6 +351,14 @@ private:
         }
         if (m_setting_.odom_queue_size <= 0) {
             ROS_WARN("Odometry queue size must be positive");
+            return false;
+        }
+        if (m_setting_.world_frame.empty()) {
+            ROS_WARN("World frame is empty");
+            return false;
+        }
+        if (!m_setting_.use_odom && m_setting_.sensor_frame.empty()) {
+            ROS_WARN("Sensor frame is empty but use_odom is false");
             return false;
         }
         if (m_setting_.scan_topic.empty()) {
@@ -267,7 +375,75 @@ private:
             ROS_WARN("Unknown scan type %s", m_setting_.scan_type.c_str());
             return false;
         }
+        if (m_setting_.publish_tree && m_setting_.publish_tree_topic.empty()) {
+            ROS_WARN("Publish tree topic is empty but publish_tree is true");
+            return false;
+        }
+        if (m_setting_.publish_tree && m_setting_.publish_tree_frequency <= 0.0) {
+            ROS_WARN("Publish tree frequency must be positive");
+            return false;
+        }
+        if (m_setting_.publish_surface_points && m_setting_.publish_surface_points_topic.empty()) {
+            ROS_WARN("Publish surface points topic is empty but publish_surface_points is true");
+            return false;
+        }
+        if (m_setting_.publish_surface_points &&
+            m_setting_.publish_surface_points_frequency <= 0.0) {
+            ROS_WARN("Publish surface points frequency must be positive");
+            return false;
+        }
         return true;
+    }
+
+    bool
+    TryToGetSurfaceMappingTree() {
+        auto surface_mapping = m_sdf_mapping_->GetAbstractSurfaceMapping();
+        m_tree_is_2d_ = surface_mapping->GetMapDim() == 2;
+        m_tree_is_double_ = surface_mapping->IsDoublePrecision();
+        if (m_tree_is_2d_) {
+            if (m_tree_is_double_) {
+                m_tree_ = GetTreeFromGpOccSurfaceMapping<double, 2>();
+                if (m_tree_) { return true; }
+                m_tree_ = GetTreeFromBayesianHilbertSurfaceMapping<double, 2>();
+                if (m_tree_) { return true; }
+                return false;
+            }
+            m_tree_ = GetTreeFromGpOccSurfaceMapping<float, 2>();
+            if (m_tree_) { return true; }
+            m_tree_ = GetTreeFromBayesianHilbertSurfaceMapping<float, 2>();
+            if (m_tree_) { return true; }
+            return false;
+        }
+        if (m_tree_is_double_) {
+            m_tree_ = GetTreeFromGpOccSurfaceMapping<double, 3>();
+            if (m_tree_) { return true; }
+            m_tree_ = GetTreeFromBayesianHilbertSurfaceMapping<double, 3>();
+            if (m_tree_) { return true; }
+            return false;
+        }
+        m_tree_ = GetTreeFromGpOccSurfaceMapping<float, 3>();
+        if (m_tree_) { return true; }
+        m_tree_ = GetTreeFromBayesianHilbertSurfaceMapping<float, 3>();
+        if (m_tree_) { return true; }
+        return false;
+    }
+
+    template<typename Dtype, int Dim>
+    std::shared_ptr<const void>
+    GetTreeFromGpOccSurfaceMapping() {
+        auto mapping = std::dynamic_pointer_cast<GpOccSurfaceMapping<Dtype, Dim>>(
+            m_sdf_mapping_->GetAbstractSurfaceMapping());
+        if (!mapping) { return nullptr; }
+        return mapping->GetTree();
+    }
+
+    template<typename Dtype, int Dim>
+    std::shared_ptr<const void>
+    GetTreeFromBayesianHilbertSurfaceMapping() {
+        auto mapping = std::dynamic_pointer_cast<BayesianHilbertSurfaceMapping<Dtype, Dim>>(
+            m_sdf_mapping_->GetAbstractSurfaceMapping());
+        if (!mapping) { return nullptr; }
+        return mapping->GetTree();
     }
 
     // get the pose for time t
@@ -302,7 +478,7 @@ private:
                 return {false, {}, {}};
             }
             auto& pose = odom->pose.pose;
-            if (m_sdf_mapping_->map_dim == 2) {
+            if (m_sdf_mapping_->GetMapDim() == 2) {
                 const double yaw = tf::getYaw(pose.orientation);
                 Eigen::Matrix2d rotation = Eigen::Rotation2Dd(yaw).toRotationMatrix();
                 Eigen::Vector2d translation(pose.position.x, pose.position.y);
@@ -333,7 +509,7 @@ private:
             }
         }
         Eigen::Matrix4d pose = tf2::transformToEigen(transform_stamped).matrix();
-        if (m_sdf_mapping_->map_dim == 2) {
+        if (m_sdf_mapping_->GetMapDim() == 2) {
             Eigen::Matrix2d rotation = pose.block<2, 2>(0, 0);
             Eigen::Vector2d translation = pose.block<2, 1>(0, 3);
             return {true, rotation, translation};
@@ -374,6 +550,144 @@ private:
         TryUpdate(msg->header.stamp);
     }
 
+    bool
+    GetScanFromLaserScan(Eigen::MatrixXd& scan) {
+        if (!m_lidar_scan_2d_) {
+            ROS_WARN("No laser scan data available");
+            return false;
+        }
+        auto& scan_msg = *m_lidar_scan_2d_;
+        if (scan_msg.ranges.empty()) {
+            ROS_WARN("Laser scan data is empty");
+            m_lidar_scan_2d_.reset();
+            return false;
+        }
+        scan = Eigen::Map<const Eigen::VectorXf>(scan_msg.ranges.data(), scan_msg.ranges.size())
+                   .cast<double>();
+        m_lidar_scan_2d_.reset();
+        return true;
+    }
+
+    bool
+    GetScanFromPointCloud2(Eigen::MatrixXd& scan) {
+        if (!m_lidar_scan_3d_) {
+            ROS_WARN("No point cloud data available");
+            return false;
+        }
+        auto& cloud = *m_lidar_scan_3d_;
+        if (cloud.fields.empty() || cloud.data.empty()) {
+            ROS_WARN("Point cloud data is empty");
+            m_lidar_scan_3d_.reset();
+            return false;
+        }
+        if (cloud.data.size() != cloud.width * cloud.height * cloud.point_step) {
+            ROS_WARN("Point cloud data size does not match width, height, and point step");
+            m_lidar_scan_3d_.reset();
+            return false;
+        }
+        if (cloud.row_step != cloud.width * cloud.point_step) {
+            ROS_WARN("Point cloud row step does not match width and point step");
+            m_lidar_scan_3d_.reset();
+            return false;
+        }
+
+        // validate x, y, z are present
+        const int32_t xi = rviz::findChannelIndex(m_lidar_scan_3d_, "x");
+        const int32_t yi = rviz::findChannelIndex(m_lidar_scan_3d_, "y");
+        const int32_t zi = rviz::findChannelIndex(m_lidar_scan_3d_, "z");
+        if (xi < 0 || yi < 0 || zi < 0) {
+            ROS_WARN("Point cloud does not contain x, y, z fields");
+            m_lidar_scan_3d_.reset();
+            return false;
+        }
+        // validate x, y, z fields have the same data type
+        const uint8_t& xtype = cloud.fields[xi].datatype;
+        const uint8_t& ytype = cloud.fields[yi].datatype;
+        const uint8_t& ztype = cloud.fields[zi].datatype;
+        if (xtype != ytype || xtype != ztype || ytype != ztype) {
+            ROS_WARN("Point cloud x, y, z fields have different data types");
+            m_lidar_scan_3d_.reset();
+            return false;
+        }
+        const uint32_t xoff = cloud.fields[xi].offset;
+        const uint32_t yoff = cloud.fields[yi].offset;
+        const uint32_t zoff = cloud.fields[zi].offset;
+        const uint32_t point_step = cloud.point_step;
+        scan.resize(3, static_cast<long>(cloud.width * cloud.height));
+        long point_count = 0;
+        const uint8_t* ptr = cloud.data.data();
+        const uint8_t* ptr_end = cloud.data.data() + cloud.data.size();
+        if (xtype == sensor_msgs::PointField::FLOAT32) {
+            for (; ptr < ptr_end; ptr += point_step) {
+                double* p_out = scan.col(point_count).data();
+                p_out[0] = static_cast<double>(*reinterpret_cast<const float*>(ptr + xoff));
+                p_out[1] = static_cast<double>(*reinterpret_cast<const float*>(ptr + yoff));
+                p_out[2] = static_cast<double>(*reinterpret_cast<const float*>(ptr + zoff));
+                if (std::isfinite(p_out[0]) && std::isfinite(p_out[1]) && std::isfinite(p_out[2])) {
+                    ++point_count;
+                }
+            }
+        } else if (xtype == sensor_msgs::PointField::FLOAT64) {
+            for (; ptr < ptr_end; ptr += point_step) {
+                double* p_out = scan.col(point_count).data();
+                p_out[0] = *reinterpret_cast<const double*>(ptr + xoff);
+                p_out[1] = *reinterpret_cast<const double*>(ptr + yoff);
+                p_out[2] = *reinterpret_cast<const double*>(ptr + zoff);
+                if (std::isfinite(p_out[0]) && std::isfinite(p_out[1]) && std::isfinite(p_out[2])) {
+                    ++point_count;
+                }
+            }
+        } else {
+            ROS_WARN("Unsupported point cloud data type %d", xtype);
+            m_lidar_scan_3d_.reset();
+            return false;
+        }
+        if (point_count == 0) {
+            ROS_WARN("No valid points in point cloud");
+            m_lidar_scan_3d_.reset();
+            return false;
+        }
+        scan.conservativeResize(3, point_count);
+        m_lidar_scan_3d_.reset();
+        return true;
+    }
+
+    bool
+    GetScanFromDepthImage(Eigen::MatrixXd& scan) {
+        if (!m_depth_image_) {
+            ROS_WARN("No depth image available");
+            return false;
+        }
+        using namespace sensor_msgs::image_encodings;
+        if (m_depth_image_->encoding == TYPE_32FC1) {
+            Eigen::MatrixXf depth_image = Eigen::Map<const Eigen::MatrixXf>(
+                reinterpret_cast<const float*>(m_depth_image_->data.data()),
+                m_depth_image_->width,
+                m_depth_image_->height);
+            scan = depth_image.cast<double>().transpose();
+        } else if (m_depth_image_->encoding == TYPE_64FC1) {
+            scan = Eigen::Map<const Eigen::MatrixXd>(
+                       reinterpret_cast<const double*>(m_depth_image_->data.data()),
+                       m_depth_image_->width,
+                       m_depth_image_->height)
+                       .transpose();
+        } else if (m_depth_image_->encoding == TYPE_16UC1) {
+            scan = Eigen::Map<const Eigen::MatrixX<uint16_t>>(
+                       reinterpret_cast<const uint16_t*>(m_depth_image_->data.data()),
+                       m_depth_image_->width,
+                       m_depth_image_->height)
+                       .cast<double>()
+                       .transpose();
+        } else {
+            ROS_WARN("Unsupported depth image encoding %s", m_depth_image_->encoding.c_str());
+            m_depth_image_.reset();
+            return false;
+        }
+        if (scan.size() > 0) { scan.array() *= m_setting_.depth_scale; }  // convert to meters
+        m_depth_image_.reset();
+        return true;
+    }
+
     void
     TryUpdate(const ros::Time& time) {
         if (!m_lidar_scan_2d_ && !m_lidar_scan_3d_ && !m_depth_image_) {
@@ -386,85 +700,22 @@ private:
             return;
         }
 
-        const bool in_local = m_setting_.scan_in_local_frame;
         bool is_point = false;
         Eigen::MatrixXd scan;
         switch (m_scan_type_) {
-            case ScanType::Laser: {
-                if (!m_lidar_scan_2d_) {
-                    ROS_WARN("No laser scan data available");
-                    return;
-                }
-                scan = Eigen::Map<const Eigen::VectorXf>(
-                           m_lidar_scan_2d_->ranges.data(),
-                           m_lidar_scan_2d_->ranges.size())
-                           .cast<double>();
+            case ScanType::Laser:
+                if (!GetScanFromLaserScan(scan)) { return; }
                 is_point = false;
-                m_lidar_scan_2d_.reset();
                 break;
-            }
-            case ScanType::PointCloud: {
-                if (!m_lidar_scan_3d_) {
-                    ROS_WARN("No point cloud data available");
-                    return;
-                }
-                uint32_t num_points = m_lidar_scan_3d_->width * m_lidar_scan_3d_->height;
-                const uint8_t& data_type = m_lidar_scan_3d_->fields[0].datatype;
-                if (data_type == sensor_msgs::PointField::FLOAT32) {
-                    scan = Eigen::Map<const Eigen::Matrix3X<float>>(
-                               reinterpret_cast<const float*>(m_lidar_scan_3d_->data.data()),
-                               3,
-                               num_points)
-                               .cast<double>();
-                } else if (data_type == sensor_msgs::PointField::FLOAT64) {
-                    scan = Eigen::Map<const Eigen::Matrix3X<double>>(
-                        reinterpret_cast<const double*>(m_lidar_scan_3d_->data.data()),
-                        3,
-                        num_points);
-                } else {
-                    ROS_WARN("Unsupported point cloud data type");
-                    return;
-                }
+            case ScanType::PointCloud:
+                if (!GetScanFromPointCloud2(scan)) { return; }
                 is_point = true;
-                m_lidar_scan_3d_.reset();
                 break;
-            }
-            case ScanType::Depth: {
-                if (!m_depth_image_) {
-                    ROS_WARN("No depth image data available");
-                    return;
-                }
-                using namespace sensor_msgs::image_encodings;
-                if (m_depth_image_->encoding == TYPE_32FC1) {
-                    Eigen::MatrixXf depth_image = Eigen::Map<const Eigen::MatrixXf>(
-                        reinterpret_cast<const float*>(m_depth_image_->data.data()),
-                        m_depth_image_->width,
-                        m_depth_image_->height);
-                    scan = depth_image.cast<double>().transpose();
-                } else if (m_depth_image_->encoding == TYPE_64FC1) {
-                    scan = Eigen::Map<const Eigen::MatrixXd>(
-                               reinterpret_cast<const double*>(m_depth_image_->data.data()),
-                               m_depth_image_->width,
-                               m_depth_image_->height)
-                               .transpose();
-                } else if (m_depth_image_->encoding == TYPE_16UC1) {
-                    scan = Eigen::Map<const Eigen::MatrixX<uint16_t>>(
-                               reinterpret_cast<const uint16_t*>(m_depth_image_->data.data()),
-                               m_depth_image_->width,
-                               m_depth_image_->height)
-                               .cast<double>()
-                               .transpose();
-                } else {
-                    ROS_WARN(
-                        "Unsupported depth image encoding %s",
-                        m_depth_image_->encoding.c_str());
-                    return;
-                }
-                scan.array() *= m_setting_.depth_scale;  // convert to meters
-                m_depth_image_.reset();
+            case ScanType::Depth:
+                if (!GetScanFromDepthImage(scan)) { return; }
                 break;
-            }
         }
+        const bool in_local = m_setting_.scan_in_local_frame;
         bool success = m_sdf_mapping_->Update(rotation, translation, scan, is_point, in_local);
         if (!success) { ROS_WARN("Failed to update SDF mapping"); }
     }
@@ -480,16 +731,17 @@ private:
             return false;
         }
 
-        const int dim = m_sdf_mapping_->map_dim;
+        const int dim = m_sdf_mapping_->GetMapDim();
+        const bool is_double = m_sdf_mapping_->IsDoublePrecision();
         if (dim == 2) {
-            if (m_is_double_) {
+            if (is_double) {
                 return GetQueryResponse<double, 2>(req, res);
             } else {
                 return GetQueryResponse<float, 2>(req, res);
             }
         }
         if (dim == 3) {
-            if (m_is_double_) {
+            if (is_double) {
                 return GetQueryResponse<double, 3>(req, res);
             } else {
                 return GetQueryResponse<float, 3>(req, res);
@@ -599,6 +851,93 @@ private:
         }
         return true;
     }
+
+    void
+    CallbackPublishTree(const ros::TimerEvent& /* event */) {
+        if (!m_tree_) { return; }
+        if (m_pub_tree_.getNumSubscribers() == 0) { return; }  // no subscribers
+        bool success = false;
+        if (m_tree_is_2d_) {
+            if (m_tree_is_double_) {
+                success = GenerateOccupancyTreeMsgForQuadtree<double>(m_msg_tree_);
+            } else {
+                success = GenerateOccupancyTreeMsgForQuadtree<float>(m_msg_tree_);
+            }
+        } else {
+            if (m_tree_is_double_) {
+                success = GenerateOccupancyTreeMsgForOctree<double>(m_msg_tree_);
+            } else {
+                success = GenerateOccupancyTreeMsgForOctree<float>(m_msg_tree_);
+            }
+        }
+        if (!success) { return; }
+        m_msg_tree_.header.stamp = ros::Time::now();
+        m_pub_tree_.publish(m_msg_tree_);
+    }
+
+    template<typename Dtype>
+    bool
+    GenerateOccupancyTreeMsgForQuadtree(erl_geometry::OccupancyTreeMsg& msg) {
+        using namespace erl::geometry;
+        auto tree = std::reinterpret_pointer_cast<const AbstractOccupancyQuadtree<Dtype>>(m_tree_);
+        if (!tree) {
+            ROS_WARN("Failed to cast to quadtree");
+            return false;
+        }
+        {
+            auto lock = m_sdf_mapping_->GetAbstractSurfaceMapping()->GetLockGuard();
+            SaveToOccupancyTreeMsg<Dtype>(tree, m_setting_.publish_tree_binary, msg);
+        }
+        return true;
+    }
+
+    template<typename Dtype>
+    bool
+    GenerateOccupancyTreeMsgForOctree(erl_geometry::OccupancyTreeMsg& msg) {
+        using namespace erl::geometry;
+        auto tree = std::reinterpret_pointer_cast<const AbstractOccupancyOctree<Dtype>>(m_tree_);
+        if (!tree) {
+            ROS_WARN("Failed to cast to octree");
+            return false;
+        }
+        {
+            auto lock = m_sdf_mapping_->GetAbstractSurfaceMapping()->GetLockGuard();
+            SaveToOccupancyTreeMsg<Dtype>(tree, m_setting_.publish_tree_binary, msg);
+        }
+        return true;
+    }
+
+    void
+    CallbackPublishSurfacePoints(const ros::TimerEvent& /* event */) {
+        if (m_pub_surface_points_.getNumSubscribers() == 0) { return; }  // no subscribers
+
+        using namespace erl::sdf_mapping;
+        std::vector<SurfaceData<double, 3>> data =
+            m_sdf_mapping_->GetAbstractSurfaceMapping()->GetSurfaceData();
+
+        auto& msg = m_msg_surface_points_;
+        msg.header.stamp = ros::Time::now();
+        msg.header.seq++;
+        for (int i = 0; i < 8; ++i) { msg.fields[i].count = static_cast<uint32_t>(data.size()); }
+        msg.width = static_cast<uint32_t>(data.size());
+        msg.row_step = msg.point_step * msg.width;
+        msg.data.resize(msg.row_step * msg.height);
+        uint8_t* ptr = msg.data.data();
+        std::vector<float> point_data(8);
+        for (const auto& d: data) {
+            point_data[0] = static_cast<float>(d.position.x());
+            point_data[1] = static_cast<float>(d.position.y());
+            point_data[2] = static_cast<float>(d.position.z());
+            point_data[3] = static_cast<float>(d.normal.x());
+            point_data[4] = static_cast<float>(d.normal.y());
+            point_data[5] = static_cast<float>(d.normal.z());
+            point_data[6] = static_cast<float>(d.var_position);
+            point_data[7] = static_cast<float>(d.var_normal);
+            std::memcpy(ptr, point_data.data(), sizeof(float) * 8);
+            ptr += msg.point_step;
+        }
+        m_pub_surface_points_.publish(msg);
+    }
 };
 
 template<>
@@ -610,14 +949,21 @@ struct YAML::convert<SdfMappingNodeSetting> {
         ERL_YAML_SAVE_ATTR(node, setting, surface_mapping_setting_file);
         ERL_YAML_SAVE_ATTR(node, setting, sdf_mapping_setting_type);
         ERL_YAML_SAVE_ATTR(node, setting, sdf_mapping_setting_file);
+        ERL_YAML_SAVE_ATTR(node, setting, sdf_mapping_type);
         ERL_YAML_SAVE_ATTR(node, setting, use_odom);
         ERL_YAML_SAVE_ATTR(node, setting, odom_topic);
         ERL_YAML_SAVE_ATTR(node, setting, odom_queue_size);
         ERL_YAML_SAVE_ATTR(node, setting, world_frame);
         ERL_YAML_SAVE_ATTR(node, setting, sensor_frame);
-        ERL_YAML_SAVE_ATTR(node, setting, scan_topic);
         ERL_YAML_SAVE_ATTR(node, setting, scan_type);
         ERL_YAML_SAVE_ATTR(node, setting, scan_in_local_frame);
+        ERL_YAML_SAVE_ATTR(node, setting, depth_scale);
+        ERL_YAML_SAVE_ATTR(node, setting, publish_tree);
+        ERL_YAML_SAVE_ATTR(node, setting, publish_tree_topic);
+        ERL_YAML_SAVE_ATTR(node, setting, publish_tree_binary);
+        ERL_YAML_SAVE_ATTR(node, setting, publish_tree_frequency);
+        ERL_YAML_SAVE_ATTR(node, setting, publish_surface_points);
+        ERL_YAML_SAVE_ATTR(node, setting, publish_surface_points_topic);
         return node;
     }
 
@@ -627,14 +973,21 @@ struct YAML::convert<SdfMappingNodeSetting> {
         ERL_YAML_LOAD_ATTR(node, setting, surface_mapping_setting_file);
         ERL_YAML_LOAD_ATTR(node, setting, sdf_mapping_setting_type);
         ERL_YAML_LOAD_ATTR(node, setting, sdf_mapping_setting_file);
+        ERL_YAML_LOAD_ATTR(node, setting, sdf_mapping_type);
         ERL_YAML_LOAD_ATTR(node, setting, use_odom);
         ERL_YAML_LOAD_ATTR(node, setting, odom_topic);
         ERL_YAML_LOAD_ATTR(node, setting, odom_queue_size);
         ERL_YAML_LOAD_ATTR(node, setting, world_frame);
         ERL_YAML_LOAD_ATTR(node, setting, sensor_frame);
-        ERL_YAML_LOAD_ATTR(node, setting, scan_topic);
         ERL_YAML_LOAD_ATTR(node, setting, scan_type);
         ERL_YAML_LOAD_ATTR(node, setting, scan_in_local_frame);
+        ERL_YAML_LOAD_ATTR(node, setting, depth_scale);
+        ERL_YAML_LOAD_ATTR(node, setting, publish_tree);
+        ERL_YAML_LOAD_ATTR(node, setting, publish_tree_topic);
+        ERL_YAML_LOAD_ATTR(node, setting, publish_tree_binary);
+        ERL_YAML_LOAD_ATTR(node, setting, publish_tree_frequency);
+        ERL_YAML_LOAD_ATTR(node, setting, publish_surface_points);
+        ERL_YAML_LOAD_ATTR(node, setting, publish_surface_points_topic);
         return true;
     }
 };
