@@ -40,15 +40,15 @@ namespace erl::sdf_mapping {
             void
             GetMean(long index, long y_index, Dtype &f) const override;
 
-            void
+            [[nodiscard]] Eigen::VectorXb
             GetGradient(long y_index, Eigen::Ref<MatrixX> mat_grad_out, bool parallel)
                 const override;
 
-            void
+            [[nodiscard]] bool
             GetGradient(long index, long y_index, Dtype *grad) const override;
 
             template<int Dim>
-            void
+            [[nodiscard]] bool
             GetGradientD(long index, long y_index, Dtype *grad) const;
         };
 

@@ -5,7 +5,7 @@ test_query:
     use_smallest: true  # use the smallest distance as the prediction
     compute_gradient: true  # whether to compute gradient
     compute_gradient_variance: true  # whether to compute gradient variance
-    compute_covariance: true  # whether to compute covariance
+    compute_covariance: false  # whether to compute covariance
     use_gp_covariance: false
     retrain_outdated: true  # whether to retrain the trained but outdated GPs
     use_global_buffer: true  # whether to use the global buffer for test queries

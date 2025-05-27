@@ -1,3 +1,4 @@
+#include "erl_common/logging.hpp"
 #include "erl_sdf_mapping/SdfQuery.h"
 
 #include <geometry_msgs/Vector3.h>
@@ -16,7 +17,11 @@ struct SdfGridMapNodeSetting {
     int x_cells = 101;
     // number of cells in the grid map along the y-axis.
     int y_cells = 101;
-    // the z coordinate of the grid map.
+    // the x coordinate of the grid map origin.
+    double x = 0.0;
+    // the y coordinate of the grid map origin.
+    double y = 0.0;
+    // the z coordinate of the grid map origin.
     double z = 0.0;
     // if true, the gradient of the SDF is published.
     bool publish_gradient = false;
@@ -31,7 +36,7 @@ struct SdfGridMapNodeSetting {
     // if true, publish a point cloud of the result.
     bool publish_point_cloud = true;
     // the frequency of publishing the grid map.
-    double publish_freq = 2;
+    double publish_rate = 2;
     // if true, the grid map is moved with the frame.
     bool attached_to_frame = false;
     // the name of the frame to attach the grid map to.
@@ -64,7 +69,7 @@ public:
     SdfGridMapNode(ros::NodeHandle& nh)
         : m_nh_(nh) {
         if (!LoadParameters()) {
-            ROS_FATAL("Failed to load parameters");
+            ERL_FATAL("Failed to load parameters");
             ros::shutdown();
             return;
         }
@@ -95,14 +100,13 @@ public:
                 static_cast<double>(m_setting_.x_cells) * m_setting_.resolution,
                 static_cast<double>(m_setting_.y_cells) * m_setting_.resolution),
             m_setting_.resolution,
-            grid_map::Position(0.0, 0.0));
+            grid_map::Position(m_setting_.x, m_setting_.y));
         m_cloud_.header = m_header_;
         m_cloud_.height = 1;
-        m_cloud_.width = m_query_points_.size();
         m_cloud_.is_bigendian = false;
         m_cloud_.is_dense = false;
         m_timer_ = m_nh_.createTimer(ros::Duration(0.5), &SdfGridMapNode::CallbackTimer, this);
-        ROS_INFO("SdfGridMapNode initialized");
+        ERL_INFO("SdfGridMapNode initialized");
     }
 
 private:
@@ -111,7 +115,7 @@ private:
     LoadParam(const std::string& param_name, T& param) {
         if (!m_nh_.hasParam(param_name)) { return true; }
         if (!m_nh_.getParam(param_name, param)) {
-            ROS_WARN("Failed to load param %s", param_name.c_str());
+            ERL_WARN("Failed to load param {}", param_name);
             return false;
         }
         return true;
@@ -122,6 +126,8 @@ private:
         if (!LoadParam("resolution", m_setting_.resolution)) { return false; }
         if (!LoadParam("x_cells", m_setting_.x_cells)) { return false; }
         if (!LoadParam("y_cells", m_setting_.y_cells)) { return false; }
+        if (!LoadParam("x", m_setting_.x)) { return false; }
+        if (!LoadParam("y", m_setting_.y)) { return false; }
         if (!LoadParam("z", m_setting_.z)) { return false; }
         if (!LoadParam("publish_gradient", m_setting_.publish_gradient)) { return false; }
         if (!LoadParam("publish_sdf_variance", m_setting_.publish_sdf_variance)) { return false; }
@@ -131,55 +137,55 @@ private:
         if (!LoadParam("publish_covariance", m_setting_.publish_covariance)) { return false; }
         if (!LoadParam("publish_grid_map", m_setting_.publish_grid_map)) { return false; }
         if (!LoadParam("publish_point_cloud", m_setting_.publish_point_cloud)) { return false; }
-        if (!LoadParam("publish_freq", m_setting_.publish_freq)) { return false; }
+        if (!LoadParam("publish_rate", m_setting_.publish_rate)) { return false; }
         if (!LoadParam("attached_to_frame", m_setting_.attached_to_frame)) { return false; }
         if (!LoadParam("attached_frame", m_setting_.attached_frame)) { return false; }
         if (!LoadParam("service_name", m_setting_.service_name)) { return false; }
         if (!LoadParam("map_topic_name", m_setting_.map_topic_name)) { return false; }
         if (m_setting_.resolution <= 0) {
-            ROS_WARN("Resolution must be positive");
+            ERL_WARN("Resolution must be positive");
             return false;
         }
         if (m_setting_.x_cells <= 0) {
-            ROS_WARN("X cells must be positive");
+            ERL_WARN("X cells must be positive");
             return false;
         }
         if (m_setting_.x_cells % 2 == 0) {
             m_setting_.x_cells += 1;
-            ROS_WARN("X cells must be odd, set to %d", m_setting_.x_cells);
+            ERL_WARN("X cells must be odd, set to {}", m_setting_.x_cells);
         }
         if (m_setting_.y_cells <= 0) {
-            ROS_WARN("Y cells must be positive");
+            ERL_WARN("Y cells must be positive");
             return false;
         }
         if (m_setting_.y_cells % 2 == 0) {
             m_setting_.y_cells += 1;
-            ROS_WARN("Y cells must be odd, set to %d", m_setting_.y_cells);
+            ERL_WARN("Y cells must be odd, set to {}", m_setting_.y_cells);
         }
         if (!m_setting_.publish_grid_map && !m_setting_.publish_point_cloud) {
-            ROS_WARN("At least one of publish_grid_map or publish_point_cloud must be true");
+            ERL_WARN("At least one of publish_grid_map or publish_point_cloud must be true");
             return false;
         }
-        if (m_setting_.publish_freq <= 0) {
-            ROS_WARN("Publish frequency must be positive");
+        if (m_setting_.publish_rate <= 0) {
+            ERL_WARN("Publish frequency must be positive");
             return false;
         }
         if (m_setting_.attached_to_frame) {
             if (m_setting_.attached_frame.empty()) {
-                ROS_WARN("Attached frame is empty but attached_to_frame is true");
+                ERL_WARN("Attached frame is empty but attached_to_frame is true");
                 return false;
             }
             if (m_setting_.world_frame.empty()) {
-                ROS_WARN("World frame is empty but attached_to_frame is true");
+                ERL_WARN("World frame is empty but attached_to_frame is true");
                 return false;
             }
         }
         if (m_setting_.service_name.empty()) {
-            ROS_WARN("Service name is empty");
+            ERL_WARN("Service name is empty");
             return false;
         }
         if (m_setting_.map_topic_name.empty()) {
-            ROS_WARN("Map topic name is empty");
+            ERL_WARN("Map topic name is empty");
             return false;
         }
         return true;
@@ -191,17 +197,17 @@ private:
         m_query_points_.reserve(m_setting_.x_cells * m_setting_.y_cells);
         int half_x = (m_setting_.x_cells - 1) / 2;
         int half_y = (m_setting_.y_cells - 1) / 2;
-        for (int j = -half_y; j <= half_y; ++j) {      // y-axis
-            for (int i = -half_x; i <= half_x; ++i) {  // x-axis (column major)
+        for (int j = half_y; j >= -half_y; --j) {      // y-axis
+            for (int i = half_x; i >= -half_x; --i) {  // x-axis (column major)
                 geometry_msgs::Vector3 p;
-                p.x = static_cast<double>(i) * m_setting_.resolution;
-                p.y = static_cast<double>(j) * m_setting_.resolution;
+                p.x = static_cast<double>(i) * m_setting_.resolution + m_setting_.x;
+                p.y = static_cast<double>(j) * m_setting_.resolution + m_setting_.y;
                 p.z = m_setting_.z;
                 m_query_points_.push_back(p);
             }
         }
-        ROS_INFO(
-            "Query points initialized, %d x %d points",
+        ERL_INFO(
+            "Query points initialized, {} x {} points",
             m_setting_.x_cells,
             m_setting_.y_cells);
     }
@@ -218,7 +224,7 @@ private:
                     ros::Time(0),
                     ros::Duration(1.0));
             } catch (tf2::TransformException& ex) {
-                ROS_WARN("%s", ex.what());
+                ERL_WARN(ex.what());
                 return;
             }
             const double x = transform_stamped.transform.translation.x;
@@ -237,21 +243,21 @@ private:
         }
 
         if (!m_sdf_client_.call(srv)) {
-            ROS_WARN("Failed to call %s", m_sdf_client_.getService().c_str());
+            ERL_WARN("Failed to call {}", m_sdf_client_.getService());
             return;
         }
 
         auto& ans = srv.response;
         if (!ans.success) {
-            ROS_WARN("SDF query failed");
+            ERL_WARN("SDF query failed");
             return;
         }
 
         const auto n = static_cast<int>(ans.signed_distances.size());
         const auto map_size = m_grid_map_.getSize();
         if (n != map_size[0] * map_size[1]) {
-            ROS_WARN(
-                "Query points size %d does not match map size %d",
+            ERL_WARN(
+                "Query points size {} does not match map size {}",
                 n,
                 map_size[0] * map_size[1]);
             return;
@@ -358,7 +364,7 @@ private:
                 field.offset += 4;
                 m_cloud_.fields.push_back(field);
             } else {
-                ROS_WARN("Unknown dimension %d", ans.dim);
+                ERL_WARN("Unknown dimension {}", ans.dim);
                 return;
             }
         }
@@ -371,8 +377,8 @@ private:
         const auto map_size = m_grid_map_.getSize();
         const auto n = static_cast<int>(ans.signed_distances.size());
         if (n != map_size[0] * map_size[1]) {
-            ROS_WARN(
-                "Query points size %d does not match map size %d",
+            ERL_WARN(
+                "Query points size {} does not match map size {}",
                 n,
                 map_size[0] * map_size[1]);
             return;
@@ -383,6 +389,7 @@ private:
             "sdf",
             Eigen::Map<const Eigen::MatrixXd>(ans.signed_distances.data(), map_size[0], map_size[1])
                 .cast<float>());
+        m_grid_map_.setBasicLayers({"sdf"});
         // gradient
         if (m_setting_.publish_gradient) {  // dim layers
             if (ans.compute_gradient) {
@@ -397,7 +404,7 @@ private:
                     m_grid_map_.add(gradient_names[i], grad_map);
                 }
             } else {
-                ROS_WARN("Gradient is not computed");
+                ERL_WARN("Gradient is not computed");
             }
         }
         Eigen::Map<const Eigen::MatrixXd> variances(
@@ -407,7 +414,8 @@ private:
         // SDF variance
         if (m_setting_.publish_sdf_variance) {  // 1 layer
             if (ans.compute_gradient_variance) {
-                Eigen::VectorXf var_sdf = variances.row(0).transpose().cast<float>();
+                Eigen::VectorXf var_sdf = variances.row(0).transpose().cast<float>().unaryExpr(
+                    [](float v) -> float { return v < 1.0e5 ? v : NAN; });
                 Eigen::Map<Eigen::MatrixXf> sdf_variance_map(
                     var_sdf.data(),
                     map_size[0],
@@ -420,8 +428,10 @@ private:
                         ans.variances.data(),
                         map_size[0],
                         map_size[1])
-                        .cast<float>());
+                        .cast<float>()
+                        .unaryExpr([](float v) -> float { return v < 1.0e5 ? v : NAN; }));
             }
+            m_grid_map_.setBasicLayers({"var_sdf"});
         }
         // gradient variance
         if (m_setting_.publish_gradient_variance) {  // dim layers
@@ -439,7 +449,7 @@ private:
                     m_grid_map_.add(gradient_variance_names[i], grad_variance_map);
                 }
             } else {
-                ROS_WARN("Gradient variance is not computed");
+                ERL_WARN("Gradient variance is not computed");
             }
         }
         // covariance
@@ -479,10 +489,10 @@ private:
                         m_grid_map_.add(covariance_names[i], covariance_map);
                     }
                 } else {
-                    ROS_WARN("Unknown dimension %d", ans.dim);
+                    ERL_WARN("Unknown dimension {}", ans.dim);
                 }
             } else {
-                ROS_WARN("Covariance is not computed");
+                ERL_WARN("Covariance is not computed");
             }
         }
     }
@@ -493,8 +503,8 @@ private:
         const auto map_size = m_grid_map_.getSize();
         const auto n = static_cast<int>(ans.signed_distances.size());
         if (n != map_size[0] * map_size[1]) {
-            ROS_WARN(
-                "Query points size %d does not match map size %d",
+            ERL_WARN(
+                "Query points size {} does not match map size {}",
                 n,
                 map_size[0] * map_size[1]);
             return;
@@ -521,9 +531,11 @@ private:
             ans.dim * (ans.dim + 1) / 2,
             n);
 
+        int j = 0;  // index for the point cloud data
         for (int i = 0; i < n; ++i) {
-            float* out = data_out.col(i).data();
             const double* var_ptr = variances.col(i).data();
+            if (var_ptr[0] >= 1.0e5) { continue; }  // invalid SDF value, skip this point
+            float* out = data_out.col(j++).data();
             out[0] = static_cast<float>(m_query_points_[i].x);     // x
             out[1] = static_cast<float>(m_query_points_[i].y);     // y
             out[2] = static_cast<float>(m_query_points_[i].z);     // z
@@ -556,13 +568,15 @@ private:
                     out[fid++] = static_cast<float>(cov_ptr[4]);  // cov_gz_gx
                     out[fid++] = static_cast<float>(cov_ptr[5]);  // cov_gz_gy
                 } else {
-                    ROS_WARN("Unknown dimension %d", ans.dim);
+                    ERL_WARN("Unknown dimension {}", ans.dim);
                 }
             }
         }
 
-        for (auto& field: m_cloud_.fields) { field.count = n; }
-        m_cloud_.row_step = m_cloud_.point_step * n;
+        m_cloud_.width = j;
+        m_cloud_.row_step = m_cloud_.point_step * j;
+        m_cloud_.data.resize(m_cloud_.row_step);
+        for (auto& field: m_cloud_.fields) { field.count = j; }
     }
 };
 

@@ -14,11 +14,11 @@ erl_project_setup(
         ERL_PACKAGES
         erl_common erl_covariance erl_geometry erl_gaussian_process
         CATKIN_COMPONENTS
-        roscpp std_msgs sensor_msgs geometry_msgs tf2_ros tf2_eigen message_generation grid_map_ros
-        grid_map_msgs
+        roscpp std_msgs sensor_msgs geometry_msgs tf2_ros tf2_eigen
+        message_generation grid_map_ros grid_map_msgs
         CATKIN_DEPENDS
-        roscpp std_msgs sensor_msgs geometry_msgs tf2_ros tf2_eigen message_runtime grid_map_ros
-        grid_map_msgs
+        roscpp std_msgs sensor_msgs geometry_msgs tf2_ros tf2_eigen
+        message_runtime grid_map_ros grid_map_msgs
 )
 erl_setup_ros(
         CATKIN_COMPONENTS ${${PROJECT_NAME}_CATKIN_COMPONENTS}

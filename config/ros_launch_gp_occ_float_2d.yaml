@@ -1,0 +1,21 @@
+surface_mapping_setting_type: erl::sdf_mapping::GpOccSurfaceMapping<float, 2>::Setting
+surface_mapping_setting_file: config/gp_occ_mapping_2d_float.yaml
+sdf_mapping_setting_type: erl::sdf_mapping::GpSdfMappingSetting<float, 2>
+sdf_mapping_setting_file: config/sdf_mapping_2d_float.yaml
+sdf_mapping_type: erl::sdf_mapping::GpSdfMapping<float, 2, erl::sdf_mapping::GpOccSurfaceMapping<float, 2> >
+use_odom: false
+odom_topic: /jackal_velocity_controller/odom
+odom_queue_size: 100
+world_frame: map
+sensor_frame: front_laser
+scan_topic: /front/scan
+scan_type: sensor_msgs::LaserScan
+scan_in_local_frame: true
+depth_scale: 0.001
+publish_tree: false
+publish_tree_topic: surface_mapping_tree
+publish_tree_binary: true
+publish_tree_frequency: 5.0
+publish_surface_points: false
+publish_surface_points_topic: surface_points
+publish_surface_points_frequency: 5.0

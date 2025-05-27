@@ -1,5 +1,7 @@
 #pragma once
 
+#include "sdf_gp.hpp"
+
 template<>
 struct YAML::convert<erl::sdf_mapping::SignMethod> {
     static Node
@@ -299,6 +301,11 @@ namespace erl::sdf_mapping {
         auto edf_result = *std::reinterpret_pointer_cast<typename EdfGp::TestResult>(
             edf_gp->Test(test_position, compute_gradient || use_normal_gp));
         edf_result.GetMean(0, 0, sdf);
+        if (!std::isfinite(sdf)) {  // invalid sdf
+            sdf = 0.0f;
+            var[0] = 1e6f;  // set a large variance if sdf is invalid
+            return false;
+        }
 
         // compute sign
         SignMethod sign_method = setting->sign_method;
@@ -322,7 +329,10 @@ namespace erl::sdf_mapping {
             }
             case kNormalGp: {
                 auto normal = f.template tail<Dim>();
-                edf_result.template GetGradientD<Dim>(0, 0, sdf_gradient.data());  // sdf_gradient
+                if (!edf_result.template GetGradientD<Dim>(0, 0, sdf_gradient.data())) {
+                    var[0] = 1e6f;
+                    return false;
+                }
                 for (long i = 1; i <= Dim; ++i) { edf_result.GetMean(0, i, normal[i - 1]); }
                 sign = sdf_gradient.dot(normal);
                 sdf_gradient_computed = true;
@@ -339,7 +349,10 @@ namespace erl::sdf_mapping {
 
         // compute sdf gradient
         if (compute_gradient && !sdf_gradient_computed) {
-            edf_result.GetGradient(0, 0, sdf_gradient.data());
+            if (!edf_result.template GetGradientD<Dim>(0, 0, sdf_gradient.data())) {
+                var[0] = 1e6f;
+                return false;
+            }
         }
 
         // compute sdf variance (always)

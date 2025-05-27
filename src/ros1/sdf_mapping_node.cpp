@@ -1,3 +1,4 @@
+#include "erl_common/eigen.hpp"
 #include "erl_common/yaml.hpp"
 #include "erl_geometry/abstract_occupancy_octree.hpp"
 #include "erl_geometry/abstract_occupancy_quadtree.hpp"
@@ -16,6 +17,7 @@
 #include <sensor_msgs/image_encodings.h>
 #include <sensor_msgs/LaserScan.h>
 #include <sensor_msgs/PointCloud2.h>
+#include <sensor_msgs/Temperature.h>
 #include <tf/transform_datatypes.h>
 #include <tf2_eigen/tf2_eigen.h>
 #include <tf2_ros/transform_listener.h>
@@ -88,10 +90,14 @@ class SdfMappingNode {
     ros::ServiceServer m_srv_query_sdf_, m_srv_save_map_;
     ros::Publisher m_pub_tree_;
     ros::Publisher m_pub_surface_points_;
+    ros::Publisher m_pub_update_time_;
+    ros::Publisher m_pub_query_time_;
     ros::Timer m_pub_tree_timer_;
     ros::Timer m_pub_surface_points_timer_;
     erl_geometry::OccupancyTreeMsg m_msg_tree_;
     sensor_msgs::PointCloud2 m_msg_surface_points_;
+    sensor_msgs::Temperature m_msg_update_time_;
+    sensor_msgs::Temperature m_msg_query_time_;
 
     std::shared_ptr<YamlableBase> m_surface_mapping_cfg_ = nullptr;
     std::shared_ptr<YamlableBase> m_sdf_mapping_cfg_ = nullptr;
@@ -118,7 +124,7 @@ public:
     SdfMappingNode(ros::NodeHandle& nh)
         : m_nh_(nh) {
         if (!LoadParameters()) {
-            ROS_FATAL("Failed to load parameters");
+            ERL_FATAL("Failed to load parameters");
             ros::shutdown();
             return;
         }
@@ -126,23 +132,23 @@ public:
         // load the surface mapping config
         m_surface_mapping_cfg_ = setting_factory.Create(m_setting_.surface_mapping_setting_type);
         if (!m_surface_mapping_cfg_) {
-            ROS_FATAL("Failed to create surface mapping config");
+            ERL_FATAL("Failed to create surface mapping config");
             ros::shutdown();
             return;
         }
         if (!m_surface_mapping_cfg_->FromYamlFile(m_setting_.surface_mapping_setting_file)) {
-            ROS_FATAL("Failed to load %s", m_setting_.surface_mapping_setting_file.c_str());
+            ERL_FATAL("Failed to load {}", m_setting_.surface_mapping_setting_file);
             ros::shutdown();
             return;
         }
         m_sdf_mapping_cfg_ = setting_factory.Create(m_setting_.sdf_mapping_setting_type);
         if (!m_sdf_mapping_cfg_) {
-            ROS_FATAL("Failed to create SDF mapping config");
+            ERL_FATAL("Failed to create SDF mapping config");
             ros::shutdown();
             return;
         }
         if (!m_sdf_mapping_cfg_->FromYamlFile(m_setting_.sdf_mapping_setting_file)) {
-            ROS_FATAL("Failed to load %s", m_setting_.sdf_mapping_setting_file.c_str());
+            ERL_FATAL("Failed to load {}", m_setting_.sdf_mapping_setting_file);
             ros::shutdown();
             return;
         }
@@ -151,7 +157,7 @@ public:
             m_surface_mapping_cfg_,
             m_sdf_mapping_cfg_);
         if (!m_sdf_mapping_) {
-            ROS_FATAL("Failed to create SDF mapping");
+            ERL_FATAL("Failed to create SDF mapping");
             ros::shutdown();
             return;
         }
@@ -163,7 +169,7 @@ public:
         }
         switch (m_scan_type_) {
             case ScanType::Laser:
-                ROS_INFO("Subscribing to %s as laser scan", m_setting_.scan_topic.c_str());
+                ERL_INFO("Subscribing to {} as laser scan", m_setting_.scan_topic);
                 m_sub_scan_ = m_nh_.subscribe(
                     m_setting_.scan_topic,
                     1,
@@ -171,7 +177,7 @@ public:
                     this);
                 break;
             case ScanType::PointCloud:
-                ROS_INFO("Subscribing to %s as point cloud", m_setting_.scan_topic.c_str());
+                ERL_INFO("Subscribing to {} as point cloud", m_setting_.scan_topic);
                 m_sub_scan_ = m_nh_.subscribe(
                     m_setting_.scan_topic,
                     1,
@@ -179,7 +185,7 @@ public:
                     this);
                 break;
             case ScanType::Depth:
-                ROS_INFO("Subscribing to %s as depth image", m_setting_.scan_topic.c_str());
+                ERL_INFO("Subscribing to {} as depth image", m_setting_.scan_topic);
                 m_sub_scan_ = m_nh_.subscribe(
                     m_setting_.scan_topic,
                     1,
@@ -197,7 +203,7 @@ public:
         // publish the occupancy tree used by the surface mapping
         if (m_setting_.publish_tree) {
             if (!TryToGetSurfaceMappingTree()) {
-                ROS_FATAL("Failed to get surface mapping tree");
+                ERL_FATAL("Failed to get surface mapping tree");
                 ros::shutdown();
                 return;
             }
@@ -247,7 +253,18 @@ public:
             m_msg_surface_points_.height = 1;            // unorganized point cloud
         }
 
-        ROS_INFO("SdfMappingNode ready. Waiting for scans + queries...");
+        m_pub_update_time_ = m_nh_.advertise<sensor_msgs::Temperature>("update_time", 1, true);
+        m_pub_query_time_ = m_nh_.advertise<sensor_msgs::Temperature>("query_time", 1, true);
+        m_msg_update_time_.header.frame_id = m_setting_.world_frame;
+        m_msg_update_time_.header.seq = -1;
+        m_msg_update_time_.temperature = 0.0;
+        m_msg_update_time_.variance = 0.0;
+        m_msg_query_time_.header.frame_id = m_setting_.world_frame;
+        m_msg_query_time_.header.seq = -1;
+        m_msg_query_time_.temperature = 0.0;
+        m_msg_query_time_.variance = 0.0;
+
+        ERL_INFO("SdfMappingNode ready. Waiting for scans + queries...");
     }
 
 private:
@@ -256,7 +273,7 @@ private:
     LoadParam(const std::string& param_name, T& param) {
         if (!m_nh_.hasParam(param_name)) { return true; }
         if (!m_nh_.getParam(param_name, param)) {
-            ROS_WARN("Failed to load param %s", param_name.c_str());
+            ERL_WARN("Failed to load param {}", param_name);
             return false;
         }
         return true;
@@ -268,7 +285,7 @@ private:
         m_nh_.param<std::string>("setting_file", setting_file, "");
         if (!setting_file.empty()) {  // load the setting from the file first
             if (!m_setting_.FromYamlFile(setting_file)) {
-                ROS_FATAL("Failed to load %s", setting_file.c_str());
+                ERL_FATAL("Failed to load {}", setting_file);
                 return false;
             }
         }
@@ -314,55 +331,55 @@ private:
         }
         // check the parameters
         if (m_setting_.surface_mapping_setting_type.empty()) {
-            ROS_WARN("You must set ~surface_mapping_setting_type");
+            ERL_WARN("You must set ~surface_mapping_setting_type");
             return false;
         }
         if (m_setting_.surface_mapping_setting_file.empty()) {
-            ROS_WARN("You must set ~surface_mapping_config");
+            ERL_WARN("You must set ~surface_mapping_config");
             return false;
         }
         if (!std::filesystem::exists(m_setting_.surface_mapping_setting_file)) {
-            ROS_WARN(
-                "Surface mapping setting file %s does not exist",
-                m_setting_.surface_mapping_setting_file.c_str());
+            ERL_WARN(
+                "Surface mapping setting file {} does not exist",
+                m_setting_.surface_mapping_setting_file);
             return false;
         }
         if (m_setting_.sdf_mapping_setting_type.empty()) {
-            ROS_WARN("You must set ~sdf_mapping_setting_type");
+            ERL_WARN("You must set ~sdf_mapping_setting_type");
             return false;
         }
         if (m_setting_.sdf_mapping_setting_file.empty()) {
-            ROS_WARN("You must set ~sdf_mapping_config");
+            ERL_WARN("You must set ~sdf_mapping_config");
             return false;
         }
         if (!std::filesystem::exists(m_setting_.sdf_mapping_setting_file)) {
-            ROS_WARN(
-                "SDF mapping setting file %s does not exist",
-                m_setting_.sdf_mapping_setting_file.c_str());
+            ERL_WARN(
+                "SDF mapping setting file {} does not exist",
+                m_setting_.sdf_mapping_setting_file);
             return false;
         }
         if (m_setting_.sdf_mapping_type.empty()) {
-            ROS_WARN("You must set ~sdf_mapping_type");
+            ERL_WARN("You must set ~sdf_mapping_type");
             return false;
         }
         if (m_setting_.use_odom && m_setting_.odom_topic.empty()) {
-            ROS_WARN("Odometry topic is empty but use_odom is true");
+            ERL_WARN("Odometry topic is empty but use_odom is true");
             return false;
         }
         if (m_setting_.odom_queue_size <= 0) {
-            ROS_WARN("Odometry queue size must be positive");
+            ERL_WARN("Odometry queue size must be positive");
             return false;
         }
         if (m_setting_.world_frame.empty()) {
-            ROS_WARN("World frame is empty");
+            ERL_WARN("World frame is empty");
             return false;
         }
         if (!m_setting_.use_odom && m_setting_.sensor_frame.empty()) {
-            ROS_WARN("Sensor frame is empty but use_odom is false");
+            ERL_WARN("Sensor frame is empty but use_odom is false");
             return false;
         }
         if (m_setting_.scan_topic.empty()) {
-            ROS_WARN("Scan topic is empty");
+            ERL_WARN("Scan topic is empty");
             return false;
         }
         if (m_setting_.scan_type == "sensor_msgs::LaserScan") {
@@ -372,24 +389,24 @@ private:
         } else if (m_setting_.scan_type == "sensor_msgs::Image") {
             m_scan_type_ = ScanType::Depth;
         } else {
-            ROS_WARN("Unknown scan type %s", m_setting_.scan_type.c_str());
+            ERL_WARN("Unknown scan type {}", m_setting_.scan_type);
             return false;
         }
         if (m_setting_.publish_tree && m_setting_.publish_tree_topic.empty()) {
-            ROS_WARN("Publish tree topic is empty but publish_tree is true");
+            ERL_WARN("Publish tree topic is empty but publish_tree is true");
             return false;
         }
         if (m_setting_.publish_tree && m_setting_.publish_tree_frequency <= 0.0) {
-            ROS_WARN("Publish tree frequency must be positive");
+            ERL_WARN("Publish tree frequency must be positive");
             return false;
         }
         if (m_setting_.publish_surface_points && m_setting_.publish_surface_points_topic.empty()) {
-            ROS_WARN("Publish surface points topic is empty but publish_surface_points is true");
+            ERL_WARN("Publish surface points topic is empty but publish_surface_points is true");
             return false;
         }
         if (m_setting_.publish_surface_points &&
             m_setting_.publish_surface_points_frequency <= 0.0) {
-            ROS_WARN("Publish surface points frequency must be positive");
+            ERL_WARN("Publish surface points frequency must be positive");
             return false;
         }
         return true;
@@ -454,7 +471,7 @@ private:
             // get the latest odometry message
             const int& head = m_odom_queue_head_;
             if (head < 0) {
-                ROS_WARN("No odometry message available");
+                ERL_WARN("No odometry message available");
                 return {false, {}, {}};
             }
             nav_msgs::Odometry::ConstPtr odom = nullptr;
@@ -474,7 +491,7 @@ private:
                 }
             }
             if (!odom) {
-                ROS_WARN("No odometry message available for time %f", time.toSec());
+                ERL_WARN("No odometry message available for time {}", time.toSec());
                 return {false, {}, {}};
             }
             auto& pose = odom->pose.pose;
@@ -504,7 +521,7 @@ private:
                     ros::Duration(5.0));
                 break;
             } catch (tf2::TransformException& ex) {
-                ROS_WARN("%s", ex.what());
+                ERL_WARN(ex.what());
                 (void) ros::Duration(1.0).sleep();
             }
         }
@@ -553,12 +570,12 @@ private:
     bool
     GetScanFromLaserScan(Eigen::MatrixXd& scan) {
         if (!m_lidar_scan_2d_) {
-            ROS_WARN("No laser scan data available");
+            ERL_WARN("No laser scan data available");
             return false;
         }
         auto& scan_msg = *m_lidar_scan_2d_;
         if (scan_msg.ranges.empty()) {
-            ROS_WARN("Laser scan data is empty");
+            ERL_WARN("Laser scan data is empty");
             m_lidar_scan_2d_.reset();
             return false;
         }
@@ -571,22 +588,22 @@ private:
     bool
     GetScanFromPointCloud2(Eigen::MatrixXd& scan) {
         if (!m_lidar_scan_3d_) {
-            ROS_WARN("No point cloud data available");
+            ERL_WARN("No point cloud data available");
             return false;
         }
         auto& cloud = *m_lidar_scan_3d_;
         if (cloud.fields.empty() || cloud.data.empty()) {
-            ROS_WARN("Point cloud data is empty");
+            ERL_WARN("Point cloud data is empty");
             m_lidar_scan_3d_.reset();
             return false;
         }
         if (cloud.data.size() != cloud.width * cloud.height * cloud.point_step) {
-            ROS_WARN("Point cloud data size does not match width, height, and point step");
+            ERL_WARN("Point cloud data size does not match width, height, and point step");
             m_lidar_scan_3d_.reset();
             return false;
         }
         if (cloud.row_step != cloud.width * cloud.point_step) {
-            ROS_WARN("Point cloud row step does not match width and point step");
+            ERL_WARN("Point cloud row step does not match width and point step");
             m_lidar_scan_3d_.reset();
             return false;
         }
@@ -596,7 +613,7 @@ private:
         const int32_t yi = rviz::findChannelIndex(m_lidar_scan_3d_, "y");
         const int32_t zi = rviz::findChannelIndex(m_lidar_scan_3d_, "z");
         if (xi < 0 || yi < 0 || zi < 0) {
-            ROS_WARN("Point cloud does not contain x, y, z fields");
+            ERL_WARN("Point cloud does not contain x, y, z fields");
             m_lidar_scan_3d_.reset();
             return false;
         }
@@ -605,7 +622,7 @@ private:
         const uint8_t& ytype = cloud.fields[yi].datatype;
         const uint8_t& ztype = cloud.fields[zi].datatype;
         if (xtype != ytype || xtype != ztype || ytype != ztype) {
-            ROS_WARN("Point cloud x, y, z fields have different data types");
+            ERL_WARN("Point cloud x, y, z fields have different data types");
             m_lidar_scan_3d_.reset();
             return false;
         }
@@ -638,12 +655,12 @@ private:
                 }
             }
         } else {
-            ROS_WARN("Unsupported point cloud data type %d", xtype);
+            ERL_WARN("Unsupported point cloud data type {}", xtype);
             m_lidar_scan_3d_.reset();
             return false;
         }
         if (point_count == 0) {
-            ROS_WARN("No valid points in point cloud");
+            ERL_WARN("No valid points in point cloud");
             m_lidar_scan_3d_.reset();
             return false;
         }
@@ -655,7 +672,7 @@ private:
     bool
     GetScanFromDepthImage(Eigen::MatrixXd& scan) {
         if (!m_depth_image_) {
-            ROS_WARN("No depth image available");
+            ERL_WARN("No depth image available");
             return false;
         }
         using namespace sensor_msgs::image_encodings;
@@ -679,7 +696,7 @@ private:
                        .cast<double>()
                        .transpose();
         } else {
-            ROS_WARN("Unsupported depth image encoding %s", m_depth_image_->encoding.c_str());
+            ERL_WARN("Unsupported depth image encoding {}", m_depth_image_->encoding);
             m_depth_image_.reset();
             return false;
         }
@@ -691,12 +708,12 @@ private:
     void
     TryUpdate(const ros::Time& time) {
         if (!m_lidar_scan_2d_ && !m_lidar_scan_3d_ && !m_depth_image_) {
-            ROS_WARN("No scan data available");
+            ERL_WARN("No scan data available");
             return;
         }
         const auto [ok, rotation, translation] = GetSensorPose(time);
         if (!ok) {
-            ROS_WARN("Failed to get sensor pose");
+            ERL_WARN("Failed to get sensor pose");
             return;
         }
 
@@ -716,8 +733,14 @@ private:
                 break;
         }
         const bool in_local = m_setting_.scan_in_local_frame;
+        auto t1 = ros::WallTime::now();
         bool success = m_sdf_mapping_->Update(rotation, translation, scan, is_point, in_local);
-        if (!success) { ROS_WARN("Failed to update SDF mapping"); }
+        auto t2 = ros::WallTime::now();
+        m_msg_update_time_.header.stamp = time;
+        m_msg_update_time_.header.seq++;
+        m_msg_update_time_.temperature = (t2 - t1).toSec();
+        m_pub_update_time_.publish(m_msg_update_time_);
+        if (!success) { ERL_WARN("Failed to update SDF mapping"); }
     }
 
     // --- service handler: runs Test() on the current map ---
@@ -727,7 +750,7 @@ private:
         erl_sdf_mapping::SdfQuery::Response& res) {
 
         if (!m_sdf_mapping_) {
-            ROS_WARN("SDF mapping is not initialized");
+            ERL_WARN("SDF mapping is not initialized");
             return false;
         }
 
@@ -747,7 +770,7 @@ private:
                 return GetQueryResponse<float, 3>(req, res);
             }
         }
-        ROS_WARN("Unknown map dimension %d", dim);
+        ERL_WARN("Unknown map dimension {}", dim);
         return false;
     }
 
@@ -761,7 +784,7 @@ private:
         using QuerySetting = typename SdfMappingSetting::TestQuery;
         auto sdf_mapping_setting = std::dynamic_pointer_cast<SdfMappingSetting>(m_sdf_mapping_cfg_);
         if (!sdf_mapping_setting) {
-            ROS_WARN("Wrong Dtype or Dim for GetQueryResponse");
+            ERL_WARN("Wrong Dtype or Dim for GetQueryResponse");
             return false;
         }
 
@@ -778,9 +801,17 @@ private:
         gradients.setConstant(0.0);
         variances.setConstant(1.0e6);
 
+        auto t1 = ros::WallTime::now();
         bool ok = m_sdf_mapping_->Predict(positions, distances, gradients, variances, covariances);
+        auto t2 = ros::WallTime::now();
+        m_msg_query_time_.header.stamp = ros::Time::now();
+        m_msg_query_time_.header.seq++;
+        m_msg_query_time_.temperature = (t2 - t1).toSec();
+        m_pub_query_time_.publish(m_msg_query_time_);
         res.success = ok;
         if (!ok) { return false; }
+
+        // TODO: CHECK ALL std::memcpy() CALLS FOR CORRECTNESS
 
         // store the results in the response
         res.dim = Dim;
@@ -799,10 +830,18 @@ private:
         res.gradients.clear();
         if (query_setting.compute_gradient) {
             res.gradients.resize(n);
-            std::memcpy(
-                reinterpret_cast<char*>(res.gradients.data()),
-                reinterpret_cast<const char*>(gradients.data()),
-                n * Dim * sizeof(double));
+            if (Dim == 2) {
+                for (int i = 0; i < n; ++i) {
+                    res.gradients[i].x = gradients(0, i);
+                    res.gradients[i].y = gradients(1, i);
+                    res.gradients[i].z = 0.0;  // z is not used in 2D
+                }
+            } else {
+                std::memcpy(
+                    reinterpret_cast<char*>(res.gradients.data()),
+                    reinterpret_cast<const char*>(gradients.data()),
+                    3 * n * sizeof(double));
+            }
         }
         /// variances
         if (query_setting.compute_gradient_variance) {
@@ -832,12 +871,12 @@ private:
         erl_sdf_mapping::SaveMap::Request& req,
         erl_sdf_mapping::SaveMap::Response& res) {
         if (!m_sdf_mapping_) {
-            ROS_WARN("SDF mapping is not initialized");
+            ERL_WARN("SDF mapping is not initialized");
             res.success = false;
             return false;
         }
         if (req.name.empty()) {
-            ROS_WARN("Map file name is empty");
+            ERL_WARN("Map file name is empty");
             res.success = false;
             return false;
         }
@@ -881,7 +920,7 @@ private:
         using namespace erl::geometry;
         auto tree = std::reinterpret_pointer_cast<const AbstractOccupancyQuadtree<Dtype>>(m_tree_);
         if (!tree) {
-            ROS_WARN("Failed to cast to quadtree");
+            ERL_WARN("Failed to cast to quadtree");
             return false;
         }
         {
@@ -897,7 +936,7 @@ private:
         using namespace erl::geometry;
         auto tree = std::reinterpret_pointer_cast<const AbstractOccupancyOctree<Dtype>>(m_tree_);
         if (!tree) {
-            ROS_WARN("Failed to cast to octree");
+            ERL_WARN("Failed to cast to octree");
             return false;
         }
         {
@@ -922,19 +961,19 @@ private:
         msg.width = static_cast<uint32_t>(data.size());
         msg.row_step = msg.point_step * msg.width;
         msg.data.resize(msg.row_step * msg.height);
-        uint8_t* ptr = msg.data.data();
+        // uint8_t* ptr = msg.data.data();
         std::vector<float> point_data(8);
+        float* ptr = reinterpret_cast<float*>(msg.data.data());
         for (const auto& d: data) {
-            point_data[0] = static_cast<float>(d.position.x());
-            point_data[1] = static_cast<float>(d.position.y());
-            point_data[2] = static_cast<float>(d.position.z());
-            point_data[3] = static_cast<float>(d.normal.x());
-            point_data[4] = static_cast<float>(d.normal.y());
-            point_data[5] = static_cast<float>(d.normal.z());
-            point_data[6] = static_cast<float>(d.var_position);
-            point_data[7] = static_cast<float>(d.var_normal);
-            std::memcpy(ptr, point_data.data(), sizeof(float) * 8);
-            ptr += msg.point_step;
+            ptr[0] = static_cast<float>(d.position.x());
+            ptr[1] = static_cast<float>(d.position.y());
+            ptr[2] = static_cast<float>(d.position.z());
+            ptr[3] = static_cast<float>(d.normal.x());
+            ptr[4] = static_cast<float>(d.normal.y());
+            ptr[5] = static_cast<float>(d.normal.z());
+            ptr[6] = static_cast<float>(d.var_position);
+            ptr[7] = static_cast<float>(d.var_normal);
+            ptr += 8;
         }
         m_pub_surface_points_.publish(msg);
     }

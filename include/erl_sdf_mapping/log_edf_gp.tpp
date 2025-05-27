@@ -1,5 +1,7 @@
 #pragma once
 
+#include "log_edf_gp.hpp"
+
 #include "erl_covariance/reduced_rank_covariance.hpp"
 
 namespace erl::sdf_mapping {
@@ -78,7 +80,7 @@ namespace erl::sdf_mapping {
     }
 
     template<typename Dtype>
-    void
+    Eigen::VectorXb
     LogEdfGaussianProcess<Dtype>::TestResult::GetGradient(
         const long y_index,
         Eigen::Ref<MatrixX> mat_grad_out,
@@ -87,27 +89,51 @@ namespace erl::sdf_mapping {
         const long &num_test = this->m_num_test_;
         const long &x_dim = this->m_x_dim_;
         const auto gp = reinterpret_cast<const LogEdfGaussianProcess *>(this->m_gp_);
-        const Dtype a = 1.0e15f / gp->m_mat_alpha_(0, y_index);
-        using VectorX = Eigen::VectorX<Dtype>;
-        const VectorX alpha = a * gp->m_mat_alpha_.col(y_index).head(gp->m_k_train_cols_);
+        const auto alpha = gp->m_mat_alpha_.col(y_index).head(gp->m_k_train_cols_);
         const auto &mat_k_test = this->m_mat_k_test_;
+        Eigen::VectorXb valid_gradients(num_test);
+        valid_gradients.setConstant(true);  // assume all gradients are valid
 #pragma omp parallel for if (parallel) default(none) \
-    shared(num_test, mat_grad_out, x_dim, mat_k_test, a, alpha, y_index)
+    shared(num_test, mat_grad_out, x_dim, mat_k_test, alpha, y_index, valid_gradients)
         for (long index = 0; index < num_test; ++index) {
             Dtype *grad = mat_grad_out.col(index).data();
-            Dtype norm = 0.0f;
             for (long j = 0, jj = index + num_test; j < x_dim; ++j, jj += num_test) {
                 grad[j] = mat_k_test.col(jj).dot(alpha);
-                if (y_index == 0) { norm += grad[j] * grad[j]; }
+                if (!std::isfinite(grad[j])) {
+                    valid_gradients[index] = false;  // invalid gradient
+                    break;                           // no need to compute further
+                }
             }
+            if (!valid_gradients[index]) { continue; }  // skip invalid gradients
             if (y_index != 0) { continue; }
+            Dtype max_abs_comp = 0.0f;
+            for (long j = 0; j < x_dim; ++j) {
+                if (std::abs(grad[j]) > max_abs_comp) { max_abs_comp = std::abs(grad[j]); }
+            }
+            Dtype norm = 0.0f;
+            for (long j = 0; j < x_dim; ++j) {
+                grad[j] /= max_abs_comp;  // normalize to avoid zero division
+                if (!std::isfinite(grad[j])) {
+                    valid_gradients[index] = false;  // invalid gradient
+                    break;                           // no need to compute further
+                }
+                norm += grad[j] * grad[j];
+            }
+            if (!valid_gradients[index]) { continue; }  // skip invalid gradients
             norm = -std::sqrt(norm);
-            for (long j = 0; j < x_dim; ++j) { grad[j] /= norm; }
+            for (long j = 0; j < x_dim; ++j) {
+                grad[j] /= norm;
+                if (!std::isfinite(grad[j])) {
+                    valid_gradients[index] = false;  // invalid gradient
+                    break;                           // no need to compute further
+                }
+            }
         }
+        return valid_gradients;  // return the validity of gradients
     }
 
     template<typename Dtype>
-    void
+    bool
     LogEdfGaussianProcess<Dtype>::TestResult::GetGradient(
         const long index,
         const long y_index,
@@ -116,27 +142,37 @@ namespace erl::sdf_mapping {
         const long &num_test = this->m_num_test_;
         const long &x_dim = this->m_x_dim_;
         const auto &mat_k_test = this->m_mat_k_test_;
-        using VectorX = Eigen::VectorX<Dtype>;
-        // `a` is a scale factor to avoid zero division.
-        const Dtype a = 1.0e15f / gp->m_mat_alpha_(0, y_index);
-        const VectorX alpha = a * gp->m_mat_alpha_.col(y_index).head(gp->m_k_train_cols_);
+        const auto alpha = gp->m_mat_alpha_.col(y_index).head(gp->m_k_train_cols_);
         // d = -ln(f)/lambda, grad_d = -1/(lambda*f)*grad_f
         // SDF gradient norm is always 1. https://en.wikipedia.org/wiki/Eikonal_equation
         // So, we only need the normalized grad_d.
         // It is fine that we don't know the f value.
-        Dtype norm = 0.0f;
         for (long j = 0, jj = index + num_test; j < x_dim; ++j, jj += num_test) {
             grad[j] = mat_k_test.col(jj).dot(alpha);
-            if (y_index == 0) { norm += grad[j] * grad[j]; }
+            if (!std::isfinite(grad[j])) { return false; }  // invalid gradient
         }
-        if (y_index != 0) { return; }
+        if (y_index != 0) { return true; }
+        Dtype max_abs_comp = 0.0f;
+        for (long j = 0; j < x_dim; ++j) {
+            if (std::abs(grad[j]) > max_abs_comp) { max_abs_comp = std::abs(grad[j]); }
+        }
+        Dtype norm = 0.0f;
+        for (long j = 0; j < x_dim; ++j) {
+            grad[j] /= max_abs_comp;                        // normalize to avoid zero division
+            if (!std::isfinite(grad[j])) { return false; }  // invalid gradient
+            norm += grad[j] * grad[j];
+        }
         norm = -std::sqrt(norm);
-        for (long j = 0; j < x_dim; ++j) { grad[j] /= norm; }
+        for (long j = 0; j < x_dim; ++j) {
+            grad[j] /= norm;
+            if (!std::isfinite(grad[j])) { return false; }  // invalid gradient
+        }
+        return true;  // valid gradient
     }
 
     template<typename Dtype>
     template<int Dim>
-    void
+    bool
     LogEdfGaussianProcess<Dtype>::TestResult::GetGradientD(
         const long index,
         const long y_index,
@@ -149,17 +185,28 @@ namespace erl::sdf_mapping {
         const auto gp = reinterpret_cast<const LogEdfGaussianProcess *>(this->m_gp_);
         const long &num_test = this->m_num_test_;
         const auto &mat_k_test = this->m_mat_k_test_;
-        using VectorX = Eigen::VectorX<Dtype>;
-        const Dtype a = 1.0e15f / gp->m_mat_alpha_(0, y_index);
-        const VectorX alpha = a * gp->m_mat_alpha_.col(y_index).head(gp->m_k_train_cols_);
-        Dtype norm = 0.0f;
+        const auto alpha = gp->m_mat_alpha_.col(y_index).head(gp->m_k_train_cols_);
         for (long j = 0, jj = index + num_test; j < Dim; ++j, jj += num_test) {
             grad[j] = mat_k_test.col(jj).dot(alpha);
-            if (y_index == 0) { norm += grad[j] * grad[j]; }
+            if (!std::isfinite(grad[j])) { return false; }  // invalid gradient
         }
-        if (y_index != 0) { return; }
+        if (y_index != 0) { return true; }
+        Dtype max_abs_comp = 0.0f;
+        for (long j = 0; j < Dim; ++j) {
+            if (std::abs(grad[j]) > max_abs_comp) { max_abs_comp = std::abs(grad[j]); }
+        }
+        Dtype norm = 0.0f;
+        for (long j = 0; j < Dim; ++j) {
+            grad[j] /= max_abs_comp;                        // normalize to avoid zero division
+            if (!std::isfinite(grad[j])) { return false; }  // invalid gradient
+            norm += grad[j] * grad[j];
+        }
         norm = -std::sqrt(norm);
-        for (long j = 0; j < Dim; ++j) { grad[j] /= norm; }
+        for (long j = 0; j < Dim; ++j) {
+            grad[j] /= norm;
+            if (!std::isfinite(grad[j])) { return false; }  // invalid gradient
+        }
+        return true;  // valid gradient
     }
 
     template<typename Dtype>

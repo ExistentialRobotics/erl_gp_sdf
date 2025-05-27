@@ -26,6 +26,9 @@
     <build_depend>message_generation</build_depend>
     <exec_depend>message_runtime</exec_depend>
 
+    <!-- Optional, needed to visualize grid_map in rviz -->
+    <!-- <exec_depend>grid_map_rviz_plugin</exec_depend> -->
+
     <test_depend>rosunit</test_depend>
     <test_depend>erl_common</test_depend>
     <test_depend>erl_covariance</test_depend>

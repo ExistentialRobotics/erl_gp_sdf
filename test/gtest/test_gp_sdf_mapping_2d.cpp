@@ -239,7 +239,7 @@ TestImpl2D() {
     using VectorX = Eigen::VectorX<Dtype>;
 
     struct Options {
-        std::string gazebo_train_file = kDataDir / "gazebo";
+        std::string gazebo_dir = kDataDir / "gazebo";
         std::string house_expo_map_file = kDataDir / "house_expo_room_1451.json";
         std::string house_expo_traj_file = kDataDir / "house_expo_room_1451.csv";
         std::string ucsd_fah_2d_file = kDataDir / "ucsd_fah_2d.dat";
@@ -281,7 +281,7 @@ TestImpl2D() {
             ("surf-normal-scale", po::value<Dtype>(&options.surf_normal_scale)->default_value(options.surf_normal_scale), "Surface normal scale")
             (
                 "gazebo-train-file",
-                po::value<std::string>(&options.gazebo_train_file)->default_value(options.gazebo_train_file)->value_name("file"),
+                po::value<std::string>(&options.gazebo_dir)->default_value(options.gazebo_dir)->value_name("folder"),
                 "Gazebo train data file"
             )(
                 "house-expo-map-file",
@@ -321,8 +321,8 @@ TestImpl2D() {
         << "Please specify one of --use-gazebo-room-2d, --use-house-expo-lidar-2d, "
            "--use-ucsd-fah-2d.";
     if (options.use_gazebo_room_2d) {
-        ASSERT_TRUE(std::filesystem::exists(options.gazebo_train_file))
-            << "Gazebo train data file " << options.gazebo_train_file << " does not exist.";
+        ASSERT_TRUE(std::filesystem::exists(options.gazebo_dir))
+            << "Gazebo data folder " << options.gazebo_dir << " does not exist.";
     }
     if (options.use_house_expo_lidar_2d) {
         ASSERT_TRUE(std::filesystem::exists(options.house_expo_map_file))
@@ -350,7 +350,7 @@ TestImpl2D() {
     using namespace erl::geometry;
 
     if (options.use_gazebo_room_2d) {
-        auto train_data_loader = GazeboRoom2D::TrainDataLoader(options.gazebo_train_file);
+        auto train_data_loader = GazeboRoom2D::TrainDataLoader(options.gazebo_dir);
         max_update_cnt =
             static_cast<long>(train_data_loader.size() - options.init_frame) / options.stride + 1;
         train_angles.reserve(max_update_cnt);
@@ -847,11 +847,12 @@ TestImpl2D() {
                 img.copyTo(tmp(cv::Rect(0, 0, img.cols, img.rows)));
                 fig_sdf.ToCvMat().copyTo(
                     tmp(cv::Rect(img.cols, offset, fig_sdf.Width(), fig_sdf.Height())));
-                fig_grad.ToCvMat().copyTo(tmp(cv::Rect(
-                    img.cols,
-                    offset + fig_sdf.Height(),
-                    fig_grad.Width(),
-                    fig_grad.Height())));
+                fig_grad.ToCvMat().copyTo(
+                    tmp(cv::Rect(
+                        img.cols,
+                        offset + fig_sdf.Height(),
+                        fig_grad.Width(),
+                        fig_grad.Height())));
             } else {
                 const int offset = (frame.rows - img.rows) / 2;
                 img.copyTo(tmp(cv::Rect(0, offset, img.cols, img.rows)));
@@ -912,12 +913,14 @@ TestImpl2D() {
         t_per_point);
 
     EXPECT_TRUE(success) << "Failed to test SDF estimation at the end.";
-    ASSERT_TRUE(Serialization<typename SurfaceMapping::Tree>::Write(
-        test_output_dir / "tree.bt",
-        [&](std::ostream &s) -> bool { return surface_mapping->GetTree()->WriteBinary(s); }));
-    ASSERT_TRUE(Serialization<typename SurfaceMapping::Tree>::Write(
-        test_output_dir / "tree.ot",
-        surface_mapping->GetTree()));
+    ASSERT_TRUE(
+        Serialization<typename SurfaceMapping::Tree>::Write(
+            test_output_dir / "tree.bt",
+            [&](std::ostream &s) -> bool { return surface_mapping->GetTree()->WriteBinary(s); }));
+    ASSERT_TRUE(
+        Serialization<typename SurfaceMapping::Tree>::Write(
+            test_output_dir / "tree.ot",
+            surface_mapping->GetTree()));
 
     if (success && options.visualize) {
         Dtype min_distance = distances_out.minCoeff();

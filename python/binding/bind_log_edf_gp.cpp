@@ -25,8 +25,8 @@ BindLogEdfGaussianProcessImpl(const py::module &m, const char *name) {
             [](const typename T::TestResult &self, const long index, const long y_index) {
                 ERL_ASSERTM(self.GetDimX() == 2, "x_dim = {}, it should be {}.", self.GetDimX(), 2);
                 Eigen::Vector2<Dtype> vec_grad_out(2);
-                self.template GetGradientD<2>(index, y_index, vec_grad_out.data());
-                return vec_grad_out;
+                bool success = self.template GetGradientD<2>(index, y_index, vec_grad_out.data());
+                return py::make_tuple(success, vec_grad_out);
             },
             py::arg("index"),
             py::arg("y_index"))
@@ -35,8 +35,8 @@ BindLogEdfGaussianProcessImpl(const py::module &m, const char *name) {
             [](const typename T::TestResult &self, const long index, const long y_index) {
                 ERL_ASSERTM(self.GetDimX() == 3, "x_dim = {}, it should be {}.", self.GetDimX(), 3);
                 Eigen::Vector3<Dtype> vec_grad_out(3);
-                self.template GetGradientD<3>(index, y_index, vec_grad_out.data());
-                return vec_grad_out;
+                bool success = self.template GetGradientD<3>(index, y_index, vec_grad_out.data());
+                return py::make_tuple(success, vec_grad_out);
             },
             py::arg("index"),
             py::arg("y_index"));

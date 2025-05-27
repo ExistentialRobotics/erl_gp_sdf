@@ -1,5 +1,7 @@
 #pragma once
 
+#include "gp_sdf_mapping.hpp"
+
 #include "erl_common/block_timer.hpp"
 #include "erl_common/tracy.hpp"
 
@@ -962,9 +964,12 @@ namespace erl::sdf_mapping {
             auto &used_gps = m_query_used_gps_[i];
 
             // initialization
-            distance_out = 0.;
+            fs.setZero();
+            distance_out = 0;
             gradient_out.setZero();
             variances.setConstant(1e6);
+            variance_out.setConstant(1e6);
+            covariances.setZero();
             if (compute_covariance) { covariances.setConstant(1e6); }
             used_gps.fill(nullptr);
 
@@ -1059,9 +1064,23 @@ namespace erl::sdf_mapping {
                         m_test_buffer_.covariances->col(i) = covariances.col(j);
                     }
                     used_gps[0] = gps[tested_idx[0].second].second.second;
+
+                    ERL_DEBUG_ASSERT(
+                        std::isfinite(gradient_out.norm()),
+                        "gradient norm is not finite: {} at index {}. Var: {}.",
+                        gradient_out.norm(),
+                        i,
+                        variance_out[0]);
                 } else {
                     // compute a weighted sum
                     ComputeWeightedSum<Dim>(i, tested_idx, fs, variances, covariances);
+
+                    ERL_DEBUG_ASSERT(
+                        std::isfinite(gradient_out.norm()),
+                        "gradient norm is not finite: {} at index {}. Var: {}.",
+                        gradient_out.norm(),
+                        i,
+                        variance_out[0]);
                 }
             } else {
                 // the first column is the result
@@ -1073,6 +1092,13 @@ namespace erl::sdf_mapping {
                 variance_out << variances.col(0);
                 if (compute_covariance) { m_test_buffer_.covariances->col(i) = covariances.col(0); }
                 used_gps[0] = gps[tested_idx[0].second].second.second;
+
+                ERL_DEBUG_ASSERT(
+                    std::isfinite(gradient_out.norm()),
+                    "gradient norm is not finite: {} at index {}. Var: {}.",
+                    gradient_out.norm(),
+                    i,
+                    variance_out[0]);
             }
 
             // flip the sign of the distance and gradient if necessary
