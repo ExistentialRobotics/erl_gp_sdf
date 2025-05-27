@@ -204,11 +204,24 @@ namespace erl::sdf_mapping {
         [[nodiscard]] const absl::flat_hash_map<Key, std::shared_ptr<LocalBayesianHilbertMap>> &
         GetLocalBayesianHilbertMaps() const;
 
+        // implement the methods required by AbstractSurfaceMapping
+
+        bool
+        Update(
+            const Eigen::Ref<const Eigen::MatrixXd> &rotation,
+            const Eigen::Ref<const Eigen::VectorXd> &translation,
+            const Eigen::Ref<const Eigen::MatrixXd> &scan,
+            bool are_points,
+            bool are_local) override;
+
         bool
         Update(
             const Eigen::Ref<const Position> &sensor_origin,
             const Eigen::Ref<const Positions> &points,
             bool parallel);
+
+        [[nodiscard]] std::vector<SurfaceData<double, 3>>
+        GetSurfaceData() const override;
 
         /**
          *
@@ -245,9 +258,6 @@ namespace erl::sdf_mapping {
         // implement the methods required by AbstractSurfaceMapping for factory pattern
         [[nodiscard]] bool
         operator==(const AbstractSurfaceMapping &other) const override;
-
-        using AbstractSurfaceMapping::Read;
-        using AbstractSurfaceMapping::Write;
 
         [[nodiscard]] bool
         Write(std::ostream &s) const override;

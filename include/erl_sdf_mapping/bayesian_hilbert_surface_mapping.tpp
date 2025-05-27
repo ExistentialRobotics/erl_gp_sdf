@@ -1,5 +1,7 @@
 #pragma once
 
+#include "bayesian_hilbert_surface_mapping.tpp"
+
 namespace erl::sdf_mapping {
 
     template<typename Dtype>
@@ -7,18 +9,18 @@ namespace erl::sdf_mapping {
     LocalBayesianHilbertMapSetting<Dtype>::YamlConvertImpl::encode(
         const LocalBayesianHilbertMapSetting &setting) {
         YAML::Node node;
-        node["bhm"] = setting.bhm;
-        node["kernel_type"] = setting.kernel_type;
-        node["kernel_setting_type"] = setting.kernel_setting_type;
-        node["kernel"] = setting.kernel;
-        node["max_dataset_size"] = setting.max_dataset_size;
-        node["hit_buffer_size"] = setting.hit_buffer_size;
-        node["track_surface"] = setting.track_surface;
-        node["surface_resolution"] = setting.surface_resolution;
-        node["surface_occ_prob_threshold"] = setting.surface_occ_prob_threshold;
-        node["surface_occ_prob_target"] = setting.surface_occ_prob_target;
-        node["surface_adjust_step"] = setting.surface_adjust_step;
-        node["var_scale"] = setting.var_scale;
+        ERL_YAML_SAVE_ATTR(node, setting, bhm);
+        ERL_YAML_SAVE_ATTR(node, setting, kernel_type);
+        ERL_YAML_SAVE_ATTR(node, setting, kernel_setting_type);
+        ERL_YAML_SAVE_ATTR(node, setting, kernel);
+        ERL_YAML_SAVE_ATTR(node, setting, max_dataset_size);
+        ERL_YAML_SAVE_ATTR(node, setting, hit_buffer_size);
+        ERL_YAML_SAVE_ATTR(node, setting, track_surface);
+        ERL_YAML_SAVE_ATTR(node, setting, surface_resolution);
+        ERL_YAML_SAVE_ATTR(node, setting, surface_occ_prob_threshold);
+        ERL_YAML_SAVE_ATTR(node, setting, surface_occ_prob_target);
+        ERL_YAML_SAVE_ATTR(node, setting, surface_adjust_step);
+        ERL_YAML_SAVE_ATTR(node, setting, var_scale);
         return node;
     }
 
@@ -28,19 +30,19 @@ namespace erl::sdf_mapping {
         const YAML::Node &node,
         LocalBayesianHilbertMapSetting &setting) {
         if (!node.IsMap()) { return false; }
-        setting.bhm = node["bhm"].as<decltype(setting.bhm)>();
-        setting.kernel_type = node["kernel_type"].as<std::string>();
-        setting.kernel_setting_type = node["kernel_setting_type"].as<std::string>();
+        ERL_YAML_LOAD_ATTR(node, setting, bhm);
+        ERL_YAML_LOAD_ATTR(node, setting, kernel_type);
+        ERL_YAML_LOAD_ATTR(node, setting, kernel_setting_type);
         setting.kernel = common::YamlableBase::Create<KernelSetting>(setting.kernel_setting_type);
         if (!setting.kernel->FromYamlNode(node["kernel"])) { return false; }
-        setting.max_dataset_size = node["max_dataset_size"].as<long>();
-        setting.hit_buffer_size = node["hit_buffer_size"].as<long>();
-        setting.track_surface = node["track_surface"].as<bool>();
-        setting.surface_resolution = node["surface_resolution"].as<Dtype>();
-        setting.surface_occ_prob_threshold = node["surface_occ_prob_threshold"].as<Dtype>();
-        setting.surface_occ_prob_target = node["surface_occ_prob_target"].as<Dtype>();
-        setting.surface_adjust_step = node["surface_adjust_step"].as<Dtype>();
-        setting.var_scale = node["var_scale"].as<Dtype>();
+        ERL_YAML_LOAD_ATTR(node, setting, max_dataset_size);
+        ERL_YAML_LOAD_ATTR(node, setting, hit_buffer_size);
+        ERL_YAML_LOAD_ATTR(node, setting, track_surface);
+        ERL_YAML_LOAD_ATTR(node, setting, surface_resolution);
+        ERL_YAML_LOAD_ATTR(node, setting, surface_occ_prob_threshold);
+        ERL_YAML_LOAD_ATTR(node, setting, surface_occ_prob_target);
+        ERL_YAML_LOAD_ATTR(node, setting, surface_adjust_step);
+        ERL_YAML_LOAD_ATTR(node, setting, var_scale);
         return true;
     }
 
@@ -525,6 +527,8 @@ namespace erl::sdf_mapping {
         ERL_ASSERTM(m_setting_ != nullptr, "setting is nullptr.");
         m_tree_ = std::make_shared<Tree>(m_setting_->tree);
         GenerateHingedPoints();
+        m_map_dim_ = Dim;
+        m_is_double_ = std::is_same_v<Dtype, double>;
     }
 
     template<typename Dtype, int Dim>
@@ -546,6 +550,34 @@ namespace erl::sdf_mapping {
             typename BayesianHilbertSurfaceMapping<Dtype, Dim>::LocalBayesianHilbertMap>> &
     BayesianHilbertSurfaceMapping<Dtype, Dim>::GetLocalBayesianHilbertMaps() const {
         return m_key_bhm_dict_;
+    }
+
+    template<typename Dtype, int Dim>
+    bool
+    BayesianHilbertSurfaceMapping<Dtype, Dim>::Update(
+        const Eigen::Ref<const Eigen::MatrixXd> &rotation,
+        const Eigen::Ref<const Eigen::VectorXd> &translation,
+        const Eigen::Ref<const Eigen::MatrixXd> &scan,
+        const bool are_points,
+        const bool are_local) {
+        ERL_ASSERTM(are_points, "scan must be points, not range data.");
+
+        if (scan.cols() == 0) {
+            ERL_WARN("No points in the scan, nothing to update.");
+            return false;
+        }
+
+        Positions points;
+        Position sensor_origin = translation.cast<Dtype>();
+        if (are_local) {
+            points = scan.cast<Dtype>();
+        } else {
+            points.resize(Dim, scan.cols());
+            for (long i = 0; i < scan.cols(); ++i) {
+                points.col(i) = (rotation.transpose() * (scan.col(i) - translation)).cast<Dtype>();
+            }
+        }
+        return Update(sensor_origin, points, true /*parallel*/);
     }
 
     template<typename Dtype, int Dim>
@@ -640,6 +672,12 @@ namespace erl::sdf_mapping {
         return std::any_of(updated.begin(), updated.end(), [](const int i) {
             return i > 0;
         });  // return true if any local bhm is updated
+    }
+
+    template<typename Dtype, int Dim>
+    std::vector<SurfaceData<double, 3>>
+    BayesianHilbertSurfaceMapping<Dtype, Dim>::GetSurfaceData() const {
+        throw NotImplemented(__FUNCTION__);
     }
 
     template<typename Dtype, int Dim>
