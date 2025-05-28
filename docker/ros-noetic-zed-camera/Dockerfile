@@ -62,6 +62,9 @@ RUN touch /usr/bin/pltek
 RUN sed 's/..\/..\/..\/..\/..\/include/..\/..\/..\/..\/include/g' \
     /usr/lib/x86_64-linux-gnu/cmake/yaml-cpp/yaml-cpp-config.cmake
 
+####################################################################################################
+# erl_geometry dependencies
+####################################################################################################
 WORKDIR /root
 # nanoflann
 RUN git clone https://github.com/jlblancoc/nanoflann && \
@@ -70,10 +73,6 @@ RUN git clone https://github.com/jlblancoc/nanoflann && \
     cmake .. -DCMAKE_BUILD_TYPE=Release && \
     make install && \
     cd /root && rm -rf nanoflann
-
-####################################################################################################
-# erl_geometry dependencies
-####################################################################################################
 # install abseil-cpp
 RUN git clone --recursive https://github.com/abseil/abseil-cpp.git && cd abseil-cpp && \
     git checkout 20240722.1 && mkdir -p build && cd build && \
@@ -112,9 +111,11 @@ RUN git clone --recursive https://github.com/isl-org/Open3D.git && cd Open3D && 
     make -j`nproc` && make install && \
     cd /root && rm -rf Open3D
 ####################################################################################################
-# ROS dependencies
+# ROS Noetic
 ####################################################################################################
-# install ROS
+RUN DEBIAN_FRONTEND=noninteractive apt update -y
+RUN DEBIAN_FRONTEND=noninteractive apt install -y ubuntu-desktop-minimal \
+    software-properties-common lsb-release vim locales apt-utils ca-certificates curl iproute2
 RUN sh -c 'echo "deb http://packages.ros.org/ros/ubuntu $(lsb_release -sc) main" > /etc/apt/sources.list.d/ros-latest.list'
 RUN curl -s https://raw.githubusercontent.com/ros/rosdistro/master/ros.asc | DEBIAN_FRONTEND=noninteractive apt-key add -
 RUN DEBIAN_FRONTEND=noninteractive apt update -y
@@ -134,13 +135,13 @@ RUN DEBIAN_FRONTEND=noninteractive apt install -y \
     libpng-dev \
     libgomp1
 RUN rosdep init && rosdep fix-permissions && rosdep update
+
 ####################################################################################################
 # RealSense
 ####################################################################################################
-# install realsense2
 # https://github.com/IntelRealSense/realsense-ros/tree/ros1-legacy
 # https://dev.intelrealsense.com/docs/ros1-wrapper
-RUN apt-get install -y \
+RUN DEBIAN_FRONTEND=noninteractive apt-get install -y \
     ros-noetic-realsense2-camera \
     ros-noetic-realsense2-description
 # https://github.com/IntelRealSense/librealsense/blob/master/doc/distribution_linux.md
@@ -149,7 +150,7 @@ RUN mkdir -p /etc/apt/keyrings && \
     tee /etc/apt/keyrings/librealsense.pgp > /dev/null
 RUN echo "deb [signed-by=/etc/apt/keyrings/librealsense.pgp] https://librealsense.intel.com/Debian/apt-repo `lsb_release -cs` main" | \
     tee /etc/apt/sources.list.d/librealsense.list && \
-    apt-get update && apt install -y \
+    apt-get update && DEBIAN_FRONTEND=noninteractive apt install -y \
     librealsense2-udev-rules \
     librealsense2 \
     librealsense2-utils \
@@ -158,6 +159,14 @@ RUN echo "deb [signed-by=/etc/apt/keyrings/librealsense.pgp] https://librealsens
     librealsense2-gl \
     librealsense2-gl-dev \
     librealsense2-gl-dbg
+
+####################################################################################################
+# erl_sdf_mapping dependencies
+####################################################################################################
+RUN DEBIAN_FRONTEND=noninteractive apt-get install -y \
+    ros-noetic-grid-map-ros \
+    ros-noetic-grid-map-rviz-plugin
+
 ####################################################################################################
 # ZED camera
 ####################################################################################################
