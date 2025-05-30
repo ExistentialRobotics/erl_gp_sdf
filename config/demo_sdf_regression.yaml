@@ -1,0 +1,24 @@
+max_x: 2
+max_y: 2
+min_x: -2
+min_y: -2
+radius: 1
+num_samples: 10000
+test_num_x: 201
+test_num_y: 201
+seed: 0
+near_surface: false
+near_surface_delta: 0.05
+var_x: 0.01
+var_y: 0.01
+gp:
+    kernel_type: erl::covariance::RadialBiasFunction<double, 2>
+    kernel_setting_type: erl::covariance::Covariance<double>::Setting
+    kernel:
+        x_dim: 2
+        scale: 0.1
+        scale_mix: 1
+        weights: [ ]
+    max_num_samples: -1
+    no_gradient_observation: false
+output_dir: sdf_regression

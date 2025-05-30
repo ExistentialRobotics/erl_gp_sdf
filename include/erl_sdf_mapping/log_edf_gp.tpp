@@ -56,12 +56,19 @@ namespace erl::sdf_mapping {
         const auto gp = reinterpret_cast<const LogEdfGaussianProcess *>(this->m_gp_);
         const auto alpha = gp->m_mat_alpha_.col(y_index).head(gp->m_k_train_cols_);
         const auto &mat_k_test = this->m_mat_k_test_;
-        const Dtype a = -1.0f / gp->m_setting_->log_lambda;
         Dtype *f = vec_f_out.data();
+        if (y_index == 0) {
+            const Dtype a = -1.0f / gp->m_setting_->log_lambda;
 #pragma omp parallel for if (parallel) default(none) shared(num_test, mat_k_test, f, a, alpha)
+            for (long index = 0; index < num_test; ++index) {
+                const Dtype f_log_gpis = mat_k_test.col(index).dot(alpha);
+                f[index] = a * std::log(std::abs(f_log_gpis));
+            }
+            return;
+        }
+#pragma omp parallel for if (parallel) default(none) shared(num_test, mat_k_test, f, alpha)
         for (long index = 0; index < num_test; ++index) {
-            const Dtype f_log_gpis = mat_k_test.col(index).dot(alpha);
-            f[index] = a * std::log(std::abs(f_log_gpis));
+            f[index] = mat_k_test.col(index).dot(alpha);
         }
     }
 

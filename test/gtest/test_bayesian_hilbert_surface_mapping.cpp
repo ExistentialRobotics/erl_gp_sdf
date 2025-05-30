@@ -64,7 +64,6 @@ void
 TestImpl3D() {
     GTEST_PREPARE_OUTPUT_DIR();
     using BayesianHilbertSurfaceMapping = erl::sdf_mapping::BayesianHilbertSurfaceMapping<Dtype, 3>;
-    // using BhsmSerializer = erl::common::Serialization<BayesianHilbertSurfaceMapping>;
     using RangeSensor3D = erl::geometry::RangeSensor3D<Dtype>;
     using RangeSensorFrame3D = erl::geometry::RangeSensorFrame3D<Dtype>;
     using Lidar3D = erl::geometry::Lidar3D<Dtype>;
@@ -976,8 +975,6 @@ TestImpl2D() {
         cv::imshow("prob_occupied", prob_occupied_img);
         cv::imshow("gradient_norms", gradient_norms_img);
         cv::waitKey(10);
-
-        break;
     }
     if (options.hold) { cv::waitKey(0); }
     if (options.test_io) { TestIo<Dtype, 2>(&bhsm); }

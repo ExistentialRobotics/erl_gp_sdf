@@ -61,6 +61,9 @@ else ()
     if (DEFINED ${PROJECT_NAME}_ERL_PACKAGES)
         target_link_libraries(${PROJECT_NAME} PUBLIC ${${PROJECT_NAME}_ERL_PACKAGES})
     endif ()
+
+    add_subdirectory(src/demo)
+
 endif ()
 
 ###################
