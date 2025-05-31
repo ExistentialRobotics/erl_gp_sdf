@@ -96,32 +96,41 @@ DrawGp(
     const Drawer &drawer,
     const cv::Scalar &data_color = {0, 255, 125, 255},
     const cv::Scalar &pos_color = {255, 125, 0, 255},
-    const cv::Scalar &rect_color = {125, 255, 0, 255}) {
+    const cv::Scalar &rect_color = {125, 255, 0, 255},
+    const bool draw_data = true,
+    const bool draw_pos = true,
+    const bool draw_rect = true) {
     if (gp == nullptr) { return; }
 
-    Eigen::Vector2i gp1_position_px = drawer.GetPixelCoordsForPositions(gp->position, true);
-    cv::drawMarker(
-        img,
-        cv::Point(gp1_position_px[0], gp1_position_px[1]),
-        pos_color,
-        cv::MARKER_STAR,
-        10,
-        1);
-    const Eigen::Vector2<Dtype> gp1_area_min = gp->position.array() - gp->half_size;
-    const Eigen::Vector2<Dtype> gp1_area_max = gp->position.array() + gp->half_size;
-    Eigen::Vector2i gp1_area_min_px = drawer.GetPixelCoordsForPositions(gp1_area_min, true);
-    Eigen::Vector2i gp1_area_max_px = drawer.GetPixelCoordsForPositions(gp1_area_max, true);
-    cv::rectangle(
-        img,
-        cv::Point(gp1_area_min_px[0], gp1_area_min_px[1]),
-        cv::Point(gp1_area_max_px[0], gp1_area_max_px[1]),
-        rect_color,
-        2);
+    if (draw_pos) {
+        Eigen::Vector2i gp_position_px = drawer.GetPixelCoordsForPositions(gp->position, true);
+        cv::drawMarker(
+            img,
+            cv::Point(gp_position_px[0], gp_position_px[1]),
+            pos_color,
+            cv::MARKER_STAR,
+            10,
+            1);
+    }
+
+    if (draw_rect) {
+        const Eigen::Vector2<Dtype> gp_area_min = gp->position.array() - gp->half_size;
+        const Eigen::Vector2<Dtype> gp_area_max = gp->position.array() + gp->half_size;
+        Eigen::Vector2i gp_area_min_px = drawer.GetPixelCoordsForPositions(gp_area_min, true);
+        Eigen::Vector2i gp_area_max_px = drawer.GetPixelCoordsForPositions(gp_area_max, true);
+        cv::rectangle(
+            img,
+            cv::Point(gp_area_min_px[0], gp_area_min_px[1]),
+            cv::Point(gp_area_max_px[0], gp_area_max_px[1]),
+            rect_color,
+            2);
+    }
+
+    if (!draw_data) { return; }
 
     typename erl::gaussian_process::NoisyInputGaussianProcess<Dtype>::TrainSet &train_set =
         gp->edf_gp->GetTrainSet();
-    const Eigen::Matrix2X<Dtype> used_surface_points =
-        train_set.x.block(0, 0, 2, train_set.num_samples);
+    Eigen::Matrix2X<Dtype> used_surface_points = train_set.x.block(0, 0, 2, train_set.num_samples);
     Eigen::Matrix2Xi used_surface_points_px =
         drawer.GetPixelCoordsForPositions(used_surface_points, true);
     for (long j = 0; j < used_surface_points.cols(); j++) {
@@ -519,30 +528,30 @@ TestImpl2D() {
     PlplotFig fig_grad(1280, 480, true);
     PlplotFig::LegendOpt legend_opt_sdf(3, {"SDF", "EDF", "Variance"});
     legend_opt_sdf
-        .SetTextColors(
-            {PlplotFig::Color0::Red, PlplotFig::Color0::Yellow, PlplotFig::Color0::Green})
+        .SetTextColors({PlplotFig::Color0::Red, PlplotFig::Color0::Blue, PlplotFig::Color0::Green})
         .SetStyles({PL_LEGEND_LINE, PL_LEGEND_LINE, PL_LEGEND_LINE})
         .SetLineColors(legend_opt_sdf.text_colors)
         .SetLineStyles({1, 1, 1})
         .SetLineWidths({1.0, 1.0, 1.0})
         .SetPosition(PL_POSITION_LEFT | PL_POSITION_TOP)
         .SetBoxStyle(PL_LEGEND_BOUNDING_BOX | PL_LEGEND_BACKGROUND)
-        .SetLegendBoxLineColor0(PlplotFig::Color0::White)
-        .SetBgColor0(PlplotFig::Color0::Gray);
+        .SetLegendBoxLineColor0(PlplotFig::Color0::Black)
+        .SetBgColor0(PlplotFig::Color0::Gray)
+        .SetTextScale(1.1);
     PlplotFig::LegendOpt legend_opt_grad(4, {"grad_x", "grad_y", "var_grad_x", "var_grad_y"});
     legend_opt_grad
         .SetTextColors(
             {PlplotFig::Color0::Red,
-             PlplotFig::Color0::Yellow,
+             PlplotFig::Color0::Blue,
              PlplotFig::Color0::Green,
-             PlplotFig::Color0::Aquamarine})
+             PlplotFig::Color0::Brown})
         .SetStyles({PL_LEGEND_LINE, PL_LEGEND_LINE, PL_LEGEND_LINE, PL_LEGEND_LINE})
         .SetLineColors(legend_opt_grad.text_colors)
         .SetLineStyles({1, 1, 1, 1})
         .SetLineWidths({1.0, 1.0, 1.0, 1.0})
         .SetPosition(PL_POSITION_LEFT | PL_POSITION_TOP)
         .SetBoxStyle(PL_LEGEND_BOUNDING_BOX | PL_LEGEND_BACKGROUND)
-        .SetLegendBoxLineColor0(PlplotFig::Color0::White)
+        .SetLegendBoxLineColor0(PlplotFig::Color0::Black)
         .SetBgColor0(PlplotFig::Color0::Gray);
 
     std::string window_name = test_info->name();
@@ -716,12 +725,12 @@ TestImpl2D() {
                 fig_sdf.Clear()
                     .SetMargin(0.15, 0.85, 0.15, 0.85)
                     .SetAxisLimits(traj_t - tspan, traj_t, fig_sdf_y_min, fig_sdf_y_max)
-                    .SetCurrentColor(PlplotFig::Color0::White)
+                    .SetCurrentColor(PlplotFig::Color0::Black)
                     .DrawAxesBox(
                         PlplotFig::AxisOpt().DrawTopRightEdge(),
                         PlplotFig::AxisOpt().DrawPerpendicularTickLabels())
                     .SetAxisLabelX("time (sec)")
-                    .SetCurrentColor(PlplotFig::Color0::Yellow)
+                    .SetCurrentColor(PlplotFig::Color0::Black)
                     .SetAxisLabelY("SDF/EDF (meter)");
 
                 draw_curve(
@@ -732,13 +741,13 @@ TestImpl2D() {
                     sdf_values.data());
                 draw_curve(
                     fig_sdf,
-                    PlplotFig::Color0::Yellow,
+                    PlplotFig::Color0::Blue,
                     n,
                     timestamps_second.data(),
                     edf_values.data());
 
                 minmax = std::minmax_element(var_sdf_values.begin(), var_sdf_values.end());
-                fig_sdf.SetCurrentColor(PlplotFig::Color0::White)
+                fig_sdf.SetCurrentColor(PlplotFig::Color0::Black)
                     .SetAxisLimits(
                         traj_t - tspan,
                         traj_t,
@@ -752,9 +761,8 @@ TestImpl2D() {
                             .DrawTickMinor()
                             .DrawTopRightTickLabels()
                             .DrawPerpendicularTickLabels())
-                    .SetCurrentColor(PlplotFig::Color0::Green)
+                    .SetCurrentColor(PlplotFig::Color0::Black)
                     .SetAxisLabelY("Variance", true)
-                    .SetCurrentColor(PlplotFig::Color0::White)
                     .SetTitle(
                         fmt::format("sdf: {:.2f}, var_sdf: {:.2e}", distance[0], variances(0, 0))
                             .c_str());
@@ -778,12 +786,12 @@ TestImpl2D() {
                 fig_grad.Clear()
                     .SetMargin(0.15, 0.85, 0.15, 0.85)
                     .SetAxisLimits(traj_t - tspan, traj_t, fig_grad_y_min, fig_grad_y_max)
-                    .SetCurrentColor(PlplotFig::Color0::White)
+                    .SetCurrentColor(PlplotFig::Color0::Black)
                     .DrawAxesBox(
                         PlplotFig::AxisOpt().DrawTopRightEdge(),
                         PlplotFig::AxisOpt().DrawPerpendicularTickLabels())
                     .SetAxisLabelX("time (sec)")
-                    .SetCurrentColor(PlplotFig::Color0::Yellow)
+                    .SetCurrentColor(PlplotFig::Color0::Black)
                     .SetAxisLabelY("Gradient (meter)");
 
                 draw_curve(
@@ -794,7 +802,7 @@ TestImpl2D() {
                     grad_x_values.data());
                 draw_curve(
                     fig_grad,
-                    PlplotFig::Color0::Yellow,
+                    PlplotFig::Color0::Blue,
                     n,
                     timestamps_second.data(),
                     grad_y_values.data());
@@ -807,7 +815,7 @@ TestImpl2D() {
                 fig_grad_y_min = std::min(fig_grad_y_min, *minmax.first) - 0.001;
                 fig_grad_y_max = std::max(fig_grad_y_max, *minmax.second) + 0.001;
 
-                fig_grad.SetCurrentColor(PlplotFig::Color0::White)
+                fig_grad.SetCurrentColor(PlplotFig::Color0::Black)
                     .SetAxisLimits(traj_t - tspan, traj_t, fig_grad_y_min, fig_grad_y_max)
                     .DrawAxesBox(
                         PlplotFig::AxisOpt::Off(),
@@ -817,9 +825,8 @@ TestImpl2D() {
                             .DrawTickMinor()
                             .DrawTopRightTickLabels()
                             .DrawPerpendicularTickLabels())
-                    .SetCurrentColor(PlplotFig::Color0::Green)
+                    .SetCurrentColor(PlplotFig::Color0::Black)
                     .SetAxisLabelY("Variance", true)
-                    .SetCurrentColor(PlplotFig::Color0::White)
                     .SetTitle(fmt::format(  //
                                   "grad: [{:.2f}, {:.2f}], var_grad: [{:.2e}, {:.2e}]",
                                   gradient(0, 0),
@@ -835,24 +842,23 @@ TestImpl2D() {
                     var_grad_x_values.data());
                 draw_curve(
                     fig_grad,
-                    PlplotFig::Color0::Aquamarine,
+                    PlplotFig::Color0::Brown,
                     n,
                     timestamps_second.data(),
                     var_grad_y_values.data());
                 fig_grad.SetFontSize(0.0, 0.8).Legend(legend_opt_grad).SetFontSize();
             }
-            cv::Mat tmp(frame.rows, frame.cols, CV_8UC4, cv::Scalar(0));
+            cv::Mat tmp(frame.rows, frame.cols, CV_8UC4, cv::Scalar(255, 255, 255, 255));
             if (img.rows == frame.rows) {
                 const int offset = (frame.rows - fig_sdf.Height() * 2) / 2;
                 img.copyTo(tmp(cv::Rect(0, 0, img.cols, img.rows)));
                 fig_sdf.ToCvMat().copyTo(
                     tmp(cv::Rect(img.cols, offset, fig_sdf.Width(), fig_sdf.Height())));
-                fig_grad.ToCvMat().copyTo(
-                    tmp(cv::Rect(
-                        img.cols,
-                        offset + fig_sdf.Height(),
-                        fig_grad.Width(),
-                        fig_grad.Height())));
+                fig_grad.ToCvMat().copyTo(tmp(cv::Rect(
+                    img.cols,
+                    offset + fig_sdf.Height(),
+                    fig_grad.Width(),
+                    fig_grad.Height())));
             } else {
                 const int offset = (frame.rows - img.rows) / 2;
                 img.copyTo(tmp(cv::Rect(0, offset, img.cols, img.rows)));
@@ -913,14 +919,12 @@ TestImpl2D() {
         t_per_point);
 
     EXPECT_TRUE(success) << "Failed to test SDF estimation at the end.";
-    ASSERT_TRUE(
-        Serialization<typename SurfaceMapping::Tree>::Write(
-            test_output_dir / "tree.bt",
-            [&](std::ostream &s) -> bool { return surface_mapping->GetTree()->WriteBinary(s); }));
-    ASSERT_TRUE(
-        Serialization<typename SurfaceMapping::Tree>::Write(
-            test_output_dir / "tree.ot",
-            surface_mapping->GetTree()));
+    ASSERT_TRUE(Serialization<typename SurfaceMapping::Tree>::Write(
+        test_output_dir / "tree.bt",
+        [&](std::ostream &s) -> bool { return surface_mapping->GetTree()->WriteBinary(s); }));
+    ASSERT_TRUE(Serialization<typename SurfaceMapping::Tree>::Write(
+        test_output_dir / "tree.ot",
+        surface_mapping->GetTree()));
 
     if (success && options.visualize) {
         Dtype min_distance = distances_out.minCoeff();
@@ -935,6 +939,25 @@ TestImpl2D() {
             drawer.DrawTree(img);
         }
 
+        cv::Mat img_gp = img.clone();
+        int gp_cnt = 0;
+        for (const auto &[key, sdf_gp]: sdf_mapping.GetGpMap()) {
+            if (sdf_gp == nullptr) { continue; }
+            ++gp_cnt;
+            DrawGp<Dtype>(
+                img_gp,
+                sdf_gp,
+                drawer,
+                {0, 125, 255, 255},
+                {255, 125, 0, 255},
+                {0, 0, 0, 255},
+                false,
+                true,
+                gp_cnt < 100);  // draw only the first 100 GPs' bounding boxes
+        }
+        cv::imshow(window_name + ": GPs", img_gp);
+        cv::imwrite(test_output_dir / "gps.png", img_gp);
+
         cv::Mat img_sdf(
             grid_map_info->Width(),
             grid_map_info->Height(),
@@ -948,6 +971,7 @@ TestImpl2D() {
         cv::cvtColor(img_sdf, img_sdf, cv::COLOR_BGR2BGRA);
         cv::addWeighted(img_sdf, 0.5, img, 0.5, 0.0, img_sdf);
         cv::imshow(window_name + ": sdf", img_sdf);
+        cv::imwrite(test_output_dir / "sdf.png", img_sdf);
 
         // convert to binary image: 0 for negative, 255 for positive
 
@@ -961,6 +985,7 @@ TestImpl2D() {
         cv::normalize(img_sign, img_sign, 0, 255, cv::NORM_MINMAX, CV_8UC1);
         cv::flip(img_sign, img_sign, 0);  // flip along y axis
         cv::imshow(window_name + ": sdf sign", img_sign);
+        cv::imwrite(test_output_dir / "sdf_sign.png", img_sign);
 
         VectorX sdf_variances = variances_out.row(0).transpose();
         cv::Mat img_sdf_variance(
@@ -974,7 +999,8 @@ TestImpl2D() {
         cv::applyColorMap(img_sdf_variance, img_sdf_variance, cv::COLORMAP_JET);
         cv::cvtColor(img_sdf_variance, img_sdf_variance, cv::COLOR_BGR2BGRA);
         cv::addWeighted(img_sdf_variance, 0.5, img, 0.5, 0.0, img_sdf_variance);
-        cv::imshow(window_name + ": sdf variances", img_sdf_variance);
+        cv::imshow(window_name + ": sdf variance", img_sdf_variance);
+        cv::imwrite(test_output_dir / "sdf_variance.png", img_sdf_variance);
         cv::waitKey(1);
     }
 

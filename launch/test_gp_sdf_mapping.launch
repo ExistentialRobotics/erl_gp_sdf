@@ -55,5 +55,4 @@
                 args="/sdf_mapping_node/update_time/temperature /sdf_mapping_node/query_time/temperature" />
         </group>
     </group>
-
 </launch>

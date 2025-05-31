@@ -636,7 +636,10 @@ namespace erl::sdf_mapping {
         SqMat cov_grad = SqMat::Zero();
         if (compute_cov_grad) {
             const SqMat identity = SqMat::Identity();
-            const SqMat grad_norm = (1.0f / g.norm()) * (identity - g * g.transpose());
+            const double g_norm = g.norm();
+            const VectorD g_normalized = g / g_norm;
+            const SqMat grad_norm =
+                (1.0f / g_norm) * (identity - g_normalized * g_normalized.transpose());
             for (long j = 0; j < num_samples; ++j) {
                 const Dtype a = softmin_temperature * l[j];
                 const Dtype b = softmin_temperature * s[j];

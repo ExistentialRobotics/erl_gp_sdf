@@ -2,12 +2,16 @@ max_x: 2
 max_y: 2
 min_x: -2
 min_y: -2
+num_x: 201
+num_y: 201
 radius: 1
 num_samples: 1000
-test_num_x: 201
-test_num_y: 201
-var_x: 0.001
-var_y: 0.001
+test_position: [ 1.5, 1.5 ]
+softmin_temperature: 5.0
+var_x_min: 0.0001
+var_x_max: 1
+num_var_x: 50
+var_y: 0.00001
 gp:
     kernel_type: erl::covariance::Matern32<double, 2>
     kernel_setting_type: erl::covariance::Covariance<double>::Setting
@@ -19,4 +23,5 @@ gp:
     max_num_samples: -1
     no_gradient_observation: true
     log_lambda: 200
-output_dir: log_sdf_regression
+output_dir: variance_estimation
+show_images: false

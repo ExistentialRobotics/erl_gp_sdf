@@ -76,6 +76,7 @@ struct App {
     std::uniform_real_distribution<double> dist;
 
     explicit App(const std::string &option_file) {  // NOLINT(*-msc51-cpp)
+        if (!std::filesystem::exists(option_file)) { options.AsYamlFile(option_file); }
         if (!option_file.empty()) {
             ERL_ASSERTM(
                 options.FromYamlFile(option_file),

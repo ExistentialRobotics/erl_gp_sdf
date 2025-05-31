@@ -700,6 +700,18 @@ TestImpl2D() {
     drawer_setting->border_color = cv::Scalar(255, 0, 0, 255);
     auto drawer = std::make_shared<QuadtreeDrawer>(drawer_setting);
 
+    std::filesystem::path tree_img_dir = test_output_dir / "tree_images";
+    std::filesystem::path iter_cnt_dir = test_output_dir / "iter_cnt_images";
+    std::filesystem::path logodd_dir = test_output_dir / "logodd_images";
+    std::filesystem::path prob_occupied_dir = test_output_dir / "prob_occupied_images";
+    std::filesystem::path gradient_norms_dir = test_output_dir / "gradient_norms_images";
+    std::filesystem::create_directories(tree_img_dir);
+    std::filesystem::create_directories(iter_cnt_dir);
+    std::filesystem::create_directories(logodd_dir);
+    std::filesystem::create_directories(prob_occupied_dir);
+    std::filesystem::create_directories(gradient_norms_dir);
+
+    long img_cnt = 0;
     cv::Scalar trajectory_color(255, 255, 255, 255);
     cv::Mat tree_img;
     drawer->SetQuadtree(bhsm.GetTree());
@@ -710,6 +722,13 @@ TestImpl2D() {
         cv::imshow("logodd", tree_img);
         cv::imshow("prob_occupied", tree_img);
         cv::imshow("gradient_norms", tree_img);
+
+        std::string filename = fmt::format("{:04d}.png", img_cnt++);
+        cv::imwrite(tree_img_dir / filename, tree_img);
+        cv::imwrite(iter_cnt_dir / filename, tree_img);
+        cv::imwrite(logodd_dir / filename, tree_img);
+        cv::imwrite(prob_occupied_dir / filename, tree_img);
+        cv::imwrite(gradient_norms_dir / filename, tree_img);
 
         constexpr int x_space = 10;
         constexpr int y_space = 120;
@@ -866,7 +885,7 @@ TestImpl2D() {
                 cv::Point(px1[0], px1[1]),
                 cv::Point(px2[0], px2[1]),
                 cv::Scalar(0, 0, 0, 255),
-                1);
+                2);
         }
 
         /// draw the log odds
@@ -974,6 +993,14 @@ TestImpl2D() {
         cv::imshow("logodd", logodd_img);
         cv::imshow("prob_occupied", prob_occupied_img);
         cv::imshow("gradient_norms", gradient_norms_img);
+
+        std::string filename = fmt::format("{:04d}.png", img_cnt++);
+        cv::imwrite(tree_img_dir / filename, tree_img);
+        cv::imwrite(iter_cnt_dir / filename, iter_cnt_img);
+        cv::imwrite(logodd_dir / filename, logodd_img);
+        cv::imwrite(prob_occupied_dir / filename, prob_occupied_img);
+        cv::imwrite(gradient_norms_dir / filename, gradient_norms_img);
+
         cv::waitKey(10);
     }
     if (options.hold) { cv::waitKey(0); }

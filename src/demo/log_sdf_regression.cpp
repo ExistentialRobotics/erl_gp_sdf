@@ -62,7 +62,8 @@ struct YAML::convert<Options> {
 struct App {
     Options options;
 
-    explicit App(const std::string &option_file) {  // NOLINT(*-msc51-cpp)
+    explicit App(const std::string &option_file) {
+        if (!std::filesystem::exists(option_file)) { options.AsYamlFile(option_file); }
         if (!option_file.empty()) {
             ERL_ASSERTM(
                 options.FromYamlFile(option_file),
@@ -86,6 +87,7 @@ struct App {
     std::shared_ptr<Gp>
     Train(const Eigen::Matrix2Xd &points) {
         options.gp->no_gradient_observation = true;
+        options.gp->kernel->scale = std::sqrt(3.) / options.gp->log_lambda;
         auto gp = std::make_shared<Gp>(options.gp);
         gp->Reset(options.num_samples, 2, 3);
 
@@ -103,54 +105,10 @@ struct App {
         train_set.num_samples_with_grad = 0;
         train_set.grad_flag.setConstant(false);
         train_set.x_dim = 2;
-        train_set.y_dim = 1;
+        train_set.y_dim = 3;
         ERL_ASSERTM(gp->Train(), "Failed to train Gaussian Process.");
         return gp;
     }
-
-    // [[nodiscard]] std::tuple<  //
-    //     Eigen::Vector2i,
-    //     Eigen::Matrix2Xd,
-    //     Eigen::VectorXd,
-    //     Eigen::VectorXd,
-    //     Eigen::VectorXd,
-    //     Eigen::Matrix2Xd,
-    //     Eigen::VectorXb,
-    //     Eigen::Matrix2Xd>
-    // Test(const std::shared_ptr<Gp> &gp, const int stride = 1, const double margin = 0.0) const {
-    //     GridMapInfo2Dd grid_info(
-    //         Eigen::Vector2i(options.test_num_x / stride, options.test_num_y / stride),
-    //         Eigen::Vector2d(options.min_x + margin, options.min_y + margin),
-    //         Eigen::Vector2d(options.max_x - margin, options.max_y - margin));
-    //     Eigen::Matrix2Xd points = grid_info.GenerateMeterCoordinates(true /*c_stride*/);
-    //     Eigen::VectorXd sdf_gt = points.colwise().norm().array() - options.radius;
-    //     Eigen::VectorXd edf_pred(points.cols());
-    //     Eigen::Matrix2Xd gradients(2, points.cols());
-    //     auto test_result = gp->Test(points, true /*predict_gradient*/);
-    //     ERL_ASSERTM(test_result != nullptr, "Failed to test Gaussian Process.");
-    //     test_result->GetMean(0, edf_pred, true /*parallel*/);
-    //     Eigen::VectorXb valid_gradients = test_result->GetGradient(0, gradients, true
-    //     /*parallel*/);
-    //
-    //     Eigen::Matrix2Xd normals(2, points.cols());
-    //     Eigen::VectorXd u(points.cols());
-    //     test_result->GetMean(1, u, true);
-    //     normals.row(0) = u.transpose();
-    //     test_result->GetMean(2, u, true);
-    //     normals.row(1) = u.transpose();
-    //
-    //     Eigen::VectorXd var(points.cols());
-    //     test_result->GetMeanVariance(var, true);
-    //     return {
-    //         grid_info.Shape(),
-    //         points,
-    //         sdf_gt,
-    //         edf_pred,
-    //         var,
-    //         gradients,
-    //         valid_gradients,
-    //         normals};
-    // }
 
     void
     Run() {
@@ -186,7 +144,7 @@ struct App {
         Eigen::VectorXd var(test_pts.cols());
         test_result->GetMeanVariance(var, true);
 
-        ERL_INFO("Computing SDF from EDF");
+        ERL_INFO("Computing SDF from UDF");
         Eigen::VectorXd edf_pred_dot_normals =
             (edf_grads.array() * normals.array()).colwise().sum();
         Eigen::VectorXd signs = edf_pred_dot_normals.unaryExpr(
@@ -220,7 +178,7 @@ struct App {
             .SetLabelTexts({"Pred"})
             .AddColorMap(0, shades_opt.color_levels, 10);
         clear_fig();
-        fig.SetTitle("EDF Prediction")
+        fig.SetTitle("UDF Prediction")
             .SetAreaFillPattern(PlplotFig::AreaFillPattern::Solid)
             .SetColorMap(1, PlplotFig::ColorMap::Jet)
             .Shades(edf_pred.data(), options.test_num_x, options.test_num_y, true, shades_opt)
@@ -239,7 +197,9 @@ struct App {
                 {0.0})
             .SetPenWidth(1);
         draw_axes();
-        cv::imshow("log_sdf_regression: edf prediction", fig.ToCvMat());
+        cv::Mat img = fig.ToCvMat();
+        cv::imwrite(options.output_dir + "/log_sdf_regression_udf_pred.png", img);
+        cv::imshow("log_sdf_regression: udf prediction", img);
 
         shades_opt.SetColorLevels(sdf_pred.data(), options.test_num_x, options.test_num_y, 127);
         color_bar_opt.SetLabelTexts({"Pred"}).AddColorMap(0, shades_opt.color_levels, 10);
@@ -263,7 +223,9 @@ struct App {
                 {0.0})
             .SetPenWidth(1);
         draw_axes();
-        cv::imshow("log_sdf_regression: sdf prediction", fig.ToCvMat());
+        img = fig.ToCvMat();
+        cv::imwrite(options.output_dir + "/log_sdf_regression_sdf_pred.png", img);
+        cv::imshow("log_sdf_regression: sdf prediction", img);
 
         shades_opt.SetColorLevels(
             edf_pred_dot_normals.data(),
@@ -282,7 +244,9 @@ struct App {
                 shades_opt)
             .ColorBar(color_bar_opt);
         draw_axes();
-        cv::imshow("log_sdf_regression: edf_pred_dot_normals", fig.ToCvMat());
+        img = fig.ToCvMat();
+        cv::imwrite(options.output_dir + "/log_sdf_regression_udf_pred_dot_normals.png", img);
+        cv::imshow("log_sdf_regression: udf_pred_dot_normals", img);
 
         shades_opt.SetColorLevels(sdf_gt.data(), options.test_num_x, options.test_num_y, 127);
         color_bar_opt.SetLabelTexts({"G.T."}).AddColorMap(0, shades_opt.color_levels, 10);
@@ -306,7 +270,9 @@ struct App {
                 {0.0})
             .SetPenWidth(1);
         draw_axes();
-        cv::imshow("log_sdf_regression: ground truth", fig.ToCvMat());
+        img = fig.ToCvMat();
+        cv::imwrite(options.output_dir + "/log_sdf_regression_gt.png", img);
+        cv::imshow("log_sdf_regression: ground truth", img);
 
         Eigen::VectorXd error = (edf_pred - sdf_gt).cwiseAbs();
         shades_opt.SetColorLevels(error.data(), options.test_num_x, options.test_num_y, 127);
@@ -331,7 +297,9 @@ struct App {
                 {0.0})
             .SetPenWidth(1);
         draw_axes();
-        cv::imshow("log_sdf_regression: edf error", fig.ToCvMat());
+        img = fig.ToCvMat();
+        cv::imwrite(options.output_dir + "/log_sdf_regression_udf_error.png", img);
+        cv::imshow("log_sdf_regression: udf error", img);
 
         error = (sdf_pred - sdf_gt).cwiseAbs();
         shades_opt.SetColorLevels(error.data(), options.test_num_x, options.test_num_y, 127);
@@ -356,7 +324,9 @@ struct App {
                 {0.0})
             .SetPenWidth(1);
         draw_axes();
-        cv::imshow("log_sdf_regression: sdf error", fig.ToCvMat());
+        img = fig.ToCvMat();
+        cv::imwrite(options.output_dir + "/log_sdf_regression_sdf_error.png", img);
+        cv::imshow("log_sdf_regression: sdf error", img);
 
         shades_opt.SetColorLevels(var.data(), options.test_num_x, options.test_num_y, 127);
         color_bar_opt.SetLabelTexts({"Var."}).AddColorMap(0, shades_opt.color_levels, 10);
@@ -380,7 +350,9 @@ struct App {
                 {0.0})
             .SetPenWidth(1);
         draw_axes();
-        cv::imshow("log_sdf_regression: variance", fig.ToCvMat());
+        img = fig.ToCvMat();
+        cv::imwrite(options.output_dir + "/log_sdf_regression_gp_variance.png", img);
+        cv::imshow("log_sdf_regression: variance", img);
 
         GridMapInfo2Dd grid_info_stride(
             Eigen::Vector2i(options.test_num_x / 20, options.test_num_y / 20),
@@ -395,7 +367,7 @@ struct App {
         Eigen::VectorXd u = edf_grads.row(0);
         Eigen::VectorXd v = edf_grads.row(1);
         clear_fig();
-        fig.SetTitle("EDF Gradient Prediction")
+        fig.SetTitle("UDF Gradient Prediction")
             .SetCurrentColor(PlplotFig::Color0::Green)
             .DrawContour(
                 sdf_gt.data(),
@@ -411,9 +383,12 @@ struct App {
             .SetPenWidth(2)
             .VectorField(x.data(), y.data(), u.data(), v.data(), static_cast<int>(x.size()), 0.5);
         draw_axes();
-        cv::imshow("log_sdf_regression: edf gradient pred", fig.ToCvMat());
+        img = fig.ToCvMat();
+        cv::imwrite(options.output_dir + "/log_sdf_regression_udf_gradient_pred.png", img);
+        cv::imshow("log_sdf_regression: udf gradient pred", img);
 
         buf.resize(test_pts.cols());
+        normals.resize(2, test_pts.cols());
         test_result->GetMean(1, buf, true);
         normals.row(0) = buf.transpose();
         test_result->GetMean(2, buf, true);
@@ -439,10 +414,12 @@ struct App {
             .SetPenWidth(2)
             .VectorField(x.data(), y.data(), u.data(), v.data(), static_cast<int>(x.size()), 0.5);
         draw_axes();
-        cv::imshow("log_sdf_regression: normal diffusion", fig.ToCvMat());
+        img = fig.ToCvMat();
+        cv::imwrite(options.output_dir + "/log_sdf_regression_normal_diffusion.png", img);
+        cv::imshow("log_sdf_regression: normal diffusion", img);
 
-        constexpr long stride = 200;
-        u.resize(dataset.cols() / stride);
+        const long stride = std::max(1l, dataset.cols() / 65l);
+        u.resize((dataset.cols() + stride - 1l) / stride);
         v.resize(u.size());
         x.resize(u.size());
         y.resize(u.size());
@@ -473,7 +450,9 @@ struct App {
             .SetPenWidth(2)
             .VectorField(x.data(), y.data(), u.data(), v.data(), static_cast<int>(x.size()), 0.5);
         draw_axes();
-        cv::imshow("log_sdf_regression: training data", fig.ToCvMat());
+        img = fig.ToCvMat();
+        cv::imwrite(options.output_dir + "/log_sdf_regression_training_data.png", img);
+        cv::imshow("log_sdf_regression: training data", img);
 
         cv::waitKey();
     }

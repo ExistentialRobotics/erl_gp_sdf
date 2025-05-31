@@ -27,8 +27,8 @@ local_bhm:
 tree:
     resolution: 0.35
     tree_depth: 16
-    log_odd_min: -2
-    log_odd_max: 4
+    log_odd_min: -5
+    log_odd_max: 5
     log_odd_hit: 0.85
     log_odd_miss: -0.4
     log_odd_occ_threshold: 0
