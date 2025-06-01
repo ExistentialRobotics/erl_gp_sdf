@@ -39,8 +39,8 @@ DrawSurfaceData(
             img,
             position_px_cv,
             arrow_end_px,
-            cv::Scalar(0, 0, 255, 255),
-            1,
+            cv::Scalar(255, 255, 255, 255),
+            2,
             cv::LINE_8,
             0,
             0.1);
@@ -267,7 +267,7 @@ TestImpl2D() {
         int init_frame = 0;
         int stride = 1;
         Dtype map_resolution = 0.025;
-        Dtype surf_normal_scale = 0.35;
+        Dtype surf_normal_scale = 0.5;
     };
 
     Options options;
@@ -570,7 +570,7 @@ TestImpl2D() {
 
     // start the mapping
     auto bin_file = test_output_dir / fmt::format("sdf_mapping_2d_{}.bin", type_name<Dtype>());
-    double t_ms = 0;
+    double sdf_update_ms = 0;
     double traj_t = 0;
     std::vector<double> timestamps_second;
     std::vector<double> sdf_values;
@@ -588,6 +588,8 @@ TestImpl2D() {
     grad_y_values.reserve(max_update_cnt);
     var_grad_x_values.reserve(max_update_cnt);
     var_grad_y_values.reserve(max_update_cnt);
+    constexpr bool c_stride = true;
+    Matrix2X grid_points = grid_map_info->GenerateMeterCoordinates(c_stride);
     for (long i = 0; i < max_update_cnt; i++) {
         const auto &[rotation, translation] = train_poses[i];
         const Eigen::VectorXd &angles = train_angles[i];
@@ -605,7 +607,7 @@ TestImpl2D() {
         auto t1 = std::chrono::high_resolution_clock::now();
         auto dt = std::chrono::duration<double, std::milli>(t1 - t0).count();
         ERL_INFO("Update time: {:f} ms.", dt);
-        t_ms += dt;
+        sdf_update_ms += dt;
         traj_t += tic;
 
         if (options.visualize) {
@@ -616,6 +618,29 @@ TestImpl2D() {
             }
             img.setTo(cv::Scalar(128, 128, 128, 255));
             drawer.DrawLeaves(img);
+            VectorX prob_occupied;
+            Matrix2X gradients;
+            surface_mapping->Predict(  //
+                grid_points,
+                false /*logodd*/,
+                true /*faster*/,
+                false /*compute gradient*/,
+                false /*gradient with sigmoid*/,
+                true /*parallel*/,
+                prob_occupied,
+                gradients);
+            cv::Mat prob_occupied_img(
+                grid_map_info->Shape(0),
+                grid_map_info->Shape(1),
+                sizeof(Dtype) == 4 ? CV_32FC1 : CV_64FC1,
+                prob_occupied.data());
+            prob_occupied_img = prob_occupied_img.t();
+            cv::flip(prob_occupied_img, prob_occupied_img, 0);
+            cv::normalize(prob_occupied_img, prob_occupied_img, 0, 255, cv::NORM_MINMAX);
+            prob_occupied_img.convertTo(prob_occupied_img, CV_8UC1);
+            cv::applyColorMap(prob_occupied_img, prob_occupied_img, cv::COLORMAP_JET);
+            cv::cvtColor(prob_occupied_img, prob_occupied_img, cv::COLOR_BGR2BGRA);
+            cv::addWeighted(prob_occupied_img, 0.7, img, 0.3, 0.0, img);
             DrawSurfaceData(img, drawer, *surface_mapping, options.surf_normal_scale, true);
 
             // Test SDF Estimation
@@ -681,7 +706,7 @@ TestImpl2D() {
                 cv::Point(10, 30),
                 cv::FONT_HERSHEY_SIMPLEX,
                 0.8,
-                cv::Scalar(0, 255, 0, 255),
+                cv::Scalar(0, 0, 255, 255),
                 2);
 
             timestamps_second.push_back(traj_t);
@@ -870,7 +895,7 @@ TestImpl2D() {
             cv::imshow(window_name, frame);
             cv::waitKey(1);
         }
-        double avg_dt = t_ms / static_cast<double>(i + 1);
+        double avg_dt = sdf_update_ms / static_cast<double>(i + 1);
         double fps = 1000.0 / avg_dt;
         ERL_INFO("Average update time: {:f} ms, Average fps: {:f}", avg_dt, fps);
         std::cout << "=====================================" << std::endl;
@@ -888,30 +913,27 @@ TestImpl2D() {
         }
     }
 
-    ERL_INFO("Average update time: {:f} ms.", t_ms / static_cast<double>(max_update_cnt));
+    ERL_INFO("Average update time: {:f} ms.", sdf_update_ms / static_cast<double>(max_update_cnt));
     if (options.save_video) {
         video_writer->release();
         ERL_INFO("Saved surface mapping video to {}.", video_path.c_str());
     }
 
     // Test SDF Estimation
-    constexpr bool c_stride = true;
-    Matrix2X positions_in = grid_map_info->GenerateMeterCoordinates(c_stride);
-    VectorX distances_out(positions_in.cols());
-    Matrix2X gradients_out(2, positions_in.cols());
-    Matrix3X variances_out(3, positions_in.cols());
+    VectorX distances_out(grid_points.cols());
+    Matrix2X gradients_out(2, grid_points.cols());
+    Matrix3X variances_out(3, grid_points.cols());
     Matrix3X covariances_out;
     auto t0 = std::chrono::high_resolution_clock::now();
     bool success =
-        sdf_mapping
-            .Test(positions_in, distances_out, gradients_out, variances_out, covariances_out);
+        sdf_mapping.Test(grid_points, distances_out, gradients_out, variances_out, covariances_out);
     auto t1 = std::chrono::high_resolution_clock::now();
     auto dt = std::chrono::duration<double, std::milli>(t1 - t0).count();
-    double t_per_point = dt / static_cast<double>(positions_in.cols()) * 1000;  // us
+    double t_per_point = dt / static_cast<double>(grid_points.cols()) * 1000;  // us
     ERL_INFO(
         "Test time: {:f} ms for {} points, {:f} us per point.",
         dt,
-        positions_in.cols(),
+        grid_points.cols(),
         t_per_point);
 
     EXPECT_TRUE(success) << "Failed to test SDF estimation at the end.";
