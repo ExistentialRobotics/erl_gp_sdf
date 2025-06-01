@@ -230,13 +230,13 @@ EigenToOpenCV(const Eigen::Vector2i &p) {
     return {p.x(), p.y()};
 }
 
-template<typename Dtype, typename SurfaceMapping>
+template<typename Dtype>
 void
 TestImpl2D() {
     GTEST_PREPARE_OUTPUT_DIR();
     using namespace erl::common;
 
-    // using SurfaceMapping = erl::sdf_mapping::GpOccSurfaceMapping<Dtype, 2>;
+    using SurfaceMapping = erl::sdf_mapping::GpOccSurfaceMapping<Dtype, 2>;
     using SdfMapping = erl::sdf_mapping::GpSdfMapping<Dtype, 2, SurfaceMapping>;
     using Quadtree = typename SurfaceMapping::Tree;
     using QuadtreeDrawer = erl::geometry::OccupancyQuadtreeDrawer<Quadtree>;
@@ -1034,9 +1034,9 @@ TestImpl2D() {
     }
 }
 
-TEST(GpSdfMapping, GpOcc2Dd) { TestImpl2D<double, erl::sdf_mapping::GpOccSurfaceMapping2Dd>(); }
+TEST(GpSdfMapping, GpOcc2Dd) { TestImpl2D<double>(); }
 
-TEST(GpSdfMapping, GpOcc2Df) { TestImpl2D<float, erl::sdf_mapping::GpOccSurfaceMapping2Df>(); }
+TEST(GpSdfMapping, GpOcc2Df) { TestImpl2D<float>(); }
 
 int
 main(int argc, char *argv[]) {

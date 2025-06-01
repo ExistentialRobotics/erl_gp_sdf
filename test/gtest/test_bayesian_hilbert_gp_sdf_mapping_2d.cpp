@@ -230,13 +230,13 @@ EigenToOpenCV(const Eigen::Vector2i &p) {
     return {p.x(), p.y()};
 }
 
-template<typename Dtype, typename SurfaceMapping>
+template<typename Dtype>
 void
 TestImpl2D() {
     GTEST_PREPARE_OUTPUT_DIR();
     using namespace erl::common;
 
-    // using SurfaceMapping = erl::sdf_mapping::GpOccSurfaceMapping<Dtype, 2>;
+    using SurfaceMapping = erl::sdf_mapping::BayesianHilbertSurfaceMapping<Dtype, 2>;
     using SdfMapping = erl::sdf_mapping::GpSdfMapping<Dtype, 2, SurfaceMapping>;
     using Quadtree = typename SurfaceMapping::Tree;
     using QuadtreeDrawer = erl::geometry::OccupancyQuadtreeDrawer<Quadtree>;
@@ -252,8 +252,10 @@ TestImpl2D() {
         std::string house_expo_map_file = kDataDir / "house_expo_room_1451.json";
         std::string house_expo_traj_file = kDataDir / "house_expo_room_1451.csv";
         std::string ucsd_fah_2d_file = kDataDir / "ucsd_fah_2d.dat";
-        std::string surface_mapping_config_file = kConfigDir / "surface_mapping_2d.yaml";
-        std::string sdf_mapping_config_file = kConfigDir / "sdf_mapping_2d.yaml";
+        std::string surface_mapping_config_file =
+            kConfigDir / fmt::format("bayesian_hilbert_mapping_2d_{}.yaml", type_name<Dtype>());
+        std::string sdf_mapping_config_file =
+            kConfigDir / fmt::format("sdf_mapping_2d_{}.yaml", type_name<Dtype>());
         bool use_gazebo_room_2d = false;
         bool use_house_expo_lidar_2d = false;
         bool use_ucsd_fah_2d = false;
@@ -1021,13 +1023,9 @@ TestImpl2D() {
     }
 }
 
-TEST(GpSdfMapping, BayesianHilbert2Dd) {
-    TestImpl2D<double, erl::sdf_mapping::BayesianHilbertSurfaceMapping2Dd>();
-}
+TEST(GpSdfMapping, BayesianHilbert2Dd) { TestImpl2D<double>(); }
 
-TEST(GpSdfMapping, BayesianHilbert2Df) {
-    TestImpl2D<float, erl::sdf_mapping::BayesianHilbertSurfaceMapping2Df>();
-}
+TEST(GpSdfMapping, BayesianHilbert2Df) { TestImpl2D<float>(); }
 
 int
 main(int argc, char *argv[]) {

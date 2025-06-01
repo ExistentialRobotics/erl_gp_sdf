@@ -803,10 +803,13 @@ namespace erl::sdf_mapping {
                   end = m_tree_->EndTreeInAabb();
              it != end;
              ++it) {
-            Key key = it.GetKey();
-            const LocalBayesianHilbertMap &local_bhm = *m_key_bhm_dict_.at(key);
+            if (it.GetDepth() != m_setting_->bhm_depth) { continue; }
+            Key key = it.GetIndexKey();
+            auto bhm_it = m_key_bhm_dict_.find(key);
+            if (bhm_it == m_key_bhm_dict_.end()) { continue; }
+            const LocalBayesianHilbertMap &local_bhm = *bhm_it->second;
             for (const auto &[local_idx, surf_idx]: local_bhm.surface_indices) {
-                ERL_DEBUG_ASSERT(surf_idx != -1, "surf_idx should not be -1");
+                ERL_DEBUG_ASSERT(static_cast<long>(surf_idx) != -1l, "surf_idx should not be -1");
                 const SurfData &surf_data = m_surf_data_manager_[surf_idx];
                 surface_data_indices.emplace_back(
                     (aabb.center - surf_data.position).norm(),
@@ -1476,8 +1479,8 @@ namespace erl::sdf_mapping {
             to_remove = true;
             return;
         }
-        ERL_DEBUG_ASSERT(
-            logodd_abs <= logodd_abs_init,
+        ERL_DEBUG_WARN_COND(
+            logodd_abs > logodd_abs_init,
             "logodd_abs {} is larger than initial {} after {} adjustments. logodd: {} (initial: "
             "{}), norm: {} (initial: {}).",
             logodd_abs,

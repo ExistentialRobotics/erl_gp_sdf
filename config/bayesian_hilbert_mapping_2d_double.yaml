@@ -18,17 +18,12 @@ local_bhm:
         weights: [ ]
     max_dataset_size: -1
     hit_buffer_size: 16
-    track_surface: true
     surface_resolution: 0.1
-    surface_occ_prob_threshold: 0.0   # 0.55
-    surface_occ_prob_target: 0.99
-    surface_adjust_step: 0.0   # 0.02
-    var_scale: 1.0
 tree:
     resolution: 0.35
     tree_depth: 16
-    log_odd_min: -2
-    log_odd_max: 4
+    log_odd_min: -5
+    log_odd_max: 5
     log_odd_hit: 0.85
     log_odd_miss: -0.4
     log_odd_occ_threshold: 0
@@ -38,6 +33,13 @@ tree:
         center: [ 0, 0 ]
         half_sizes: [ 0, 0 ]
 hinged_grid_size: 9
+surface_max_abs_logodd: 2
+surface_bad_abs_logodd: 50
+surface_step_size: 0.01
+max_adjust_tries: 2
+var_scale: 0.1
+var_max: 2.0
+scaling: 1.0
 bhm_depth: 15
 bhm_overlap: 0.3
 bhm_test_margin: 0.15
