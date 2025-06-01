@@ -23,14 +23,9 @@ namespace erl::sdf_mapping {
         std::string kernel_type = type_name<Covariance>();
         std::string kernel_setting_type = type_name<KernelSetting>();
         std::shared_ptr<KernelSetting> kernel = std::make_shared<KernelSetting>();
-        long max_dataset_size = -1;                // maximum size of the dataset to store
-        long hit_buffer_size = -1;                 // -1 means no limit, 0 means no hit buffer
-        bool track_surface = true;                 // if true, track the surface points
-        Dtype surface_resolution = 0.01f;          // resolution to track the surface points
-        Dtype surface_occ_prob_threshold = 0.55f;  // threshold to consider a point as occupied
-        Dtype surface_occ_prob_target = 0.99f;     // target occupancy probability for the surface
-        Dtype surface_adjust_step = 0.01f;         // step for the surface adjustment
-        Dtype var_scale = 1.0f;                    // scale for the variance
+        long max_dataset_size = -1;        // maximum size of the dataset to store
+        long hit_buffer_size = -1;         // -1 means no limit, 0 means no hit buffer
+        Dtype surface_resolution = 0.01f;  // resolution to track the surface_indices points
 
         struct YamlConvertImpl {
             static YAML::Node
@@ -92,35 +87,19 @@ namespace erl::sdf_mapping {
         using Gradients = Positions;
 
         struct LocalBayesianHilbertMap {
-            struct Surface {
-                Position position = Position::Zero();  // position of the surface point
-                Gradient normal = Gradient::Zero();    // normal of the surface point
-                Dtype prob_occupied = 0.0f;  // probability of the surface point being occupied
-
-                explicit Surface(Position position_)
-                    : position(std::move(position_)) {}
-
-                [[nodiscard]] bool
-                operator==(const Surface &other) const;
-
-                [[nodiscard]] bool
-                operator!=(const Surface &other) const;
-            };
-
             using Setting = LocalBayesianHilbertMapSetting<Dtype>;
 
             std::shared_ptr<Setting> setting = nullptr;  // settings for the local map
-            Aabb tracked_surface_boundary{};             // boundary of the surface to track
+            Aabb tracked_surface_boundary{};             // boundary of the surface_indices to track
             BayesianHilbertMap bhm;                      // local Bayesian Hilbert map
-            Eigen::Vector<int, Dim> strides;             // strides for indexing the surface points
-            std::vector<int> surface_indices{};          // indices of the surface points
-            absl::flat_hash_map<int, Surface> surface;   // map of surface points and their normals
-            long num_dataset_points = 0;                 // number of dataset points
-            Positions dataset_points{};                  // [Dim, N] dataset points
-            VectorX dataset_labels{};                    // [N, 1] dataset labels
-            std::vector<long> hit_indices{};             // indices of the hit points in the dataset
-            std::vector<Position> hit_buffer{};          // hit point buffer of M points
-            long hit_buffer_head = 0;                    // head of the hit point buffer
+            Eigen::Vector<int, Dim> strides;  // strides for indexing the surface_indices points
+            absl::flat_hash_map<int, std::size_t> surface_indices;  // local index -> buffer index
+            long num_dataset_points = 0;                            // number of dataset points
+            Positions dataset_points{};                             // [Dim, N] dataset points
+            VectorX dataset_labels{};                               // [N, 1] dataset labels
+            std::vector<long> hit_indices{};     // indices of the hit points in the dataset
+            std::vector<Position> hit_buffer{};  // hit point buffer of M points
+            long hit_buffer_head = 0;            // head of the hit point buffer
 
             LocalBayesianHilbertMap(
                 std::shared_ptr<Setting> setting_,
@@ -151,9 +130,6 @@ namespace erl::sdf_mapping {
             UpdateBhm(
                 const Eigen::Ref<const Position> &sensor_origin,
                 const Eigen::Ref<const Positions> &points);
-
-            void
-            TrackSurface(const Eigen::Ref<const Positions> &points);
         };
 
         struct Setting : public common::Yamlable<Setting> {
@@ -161,6 +137,20 @@ namespace erl::sdf_mapping {
                 std::make_shared<typename LocalBayesianHilbertMap::Setting>();
             std::shared_ptr<TreeSetting> tree = std::make_shared<TreeSetting>();
             int hinged_grid_size = 11;
+            // threshold for stopping the adjustment
+            Dtype surface_max_abs_logodd = 0.05f;
+            // threshold for bad surface points to be removed
+            Dtype surface_bad_abs_logodd = 0.1f;
+            // step size for the surface adjustment
+            Dtype surface_step_size = 0.01f;
+            // maximum number of tries to adjust the surface points
+            int max_adjust_tries = 3;
+            // scale for the variance
+            Dtype var_scale = 1.0f;
+            // maximum variance for the surface points/normals
+            Dtype var_max = 2.0f;
+            // scaling factor for the map
+            Dtype scaling = 1.0f;
             // tree depth for the local Bayesian Hilbert map
             uint32_t bhm_depth = 14;
             // overlap between the Bayesian Hilbert maps
@@ -191,6 +181,16 @@ namespace erl::sdf_mapping {
         Positions m_hinged_points_{};
         std::vector<std::pair<Key, Position>> m_key_bhm_positions_{};  // key -> center
         absl::flat_hash_map<Key, std::shared_ptr<LocalBayesianHilbertMap>> m_key_bhm_dict_{};
+        SurfDataManager m_surf_data_manager_ = {};
+        KeySet m_changed_clusters_{};  // keys of the clusters that have changed
+
+        // buffers for the new and existing hit points
+
+        // bhm_key, local_index, surf_index, to_remove
+        std::vector<std::tuple<Key, int, std::size_t, bool>> m_new_hit_points_;
+
+        // bhm_key, local_index, surf_index, to_remove, new_local_index
+        std::vector<std::tuple<Key, int, std::size_t, bool, int>> m_existing_hit_points_;
 
     public:
         explicit BayesianHilbertSurfaceMapping(std::shared_ptr<Setting> setting);
@@ -222,6 +222,12 @@ namespace erl::sdf_mapping {
 
         [[nodiscard]] std::vector<SurfaceData<double, 3>>
         GetSurfaceData() const override;
+
+        typename SurfDataManager::Iterator
+        BeginSurfaceData();
+
+        typename SurfDataManager::Iterator
+        EndSurfaceData();
 
         /**
          *
@@ -255,6 +261,36 @@ namespace erl::sdf_mapping {
             bool parallel,
             Gradients &gradient) const;
 
+        // implement the methods required by GpSdfMapping
+        [[nodiscard]] Dtype
+        GetScaling() const;
+
+        [[nodiscard]] Dtype
+        GetClusterSize() const;
+
+        [[nodiscard]] Position
+        GetClusterCenter(const Key &key) const;
+
+        [[nodiscard]] const KeySet &
+        GetChangedClusters() const;
+
+        void
+        IterateClustersInAabb(const Aabb &aabb, std::function<void(const Key &)> callback) const;
+
+        [[nodiscard]] const std::vector<SurfData> &
+        GetSurfaceDataBuffer() const;
+
+        void
+        CollectSurfaceDataInAabb(
+            const Aabb &aabb,
+            std::vector<std::pair<Dtype, std::size_t>> &surface_data_indices) const;
+
+        [[nodiscard]] Aabb
+        GetMapBoundary() const;
+
+        [[nodiscard]] bool
+        IsInFreeSpace(const Positions &positions, VectorX &in_free_space) const;
+
         // implement the methods required by AbstractSurfaceMapping for factory pattern
         [[nodiscard]] bool
         operator==(const AbstractSurfaceMapping &other) const override;
@@ -284,6 +320,18 @@ namespace erl::sdf_mapping {
             bool parallel,
             Dtype *prob_occupied_ptr,
             Dtype *gradient_ptr) const;
+
+        void
+        UpdateMapPoints(const Eigen::Ref<const Positions> &points);
+
+        void
+        InitMapPointThread(int thread_id, int start, int end);
+
+        void
+        InitMapPoint(BayesianHilbertMap &bhm, SurfData &surf_data, bool &to_remove) const;
+
+        void
+        UpdateMapPoint(BayesianHilbertMap &bhm, SurfData &surf_data, bool &to_remove) const;
     };
 
     using BayesianHilbertSurfaceMapping2Df = BayesianHilbertSurfaceMapping<float, 2>;

@@ -398,7 +398,7 @@ namespace erl::sdf_mapping {
                 auto surf_it = m_surf_indices0_.find(key);
                 // no surface data for this key
                 if (surf_it == m_surf_indices0_.end()) { continue; }
-                const auto &surface_data = m_surf_data_manager_[surf_it->second];
+                const SurfData &surface_data = m_surf_data_manager_[surf_it->second];
                 surface_data_indices.emplace_back(
                     (aabb.center - surface_data.position).norm(),
                     surf_it->second);
@@ -410,22 +410,14 @@ namespace erl::sdf_mapping {
             Key key = it.GetKey();
             auto surf_it = m_surf_indices1_.find(key);
             if (surf_it == m_surf_indices1_.end()) { continue; }  // no surface data for this key
-            const auto &surf_indices = surf_it->second;
+            const absl::flat_hash_map<int, std::size_t> &surf_indices = surf_it->second;
             if (surf_indices.empty()) { continue; }  // no surface data for this key
             for (const auto &[grid_index, surf_index]: surf_indices) {
-                const auto &surface_data = m_surf_data_manager_[surf_index];
+                const SurfData &surface_data = m_surf_data_manager_[surf_index];
                 surface_data_indices.emplace_back(
                     (aabb.center - surface_data.position).norm(),
                     surf_index);
             }
-        }
-        if (std::abs(aabb.center[0] - 6.3f) < 0.001f && std::abs(aabb.center[1] + 2.7f) < 0.001f) {
-            ERL_INFO(
-                "{} surface data indices collected in Aabb({}, {})",
-                surface_data_indices.size(),
-                aabb.center.transpose(),
-                aabb.half_sizes[0]);
-            std::cout << std::flush;
         }
     }
 
@@ -768,7 +760,7 @@ namespace erl::sdf_mapping {
             // find the surface index of the node
             auto surf_it = m_surf_indices0_.find(key);
             // skip nodes without surface data
-            if (surf_it == m_surf_indices0_.end() || surf_it->second < 0) { continue; }
+            if (surf_it == m_surf_indices0_.end()) { continue; }
             if (update_occupancy && !m_tree_->IsNodeOccupied(*it)) {
                 // skip unoccupied nodes and clear the surface data in them.
                 m_surf_data_manager_.RemoveEntry(surf_it->second);
@@ -783,8 +775,7 @@ namespace erl::sdf_mapping {
         }
 
         // update the surface data in the nodes
-#pragma omp parallel for default(none) \
-    shared(nodes_in_aabb, max_sensor_range, sensor_pos, sensor_frame)
+#pragma omp parallel for default(none) shared(nodes_in_aabb)
         for (auto &[key, surf_index, updated, to_remove, new_key]: nodes_in_aabb) {
             auto &surface_data = m_surf_data_manager_[surf_index];
             UpdateMapPoint(surface_data, updated, to_remove);
@@ -971,7 +962,7 @@ namespace erl::sdf_mapping {
             if (!ComputeOcc(pos_local_new, distance_new, distance_pred, occ_new)) { break; }
             occ_abs = std::fabs(occ_new);
             distance_new = distance_pred;
-            if (occ_abs < max_surface_abs_occ) { break; }
+            if (occ_abs <= max_surface_abs_occ) { break; }
             if (occ * occ_new < 0.0f) {
                 delta *= 0.5f;  // too big, make it smaller
             } else {
@@ -1198,8 +1189,8 @@ namespace erl::sdf_mapping {
         for (long i = 0; i < num_hit_rays; ++i) {
             const Position &hit_point_global = hit_points_global[i];
             Key key = m_tree_->CoordToKey(hit_point_global);
-            if (!new_measurement_keys.insert(key).second) { continue; }  // already in the set
             if (m_surf_indices0_.contains(key)) { continue; }  // the key is already in the index
+            if (!new_measurement_keys.insert(key).second) { continue; }  // already in the set
             if (!update_occupancy) { m_tree_->InsertNode(key); }
             new_measurements.emplace_back(key, i, false, 0.0f, Gradient::Zero());
         }

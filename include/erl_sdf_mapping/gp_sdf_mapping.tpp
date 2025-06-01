@@ -183,7 +183,7 @@ namespace erl::sdf_mapping {
         UpdateClusterQueue();
 
         // train GPs if we still have time
-        const double dt = timer.Elapsed<double, std::micro>();
+        const auto dt = timer.Elapsed<double, std::micro>();
         time_budget_us -= dt;
         if (time_budget_us > 2.0f * m_train_gp_time_us_) {
             // CRITICAL SECTION: access m_clusters_to_train_ and m_gp_map_

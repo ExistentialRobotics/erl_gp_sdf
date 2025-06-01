@@ -61,7 +61,7 @@ TestImpl3D() {
             kProjectRootDir / "config" /
             fmt::format("gp_occ_mapping_3d_lidar_{}.yaml", type_name<Dtype>());
         long stride = 1;
-        Dtype surf_normal_scale = 0.25;
+        Dtype surf_normal_scale = 0.5;
         Dtype test_res = 0.02;
         Dtype test_z = 0.0;
         long test_xs = 150;
@@ -627,6 +627,10 @@ TestImpl2D() {
     drawer_setting->border_color = cv::Scalar(255, 0, 0, 255);
     QuadtreeDrawer drawer(drawer_setting);
 
+    std::filesystem::path img_dir = test_output_dir / "images";
+    std::filesystem::create_directories(img_dir);
+    int img_cnt = 0;
+
     cv::Scalar trajectory_color(0, 0, 0, 255);
     cv::Mat img;
     bool drawer_connected = false;
@@ -714,7 +718,9 @@ TestImpl2D() {
                 2);
 
             cv::imshow("GP Occ Surface Mapping", img);
-            int key = cv::waitKey(1);
+            cv::imwrite(img_dir / fmt::format("{:04d}.png", img_cnt++), img);
+
+            int key = cv::waitKey(10);
             if (key == 27) { break; }  // ESC
             if (key == 'q') { break; }
         }

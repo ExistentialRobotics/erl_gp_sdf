@@ -230,13 +230,13 @@ EigenToOpenCV(const Eigen::Vector2i &p) {
     return {p.x(), p.y()};
 }
 
-template<typename Dtype>
+template<typename Dtype, typename SurfaceMapping>
 void
 TestImpl2D() {
     GTEST_PREPARE_OUTPUT_DIR();
     using namespace erl::common;
 
-    using SurfaceMapping = erl::sdf_mapping::GpOccSurfaceMapping<Dtype, 2>;
+    // using SurfaceMapping = erl::sdf_mapping::GpOccSurfaceMapping<Dtype, 2>;
     using SdfMapping = erl::sdf_mapping::GpSdfMapping<Dtype, 2, SurfaceMapping>;
     using Quadtree = typename SurfaceMapping::Tree;
     using QuadtreeDrawer = erl::geometry::OccupancyQuadtreeDrawer<Quadtree>;
@@ -485,8 +485,7 @@ TestImpl2D() {
     surface_mapping_setting->sensor_gp->sensor_frame->angle_min = train_angles[0].minCoeff();
     surface_mapping_setting->sensor_gp->sensor_frame->angle_max = train_angles[0].maxCoeff();
     surface_mapping_setting->sensor_gp->sensor_frame->num_rays = train_angles[0].size();
-    std::shared_ptr<SurfaceMapping> surface_mapping =
-        std::make_shared<SurfaceMapping>(surface_mapping_setting);
+    auto surface_mapping = std::make_shared<SurfaceMapping>(surface_mapping_setting);
 
     const auto sdf_mapping_setting = std::make_shared<typename SdfMapping::Setting>();
     ERL_ASSERTM(
@@ -1035,9 +1034,9 @@ TestImpl2D() {
     }
 }
 
-TEST(GpSdfMapping, 2Dd) { TestImpl2D<double>(); }
+TEST(GpSdfMapping, GpOcc2Dd) { TestImpl2D<double, erl::sdf_mapping::GpOccSurfaceMapping2Dd>(); }
 
-TEST(GpSdfMapping, 2Df) { TestImpl2D<float>(); }
+TEST(GpSdfMapping, GpOcc2Df) { TestImpl2D<float, erl::sdf_mapping::GpOccSurfaceMapping2Df>(); }
 
 int
 main(int argc, char *argv[]) {

@@ -209,10 +209,10 @@ namespace erl::sdf_mapping {
             const Eigen::Ref<const Translation> &translation,
             const Eigen::Ref<const Ranges> &ranges);
 
+        // surface data access methods
+
         [[nodiscard]] std::vector<SurfaceData<double, 3>>
         GetSurfaceData() const override;
-
-        // surface data access methods
 
         SurfaceDataIterator
         BeginSurfaceData();

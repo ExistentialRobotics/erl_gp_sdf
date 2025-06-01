@@ -1,6 +1,7 @@
 #include "erl_sdf_mapping/init.hpp"
 
 #include "erl_gaussian_process/init.hpp"
+#include "erl_sdf_mapping/bayesian_hilbert_surface_mapping.hpp"
 #include "erl_sdf_mapping/gp_occ_surface_mapping.hpp"
 #include "erl_sdf_mapping/gp_sdf_mapping.hpp"
 #include "erl_sdf_mapping/gp_sdf_mapping_setting.hpp"
@@ -19,13 +20,6 @@ namespace erl::sdf_mapping {
         if (initialized_) { return true; }
 
         if (!gaussian_process::Init()) { return false; }
-
-        // REGISTER(SurfaceMappingQuadtreeNode);
-        // REGISTER(SurfaceMappingOctreeNode);
-        // REGISTER(SurfaceMappingQuadtreeD);
-        // REGISTER(SurfaceMappingQuadtreeF);
-        // REGISTER(SurfaceMappingOctreeD);
-        // REGISTER(SurfaceMappingOctreeF);
 
         REGISTER(LogEdfGaussianProcessD::Setting);
         REGISTER(LogEdfGaussianProcessF::Setting);
@@ -52,6 +46,30 @@ namespace erl::sdf_mapping {
         REGISTER(GpOccSurfaceSdfMapping3Df);
         REGISTER(GpOccSurfaceSdfMapping2Dd);
         REGISTER(GpOccSurfaceSdfMapping2Df);
+
+        REGISTER(LocalBayesianHilbertMapSettingF);
+        REGISTER(LocalBayesianHilbertMapSettingD);
+        REGISTER(BayesianHilbertSurfaceMapping2Df::Setting);
+        REGISTER(BayesianHilbertSurfaceMapping2Dd::Setting);
+        REGISTER(BayesianHilbertSurfaceMapping2Df);
+        REGISTER(BayesianHilbertSurfaceMapping2Dd);
+        REGISTER(BayesianHilbertSurfaceMapping3Df::Setting);
+        REGISTER(BayesianHilbertSurfaceMapping3Dd::Setting);
+        REGISTER(BayesianHilbertSurfaceMapping3Df);
+        REGISTER(BayesianHilbertSurfaceMapping3Dd);
+
+        using BayesianHilbertSdfMapping2Df =
+            GpSdfMapping<float, 2, BayesianHilbertSurfaceMapping2Df>;
+        using BayesianHilbertSdfMapping2Dd =
+            GpSdfMapping<double, 2, BayesianHilbertSurfaceMapping2Dd>;
+        using BayesianHilbertSdfMapping3Df =
+            GpSdfMapping<float, 3, BayesianHilbertSurfaceMapping3Df>;
+        using BayesianHilbertSdfMapping3Dd =
+            GpSdfMapping<double, 3, BayesianHilbertSurfaceMapping3Dd>;
+        REGISTER(BayesianHilbertSdfMapping2Df);
+        REGISTER(BayesianHilbertSdfMapping2Dd);
+        REGISTER(BayesianHilbertSdfMapping3Df);
+        REGISTER(BayesianHilbertSdfMapping3Dd);
 
         ERL_INFO("erl_sdf_mapping initialized");
         initialized_ = true;

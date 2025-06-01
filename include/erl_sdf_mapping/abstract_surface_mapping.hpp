@@ -42,7 +42,7 @@ namespace erl::sdf_mapping {
         }
 
         /**
-         * Update the surface mapping with the sensor observation.
+         * Update the surface_indices mapping with the sensor observation.
          * @param rotation The rotation of the sensor. For 2D, it is a 2x2 matrix. For 3D, it is a
          * 3x3 matrix.
          * @param translation The translation of the sensor. For 2D, it is a 2x1 vector. For 3D, it
@@ -61,7 +61,7 @@ namespace erl::sdf_mapping {
             bool are_local) = 0;
 
         /**
-         * Get the surface data. When this method is called, the mutex should be locked temporarily
+         * Get the surface_indices data. When this method is called, the mutex should be locked temporarily
          * to copy the data, which blocks the Update method. If the mapping implementation is for
          * 2D, the z-axis should be set to 0.
          * @return A vector of surface points with normals, variances, etc.
