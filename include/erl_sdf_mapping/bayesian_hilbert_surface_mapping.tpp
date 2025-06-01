@@ -847,7 +847,7 @@ namespace erl::sdf_mapping {
             in_free_space,
             gradients);
         for (long i = 0; i < in_free_space.size(); ++i) {
-            in_free_space[i] = (in_free_space[i] > 0.0f) ? 1.0f : -1.0f;  // convert to binary
+            in_free_space[i] = (in_free_space[i] < 0.0f) ? 1.0f : -1.0f;  // convert to binary
         }
         return true;
     }

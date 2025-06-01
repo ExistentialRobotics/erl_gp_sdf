@@ -255,7 +255,7 @@ TestImpl2D() {
         std::string surface_mapping_config_file =
             kConfigDir / fmt::format("bayesian_hilbert_mapping_2d_{}.yaml", type_name<Dtype>());
         std::string sdf_mapping_config_file =
-            kConfigDir / fmt::format("sdf_mapping_2d_{}.yaml", type_name<Dtype>());
+            kConfigDir / fmt::format("bayesian_hilbert_sdf_mapping_2d_{}.yaml", type_name<Dtype>());
         bool use_gazebo_room_2d = false;
         bool use_house_expo_lidar_2d = false;
         bool use_ucsd_fah_2d = false;

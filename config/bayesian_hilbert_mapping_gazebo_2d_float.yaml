@@ -34,11 +34,11 @@ tree:
         half_sizes: [ 0, 0 ]
 hinged_grid_size: 9
 surface_max_abs_logodd: 2
-surface_bad_abs_logodd: 50
-surface_step_size: 0.01
+surface_bad_abs_logodd: 100
+surface_step_size: 0.001
 max_adjust_tries: 2
-var_scale: 0.1
-var_max: 2.0
+var_scale: 0.01
+var_max: 1.5
 scaling: 1.0
 bhm_depth: 15
 bhm_overlap: 0.3
