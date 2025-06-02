@@ -77,16 +77,19 @@ TestImpl3D() {
     using Vector3 = Eigen::Vector3<Dtype>;
     using VectorX = Eigen::VectorX<Dtype>;
 
-    // load setting from the command line
+#pragma region options
+
     struct Options {
         bool use_cow_and_lady = false;
         std::string cow_and_lady_dir;
         std::string mesh_file = kDataDir / "replica-hotel-0.ply";
         std::string traj_file = kDataDir / "replica-hotel-0-traj.txt";
         std::string surface_mapping_config_file =
-            kConfigDir / fmt::format("bayesian_hilbert_mapping_3d_{}.yaml", type_name<Dtype>());
+            kConfigDir / "template" /
+            fmt::format("bayesian_hilbert_mapping_3d_{}.yaml", type_name<Dtype>());
         std::string sensor_frame_type = type_name<LidarFrame3D>();
-        std::string sensor_frame_config_file = kConfigDir / "lidar_3d_271.yaml";
+        std::string sensor_frame_config_file = kConfigDir / "sensors" / "lidar_frame_3d_271.yaml";
+        std::string o3d_view_status_file = kConfigDir / "template" / "open3d_view_status.json";
         long stride = 1;
         Dtype surf_normal_scale = 0.25;
         Dtype test_res = 0.02;
@@ -97,6 +100,8 @@ TestImpl3D() {
         bool hold = false;
         bool no_visualize = false;
     };
+
+#pragma endregion
 
     Options options;
     bool options_parsed = false;
@@ -118,9 +123,9 @@ TestImpl3D() {
             ("mesh-file", po::value<std::string>(&options.mesh_file)->default_value(options.mesh_file)->value_name("file"), "mesh file")
             ("traj-file", po::value<std::string>(&options.traj_file)->default_value(options.traj_file)->value_name("file"), "trajectory file")
             (
-                "surface_indices-mapping-config-file",
+                "surface-mapping-config-file",
                 po::value<std::string>(&options.surface_mapping_config_file)->default_value(options.surface_mapping_config_file)->value_name("file"),
-                "surface_indices mapping config file"
+                "surface mapping config file"
             )(
                 "sensor-frame-type",
                 po::value<std::string>(&options.sensor_frame_type)->default_value(options.sensor_frame_type)->value_name("sensor frame type"),
@@ -135,8 +140,13 @@ TestImpl3D() {
                 po::value<std::string>(&options.sensor_frame_config_file)->default_value(options.sensor_frame_config_file)->value_name("file"),
                 "sensor frame config file"
             )
+            (
+                "o3d-view-status-file",
+                po::value<std::string>(&options.o3d_view_status_file)->default_value(options.o3d_view_status_file)->value_name("file"),
+                "Open3D view status file, used to set the view of the visualization window"
+            )
             ("stride", po::value<long>(&options.stride)->default_value(options.stride)->value_name("stride"), "stride")
-            ("surf-normal-scale", po::value<Dtype>(&options.surf_normal_scale)->default_value(options.surf_normal_scale)->value_name("scale"), "surface_indices normal scale")
+            ("surf-normal-scale", po::value<Dtype>(&options.surf_normal_scale)->default_value(options.surf_normal_scale)->value_name("scale"), "surface normal scale")
             ("test-res", po::value<Dtype>(&options.test_res)->default_value(options.test_res)->value_name("res"), "test resolution")
             ("test-z", po::value<Dtype>(&options.test_z)->default_value(options.test_z)->value_name("z"), "test z")
             ("test-xs", po::value<long>(&options.test_xs)->default_value(options.test_xs)->value_name("xs"), "test xs")
@@ -317,6 +327,7 @@ TestImpl3D() {
         ERL_TRACY_PLOT("bhsm_update (fps)", bhsm_update_fps);
     };
 
+#pragma region animation_callback
     auto callback = [&](Open3dVisualizerWrapper *wrapper,
                         open3d::visualization::Visualizer *vis) -> bool {
         ERL_TRACY_FRAME_MARK_START();
@@ -382,14 +393,14 @@ TestImpl3D() {
             o3d_pcd_obs->points_.emplace_back(point.template cast<double>());
         }
         o3d_pcd_obs->PaintUniformColor({0.0, 1.0, 0.0});
-        /// update the surface_indices point cloud and normals
+        /// update the surface point cloud and normals
         o3d_pcd_surf_points->points_.clear();
         o3d_line_set_surf_normals->points_.clear();
         o3d_line_set_surf_normals->lines_.clear();
         const auto &surf_data_buffer = bhsm.GetSurfaceDataBuffer();
         for (auto &[key, local_bhm]: bhsm.GetLocalBayesianHilbertMaps()) {
             for (auto &[idx, surf_idx]: local_bhm->surface_indices) {
-                auto &pt = surf_data_buffer[idx];
+                auto &pt = surf_data_buffer[surf_idx];
                 o3d_pcd_surf_points->points_.emplace_back(pt.position.template cast<double>());
                 o3d_line_set_surf_normals->points_.emplace_back(
                     pt.position.template cast<double>());
@@ -438,12 +449,14 @@ TestImpl3D() {
         ERL_TRACY_FRAME_MARK_END();
         return true;
     };
+#pragma endregion
 
     // start the mapping
     if (options.no_visualize) {
         while (wp_idx < max_wp_idx) { run_update(); }
     } else {
         visualizer.SetAnimationCallback(callback);
+        visualizer.SetViewStatus(options.o3d_view_status_file);
         visualizer.Show();
     }
 
@@ -521,7 +534,7 @@ TestImpl2D() {
                 po::value<std::string>(&options.ucsd_fah_2d_file)->default_value(options.ucsd_fah_2d_file)->value_name("file"),
                 "UCSD FAH 2D dat file"
             )(
-                "surface_indices-mapping-config-file",
+                "surface-mapping-config-file",
                 po::value<std::string>(&options.surface_mapping_config_file)->default_value(options.surface_mapping_config_file)->value_name("file"),
                 "Surface mapping config file");
         // clang-format on
@@ -965,7 +978,7 @@ TestImpl2D() {
                 10,
                 2);
         }
-        //// draw the surface_indices normals
+        //// draw the surface normals
         const auto &surf_data_buffer = bhsm.GetSurfaceDataBuffer();
         for (auto &[key, local_bhm]: local_bhms) {
             for (auto &[idx, surf_idx]: local_bhm->surface_indices) {

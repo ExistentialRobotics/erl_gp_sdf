@@ -247,15 +247,19 @@ TestImpl2D() {
     using Vector2 = Eigen::Vector2<Dtype>;
     using VectorX = Eigen::VectorX<Dtype>;
 
+#pragma region options
+
     struct Options {
         std::string gazebo_dir = kDataDir / "gazebo";
         std::string house_expo_map_file = kDataDir / "house_expo_room_1451.json";
         std::string house_expo_traj_file = kDataDir / "house_expo_room_1451.csv";
         std::string ucsd_fah_2d_file = kDataDir / "ucsd_fah_2d.dat";
         std::string surface_mapping_config_file =
-            kConfigDir / fmt::format("bayesian_hilbert_mapping_2d_{}.yaml", type_name<Dtype>());
+            kConfigDir / "template" /
+            fmt::format("bayesian_hilbert_mapping_2d_{}.yaml", type_name<Dtype>());
         std::string sdf_mapping_config_file =
-            kConfigDir / fmt::format("bayesian_hilbert_sdf_mapping_2d_{}.yaml", type_name<Dtype>());
+            kConfigDir / "template" /
+            fmt::format("bayesian_hilbert_sdf_mapping_2d_{}.yaml", type_name<Dtype>());
         bool use_gazebo_room_2d = false;
         bool use_house_expo_lidar_2d = false;
         bool use_ucsd_fah_2d = false;
@@ -269,6 +273,8 @@ TestImpl2D() {
         Dtype map_resolution = 0.025;
         Dtype surf_normal_scale = 0.5;
     };
+
+#pragma endregion
 
     Options options;
     bool options_parsed = false;
@@ -346,7 +352,7 @@ TestImpl2D() {
             << "ROS bag dat file " << options.ucsd_fah_2d_file << " does not exist.";
     }
 
-    // load the scene
+#pragma region load_scene
     long max_update_cnt;
     std::vector<Eigen::VectorXd> train_angles;
     std::vector<Eigen::VectorXd> train_ranges;
@@ -475,8 +481,9 @@ TestImpl2D() {
         return;
     }
     max_update_cnt = cur_traj.cols();
+#pragma endregion
 
-    // load setting
+#pragma region load_setting
     const auto surface_mapping_setting = std::make_shared<typename SurfaceMapping::Setting>();
     ERL_ASSERTM(
         surface_mapping_setting->FromYamlFile(options.surface_mapping_config_file),
@@ -494,6 +501,7 @@ TestImpl2D() {
     sdf_mapping_setting->test_query.compute_covariance = true;
     sdf_mapping_setting->test_query.use_global_buffer = true;
     SdfMapping sdf_mapping(sdf_mapping_setting, surface_mapping);
+#pragma endregion
 
     // prepare the visualizer
     auto drawer_setting = std::make_shared<typename QuadtreeDrawer::Setting>();

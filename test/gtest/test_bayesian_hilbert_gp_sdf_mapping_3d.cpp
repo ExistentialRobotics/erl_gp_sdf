@@ -3,12 +3,11 @@
 #include "erl_geometry/depth_camera_3d.hpp"
 #include "erl_geometry/gazebo_room_2d.hpp"
 #include "erl_geometry/house_expo_map.hpp"
-#include "erl_geometry/lidar_2d.hpp"
 #include "erl_geometry/lidar_3d.hpp"
-#include "erl_geometry/open3d_helper.hpp"
+#include "erl_geometry/lidar_frame_3d.hpp"
 #include "erl_geometry/open3d_visualizer_wrapper.hpp"
 #include "erl_geometry/trajectory.hpp"
-#include "erl_sdf_mapping/gp_occ_surface_mapping.hpp"
+#include "erl_sdf_mapping/bayesian_hilbert_surface_mapping.hpp"
 #include "erl_sdf_mapping/gp_sdf_mapping.hpp"
 
 #include <boost/program_options.hpp>
@@ -58,9 +57,9 @@ ConvertSdfToImage(Eigen::VectorX<Dtype> &distances, const int rows, const int co
     cv::Mat img_sdf_sign(cols, rows, CV_8UC1, sdf_sign.data());
     img_sdf_sign = img_sdf_sign.t();
 
-    // for a zero pixel in img_sdf_sign fill the pixel in img_sdf with zero
-    const cv::Mat mask = img_sdf_sign == 0;
-    img_sdf.setTo(0, mask);
+    // // for a zero pixel in img_sdf_sign fill the pixel in img_sdf with zero
+    // const cv::Mat mask = img_sdf_sign == 0;
+    // img_sdf.setTo(0, mask);
     return {std::move(img_sdf), std::move(img_sdf_sign)};
 }
 
@@ -87,11 +86,11 @@ void
 TestImpl3D() {
     GTEST_PREPARE_OUTPUT_DIR();
 
-    using SurfaceMapping = erl::sdf_mapping::GpOccSurfaceMapping<Dtype, 3>;
+    using SurfaceMapping = erl::sdf_mapping::BayesianHilbertSurfaceMapping<Dtype, 3>;
     using SdfMapping = erl::sdf_mapping::GpSdfMapping<Dtype, 3, SurfaceMapping>;
     using RangeSensor = erl::geometry::RangeSensor3D<double>;
-    using DepthFrame = erl::geometry::DepthFrame3D<Dtype>;
-    using LidarFrame = erl::geometry::LidarFrame3D<Dtype>;
+    using DepthFrame = erl::geometry::DepthFrame3D<double>;
+    using LidarFrame = erl::geometry::LidarFrame3D<double>;
     using CowAndLady = erl::geometry::CowAndLady;
     using DepthCamera = erl::geometry::DepthCamera3D<double>;
     using Lidar = erl::geometry::Lidar3D<double>;
@@ -101,15 +100,22 @@ TestImpl3D() {
     using Matrix3X = Eigen::Matrix3X<Dtype>;
     using Matrix4X = Eigen::Matrix4X<Dtype>;
     using Matrix6X = Eigen::Matrix<Dtype, 6, Eigen::Dynamic>;
+#pragma region options
 
     struct Options {
         bool use_cow_and_lady = false;  // use Cow and Lady dataset
         std::string cow_and_lady_dir;   // directory containing the Cow and Lady dataset
         std::string mesh_file = kDataDir / "replica-hotel-0.ply";       // mesh file
         std::string traj_file = kDataDir / "replica-hotel-0-traj.txt";  // trajectory file
-        std::string surface_mapping_config_file = kConfigDir / "surface_mapping_3d_lidar.yaml";
-        std::string sdf_mapping_config_file = kConfigDir / "sdf_mapping_3d_lidar.yaml";
+        std::string surface_mapping_config_file =
+            kConfigDir / "template" /
+            fmt::format("bayesian_hilbert_mapping_3d_{}.yaml", type_name<Dtype>());
+        std::string sdf_mapping_config_file =
+            kConfigDir / "template" / fmt::format("sdf_mapping_3d_{}.yaml", type_name<Dtype>());
+        std::string o3d_view_status_file = kConfigDir / "template" / "open3d_view_status.json";
         std::string sdf_mapping_bin_file;
+        std::string sensor_frame_type = type_name<LidarFrame>();
+        std::string sensor_frame_config_file = kConfigDir / "sensors" / "lidar_frame_3d_360.yaml";
         long stride = 1;
         long max_frames = std::numeric_limits<long>::max();
         Dtype test_res = 0.02;
@@ -118,9 +124,12 @@ TestImpl3D() {
         bool test_whole_map_at_end = false;  // test the whole map at the end
         Dtype test_z = 0.0;                  // test z for the whole map
         Dtype image_resize_scale = 10;       // image resize scale
+        bool save_images = false;
         bool test_io = false;
         bool hold = false;
     };
+
+#pragma endregion
 
     Options options;
     bool options_parsed = false;
@@ -153,10 +162,26 @@ TestImpl3D() {
                 "SDF mapping config file"
             )
             (
+                "o3d-view-status-file",
+                po::value<std::string>(&options.o3d_view_status_file)->default_value(options.o3d_view_status_file)->value_name("file"),
+                "Open3D view status file, used to set the view of the visualization window"
+            )
+            (
                 "sdf-mapping-bin-file",
                 po::value<std::string>(&options.sdf_mapping_bin_file)->default_value(options.sdf_mapping_bin_file)->value_name("file"),
                 "SDF mapping bin file"
             )
+            (
+                "sensor-frame-type",
+                po::value<std::string>(&options.sensor_frame_type)->default_value(options.sensor_frame_type)->value_name("type"),
+                fmt::format("sensor frame type used when the mesh file is used: {} or {}",
+                            type_name<LidarFrame>(),
+                            type_name<DepthFrame>()).c_str()
+            )
+            (
+                "sensor-frame-config-file",
+                po::value<std::string>(&options.sensor_frame_config_file)->default_value(options.sensor_frame_config_file)->value_name("file"),
+                "sensor frame config file, used when the mesh file is used")
             ("stride", po::value<long>(&options.stride)->default_value(options.stride)->value_name("stride"), "stride")
             ("max-frames", po::value<long>(&options.max_frames)->default_value(options.max_frames)->value_name("frames"), "max number of frames to process")
             ("test-res", po::value<Dtype>(&options.test_res)->default_value(options.test_res)->value_name("res"), "test resolution")
@@ -165,6 +190,7 @@ TestImpl3D() {
             ("test-whole-map-at-end", po::bool_switch(&options.test_whole_map_at_end), "test the whole map at the end")
             ("test-z", po::value<Dtype>(&options.test_z)->default_value(options.test_z)->value_name("z"), "test z for the whole map")
             ("image-resize-scale", po::value<Dtype>(&options.image_resize_scale)->default_value(options.image_resize_scale)->value_name("scale"), "image resize scale")
+            ("save-images", po::bool_switch(&options.save_images), "save images")
             ("test-io", po::bool_switch(&options.test_io), "test IO")
             ("hold", po::bool_switch(&options.hold), "hold the window");
         // clang-format on
@@ -197,6 +223,7 @@ TestImpl3D() {
     std::shared_ptr<RangeSensor> range_sensor = nullptr;
     std::shared_ptr<CowAndLady> cow_and_lady = nullptr;
     std::vector<std::pair<Eigen::Matrix3d, Eigen::Vector3d>> poses;
+    std::shared_ptr<erl::geometry::RangeSensorFrame3Dd> range_sensor_frame = nullptr;
     Vector3 map_min, map_max;
     if (options.use_cow_and_lady) {
         ERL_INFO("Using Cow and Lady dataset.");
@@ -205,52 +232,54 @@ TestImpl3D() {
         geometries.push_back(cow_and_lady->GetGroundTruthPointCloud());
         map_min = cow_and_lady->GetMapMin().cast<Dtype>();
         map_max = cow_and_lady->GetMapMax().cast<Dtype>();
-        const auto depth_frame_setting = std::make_shared<typename DepthFrame::Setting>();
+        const auto depth_frame_setting = std::make_shared<DepthFrame::Setting>();
         depth_frame_setting->camera_intrinsic.image_height = CowAndLady::kImageHeight;
         depth_frame_setting->camera_intrinsic.image_width = CowAndLady::kImageWidth;
         depth_frame_setting->camera_intrinsic.camera_fx = CowAndLady::kCameraFx;
         depth_frame_setting->camera_intrinsic.camera_fy = CowAndLady::kCameraFy;
         depth_frame_setting->camera_intrinsic.camera_cx = CowAndLady::kCameraCx;
         depth_frame_setting->camera_intrinsic.camera_cy = CowAndLady::kCameraCy;
+        range_sensor_frame = std::make_shared<DepthFrame>(depth_frame_setting);
     } else {
         ERL_INFO("Using mesh file: {}", options.mesh_file);
         const auto mesh = open3d::io::CreateMeshFromFile(options.mesh_file);
         ERL_ASSERTM(!mesh->vertices_.empty(), "Failed to load mesh file: {}", options.mesh_file);
         map_min = mesh->GetMinBound().template cast<Dtype>();
         map_max = mesh->GetMaxBound().template cast<Dtype>();
-        if (surface_mapping_setting->sensor_gp->sensor_frame_type ==
-            demangle(typeid(LidarFrame).name())) {
+        if (options.sensor_frame_type == type_name<LidarFrame>()) {
             ERL_INFO("Using LiDAR.");
-            const auto lidar_frame_setting =
-                std::dynamic_pointer_cast<typename LidarFrame::Setting>(
-                    surface_mapping_setting->sensor_gp->sensor_frame);
+            const auto lidar_frame_setting = std::make_shared<LidarFrame::Setting>();
+            ERL_ASSERTM(
+                lidar_frame_setting->FromYamlFile(options.sensor_frame_config_file),
+                "Failed to load sensor_frame_config_file: {}",
+                options.sensor_frame_config_file);
+            range_sensor_frame = std::make_shared<LidarFrame>(lidar_frame_setting);
+
             const auto lidar_setting = std::make_shared<Lidar::Setting>();
             lidar_setting->azimuth_min = lidar_frame_setting->azimuth_min;
             lidar_setting->azimuth_max = lidar_frame_setting->azimuth_max;
-            lidar_setting->num_azimuth_lines = lidar_frame_setting->num_azimuth_lines;
             lidar_setting->elevation_min = lidar_frame_setting->elevation_min;
             lidar_setting->elevation_max = lidar_frame_setting->elevation_max;
+            lidar_setting->num_azimuth_lines = lidar_frame_setting->num_azimuth_lines;
             lidar_setting->num_elevation_lines = lidar_frame_setting->num_elevation_lines;
             range_sensor = std::make_shared<Lidar>(lidar_setting);
-        } else if (
-            surface_mapping_setting->sensor_gp->sensor_frame_type == type_name<DepthFrame>()) {
+        } else if (options.sensor_frame_type == type_name<DepthFrame>()) {
             ERL_INFO("Using depth.");
-            const auto depth_frame_setting =
-                std::dynamic_pointer_cast<typename DepthFrame::Setting>(
-                    surface_mapping_setting->sensor_gp->sensor_frame);
+            const auto depth_frame_setting = std::make_shared<DepthFrame::Setting>();
+            ERL_ASSERTM(
+                depth_frame_setting->FromYamlFile(options.sensor_frame_config_file),
+                "Failed to load sensor_frame_config_file: {}",
+                options.sensor_frame_config_file);
+            range_sensor_frame = std::make_shared<DepthFrame>(depth_frame_setting);
+
             auto depth_camera_setting = std::make_shared<DepthCamera::Setting>();
-            depth_camera_setting->image_height = depth_frame_setting->camera_intrinsic.image_height;
-            depth_camera_setting->image_width = depth_frame_setting->camera_intrinsic.image_width;
-            depth_camera_setting->camera_fx = depth_frame_setting->camera_intrinsic.camera_fx;
-            depth_camera_setting->camera_fy = depth_frame_setting->camera_intrinsic.camera_fy;
-            depth_camera_setting->camera_cx = depth_frame_setting->camera_intrinsic.camera_cx;
-            depth_camera_setting->camera_cy = depth_frame_setting->camera_intrinsic.camera_cy;
+            *depth_camera_setting = depth_frame_setting->camera_intrinsic;
             range_sensor = std::make_shared<DepthCamera>(depth_camera_setting);
         } else {
             ERL_FATAL(
-                "Unknown sensor_frame_type: {}. Expected either {} or {}",
-                surface_mapping_setting->sensor_gp->sensor_frame_type,
-                demangle(typeid(LidarFrame).name()),
+                "Unknown sensor frame type: {}. Expected either {} or {}",
+                options.sensor_frame_type,
+                type_name<LidarFrame>(),
                 type_name<DepthFrame>());
         }
         range_sensor->AddMesh(options.mesh_file);
@@ -312,7 +341,7 @@ TestImpl3D() {
 
     auto test_io = [&]() {
         ERL_BLOCK_TIMER_MSG("IO");
-        std::string bin_file = fmt::format("gp_sdf_mapping_3d_{}.bin", type_name<Dtype>());
+        std::string bin_file = fmt::format("sdf_mapping_3d_{}.bin", type_name<Dtype>());
         bin_file = test_output_dir / bin_file;
         ERL_ASSERTM(
             erl::common::Serialization<SdfMapping>::Write(bin_file, &sdf_mapping),
@@ -327,17 +356,27 @@ TestImpl3D() {
             erl::common::Serialization<SdfMapping>::Read(bin_file, &sdf_mapping_read),
             "Failed to read from file: {}",
             bin_file);
-        ERL_ASSERTM(sdf_mapping == sdf_mapping_read, "gp != gp_load");
+        ERL_ASSERTM(sdf_mapping == sdf_mapping_read, "sdf_mapping != sdf_mapping_read");
     };
 
+    const std::filesystem::path img_dir = test_output_dir / "images";
+    std::filesystem::create_directory(img_dir);
+    Eigen::Matrix2Xd fps_data(2, (max_wp_idx + options.stride - 1) / options.stride);
+
+#pragma region animation_callback
     auto callback = [&](erl::geometry::Open3dVisualizerWrapper *wrapper,
                         open3d::visualization::Visualizer *vis) -> bool {
+        if (options.save_images) {
+            vis->CaptureScreenImage(img_dir / fmt::format("{:04d}.png", wp_idx), false);
+        }
+
         ERL_TRACY_FRAME_MARK_START();
         if (animation_ended) {  // options.hold is true, so the window is not closed yet
             cv::waitKey(1);
             return false;
         }
 
+#pragma region end_of_animation
         if (wp_idx >= max_wp_idx) {
             animation_ended = true;
             if (options.test_whole_map_at_end) {
@@ -374,7 +413,12 @@ TestImpl3D() {
                 cv::resize(img_sdf_sign, img_sdf_sign, cv::Size(), resize_scale, resize_scale);
                 cv::imshow("sdf_whole_map", img_sdf);
                 cv::imshow("sdf_sign_whole_map", img_sdf_sign);
+                cv::imwrite(test_output_dir / "sdf_whole_map.png", img_sdf);
+                cv::imwrite(test_output_dir / "sdf_sign_whole_map.png", img_sdf_sign);
                 cv::waitKey(1);
+            }
+            if (options.save_images) {
+                vis->CaptureScreenImage(img_dir / fmt::format("{:04d}.png", wp_idx + 1), true);
             }
             if (options.test_io) { test_io(); }
             if (!options.hold) {
@@ -383,6 +427,7 @@ TestImpl3D() {
             }
             return true;
         }
+#pragma endregion
 
         const auto t_start = std::chrono::high_resolution_clock::now();
         Eigen::Matrix3d rotation_sensor, rotation;
@@ -390,9 +435,9 @@ TestImpl3D() {
         ERL_INFO("wp_idx: {}", wp_idx);
 
         cv::Mat depth_jet;
-        Eigen::MatrixXd ranges;
         double dt;
         {
+            Eigen::MatrixXd ranges;
             ERL_BLOCK_TIMER_MSG_TIME("data loading", dt);
             if (options.use_cow_and_lady) {
                 const auto frame = (*cow_and_lady)[wp_idx];
@@ -413,20 +458,28 @@ TestImpl3D() {
                     range_sensor->GetOpticalPose(rotation_sensor, translation_sensor);
                 depth_jet = ConvertDepthToImage(ranges);
             }
+            range_sensor_frame->UpdateRanges(rotation, translation, ranges);
         }
         ERL_TRACY_PLOT("data loading (ms)", dt);
-        wp_idx += options.stride;
 
         {
             ERL_BLOCK_TIMER_MSG_TIME("sdf_mapping.Update", dt);
             // provide ranges and frame pose in the world frame
             ERL_WARN_COND(
-                !sdf_mapping.Update(rotation, translation, ranges, false, false),
+                !sdf_mapping.Update(
+                    rotation,
+                    translation,
+                    Eigen::Map<const Eigen::Matrix3Xd>(
+                        range_sensor_frame->GetHitPointsWorld().data()->data(),
+                        3,
+                        range_sensor_frame->GetNumHitRays()),
+                    true,
+                    false),
                 "sdf_mapping.Update failed.");
         }
-        double gp_update_fps = 1000.0 / dt;
+        double update_fps = 1000.0 / dt;
         ERL_TRACY_PLOT("sdf_mapping_update (ms)", dt);
-        ERL_TRACY_PLOT("sdf_mapping_update (fps)", gp_update_fps);
+        ERL_TRACY_PLOT("sdf_mapping_update (fps)", update_fps);
 
         // test
         Matrix3X positions_test(3, positions.size());
@@ -446,9 +499,11 @@ TestImpl3D() {
             EXPECT_TRUE(
                 sdf_mapping.Test(positions_test, distances, gradients, variances, covairances));
         }
-        double gp_test_fps = 1000.0 / dt;
-        ERL_TRACY_PLOT("gp_test (ms)", dt);
-        ERL_TRACY_PLOT("gp_test (fps)", gp_test_fps);
+        double test_fps = 1000.0 / dt;
+        ERL_TRACY_PLOT("sdf_map_test (ms)", dt);
+        ERL_TRACY_PLOT("sdf_map_test (fps)", test_fps);
+        fps_data.col(wp_idx / options.stride) << update_fps, test_fps;
+        wp_idx += options.stride;
 
         // update visualization
         /// update the images and voxel grid
@@ -460,22 +515,26 @@ TestImpl3D() {
                 cv::resize(depth_jet, depth_jet, cv::Size(), scale, scale);
             }
         }
+        const int kFontFace = cv::FONT_HERSHEY_PLAIN;
+        const double kFontScale = 1.5;
+        const cv::Scalar kTextColor = {0, 0, 0};
+        const int kFontThickness = 2;
         cv::putText(
             depth_jet,
             fmt::format("frame {}", wp_idx),
             cv::Point(10, 30),
-            cv::FONT_HERSHEY_PLAIN,
-            1.5,
-            cv::Scalar(255, 255, 255),
-            2);
+            kFontFace,
+            kFontScale,
+            kTextColor,
+            kFontThickness);
         cv::putText(
             depth_jet,
-            fmt::format("update {:.2f} fps", gp_update_fps),
+            fmt::format("update {:.2f} fps", update_fps),
             cv::Point(10, 60),
-            cv::FONT_HERSHEY_PLAIN,
-            1.5,
-            cv::Scalar(255, 255, 255),
-            2);
+            kFontFace,
+            kFontScale,
+            kTextColor,
+            kFontThickness);
         auto [img_sdf, img_sdf_sign] =
             ConvertSdfToImage(distances, positions.rows(), positions.cols());
         ConvertSdfToVoxelGrid(img_sdf, positions_test, voxel_grid_sdf);
@@ -490,26 +549,26 @@ TestImpl3D() {
             img_sdf,
             fmt::format("frame {}", wp_idx),
             cv::Point(10, 30),
-            cv::FONT_HERSHEY_PLAIN,
-            1.5,
-            cv::Scalar(255, 255, 255),
-            2);
+            kFontFace,
+            kFontScale,
+            kTextColor,
+            kFontThickness);
         cv::putText(
             img_sdf,
-            fmt::format("update {:.2f} fps", gp_update_fps),
+            fmt::format("update {:.2f} fps", update_fps),
             cv::Point(10, 60),
-            cv::FONT_HERSHEY_PLAIN,
-            1.5,
-            cv::Scalar(255, 255, 255),
-            2);
+            kFontFace,
+            kFontScale,
+            kTextColor,
+            kFontThickness);
         cv::putText(
             img_sdf,
-            fmt::format("test {:.2f} fps", gp_test_fps),
+            fmt::format("test {:.2f} fps", test_fps),
             cv::Point(10, 90),
-            cv::FONT_HERSHEY_PLAIN,
-            1.5,
-            cv::Scalar(255, 255, 255),
-            2);
+            kFontFace,
+            kFontScale,
+            kTextColor,
+            kFontThickness);
         cv::imshow("ranges", depth_jet);
         cv::imshow("sdf", img_sdf);
         cv::imshow("sdf_sign", img_sdf_sign);
@@ -527,8 +586,7 @@ TestImpl3D() {
         if (std::find(geometries.begin(), geometries.end(), pcd_obs) != geometries.end()) {
             pcd_obs->points_.clear();
             pcd_obs->colors_.clear();
-            const auto &hit_points =
-                surf_mapping->GetSensorGp()->GetSensorFrame()->GetHitPointsWorld();
+            const auto &hit_points = range_sensor_frame->GetHitPointsWorld();
             pcd_obs->points_.reserve(hit_points.size());
             for (const auto &hit_point: hit_points) {
                 pcd_obs->points_.emplace_back(hit_point.template cast<double>());
@@ -575,14 +633,22 @@ TestImpl3D() {
         ERL_TRACY_FRAME_MARK_END();
         return true;
     };
+#pragma endregion
 
     visualizer.SetAnimationCallback(callback);
+    visualizer.SetViewStatus(options.o3d_view_status_file);
     visualizer.Show();
+
+    using namespace erl::common;
+    SaveEigenMatrixToTextFile<double>(
+        test_output_dir / "fps.csv",
+        fps_data,
+        EigenTextFormat::kCsvFmt);
 }
 
-TEST(GpSdfMapping, 3Dd) { TestImpl3D<double>(); }
+TEST(GpSdfMapping, BayesianHilbert3Dd) { TestImpl3D<double>(); }
 
-TEST(GpSdfMapping, 3Df) { TestImpl3D<float>(); }
+TEST(GpSdfMapping, BayesianHilbert3Df) { TestImpl3D<float>(); }
 
 int
 main(int argc, char *argv[]) {

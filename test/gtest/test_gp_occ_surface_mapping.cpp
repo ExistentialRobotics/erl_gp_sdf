@@ -8,7 +8,6 @@
 #include "erl_geometry/lidar_3d.hpp"
 #include "erl_geometry/occupancy_octree_drawer.hpp"
 #include "erl_geometry/occupancy_quadtree_drawer.hpp"
-#include "erl_geometry/open3d_helper.hpp"
 #include "erl_geometry/open3d_visualizer_wrapper.hpp"
 #include "erl_geometry/range_sensor_3d.hpp"
 #include "erl_geometry/trajectory.hpp"
@@ -51,14 +50,15 @@ TestImpl3D() {
     using MatrixX = Eigen::MatrixX<Dtype>;
     using Vector3 = Eigen::Vector3<Dtype>;
 
-    // load setting from the command line
+#pragma region options_3d
+
     struct Options {
         bool use_cow_and_lady = false;
         std::string cow_and_lady_dir;
         std::string mesh_file = kProjectRootDir / "data" / "replica-hotel-0.ply";
         std::string traj_file = kProjectRootDir / "data" / "replica-hotel-0-traj.txt";
         std::string surface_mapping_config_file =
-            kProjectRootDir / "config" /
+            kProjectRootDir / "config" / "template" /
             fmt::format("gp_occ_mapping_3d_lidar_{}.yaml", type_name<Dtype>());
         long stride = 1;
         Dtype surf_normal_scale = 0.5;
@@ -69,6 +69,8 @@ TestImpl3D() {
         bool test_io = false;
         bool hold = false;
     };
+
+#pragma endregion
 
     Options options;
     bool options_parsed = false;
@@ -395,14 +397,15 @@ TestImpl2D() {
     using Vector2 = Eigen::Vector2<Dtype>;
     using VectorX = Eigen::VectorX<Dtype>;
 
-    // load setting from the command line
+#pragma region options_2d
+
     struct Options {
         std::string gazebo_train_file = kProjectRootDir / "data" / "gazebo";
         std::string house_expo_map_file = kProjectRootDir / "data" / "house_expo_room_1451.json";
         std::string house_expo_traj_file = kProjectRootDir / "data" / "house_expo_room_1451.csv";
         std::string ucsd_fah_2d_file = kProjectRootDir / "data" / "ucsd_fah_2d.dat";
         std::string surface_mapping_config_file =
-            kProjectRootDir / "config" /
+            kProjectRootDir / "config" / "template" /
             fmt::format("gp_occ_mapping_2d_{}.yaml", type_name<Dtype>());
         bool use_gazebo_room_2d = false;
         bool use_house_expo_lidar_2d = false;
@@ -413,9 +416,10 @@ TestImpl2D() {
         long stride = 1;
         long init_frame = 0;
         Dtype map_resolution = 0.025;
-        Dtype surf_normal_scale = 0.35;
+        Dtype surf_normal_scale = 1.0;
     };
 
+#pragma endregion
     Options options;
     bool options_parsed = false;
     try {
@@ -577,7 +581,8 @@ TestImpl2D() {
         map_min = UcsdFah2D::kMapMin.cast<Dtype>();
         map_max = UcsdFah2D::kMapMax.cast<Dtype>();
         // prepare buffer
-        max_update_cnt = (ucsd_fah.Size() - options.init_frame) / options.stride + 1;
+        max_update_cnt =
+            (ucsd_fah.Size() - options.init_frame + options.stride - 1) / options.stride;
         train_angles.reserve(max_update_cnt);
         train_ranges.reserve(max_update_cnt);
         train_poses.reserve(max_update_cnt);
@@ -615,6 +620,11 @@ TestImpl2D() {
     gp_setting->sensor_gp->sensor_frame->angle_min = train_angles[0].minCoeff();
     gp_setting->sensor_gp->sensor_frame->angle_max = train_angles[0].maxCoeff();
     gp_setting->sensor_gp->sensor_frame->num_rays = train_angles[0].size();
+    ERL_INFO(
+        "Sensor frame angle range: [{}, {}], num rays: {}",
+        gp_setting->sensor_gp->sensor_frame->angle_min,
+        gp_setting->sensor_gp->sensor_frame->angle_max,
+        gp_setting->sensor_gp->sensor_frame->num_rays);
     SurfaceMapping gp(gp_setting);
 
     // prepare the visualizer

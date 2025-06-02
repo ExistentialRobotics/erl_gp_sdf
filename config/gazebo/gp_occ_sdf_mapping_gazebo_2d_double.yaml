@@ -15,13 +15,14 @@ sensor_noise: 0.01
 gp_sdf_area_scale: 5    # should be larger than 2x max sdf when use_smallest is false: 7
 max_valid_gradient_var: 0.1
 invalid_position_var: 0.25
-offset_distance: 0.0
 sdf_gp:
     sign_method: "kNormalGp"
     hybrid_sign_methods: [ "kNormalGp", "kExternal" ]
     hybrid_sign_threshold: 0.2
     normal_scale: 100.0
     softmin_temperature: 10.0
+    sign_gp_offset_distance: 0.01
+    edf_gp_offset_distance: 0.0
     sign_gp:
         kernel_type: erl::covariance::ReducedRankMatern32<double, 2>
         kernel_setting_type: erl::covariance::ReducedRankCovariance<double>::Setting

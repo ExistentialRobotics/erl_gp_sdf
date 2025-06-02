@@ -43,6 +43,8 @@ namespace erl::sdf_mapping {
         YAML::Node node;
         ERL_YAML_SAVE_ATTR(node, setting, local_bhm);
         ERL_YAML_SAVE_ATTR(node, setting, tree);
+        ERL_YAML_SAVE_ATTR(node, setting, valid_range_min);
+        ERL_YAML_SAVE_ATTR(node, setting, valid_range_max);
         ERL_YAML_SAVE_ATTR(node, setting, hinged_grid_size);
         ERL_YAML_SAVE_ATTR(node, setting, surface_max_abs_logodd);
         ERL_YAML_SAVE_ATTR(node, setting, surface_bad_abs_logodd);
@@ -68,6 +70,8 @@ namespace erl::sdf_mapping {
         if (!node.IsMap()) { return false; }
         ERL_YAML_LOAD_ATTR(node, setting, local_bhm);
         ERL_YAML_LOAD_ATTR(node, setting, tree);
+        ERL_YAML_LOAD_ATTR(node, setting, valid_range_min);
+        ERL_YAML_LOAD_ATTR(node, setting, valid_range_max);
         ERL_YAML_LOAD_ATTR(node, setting, hinged_grid_size);
         ERL_YAML_LOAD_ATTR(node, setting, surface_max_abs_logodd);
         ERL_YAML_LOAD_ATTR(node, setting, surface_bad_abs_logodd);
@@ -118,11 +122,44 @@ namespace erl::sdf_mapping {
         const Eigen::Ref<const Position> &sensor_origin,
         const Eigen::Ref<const Positions> &points) {
 
-        return UpdateBhm(sensor_origin, points);
-        // if (!UpdateBhm(sensor_origin, points)) { return false; }
-        // if (!setting->track_surface) { return true; }
-        // TrackSurface(points);
-        // return true;
+        const long max_dataset_size = setting->max_dataset_size;
+        bhm.GenerateDataset(
+            sensor_origin,
+            points,
+            max_dataset_size,
+            num_dataset_points,
+            dataset_points,
+            dataset_labels,
+            hit_indices);
+        if (num_dataset_points == 0) { return false; }
+        if (!hit_buffer.empty() &&
+            (max_dataset_size < 0 || num_dataset_points < max_dataset_size)) {
+
+            // there is data in the hit buffer, and
+            // 1. no dataset size limit
+            // 2. dataset size limit but not reached
+            long n = num_dataset_points + static_cast<long>(hit_buffer.size());
+            if (max_dataset_size > 0) { n = std::min(max_dataset_size, n); }
+            if (n > dataset_points.cols()) {
+                dataset_points.conservativeResize(Dim, n);
+                dataset_labels.conservativeResize(n);
+            }
+            for (const Position &point: hit_buffer) {
+                dataset_points.col(num_dataset_points) = point;
+                dataset_labels[num_dataset_points] = 1;
+                ++num_dataset_points;
+                if (num_dataset_points >= n) { break; }  // the dataset size limit is reached
+            }
+        }
+        bhm.RunExpectationMaximization(dataset_points, dataset_labels, num_dataset_points);
+        if (setting->hit_buffer_size > 0 && !hit_indices.empty()) {
+            // hit buffer has space and there are hit points
+            for (const long &hit_index: hit_indices) {
+                hit_buffer[hit_buffer_head] = points.col(hit_index);
+                hit_buffer_head = (hit_buffer_head + 1) % hit_buffer.capacity();
+            }
+        }
+        return true;
     }
 
     template<typename Dtype, int Dim>
@@ -343,52 +380,6 @@ namespace erl::sdf_mapping {
     }
 
     template<typename Dtype, int Dim>
-    bool
-    BayesianHilbertSurfaceMapping<Dtype, Dim>::LocalBayesianHilbertMap::UpdateBhm(
-        const Eigen::Ref<const Position> &sensor_origin,
-        const Eigen::Ref<const Positions> &points) {
-
-        const long max_dataset_size = setting->max_dataset_size;
-        bhm.GenerateDataset(
-            sensor_origin,
-            points,
-            max_dataset_size,
-            num_dataset_points,
-            dataset_points,
-            dataset_labels,
-            hit_indices);
-        if (num_dataset_points == 0) { return false; }
-        if (!hit_buffer.empty() &&
-            (max_dataset_size < 0 || num_dataset_points < max_dataset_size)) {
-
-            // there is data in the hit buffer, and
-            // 1. no dataset size limit
-            // 2. dataset size limit but not reached
-            long n = num_dataset_points + static_cast<long>(hit_buffer.size());
-            if (max_dataset_size > 0) { n = std::min(max_dataset_size, n); }
-            if (n > dataset_points.cols()) {
-                dataset_points.conservativeResize(Dim, n);
-                dataset_labels.conservativeResize(n);
-            }
-            for (const Position &point: hit_buffer) {
-                dataset_points.col(num_dataset_points) = point;
-                dataset_labels[num_dataset_points] = 1;
-                ++num_dataset_points;
-                if (num_dataset_points >= n) { break; }  // the dataset size limit is reached
-            }
-        }
-        bhm.RunExpectationMaximization(dataset_points, dataset_labels, num_dataset_points);
-        if (setting->hit_buffer_size > 0 && !hit_indices.empty()) {
-            // hit buffer has space and there are hit points
-            for (const long &hit_index: hit_indices) {
-                hit_buffer[hit_buffer_head] = points.col(hit_index);
-                hit_buffer_head = (hit_buffer_head + 1) % hit_buffer.capacity();
-            }
-        }
-        return true;
-    }
-
-    template<typename Dtype, int Dim>
     BayesianHilbertSurfaceMapping<Dtype, Dim>::BayesianHilbertSurfaceMapping(
         std::shared_ptr<Setting> setting)
         : m_setting_(std::move(setting)) {
@@ -460,7 +451,21 @@ namespace erl::sdf_mapping {
         const bool parallel) {
 
         Position sensor_origin_s = sensor_origin;
-        Positions points_s = points;
+        Positions points_s(Dim, points.cols());
+        long n = 0;
+        for (long i = 0; i < points.cols(); ++i) {
+            Dtype dist = (points.col(i) - sensor_origin).norm();
+            if (dist < m_setting_->valid_range_min || dist > m_setting_->valid_range_max) {
+                continue;  // skip points outside the valid range
+            }
+            points_s.col(n) = points.col(i);
+            ++n;
+        }
+        if (n == 0) {
+            ERL_WARN("No valid points in the scan, nothing to update.");
+            return false;
+        }
+        points_s.conservativeResize(Dim, n);  // resize to the number of valid points
         if (m_setting_->scaling != 1.0f) {
             sensor_origin_s.array() *= m_setting_->scaling;
             points_s.array() *= m_setting_->scaling;

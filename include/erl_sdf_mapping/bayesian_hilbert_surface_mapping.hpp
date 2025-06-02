@@ -25,7 +25,7 @@ namespace erl::sdf_mapping {
         std::shared_ptr<KernelSetting> kernel = std::make_shared<KernelSetting>();
         long max_dataset_size = -1;        // maximum size of the dataset to store
         long hit_buffer_size = -1;         // -1 means no limit, 0 means no hit buffer
-        Dtype surface_resolution = 0.01f;  // resolution to track the surface_indices points
+        Dtype surface_resolution = 0.01f;  // resolution to track the surface points
 
         struct YamlConvertImpl {
             static YAML::Node
@@ -90,9 +90,9 @@ namespace erl::sdf_mapping {
             using Setting = LocalBayesianHilbertMapSetting<Dtype>;
 
             std::shared_ptr<Setting> setting = nullptr;  // settings for the local map
-            Aabb tracked_surface_boundary{};             // boundary of the surface_indices to track
+            Aabb tracked_surface_boundary{};             // boundary of the surface to track
             BayesianHilbertMap bhm;                      // local Bayesian Hilbert map
-            Eigen::Vector<int, Dim> strides;  // strides for indexing the surface_indices points
+            Eigen::Vector<int, Dim> strides;             // strides for indexing the surface points
             absl::flat_hash_map<int, std::size_t> surface_indices;  // local index -> buffer index
             long num_dataset_points = 0;                            // number of dataset points
             Positions dataset_points{};                             // [Dim, N] dataset points
@@ -124,18 +124,18 @@ namespace erl::sdf_mapping {
 
             [[nodiscard]] bool
             operator!=(const LocalBayesianHilbertMap &other) const;
-
-        private:
-            bool
-            UpdateBhm(
-                const Eigen::Ref<const Position> &sensor_origin,
-                const Eigen::Ref<const Positions> &points);
         };
 
         struct Setting : public common::Yamlable<Setting> {
             std::shared_ptr<typename LocalBayesianHilbertMap::Setting> local_bhm =
                 std::make_shared<typename LocalBayesianHilbertMap::Setting>();
+            // the tree setting
             std::shared_ptr<TreeSetting> tree = std::make_shared<TreeSetting>();
+            // minimum distance between the sensor and the surface points
+            Dtype valid_range_min = 0.0f;
+            // maximum distance between the sensor and the surface points
+            Dtype valid_range_max = std::numeric_limits<Dtype>::infinity();
+            // number of hinged points per axis
             int hinged_grid_size = 11;
             // threshold for stopping the adjustment
             Dtype surface_max_abs_logodd = 0.05f;
