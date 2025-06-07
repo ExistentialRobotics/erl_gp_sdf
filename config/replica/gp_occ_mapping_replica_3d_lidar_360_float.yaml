@@ -6,8 +6,8 @@ sensor_gp:
     col_overlap_size: 3
     col_margin: &col_margin 0
     init_variance: 1000000
-    sensor_range_var: 0.005
-    max_valid_range_var: 0.04
+    sensor_range_var: 0.001
+    max_valid_range_var: 0.1
     occ_test_temperature: 30
     sensor_frame_type: erl::geometry::LidarFrame3D<float>
     sensor_frame_setting_type: erl::geometry::LidarFrame3D<float>::Setting
@@ -27,7 +27,6 @@ sensor_gp:
         kernel_setting_type: erl::covariance::Covariance<float>::Setting
         kernel:
             x_dim: 2
-            alpha: 1
             scale: 0.5
             scale_mix: 1
             weights: [ ]

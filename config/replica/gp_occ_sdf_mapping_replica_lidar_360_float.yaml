@@ -11,7 +11,7 @@ test_query:
     use_global_buffer: true  # whether to use the global buffer for test queries
 num_threads: 64
 update_hz: 60
-sensor_noise: 0.01
+sensor_noise: 0.001
 gp_sdf_area_scale: 4  # should not be too small
 max_valid_gradient_var: 0.1
 invalid_position_var: 2.0

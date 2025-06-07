@@ -47,14 +47,14 @@ ConvertDepthToImage(const Eigen::MatrixX<Dtype> &ranges) {
 
 template<typename Dtype>
 std::pair<cv::Mat, cv::Mat>
-ConvertSdfToImage(Eigen::VectorX<Dtype> &distances, const int rows, const int cols) {
-    cv::Mat img_sdf(cols, rows, sizeof(Dtype) == 4 ? CV_32FC1 : CV_64FC1, distances.data());
+ConvertSdfToImage(Eigen::VectorX<Dtype> &distances, const int xs, const int ys) {
+    cv::Mat img_sdf(ys, xs, sizeof(Dtype) == 4 ? CV_32FC1 : CV_64FC1, distances.data());
     img_sdf = img_sdf.t();
     cv::normalize(img_sdf, img_sdf, 0, 255, cv::NORM_MINMAX, CV_8UC1);
     cv::applyColorMap(img_sdf, img_sdf, cv::COLORMAP_JET);
 
     Eigen::MatrixX8U sdf_sign = (distances.array() >= 0.0f).template cast<uint8_t>() * 255;
-    cv::Mat img_sdf_sign(cols, rows, CV_8UC1, sdf_sign.data());
+    cv::Mat img_sdf_sign(ys, xs, CV_8UC1, sdf_sign.data());
     img_sdf_sign = img_sdf_sign.t();
 
     // // for a zero pixel in img_sdf_sign fill the pixel in img_sdf with zero
@@ -447,8 +447,10 @@ TestImpl3D() {
                 pose.topLeftCorner<3, 3>() = rotation;
                 pose.topRightCorner<3, 1>() = translation;
                 pose = pose * DepthCamera::cTo;
-                rotation_sensor = pose.topLeftCorner<3, 3>();
-                translation_sensor = pose.topRightCorner<3, 1>();
+                // rotation_sensor = pose.topLeftCorner<3, 3>();
+                // translation_sensor = pose.topRightCorner<3, 1>();
+                std::tie(rotation_sensor, translation_sensor) =
+                    erl::geometry::CameraBase3D<double>::ComputeCameraPose(rotation, translation);
                 ranges = frame.depth;
                 depth_jet = frame.depth_jet;
             } else {

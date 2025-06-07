@@ -12,7 +12,6 @@
 #include "erl_geometry/lidar_frame_3d.hpp"
 #include "erl_geometry/occupancy_octree_drawer.hpp"
 #include "erl_geometry/occupancy_quadtree_drawer.hpp"
-#include "erl_geometry/open3d_helper.hpp"
 #include "erl_geometry/open3d_visualizer_wrapper.hpp"
 #include "erl_geometry/trajectory.hpp"
 #include "erl_geometry/ucsd_fah_2d.hpp"
@@ -25,6 +24,21 @@ char **g_argv = nullptr;
 const std::filesystem::path kProjectRootDir = ERL_SDF_MAPPING_ROOT_DIR;
 const std::filesystem::path kDataDir = kProjectRootDir / "data";
 const std::filesystem::path kConfigDir = kProjectRootDir / "config";
+
+template<typename Dtype>
+cv::Mat
+ConvertToImage(int xs, int ys, Eigen::VectorX<Dtype> &prob_occupied) {
+    cv::Mat prob_occupied_img(
+        ys,
+        xs,
+        sizeof(Dtype) == 4 ? CV_32FC1 : CV_64FC1,
+        prob_occupied.data());
+    prob_occupied_img = prob_occupied_img.t();
+    cv::normalize(prob_occupied_img, prob_occupied_img, 0, 255, cv::NORM_MINMAX);
+    prob_occupied_img.convertTo(prob_occupied_img, CV_8UC1);
+    cv::applyColorMap(prob_occupied_img, prob_occupied_img, cv::COLORMAP_JET);
+    return prob_occupied_img;
+}
 
 template<typename Dtype>
 void
@@ -63,6 +77,8 @@ template<typename Dtype>
 void
 TestImpl3D() {
     GTEST_PREPARE_OUTPUT_DIR();
+    using Octree = erl::geometry::OccupancyOctree<Dtype>;
+    using OctreeDrawer = erl::geometry::OccupancyOctreeDrawer<Octree>;
     using BayesianHilbertSurfaceMapping = erl::sdf_mapping::BayesianHilbertSurfaceMapping<Dtype, 3>;
     using RangeSensor3D = erl::geometry::RangeSensor3D<Dtype>;
     using RangeSensorFrame3D = erl::geometry::RangeSensorFrame3D<Dtype>;
@@ -90,13 +106,15 @@ TestImpl3D() {
         std::string sensor_frame_type = type_name<LidarFrame3D>();
         std::string sensor_frame_config_file = kConfigDir / "sensors" / "lidar_frame_3d_271.yaml";
         std::string o3d_view_status_file = kConfigDir / "template" / "open3d_view_status.json";
-        long stride = 1;
+        long seq_stride = 1;
+        long scan_stride = 1;
         Dtype surf_normal_scale = 0.25;
         Dtype test_res = 0.02;
         Dtype test_z = 0.0;
         long test_xs = 150;
         long test_ys = 100;
         bool test_io = false;
+        bool test_whole_map_at_end = false;
         bool hold = false;
         bool no_visualize = false;
     };
@@ -145,13 +163,15 @@ TestImpl3D() {
                 po::value<std::string>(&options.o3d_view_status_file)->default_value(options.o3d_view_status_file)->value_name("file"),
                 "Open3D view status file, used to set the view of the visualization window"
             )
-            ("stride", po::value<long>(&options.stride)->default_value(options.stride)->value_name("stride"), "stride")
+            ("seq-stride", po::value<long>(&options.seq_stride)->default_value(options.seq_stride)->value_name("stride"), "stride")
+            ("scan-stride", po::value<long>(&options.scan_stride)->default_value(options.scan_stride)->value_name("stride"), "scan stride")
             ("surf-normal-scale", po::value<Dtype>(&options.surf_normal_scale)->default_value(options.surf_normal_scale)->value_name("scale"), "surface normal scale")
             ("test-res", po::value<Dtype>(&options.test_res)->default_value(options.test_res)->value_name("res"), "test resolution")
             ("test-z", po::value<Dtype>(&options.test_z)->default_value(options.test_z)->value_name("z"), "test z")
             ("test-xs", po::value<long>(&options.test_xs)->default_value(options.test_xs)->value_name("xs"), "test xs")
             ("test-ys", po::value<long>(&options.test_ys)->default_value(options.test_ys)->value_name("ys"), "test ys")
             ("test-io", po::bool_switch(&options.test_io), "test IO")
+            ("test-whole-map-at-end", po::bool_switch(&options.test_whole_map_at_end), "test the whole map at the end")
             ("hold", po::bool_switch(&options.hold), "hold the window")
             ("no-visualize", po::bool_switch(&options.no_visualize), "do not visualize");
         // clang-format on
@@ -166,6 +186,7 @@ TestImpl3D() {
         options_parsed = true;
     } catch (std::exception &e) { std::cerr << e.what() << std::endl; }
     ASSERT_TRUE(options_parsed);
+    ASSERT_TRUE(options.scan_stride > 0);
 
     // prepare the data
     using namespace erl::common;
@@ -190,6 +211,9 @@ TestImpl3D() {
         depth_frame_setting->camera_intrinsic.camera_fy = CowAndLady::kCameraFy;
         depth_frame_setting->camera_intrinsic.camera_cx = CowAndLady::kCameraCx;
         depth_frame_setting->camera_intrinsic.camera_cy = CowAndLady::kCameraCy;
+        if (options.scan_stride > 1) {
+            depth_frame_setting->Resize(1.0f / static_cast<Dtype>(options.scan_stride));
+        }
         range_sensor_frame = std::make_shared<DepthFrame3D>(depth_frame_setting);
     } else {
         const auto mesh = open3d::io::CreateMeshFromFile(options.mesh_file);
@@ -201,7 +225,6 @@ TestImpl3D() {
         if (options.sensor_frame_type == type_name<LidarFrame3D>()) {
             const auto lidar_frame_setting = std::make_shared<typename LidarFrame3D::Setting>();
             ASSERT_TRUE(lidar_frame_setting->FromYamlFile(options.sensor_frame_config_file));
-            range_sensor_frame = std::make_shared<LidarFrame3D>(lidar_frame_setting);
             const auto lidar_setting = std::make_shared<typename Lidar3D::Setting>();
             lidar_setting->azimuth_min = lidar_frame_setting->azimuth_min;
             lidar_setting->azimuth_max = lidar_frame_setting->azimuth_max;
@@ -211,13 +234,20 @@ TestImpl3D() {
             lidar_setting->num_elevation_lines = lidar_frame_setting->num_elevation_lines;
             range_sensor = std::make_shared<Lidar3D>(lidar_setting);
             is_lidar = true;
+            if (options.scan_stride > 1) {
+                lidar_frame_setting->Resize(1.0f / static_cast<Dtype>(options.scan_stride));
+            }
+            range_sensor_frame = std::make_shared<LidarFrame3D>(lidar_frame_setting);
         } else if (options.sensor_frame_type == type_name<DepthFrame3D>()) {
             const auto depth_frame_setting = std::make_shared<typename DepthFrame3D::Setting>();
             ASSERT_TRUE(depth_frame_setting->FromYamlFile(options.sensor_frame_config_file));
-            range_sensor_frame = std::make_shared<DepthFrame3D>(depth_frame_setting);
             range_sensor =
                 std::make_shared<DepthCamera3D>(std::make_shared<typename DepthCamera3D::Setting>(
                     depth_frame_setting->camera_intrinsic));
+            if (options.scan_stride > 1) {
+                depth_frame_setting->Resize(1.0f / static_cast<Dtype>(options.scan_stride));
+            }
+            range_sensor_frame = std::make_shared<DepthFrame3D>(depth_frame_setting);
         } else {
             ERL_FATAL("Unknown sensor_frame_type: {}", options.sensor_frame_type);
         }
@@ -244,15 +274,15 @@ TestImpl3D() {
     const auto o3d_pcd_obs = std::make_shared<open3d::geometry::PointCloud>();
     const auto o3d_pcd_surf_points = std::make_shared<open3d::geometry::PointCloud>();
     const auto o3d_line_set_surf_normals = std::make_shared<open3d::geometry::LineSet>();
-    const auto o3d_voxel_grid_sdf = std::make_shared<open3d::geometry::VoxelGrid>();
-    o3d_voxel_grid_sdf->origin_.setZero();
-    o3d_voxel_grid_sdf->voxel_size_ = options.test_res;
+    const auto o3d_voxel_grid = std::make_shared<open3d::geometry::VoxelGrid>();
+    o3d_voxel_grid->origin_.setZero();
+    o3d_voxel_grid->voxel_size_ = options.test_res;
     geometries.push_back(o3d_mesh_sensor);
     geometries.push_back(o3d_mesh_sensor_xyz);
     geometries.push_back(o3d_pcd_obs);
     geometries.push_back(o3d_pcd_surf_points);
     geometries.push_back(o3d_line_set_surf_normals);
-    geometries.push_back(o3d_voxel_grid_sdf);
+    geometries.push_back(o3d_voxel_grid);
     visualizer.AddGeometries(geometries);
 
     // prepare the test positions
@@ -272,10 +302,11 @@ TestImpl3D() {
     }
 
     long wp_idx = 0;
+    bool animation_ended = false;
     double bhsm_update_dt = 0.0;
     double bhsm_update_fps = 0.0;
     double cnt = 0.0;
-    (void) bhsm_update_dt, (void) bhsm_update_fps, (void) cnt;
+    (void) bhsm_update_dt, (void) animation_ended, (void) bhsm_update_fps, (void) cnt;
     const long max_wp_idx =
         options.use_cow_and_lady ? cow_and_lady->Size() : static_cast<long>(poses.size());
     Matrix4 last_pose = Matrix4::Identity();
@@ -303,8 +334,20 @@ TestImpl3D() {
             std::tie(rotation, translation) =
                 range_sensor->GetOpticalPose(rotation_sensor, translation_sensor);
         }
-        wp_idx += options.stride;
+        wp_idx += options.seq_stride;
 
+        if (options.scan_stride > 1) {
+            auto [rows, cols] = range_sensor_frame->GetFrameShape();
+            MatrixX new_ranges(rows, cols);
+            for (long j = 0; j < cols; ++j) {
+                const Dtype *ranges_j = ranges.col(j * options.scan_stride).data();
+                Dtype *new_ranges_j = new_ranges.col(j).data();
+                for (long i = 0; i < rows; ++i) {
+                    new_ranges_j[i] = ranges_j[i * options.scan_stride];
+                }
+            }
+            ranges = new_ranges;
+        }
         range_sensor_frame->UpdateRanges(rotation, translation, ranges);
         double dt;
         {
@@ -313,7 +356,7 @@ TestImpl3D() {
                 range_sensor_frame->GetHitPointsWorld().data()->data(),
                 3,
                 range_sensor_frame->GetNumHitRays());
-            bhsm.Update(translation, points, true /*parallel*/);
+            bhsm.Update(rotation_sensor, translation_sensor, points, true /*parallel*/);
         }
 
         bhsm_update_dt = (bhsm_update_dt * cnt + dt) / (cnt + 1.0);
@@ -331,13 +374,54 @@ TestImpl3D() {
     auto callback = [&](Open3dVisualizerWrapper *wrapper,
                         open3d::visualization::Visualizer *vis) -> bool {
         ERL_TRACY_FRAME_MARK_START();
-
-        if (wp_idx >= max_wp_idx) {
-            if (options.test_io) { TestIo<Dtype, 3>(&bhsm); }
-            wrapper->SetAnimationCallback(nullptr);  // stop calling this callback
-            vis->Close();                            // close the window
+        // options.hold is true, so the window is not closed yet
+        if (animation_ended) {
+            cv::waitKey(1);
             return false;
         }
+
+#pragma region end_of_animation
+        if (wp_idx >= max_wp_idx) {
+            animation_ended = true;
+            if (options.test_whole_map_at_end) {
+                auto map_boundary = bhsm.GetMapBoundary();
+                erl::common::GridMapInfo2D<Dtype> grid_map_info(
+                    map_boundary.min().template head<2>(),
+                    map_boundary.max().template head<2>(),
+                    Eigen::Vector2<Dtype>(options.test_res, options.test_res),
+                    Eigen::Vector2i(10, 10));
+                Matrix3X test_positions(3, grid_map_info.Size());
+                test_positions.topRows(2) =
+                    grid_map_info.GenerateMeterCoordinates(false).template cast<Dtype>();
+                test_positions.row(2).setConstant(options.test_z + map_boundary.center[2]);
+                VectorX prob_occupied;
+                {
+                    ERL_BLOCK_TIMER_MSG("bhsm.Predict");
+                    Matrix3X gradient;
+                    bhsm.Predict(
+                        test_positions,
+                        false,
+                        true,
+                        false,
+                        false,
+                        true,
+                        prob_occupied,
+                        gradient);
+                }
+                const cv::Mat prob_occupied_img =
+                    ConvertToImage(grid_map_info.Shape(0), grid_map_info.Shape(1), prob_occupied);
+                ConvertToVoxelGrid<Dtype>(prob_occupied_img, test_positions, o3d_voxel_grid);
+                vis->UpdateGeometry(o3d_voxel_grid);
+                cv::imshow("prob_occupied", prob_occupied_img);
+                cv::waitKey(1);
+            }
+            if (!options.hold) {
+                wrapper->SetAnimationCallback(nullptr);  // stop calling this callback
+                vis->Close();                            // close the window
+            }
+            return true;
+        }
+#pragma endregion
 
         const auto t_start = std::chrono::high_resolution_clock::now();
         ERL_INFO("wp_idx: {}", wp_idx);
@@ -427,16 +511,8 @@ TestImpl3D() {
             Matrix3X gradient;
             bhsm.Predict(positions_test, false, true, false, false, true, prob_occupied, gradient);
         }
-        cv::Mat prob_occupied_img(
-            options.test_ys,
-            options.test_xs,
-            sizeof(Dtype) == 4 ? CV_32FC1 : CV_64FC1,
-            prob_occupied.data());
-        prob_occupied_img = prob_occupied_img.t();
-        cv::normalize(prob_occupied_img, prob_occupied_img, 0, 255, cv::NORM_MINMAX);
-        prob_occupied_img.convertTo(prob_occupied_img, CV_8UC1);
-        cv::applyColorMap(prob_occupied_img, prob_occupied_img, cv::COLORMAP_JET);
-        ConvertToVoxelGrid<Dtype>(prob_occupied_img, positions_test, o3d_voxel_grid_sdf);
+        cv::Mat prob_occupied_img = ConvertToImage(options.test_xs, options.test_ys, prob_occupied);
+        ConvertToVoxelGrid<Dtype>(prob_occupied_img, positions_test, o3d_voxel_grid);
 
         const auto t_end = std::chrono::high_resolution_clock::now();
         auto duration_total = std::chrono::duration<Dtype, std::milli>(t_end - t_start).count();
@@ -461,6 +537,19 @@ TestImpl3D() {
     }
 
     if (options.test_io) { TestIo<Dtype, 3>(&bhsm); }
+
+    auto drawer_setting = std::make_shared<typename OctreeDrawer::Setting>();
+    drawer_setting->area_min = area_min.template cast<double>();
+    drawer_setting->area_max = area_max.template cast<double>();
+    drawer_setting->occupied_only = true;
+    OctreeDrawer octree_drawer(drawer_setting, bhsm.GetTree());
+    auto mesh = geometries[0];
+    geometries = octree_drawer.GetBlankGeometries();
+    geometries.push_back(mesh);
+    octree_drawer.DrawLeaves(geometries);
+    visualizer.Reset();
+    visualizer.AddGeometries(geometries);
+    visualizer.Show();
 }
 
 template<typename Dtype>
@@ -793,7 +882,7 @@ TestImpl2D() {
         double dt;
         {
             ERL_BLOCK_TIMER_MSG_TIME("bhm_mapping.Update", dt);
-            bhsm.Update(translation, points, true /*parallel*/);
+            bhsm.Update(rotation, translation, points, true /*parallel*/);
         }
         bhsm_update_dt_ms =
             (bhsm_update_dt_ms * static_cast<double>(i) + dt) / static_cast<double>(i + 1);

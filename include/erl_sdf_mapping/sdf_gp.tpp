@@ -81,9 +81,8 @@ namespace erl::sdf_mapping {
         ERL_YAML_LOAD_ATTR(node, setting, softmin_temperature);
         ERL_YAML_LOAD_ATTR(node, setting, sign_gp_offset_distance);
         ERL_YAML_LOAD_ATTR(node, setting, edf_gp_offset_distance);
-        ERL_YAML_LOAD_ATTR(node, setting, sign_gp);
-        ERL_YAML_LOAD_ATTR(node, setting, edf_gp);
-        return true;
+        if (!ERL_YAML_LOAD_ATTR(node, setting, sign_gp)) { return false; }
+        return ERL_YAML_LOAD_ATTR(node, setting, edf_gp);
     }
 
     template<typename Dtype, int Dim>

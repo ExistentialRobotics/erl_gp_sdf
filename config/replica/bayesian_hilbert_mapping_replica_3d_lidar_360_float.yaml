@@ -1,7 +1,7 @@
 local_bhm:
     bhm:
         diagonal_sigma: true
-        max_distance: 50
+        max_distance: 100
         free_points_per_meter: 2
         free_sampling_margin: 0.001
         init_sigma: 10000
@@ -12,7 +12,6 @@ local_bhm:
     kernel_setting_type: erl::covariance::Covariance<float>::Setting
     kernel:
         x_dim: 3
-        alpha: 1
         scale: 0.025
         scale_mix: 1
         weights: [ ]

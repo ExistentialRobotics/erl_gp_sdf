@@ -1,8 +1,280 @@
 #pragma once
 
-#include "bayesian_hilbert_surface_mapping.tpp"
+#include "bayesian_hilbert_surface_mapping.hpp"
+
+#include "erl_common/angle_utils.hpp"
 
 namespace erl::sdf_mapping {
+    template<typename Dtype>
+    YAML::Node
+    RaySelector2D<Dtype>::Setting::YamlConvertImpl::encode(const Setting &setting) {
+        YAML::Node node;
+        ERL_YAML_SAVE_ATTR(node, setting, angle_min);
+        ERL_YAML_SAVE_ATTR(node, setting, angle_max);
+        ERL_YAML_SAVE_ATTR(node, setting, num_angles);
+        return node;
+    }
+
+    template<typename Dtype>
+    bool
+    RaySelector2D<Dtype>::Setting::YamlConvertImpl::decode(
+        const YAML::Node &node,
+        Setting &setting) {
+        if (!node.IsMap()) { return false; }
+        ERL_YAML_LOAD_ATTR(node, setting, angle_min);
+        ERL_YAML_LOAD_ATTR(node, setting, angle_max);
+        ERL_YAML_LOAD_ATTR(node, setting, num_angles);
+        return true;
+    }
+
+    template<typename Dtype>
+    RaySelector2D<Dtype>::RaySelector2D(std::shared_ptr<Setting> setting)
+        : m_setting_(std::move(setting)) {
+        ERL_ASSERTM(m_setting_ != nullptr, "RaySelector2D setting is nullptr.");
+        m_angle_resolution_ =
+            (m_setting_->angle_max - m_setting_->angle_min) / (m_setting_->num_angles - 1);
+        m_ray_indices_.resize(m_setting_->num_angles);
+    }
+
+    template<typename Dtype>
+    void
+    RaySelector2D<Dtype>::UpdateRays(
+        const Vector2 &sensor_origin,
+        const Matrix2 &sensor_rotation,
+        const Eigen::Ref<const Matrix2X> &ray_end_points) {
+        using namespace common;
+
+        for (auto &ray_indices: m_ray_indices_) { ray_indices.clear(); }
+
+        for (long i = 0; i < ray_end_points.cols(); ++i) {
+            Vector2 p = sensor_rotation.transpose() * (ray_end_points.col(i) - sensor_origin);
+            Dtype angle = std::atan2(p.y(), p.x());
+            angle = WrapAnglePi(angle);
+            angle = std::max(m_setting_->angle_min, std::min(angle, m_setting_->angle_max));
+            long idx = MeterToGrid(angle, m_setting_->angle_min, m_angle_resolution_);
+            m_ray_indices_[idx].push_back(i);
+        }
+    }
+
+    template<typename Dtype>
+    void
+    RaySelector2D<Dtype>::SelectRays(
+        const Vector2 &sensor_origin,
+        const Matrix2 &sensor_rotation,
+        Vector2 point,
+        Dtype radius,
+        std::vector<long> &ray_indices) const {
+        using namespace common;
+        ray_indices.clear();
+
+        point = sensor_rotation.transpose() * (point - sensor_origin);
+        const Dtype dist = point.norm();
+        const Dtype angle = std::atan2(point.y(), point.x());
+        const Dtype theta = std::atan2(radius, dist);
+        Dtype min_angle = WrapAnglePi(angle - theta);
+        min_angle = std::max(m_setting_->angle_min, std::min(min_angle, m_setting_->angle_max));
+        Dtype max_angle = WrapAnglePi(angle + theta);
+        max_angle = std::max(m_setting_->angle_min, std::min(max_angle, m_setting_->angle_max));
+        const auto min_idx = MeterToGrid(min_angle, m_setting_->angle_min, m_angle_resolution_);
+        const auto max_idx = MeterToGrid(max_angle, m_setting_->angle_min, m_angle_resolution_);
+
+        if (min_angle < max_angle) {
+            for (long i = min_idx; i <= max_idx; ++i) {
+                ray_indices.insert(
+                    ray_indices.end(),
+                    m_ray_indices_[i].begin(),
+                    m_ray_indices_[i].end());
+            }
+            return;
+        }
+
+        // wrap around case
+        for (long i = min_idx; i < static_cast<long>(m_ray_indices_.size()); ++i) {
+            ray_indices.insert(
+                ray_indices.end(),
+                m_ray_indices_[i].begin(),
+                m_ray_indices_[i].end());
+        }
+        for (long i = 0; i <= max_idx; ++i) {
+            ray_indices.insert(
+                ray_indices.end(),
+                m_ray_indices_[i].begin(),
+                m_ray_indices_[i].end());
+        }
+    }
+
+    template<typename Dtype>
+    YAML::Node
+    RaySelector3D<Dtype>::Setting::YamlConvertImpl::encode(const Setting &setting) {
+        YAML::Node node;
+        ERL_YAML_SAVE_ATTR(node, setting, azimuth_min);
+        ERL_YAML_SAVE_ATTR(node, setting, azimuth_max);
+        ERL_YAML_SAVE_ATTR(node, setting, elevation_min);
+        ERL_YAML_SAVE_ATTR(node, setting, elevation_max);
+        ERL_YAML_SAVE_ATTR(node, setting, num_azimuth_angles);
+        ERL_YAML_SAVE_ATTR(node, setting, num_elevation_angles);
+        return node;
+    }
+
+    template<typename Dtype>
+    bool
+    RaySelector3D<Dtype>::Setting::YamlConvertImpl::decode(
+        const YAML::Node &node,
+        Setting &setting) {
+        if (!node.IsMap()) { return false; }
+        ERL_YAML_LOAD_ATTR(node, setting, azimuth_min);
+        ERL_YAML_LOAD_ATTR(node, setting, azimuth_max);
+        ERL_YAML_LOAD_ATTR(node, setting, elevation_min);
+        ERL_YAML_LOAD_ATTR(node, setting, elevation_max);
+        ERL_YAML_LOAD_ATTR(node, setting, num_azimuth_angles);
+        ERL_YAML_LOAD_ATTR(node, setting, num_elevation_angles);
+        return true;
+    }
+
+    template<typename Dtype>
+    RaySelector3D<Dtype>::RaySelector3D(std::shared_ptr<Setting> setting)
+        : m_setting_(std::move(setting)) {
+        ERL_ASSERTM(m_setting_ != nullptr, "RaySelector3D setting is nullptr");
+        m_azimuth_res_ = (m_setting_->azimuth_max - m_setting_->azimuth_min) /
+                         (m_setting_->num_azimuth_angles - 1);
+        m_elevation_res_ = (m_setting_->elevation_max - m_setting_->elevation_min) /
+                           (m_setting_->num_elevation_angles - 1);
+        m_ray_indices_.resize(m_setting_->num_azimuth_angles, m_setting_->num_elevation_angles);
+    }
+
+    template<typename Dtype>
+    void
+    RaySelector3D<Dtype>::UpdateRays(
+        const Vector3 &sensor_origin,
+        const Matrix3 &sensor_rotation,
+        const Eigen::Ref<const Matrix3X> &ray_end_points) {
+        using namespace common;
+        const Dtype azimuth_min = m_setting_->azimuth_min;
+        const Dtype azimuth_max = m_setting_->azimuth_max;
+        const Dtype elevation_min = m_setting_->elevation_min;
+        const Dtype elevation_max = m_setting_->elevation_max;
+
+        auto *ptr = m_ray_indices_.data();
+        for (long i = 0; i < m_ray_indices_.size(); ++i) { ptr[i].clear(); }
+
+        Eigen::Matrix2X<long> coords(2, ray_end_points.cols());
+#pragma omp parallel for default(none) \
+    shared(ray_end_points,             \
+               coords,                 \
+               sensor_rotation,        \
+               sensor_origin,          \
+               azimuth_min,            \
+               azimuth_max,            \
+               elevation_min,          \
+               elevation_max)
+        for (long i = 0; i < ray_end_points.cols(); ++i) {
+            Vector3 p = sensor_rotation.transpose() * (ray_end_points.col(i) - sensor_origin);
+            p.normalize();
+            Dtype azimuth, elevation;
+            DirectionToAzimuthElevation<Dtype>(p, azimuth, elevation);
+            azimuth = std::max(azimuth_min, std::min(azimuth, azimuth_max));
+            elevation = std::max(elevation_min, std::min(elevation, elevation_max));
+            auto coord = coords.col(i);
+            coord[0] = MeterToGrid(azimuth, azimuth_min, m_azimuth_res_);
+            coord[1] = MeterToGrid(elevation, elevation_min, m_elevation_res_);
+        }
+
+        for (long i = 0; i < coords.cols(); ++i) {
+            auto coord = coords.col(i);
+            m_ray_indices_(coord[0], coord[1]).push_back(i);
+        }
+    }
+
+    template<typename Dtype>
+    void
+    RaySelector3D<Dtype>::SelectRays(
+        const Vector3 &sensor_origin,
+        const Matrix3 &sensor_rotation,
+        Vector3 point,
+        Dtype radius,
+        std::vector<long> &ray_indices) const {
+        using namespace common;
+        ray_indices.clear();
+
+        point = sensor_rotation.transpose() * (point - sensor_origin);
+        const Dtype dist = point.norm();
+        point /= dist;
+        Dtype azimuth, elevation;
+        DirectionToAzimuthElevation<Dtype>(point, azimuth, elevation);
+        const Dtype theta = std::atan2(radius, dist);
+
+        const Dtype azimuth_min = m_setting_->azimuth_min;
+        const Dtype azimuth_max = m_setting_->azimuth_max;
+        const Dtype elevation_min = m_setting_->elevation_min;
+        const Dtype elevation_max = m_setting_->elevation_max;
+        constexpr auto kPi = static_cast<Dtype>(M_PI);
+        constexpr auto kPi2 = static_cast<Dtype>(M_PI_2);
+
+        Dtype ele_max = elevation + theta;
+        if (ele_max > kPi2) {
+            elevation = std::min(elevation - theta, kPi - ele_max);
+            elevation = std::max(elevation_min, std::min(elevation, elevation_max));
+            auto ele_idx = MeterToGrid(elevation, elevation_min, m_elevation_res_);
+            for (long i = ele_idx; i < m_ray_indices_.cols(); ++i) {
+                auto *ptr = m_ray_indices_.col(i).data();
+                for (long j = 0; j < m_ray_indices_.rows(); ++j) {
+                    ray_indices.insert(ray_indices.end(), ptr[j].begin(), ptr[j].end());
+                }
+            }
+            return;
+        }
+
+        Dtype ele_min = elevation - theta;
+        if (ele_min < -kPi2) {
+            elevation = std::max(elevation + theta, -kPi - ele_min);
+            elevation = std::max(elevation_min, std::min(elevation, elevation_max));
+            auto ele_idx = MeterToGrid(elevation, elevation_min, m_elevation_res_);
+            for (long i = 0; i <= ele_idx; ++i) {
+                auto *ptr = m_ray_indices_.col(i).data();
+                for (long j = 0; j < m_ray_indices_.rows(); ++j) {
+                    ray_indices.insert(ray_indices.end(), ptr[j].begin(), ptr[j].end());
+                }
+            }
+            return;
+        }
+
+        ele_min = std::max(elevation_min, std::min(ele_min, elevation_max));
+        ele_max = std::max(elevation_min, std::min(ele_max, elevation_max));
+        auto min_eidx = MeterToGrid(ele_min, elevation_min, m_elevation_res_);
+        auto max_eidx = MeterToGrid(ele_max, elevation_min, m_elevation_res_);
+
+        Dtype azi_max = WrapAnglePi(azimuth + theta);
+        Dtype azi_min = WrapAnglePi(azimuth - theta);
+        if (azi_min < azi_max) {
+            azi_min = std::max(azimuth_min, std::min(azi_min, azimuth_max));
+            azi_max = std::max(azimuth_min, std::min(azi_max, azimuth_max));
+            auto min_aidx = MeterToGrid(azi_min, azimuth_min, m_azimuth_res_);
+            auto max_aidx = MeterToGrid(azi_max, azimuth_min, m_azimuth_res_);
+
+            for (long i = min_eidx; i < max_eidx; ++i) {
+                auto *ptr = m_ray_indices_.col(i).data();
+                for (long j = min_aidx; j < max_aidx; ++j) {
+                    ray_indices.insert(ray_indices.end(), ptr[j].begin(), ptr[j].end());
+                }
+            }
+            return;
+        }
+
+        // wrap around case
+        azi_min = std::max(azimuth_min, std::min(azi_min, azimuth_max));
+        azi_max = std::max(azimuth_min, std::min(azi_max, azimuth_max));
+        auto min_aidx = MeterToGrid(azi_min, azimuth_min, m_azimuth_res_);
+        auto max_aidx = MeterToGrid(azi_max, azimuth_min, m_azimuth_res_);
+        for (long i = min_eidx; i < max_eidx; ++i) {
+            auto *ptr = m_ray_indices_.col(i).data();
+            for (long j = min_aidx; j < m_ray_indices_.rows(); ++j) {
+                ray_indices.insert(ray_indices.end(), ptr[j].begin(), ptr[j].end());
+            }
+            for (long j = 0; j <= max_aidx; ++j) {
+                ray_indices.insert(ray_indices.end(), ptr[j].begin(), ptr[j].end());
+            }
+        }
+    }
 
     template<typename Dtype>
     YAML::Node
@@ -25,11 +297,11 @@ namespace erl::sdf_mapping {
         const YAML::Node &node,
         LocalBayesianHilbertMapSetting &setting) {
         if (!node.IsMap()) { return false; }
-        ERL_YAML_LOAD_ATTR(node, setting, bhm);
+        if (!ERL_YAML_LOAD_ATTR(node, setting, bhm)) { return false; }
         ERL_YAML_LOAD_ATTR(node, setting, kernel_type);
         ERL_YAML_LOAD_ATTR(node, setting, kernel_setting_type);
         setting.kernel = common::YamlableBase::Create<KernelSetting>(setting.kernel_setting_type);
-        if (!setting.kernel->FromYamlNode(node["kernel"])) { return false; }
+        if (!ERL_YAML_LOAD_ATTR(node, setting, kernel)) { return false; }
         ERL_YAML_LOAD_ATTR(node, setting, max_dataset_size);
         ERL_YAML_LOAD_ATTR(node, setting, hit_buffer_size);
         ERL_YAML_LOAD_ATTR(node, setting, surface_resolution);
@@ -42,9 +314,8 @@ namespace erl::sdf_mapping {
         const Setting &setting) {
         YAML::Node node;
         ERL_YAML_SAVE_ATTR(node, setting, local_bhm);
+        ERL_YAML_SAVE_ATTR(node, setting, ray_selector);
         ERL_YAML_SAVE_ATTR(node, setting, tree);
-        ERL_YAML_SAVE_ATTR(node, setting, valid_range_min);
-        ERL_YAML_SAVE_ATTR(node, setting, valid_range_max);
         ERL_YAML_SAVE_ATTR(node, setting, hinged_grid_size);
         ERL_YAML_SAVE_ATTR(node, setting, surface_max_abs_logodd);
         ERL_YAML_SAVE_ATTR(node, setting, surface_bad_abs_logodd);
@@ -68,10 +339,9 @@ namespace erl::sdf_mapping {
         const YAML::Node &node,
         Setting &setting) {
         if (!node.IsMap()) { return false; }
-        ERL_YAML_LOAD_ATTR(node, setting, local_bhm);
-        ERL_YAML_LOAD_ATTR(node, setting, tree);
-        ERL_YAML_LOAD_ATTR(node, setting, valid_range_min);
-        ERL_YAML_LOAD_ATTR(node, setting, valid_range_max);
+        if (!ERL_YAML_LOAD_ATTR(node, setting, local_bhm)) { return false; }
+        if (!ERL_YAML_LOAD_ATTR(node, setting, ray_selector)) { return false; }
+        if (!ERL_YAML_LOAD_ATTR(node, setting, tree)) { return false; }
         ERL_YAML_LOAD_ATTR(node, setting, hinged_grid_size);
         ERL_YAML_LOAD_ATTR(node, setting, surface_max_abs_logodd);
         ERL_YAML_LOAD_ATTR(node, setting, surface_bad_abs_logodd);
@@ -120,17 +390,20 @@ namespace erl::sdf_mapping {
     bool
     BayesianHilbertSurfaceMapping<Dtype, Dim>::LocalBayesianHilbertMap::Update(
         const Eigen::Ref<const Position> &sensor_origin,
-        const Eigen::Ref<const Positions> &points) {
+        const Eigen::Ref<const Positions> &points,
+        const std::vector<long> &point_indices) {
 
         const long max_dataset_size = setting->max_dataset_size;
         bhm.GenerateDataset(
             sensor_origin,
             points,
+            point_indices,
             max_dataset_size,
             num_dataset_points,
             dataset_points,
             dataset_labels,
             hit_indices);
+
         if (num_dataset_points == 0) { return false; }
         if (!hit_buffer.empty() &&
             (max_dataset_size < 0 || num_dataset_points < max_dataset_size)) {
@@ -316,7 +589,7 @@ namespace erl::sdf_mapping {
                     self->hit_indices.resize(n);
                     stream.read(
                         reinterpret_cast<char *>(self->hit_indices.data()),
-                        sizeof(long) * n);
+                        static_cast<std::streamsize>(sizeof(long) * n));
                     return stream.good();
                 },
             },
@@ -382,8 +655,8 @@ namespace erl::sdf_mapping {
     template<typename Dtype, int Dim>
     BayesianHilbertSurfaceMapping<Dtype, Dim>::BayesianHilbertSurfaceMapping(
         std::shared_ptr<Setting> setting)
-        : m_setting_(std::move(setting)) {
-        ERL_ASSERTM(m_setting_ != nullptr, "setting is nullptr.");
+        : m_setting_(NotNull(std::move(setting), true, "setting is nullptr")),
+          m_ray_selector_(m_setting_->ray_selector) {
         m_tree_ = std::make_shared<Tree>(m_setting_->tree);
         GenerateHingedPoints();
         m_map_dim_ = Dim;
@@ -432,40 +705,37 @@ namespace erl::sdf_mapping {
             points.resize(Dim, scan.cols());
             Rotation rotation_ = rotation.cast<Dtype>();
             Translation translation_ = translation.cast<Dtype>();
-            Position point;
+#pragma omp parallel for default(none) shared(scan, points, rotation_, translation_)
             for (long i = 0; i < scan.cols(); ++i) {
-                point = scan.col(i).cast<Dtype>();
+                Position point = scan.col(i).cast<Dtype>();
                 points.col(i) = rotation_ * point + translation_;
             }
         } else {
             points = scan.cast<Dtype>();
         }
-        return Update(sensor_origin, points, true /*parallel*/);
+        Rotation sensor_rotation = rotation.cast<Dtype>();
+        {
+            ERL_BLOCK_TIMER_MSG("BHSM Update");
+            bool result = Update(sensor_rotation, sensor_origin, points, true /*parallel*/);
+            return result;
+        }
     }
 
     template<typename Dtype, int Dim>
     bool
     BayesianHilbertSurfaceMapping<Dtype, Dim>::Update(
+        const Eigen::Ref<const Rotation> &sensor_rotation,
         const Eigen::Ref<const Position> &sensor_origin,
         const Eigen::Ref<const Positions> &points,
         const bool parallel) {
 
-        Position sensor_origin_s = sensor_origin;
-        Positions points_s(Dim, points.cols());
-        long n = 0;
-        for (long i = 0; i < points.cols(); ++i) {
-            Dtype dist = (points.col(i) - sensor_origin).norm();
-            if (dist < m_setting_->valid_range_min || dist > m_setting_->valid_range_max) {
-                continue;  // skip points outside the valid range
-            }
-            points_s.col(n) = points.col(i);
-            ++n;
-        }
-        if (n == 0) {
-            ERL_WARN("No valid points in the scan, nothing to update.");
+        if (points.cols() == 0) {
+            ERL_WARN("No points in the scan, nothing to update.");
             return false;
         }
-        points_s.conservativeResize(Dim, n);  // resize to the number of valid points
+
+        Position sensor_origin_s = sensor_origin;
+        Positions points_s = points;
         if (m_setting_->scaling != 1.0f) {
             sensor_origin_s.array() *= m_setting_->scaling;
             points_s.array() *= m_setting_->scaling;
@@ -496,19 +766,16 @@ namespace erl::sdf_mapping {
         bhm_keys_set.clear();
         const uint32_t bhm_depth = m_setting_->bhm_depth;
         {
+            const auto &end_point_maps =
+                discrete ? m_tree_->GetDiscreteEndPointMaps() : m_tree_->GetEndPointMaps();
             ERL_BLOCK_TIMER_MSG("bhm find");
             if (m_setting_->build_bhm_on_hit) {
                 // any hit point will trigger building the corresponding local Bayesian Hilbert map
-                const auto &end_point_maps =
-                    discrete ? m_tree_->GetDiscreteEndPointMaps() : m_tree_->GetEndPointMaps();
                 for (const auto &[key, hit_indices]: end_point_maps) {
-                    bhm_keys_set.insert(m_tree_->AdjustKeyToDepth(key, bhm_depth));
+                    bhm_keys_set.insert(m_tree_->AdjustKeyToDepth(key, bhm_depth)).second;
                 }
             } else {
-                // only the occupied node will trigger building the corresponding local Bayesian
-                // Hilbert map
-                const auto &end_point_maps =
-                    discrete ? m_tree_->GetDiscreteEndPointMaps() : m_tree_->GetEndPointMaps();
+                // only the occupied node will trigger building the corresponding local BHM
                 for (const auto &[key, hit_indices]: end_point_maps) {
                     if (const TreeNode *node = m_tree_->Search(key);
                         node != nullptr && m_tree_->IsNodeOccupied(node)) {
@@ -519,11 +786,11 @@ namespace erl::sdf_mapping {
         }
 
         // create bhm for new keys
-        const KeyVector bhm_keys(bhm_keys_set.begin(), bhm_keys_set.end());
+        KeyVector bhm_keys(bhm_keys_set.begin(), bhm_keys_set.end());
+        const Dtype half_surface_size = m_tree_->GetNodeSize(bhm_depth) * 0.5f;
+        const Dtype half_bhm_size = half_surface_size + m_setting_->bhm_overlap;
         {
             ERL_BLOCK_TIMER_MSG("bhm create");
-            const Dtype half_surface_size = m_tree_->GetNodeSize(bhm_depth) * 0.5f;
-            const Dtype half_bhm_size = half_surface_size + m_setting_->bhm_overlap;
             for (const Key &key: bhm_keys) {
                 auto it = m_key_bhm_dict_.find(key);
                 if (it != m_key_bhm_dict_.end()) { continue; }  // already exist
@@ -545,17 +812,44 @@ namespace erl::sdf_mapping {
             }
         }
 
+        KeyVectorMap bhm_ray_indices;
+        bhm_ray_indices.reserve(bhm_keys_set.size());
+        for (auto &key: bhm_keys_set) { bhm_ray_indices.emplace(key, std::vector<long>{}); }
+        m_ray_selector_.UpdateRays(sensor_origin_s, sensor_rotation, points_s);
+        const Dtype radius = std::sqrt(static_cast<Dtype>(Dim) * half_bhm_size * half_bhm_size);
+
+#pragma omp parallel for default(none) \
+    shared(bhm_keys, bhm_ray_indices, sensor_origin_s, sensor_rotation, radius)
+        for (auto &key: bhm_keys) {
+            m_ray_selector_.SelectRays(
+                sensor_origin_s,
+                sensor_rotation,
+                m_key_bhm_dict_[key]->bhm.GetMapBoundary().center,
+                radius,
+                bhm_ray_indices[key]);
+        }
+
         // update the local Bayesian Hilbert maps
         std::vector<int> updated(bhm_keys.size(), 0);  // don't use bool, it is not atomic
+        ERL_INFO("{} local bhm(s) to update", bhm_keys.size());
         {
             ERL_BLOCK_TIMER_MSG("bhm update");
             (void) parallel;
-            ERL_INFO("{} local bhm(s) to update", bhm_keys.size());
 #pragma omp parallel for if (parallel) default(none) \
-    shared(bhm_keys, updated, sensor_origin_s, points_s)
+    shared(bhm_keys, updated, sensor_origin_s, points_s, bhm_ray_indices)
             for (std::size_t i = 0; i < bhm_keys.size(); ++i) {
-                updated[i] = m_key_bhm_dict_[bhm_keys[i]]->Update(sensor_origin_s, points_s);
+                auto &bhm_key = bhm_keys[i];
+                LocalBayesianHilbertMap &local_bhm = *m_key_bhm_dict_[bhm_key];
+                local_bhm.active = true;
+                updated[i] = local_bhm.Update(sensor_origin_s, points_s, bhm_ray_indices[bhm_key]);
             }
+        }
+
+        // turn off local Bayesian Hilbert maps whose node in the tree is not occupied
+        for (auto &[key, local_bhm]: m_key_bhm_dict_) {
+            if (!local_bhm->active) { continue; }
+            const TreeNode *node = m_tree_->Search(key, bhm_depth);
+            if (node == nullptr || !m_tree_->IsNodeOccupied(node)) { local_bhm->active = false; }
         }
 
         const bool any_update =
@@ -1141,26 +1435,34 @@ namespace erl::sdf_mapping {
 
             Eigen::Map<const Position> point(points_ptr + i * Dim, Dim);
 
+            // is there a free node that covers the corresponding bhm completely?
+            Key key;  // use the tree to predict the occupancy
+            if (!m_tree_->CoordToKeyChecked(point, key)) { continue; }  // outside the map
+            const TreeNode *node = m_tree_->Search(key);
+            if (node != nullptr && !m_tree_->IsNodeOccupied(node) &&
+                m_tree_->GetNodeSize(node->GetDepth()) * 0.5 > half_size) {
+                // use the tree to predict the occupancy
+                prob_occupied_ptr[i] = logodd ? node->GetLogOdds() : node->GetOccupancy();
+                continue;
+            }
+
             if (knn == 1) {
                 long bhm_index = -1;
                 Dtype bhm_distance = 0.0f;
-                m_bhm_kdtree_->Nearest(point, bhm_index, bhm_distance);  // find the nearest bhm
-                bhm_distance = std::sqrt(bhm_distance);                  // distance is squared
-                if (bhm_distance > half_size || bhm_index < 0) {  // too far from the bhm or no bhm
-                    Key key;  // use the tree to predict the occupancy
-                    if (!m_tree_->CoordToKeyChecked(point, key)) { continue; }  // outside the map
-                    // use the tree to predict the occupancy
-                    const TreeNode *node = m_tree_->Search(key);
+                m_bhm_kdtree_->Nearest(point, bhm_index, bhm_distance);      // find the nearest bhm
+                bhm_distance = std::sqrt(bhm_distance);                      // distance is squared
+                const Key &bhm_key = m_key_bhm_positions_[bhm_index].first;  // the key of the bhm
+                const auto &local_bhm = m_key_bhm_dict_.at(bhm_key);         // obtain the bhm
+
+                if (bhm_index < 0 || bhm_distance > half_size || !local_bhm->active) {
                     if (node == nullptr) { continue; }  // unknown
                     // get the occupancy from the tree
                     prob_occupied_ptr[i] = logodd ? node->GetLogOdds() : node->GetOccupancy();
                     continue;
                 }
-                const Key &bhm_key =
-                    m_key_bhm_positions_[bhm_index].first;  // obtain the key of the bhm
-                const BayesianHilbertMap &bhm = m_key_bhm_dict_.at(bhm_key)->bhm;  // obtain the bhm
+
                 Gradient grad;
-                bhm.Predict(
+                local_bhm->bhm.Predict(
                     point,
                     logodd,
                     faster,
@@ -1189,10 +1491,11 @@ namespace erl::sdf_mapping {
                 const Dtype bhm_distance = std::sqrt(bhm_distances[j]);      // distance is squared
                 if (bhm_distance > half_size) { break; }                     // too far from the bhm
                 const Key &bhm_key = m_key_bhm_positions_[bhm_index].first;  // obtain the bhm key
-                const BayesianHilbertMap &bhm = m_key_bhm_dict_.at(bhm_key)->bhm;  // obtain the bhm
+                const auto &local_bhm = m_key_bhm_dict_.at(bhm_key);         // obtain the bhm
+                if (local_bhm == nullptr || !local_bhm->active) { continue; }  // not active bhm
                 Dtype prob;
                 Gradient grad;
-                bhm.Predict(
+                local_bhm->bhm.Predict(
                     point,
                     logodd,
                     faster,
@@ -1200,18 +1503,15 @@ namespace erl::sdf_mapping {
                     gradient_with_sigmoid,
                     prob,
                     grad);
-                const Dtype weight = 1.0f / (bhm.GetMapBoundary().center - point).cwiseAbs().prod();
+                Dtype weight =
+                    1.0f / (local_bhm->bhm.GetMapBoundary().center - point).cwiseAbs().prod();
                 weight_sum += weight;
                 prob_sum += prob * weight;
                 if (compute_gradient) {
                     for (int dim = 0; dim < Dim; ++dim) { gradient_sum[dim] += grad[dim] * weight; }
                 }
             }
-            if (weight_sum == 0.0f) {  // no neighboring bhm
-                Key key;               // use the tree to predict the occupancy
-                if (!m_tree_->CoordToKeyChecked(point, key)) { continue; }  // outside the map
-                // use the tree to predict the occupancy
-                const TreeNode *node = m_tree_->Search(key);
+            if (weight_sum == 0.0f) {               // no neighboring bhm
                 if (node == nullptr) { continue; }  // unknown
                 // get the occupancy from the tree, gradient is not available
                 prob_occupied_ptr[i] = logodd ? node->GetLogOdds() : node->GetOccupancy();
@@ -1247,6 +1547,7 @@ namespace erl::sdf_mapping {
             ERL_DEBUG_ASSERT(it != m_key_bhm_dict_.end(), "Key {} not found.", std::string(key));
             if (it == m_key_bhm_dict_.end()) { continue; }  // should not happen
             LocalBayesianHilbertMap &local_bhm = *(it->second);
+            if (!local_bhm.active) { continue; }
             /// collect existing hit points
             for (const auto &[local_idx, surf_idx]: local_bhm.surface_indices) {
                 m_existing_hit_points_.emplace_back(key, local_idx, surf_idx, false, -1);

@@ -70,8 +70,8 @@ namespace erl::sdf_mapping {
         ERL_YAML_LOAD_ATTR(ump_node, update_map_points, max_bayes_position_var);
         ERL_YAML_LOAD_ATTR(ump_node, update_map_points, max_bayes_gradient_var);
 
-        ERL_YAML_LOAD_ATTR(node, setting, sensor_gp);
-        ERL_YAML_LOAD_ATTR(node, setting, tree);
+        if (!ERL_YAML_LOAD_ATTR(node, setting, sensor_gp)) { return false; }
+        if (!ERL_YAML_LOAD_ATTR(node, setting, tree)) { return false; }
         ERL_YAML_LOAD_ATTR(node, setting, surface_resolution);
         ERL_YAML_LOAD_ATTR(node, setting, scaling);
         ERL_YAML_LOAD_ATTR(node, setting, perturb_delta);

@@ -84,42 +84,69 @@ struct App {
             bbx_max.array() + options.margin);
         Eigen::Matrix2Xd test_pts = grid_info.GenerateMeterCoordinates(true /*c_stride*/);
         Eigen::VectorXd occ_values(test_pts.cols());
+        Eigen::VectorXd occ_variances(test_pts.cols());
+        Eigen::VectorXb valid_occ = Eigen::VectorXb::Constant(test_pts.cols(), false);
+        const double max_valid_range_var = gp.GetSetting()->max_valid_range_var;
+        const double occ_test_temperature = gp.GetSetting()->occ_test_temperature;
 
-        auto compute_occ = [&gp](const double x, const double y, double &occ) -> bool {
+        auto compute_occ = [&](const double x, const double y, double &occ, double &var) -> bool {
             Eigen::Vector2d p_local = gp.GetSensorFrame()->PosWorldToFrame(Eigen::Vector2d(x, y));
             Eigen::Scalard angle_local;
             angle_local[0] = std::atan2(p_local.y(), p_local.x());
             const double r = p_local.norm();
             double range_pred;
-            const bool valid = gp.ComputeOcc(angle_local, r, range_pred, occ);
-            if (!valid) { occ = 0.0; }
-            return valid;
+
+            occ = 0.0;
+
+            if (!gp.IsTrained()) { return false; }
+            const long idx = gp.SearchPartition(angle_local[0]);
+            if (idx < 0) { return false; }
+            const auto &partition_gp = *gp.GetGps()[idx];
+            if (!partition_gp.IsTrained()) { return false; }
+            auto test_result = *partition_gp.Test(angle_local);
+
+            // check the validity of range_pred first.
+            // if it is not valid, we can save the cost of computing range_pred.
+            test_result.GetVariance(0, var);
+            if (var > max_valid_range_var) { return false; }
+
+            test_result.GetMean(0, 0, range_pred);
+            const double a = r * occ_test_temperature;
+            occ = 2.0f / (1.0f + std::exp(a * (range_pred - gp.GetMapping()->map(r)))) - 1.0f;
+            return true;
         };
 
-#pragma omp parallel for default(none) shared(occ_values, sensor_frame, test_pts, compute_occ)
+#pragma omp parallel for default(none) \
+    shared(sensor_frame, test_pts, occ_values, occ_variances, valid_occ, compute_occ)
         for (long i = 0; i < occ_values.size(); ++i) {
             auto pt = test_pts.col(i);
-            compute_occ(pt.x(), pt.y(), occ_values[i]);
+            valid_occ[i] = compute_occ(pt.x(), pt.y(), occ_values[i], occ_variances[i]);
         }
 
         constexpr long stride = 1;
         Eigen::VectorXd x(pts_world.cols() / stride);
         Eigen::VectorXd y(x.size());
-        Eigen::VectorXd nx(x.size());
-        Eigen::VectorXd ny(x.size());
-#pragma omp parallel for default(none) shared(pts_world, x, y, nx, ny, compute_occ, options)
+        Eigen::VectorXd nx = Eigen::VectorXd::Zero(x.size());
+        Eigen::VectorXd ny = Eigen::VectorXd::Zero(x.size());
+        const Eigen::VectorXb &hit_mask = sensor_frame->GetHitMask();
+        const Eigen::VectorXb &con_mask = sensor_frame->GetContinuityMask();
+#pragma omp parallel for default(none) \
+    shared(pts_world, x, y, nx, ny, valid_occ, compute_occ, options, hit_mask, con_mask)
         for (long i = 0; i < pts_world.cols(); i += stride) {
+            // need to check if the point is valid
+            if (!hit_mask[i] || !con_mask[i]) { continue; }
+
             long j = i / stride;
             x[j] = pts_world(0, i);
             y[j] = pts_world(1, i);
             nx[j] = 0.0;
             ny[j] = 0.0;
 
-            double occ1, occ2, occ3, occ4;
-            if (!compute_occ(x[j] + options.perturb_delta, y[j], occ1)) { continue; }
-            if (!compute_occ(x[j] - options.perturb_delta, y[j], occ2)) { continue; }
-            if (!compute_occ(x[j], y[j] + options.perturb_delta, occ3)) { continue; }
-            if (!compute_occ(x[j], y[j] - options.perturb_delta, occ4)) { continue; }
+            double occ1, occ2, occ3, occ4, var;
+            if (!compute_occ(x[j] + options.perturb_delta, y[j], occ1, var)) { continue; }
+            if (!compute_occ(x[j] - options.perturb_delta, y[j], occ2, var)) { continue; }
+            if (!compute_occ(x[j], y[j] + options.perturb_delta, occ3, var)) { continue; }
+            if (!compute_occ(x[j], y[j] - options.perturb_delta, occ4, var)) { continue; }
 
             nx[j] = (occ1 - occ2) / (2 * options.perturb_delta);
             ny[j] = (occ3 - occ4) / (2 * options.perturb_delta);
@@ -180,6 +207,23 @@ struct App {
         draw_axes();
         cv::imshow("gp_occ_regression: occupancy prediction", fig.ToCvMat());
 
+        shades_opt
+            .SetColorLevels(occ_variances.data(), options.test_num_x, options.test_num_y, 127);
+        color_bar_opt.AddColorMap(0, shades_opt.color_levels, 10).SetLabelTexts({"Variance"});
+        clear_fig();
+        fig.SetTitle("Occupancy Prediction Variance")
+            .SetAreaFillPattern(PlplotFig::AreaFillPattern::Solid)
+            .SetColorMap(1, PlplotFig::ColorMap::Jet)
+            .Shades(occ_variances.data(), options.test_num_x, options.test_num_y, true, shades_opt)
+            .ColorBar(color_bar_opt)
+            .SetCurrentColor(PlplotFig::Color0::Black)
+            .Scatter(
+                static_cast<int>(pts_world.cols()),
+                Eigen::VectorXd(pts_world.row(0)).data(),
+                Eigen::VectorXd(pts_world.row(1)).data());
+        draw_axes();
+        cv::imshow("gp_occ_regression: occupancy prediction variance", fig.ToCvMat());
+
         cv::waitKey(0);
     }
 };
@@ -193,7 +237,7 @@ main(int argc, char **argv) {
     try {
         const std::string options_file =
             (argc == 2) ? argv[1]
-                        : (ERL_SDF_MAPPING_ROOT_DIR "/config/demo_gp_occ_regression.yaml");
+                        : (ERL_SDF_MAPPING_ROOT_DIR "/config/demo/demo_gp_occ_regression.yaml");
         App app(options_file);
         app.Run();
     } catch (const std::exception &e) {

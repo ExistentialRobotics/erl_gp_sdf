@@ -11,7 +11,8 @@ gp:
     margin: 1
     init_variance: 1000000
     sensor_range_var: 0.01
-    max_valid_range_var: 0.1
+    discontinuity_var: 10.0
+    max_valid_range_var: 0.03
     occ_test_temperature: 30
     sensor_frame:
         valid_range_min: 0.2
@@ -19,6 +20,7 @@ gp:
         angle_min: -2.356194496154785
         angle_max: 2.338737726211548
         num_rays: 270
+        discontinuity_detection: true
         discontinuity_factor: 10
         rolling_diff_discount: 0.9
         min_partition_size: 5
@@ -26,8 +28,8 @@ gp:
         kernel_type: erl::covariance::OrnsteinUhlenbeck<double, 1>
         kernel_setting_type: erl::covariance::Covariance<double>::Setting
         kernel:
-            x_dim: 2
-            scale: 1
+            x_dim: 1
+            scale: 0.5
             scale_mix: 1
             weights: [ ]
         max_num_samples: 256

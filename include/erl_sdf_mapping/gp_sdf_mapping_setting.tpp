@@ -53,8 +53,6 @@ namespace erl::sdf_mapping {
         ERL_YAML_LOAD_ATTR(node, setting, gp_sdf_area_scale);
         ERL_YAML_LOAD_ATTR(node, setting, max_valid_gradient_var);
         ERL_YAML_LOAD_ATTR(node, setting, invalid_position_var);
-        ERL_YAML_LOAD_ATTR(node, setting, sdf_gp);
-
-        return true;
+        return ERL_YAML_LOAD_ATTR(node, setting, sdf_gp);
     }
 }  // namespace erl::sdf_mapping

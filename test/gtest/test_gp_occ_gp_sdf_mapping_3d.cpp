@@ -47,14 +47,14 @@ ConvertDepthToImage(const Eigen::MatrixX<Dtype> &ranges) {
 
 template<typename Dtype>
 std::pair<cv::Mat, cv::Mat>
-ConvertSdfToImage(Eigen::VectorX<Dtype> &distances, const int rows, const int cols) {
-    cv::Mat img_sdf(cols, rows, sizeof(Dtype) == 4 ? CV_32FC1 : CV_64FC1, distances.data());
+ConvertSdfToImage(Eigen::VectorX<Dtype> &distances, const int xs, const int ys) {
+    cv::Mat img_sdf(ys, xs, sizeof(Dtype) == 4 ? CV_32FC1 : CV_64FC1, distances.data());
     img_sdf = img_sdf.t();
     cv::normalize(img_sdf, img_sdf, 0, 255, cv::NORM_MINMAX, CV_8UC1);
     cv::applyColorMap(img_sdf, img_sdf, cv::COLORMAP_JET);
 
     Eigen::MatrixX8U sdf_sign = (distances.array() >= 0.0f).template cast<uint8_t>() * 255;
-    cv::Mat img_sdf_sign(cols, rows, CV_8UC1, sdf_sign.data());
+    cv::Mat img_sdf_sign(ys, xs, CV_8UC1, sdf_sign.data());
     img_sdf_sign = img_sdf_sign.t();
 
     // // for a zero pixel in img_sdf_sign fill the pixel in img_sdf with zero
@@ -264,7 +264,7 @@ TestImpl3D() {
         geometries.push_back(mesh);
         poses = erl::geometry::Trajectory<double>::LoadSe3(options.traj_file, false);
     }
-    (void) map_min, (void) map_max;
+    ERL_INFO("Map min: {}, max: {}", map_min.transpose(), map_max.transpose());
 
     // prepare the mapping
     const auto surf_mapping = std::make_shared<SurfaceMapping>(surface_mapping_setting);
@@ -358,16 +358,17 @@ TestImpl3D() {
 #pragma region end_of_animation
         if (wp_idx >= max_wp_idx) {
             animation_ended = true;
+            auto map_boundary = surf_mapping->GetMapBoundary();
             if (options.test_whole_map_at_end) {
                 erl::common::GridMapInfo2D<Dtype> grid_map_info(
-                    map_min.template head<2>(),
-                    map_max.template head<2>(),
+                    map_boundary.min().template head<2>(),
+                    map_boundary.max().template head<2>(),
                     Eigen::Vector2<Dtype>(options.test_res, options.test_res),
                     Eigen::Vector2i(10, 10));
                 Matrix3X test_positions(3, grid_map_info.Size());
                 test_positions.topRows(2) =
                     grid_map_info.GenerateMeterCoordinates(false).template cast<Dtype>();
-                test_positions.row(2).setConstant(options.test_z);
+                test_positions.row(2).setConstant(options.test_z + map_boundary.center[2]);
                 VectorX distances;
                 {
                     Matrix3X gradients(3, test_positions.cols());
@@ -426,8 +427,8 @@ TestImpl3D() {
                 pose.topLeftCorner<3, 3>() = rotation;
                 pose.topRightCorner<3, 1>() = translation;
                 pose = pose * DepthCamera::cTo;
-                rotation_sensor = pose.topLeftCorner<3, 3>();
-                translation_sensor = pose.topRightCorner<3, 1>();
+                std::tie(rotation_sensor, translation_sensor) =
+                    erl::geometry::CameraBase3D<double>::ComputeCameraPose(rotation, translation);
                 ranges = frame.depth;
                 depth_jet = frame.depth_jet;
             } else {
@@ -485,10 +486,10 @@ TestImpl3D() {
                 cv::resize(depth_jet, depth_jet, cv::Size(), scale, scale);
             }
         }
-        const int kFontFace = cv::FONT_HERSHEY_PLAIN;
-        const double kFontScale = 1.5;
+        constexpr int kFontFace = cv::FONT_HERSHEY_PLAIN;
+        constexpr double kFontScale = 1.5;
         const cv::Scalar kTextColor = {0, 0, 0};
-        const int kFontThickness = 2;
+        constexpr int kFontThickness = 2;
         cv::putText(
             depth_jet,
             fmt::format("frame {}", wp_idx),

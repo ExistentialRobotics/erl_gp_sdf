@@ -12,6 +12,117 @@
 
 namespace erl::sdf_mapping {
 
+    /**
+     * Select 2D rays for Bayesian Hilbert Map.
+     */
+    template<typename Dtype>
+    class RaySelector2D {
+
+    public:
+        struct Setting : common::Yamlable<Setting> {
+            // minimum ray angle in radians in the local frame
+            Dtype angle_min = -M_PI / 4.0;
+            // maximum ray angle in radians in the local frame
+            Dtype angle_max = M_PI / 4.0;
+            // number of angles
+            long num_angles = 91;
+
+            struct YamlConvertImpl {
+                static YAML::Node
+                encode(const Setting &setting);
+
+                static bool
+                decode(const YAML::Node &node, Setting &setting);
+            };
+        };
+
+        using Vector2 = Eigen::Vector2<Dtype>;
+        using Matrix2 = Eigen::Matrix2<Dtype>;
+        using Matrix2X = Eigen::Matrix2X<Dtype>;
+
+    private:
+        std::shared_ptr<Setting> m_setting_ = nullptr;
+        Dtype m_angle_resolution_ = 0.0f;
+        std::vector<std::vector<long>> m_ray_indices_;  // ray indices for each angle
+
+    public:
+        explicit RaySelector2D(std::shared_ptr<Setting> setting);
+
+        void
+        UpdateRays(
+            const Vector2 &sensor_origin,
+            const Matrix2 &sensor_rotation,
+            const Eigen::Ref<const Matrix2X> &ray_end_points);
+
+        void
+        SelectRays(
+            const Vector2 &sensor_origin,
+            const Matrix2 &sensor_rotation,
+            Vector2 point,
+            Dtype radius,
+            std::vector<long> &ray_indices) const;
+    };
+
+    using RaySelector2Df = RaySelector2D<float>;
+    using RaySelector2Dd = RaySelector2D<double>;
+
+    template<typename Dtype>
+    class RaySelector3D {
+    public:
+        struct Setting : common::Yamlable<Setting> {
+            // minimum azimuth angle in radians
+            Dtype azimuth_min = -M_PI;
+            // maximum azimuth angle in radians
+            Dtype azimuth_max = M_PI;
+            // minimum elevation angle in radians
+            Dtype elevation_min = -M_PI / 2.0;
+            // maximum elevation angle in radians
+            Dtype elevation_max = M_PI / 2.0;
+            // number of azimuth angles
+            Dtype num_azimuth_angles = 181;
+            // number of elevation angles
+            Dtype num_elevation_angles = 91;
+
+            struct YamlConvertImpl {
+                static YAML::Node
+                encode(const Setting &setting);
+
+                static bool
+                decode(const YAML::Node &node, Setting &setting);
+            };
+        };
+
+        using Vector3 = Eigen::Vector3<Dtype>;
+        using Matrix3 = Eigen::Matrix3<Dtype>;
+        using Matrix3X = Eigen::Matrix3X<Dtype>;
+
+    private:
+        std::shared_ptr<Setting> m_setting_ = nullptr;
+        Dtype m_azimuth_res_ = 0.0f;
+        Dtype m_elevation_res_ = 0.0f;
+        Eigen::MatrixX<std::vector<long>> m_ray_indices_;  // ray indices for each angle
+
+    public:
+        explicit RaySelector3D(std::shared_ptr<Setting> setting);
+
+        void
+        UpdateRays(
+            const Vector3 &sensor_origin,
+            const Matrix3 &sensor_rotation,
+            const Eigen::Ref<const Matrix3X> &ray_end_points);
+
+        void
+        SelectRays(
+            const Vector3 &sensor_origin,
+            const Matrix3 &sensor_rotation,
+            Vector3 point,
+            Dtype radius,
+            std::vector<long> &ray_indices) const;
+    };
+
+    using RaySelector3Df = RaySelector3D<float>;
+    using RaySelector3Dd = RaySelector3D<double>;
+
     template<typename Dtype>
     struct LocalBayesianHilbertMapSetting
         : common::Yamlable<LocalBayesianHilbertMapSetting<Dtype>> {
@@ -55,6 +166,10 @@ namespace erl::sdf_mapping {
             Dim == 2,
             geometry::QuadtreeKeyVector,
             geometry::OctreeKeyVector>;
+        using KeyVectorMap = std::conditional_t<  //
+            Dim == 2,
+            geometry::QuadtreeKeyVectorMap,
+            geometry::OctreeKeyVectorMap>;
         using Tree = std::conditional_t<
             Dim == 2,
             geometry::OccupancyQuadtree<Dtype>,
@@ -63,6 +178,10 @@ namespace erl::sdf_mapping {
             Dim == 2,
             geometry::OccupancyQuadtreeNode,
             geometry::OccupancyOctreeNode>;
+        using RaySelector = std::conditional_t<  //
+            Dim == 2,
+            RaySelector2D<Dtype>,
+            RaySelector3D<Dtype>>;
         using SurfDataManager = SurfaceDataManager<Dtype, Dim>;
         using SurfData = typename SurfDataManager::Data;
 
@@ -100,6 +219,7 @@ namespace erl::sdf_mapping {
             std::vector<long> hit_indices{};     // indices of the hit points in the dataset
             std::vector<Position> hit_buffer{};  // hit point buffer of M points
             long hit_buffer_head = 0;            // head of the hit point buffer
+            bool active = true;                  // whether the local Bayesian Hilbert map is active
 
             LocalBayesianHilbertMap(
                 std::shared_ptr<Setting> setting_,
@@ -111,7 +231,8 @@ namespace erl::sdf_mapping {
             bool
             Update(
                 const Eigen::Ref<const Position> &sensor_origin,
-                const Eigen::Ref<const Positions> &points);
+                const Eigen::Ref<const Positions> &points,
+                const std::vector<long> &point_indices);
 
             [[nodiscard]] bool
             Write(std::ostream &s) const;
@@ -129,12 +250,10 @@ namespace erl::sdf_mapping {
         struct Setting : public common::Yamlable<Setting> {
             std::shared_ptr<typename LocalBayesianHilbertMap::Setting> local_bhm =
                 std::make_shared<typename LocalBayesianHilbertMap::Setting>();
+            std::shared_ptr<typename RaySelector::Setting> ray_selector =
+                std::make_shared<typename RaySelector::Setting>();
             // the tree setting
             std::shared_ptr<TreeSetting> tree = std::make_shared<TreeSetting>();
-            // minimum distance between the sensor and the surface points
-            Dtype valid_range_min = 0.0f;
-            // maximum distance between the sensor and the surface points
-            Dtype valid_range_max = std::numeric_limits<Dtype>::infinity();
             // number of hinged points per axis
             int hinged_grid_size = 11;
             // threshold for stopping the adjustment
@@ -183,6 +302,7 @@ namespace erl::sdf_mapping {
         absl::flat_hash_map<Key, std::shared_ptr<LocalBayesianHilbertMap>> m_key_bhm_dict_{};
         SurfDataManager m_surf_data_manager_ = {};
         KeySet m_changed_clusters_{};  // keys of the clusters that have changed
+        RaySelector m_ray_selector_;
 
         // buffers for the new and existing hit points
 
@@ -216,6 +336,7 @@ namespace erl::sdf_mapping {
 
         bool
         Update(
+            const Eigen::Ref<const Rotation> &sensor_rotation,
             const Eigen::Ref<const Position> &sensor_origin,
             const Eigen::Ref<const Positions> &points,
             bool parallel);
@@ -342,6 +463,22 @@ namespace erl::sdf_mapping {
 }  // namespace erl::sdf_mapping
 
 #include "bayesian_hilbert_surface_mapping.tpp"
+
+template<>
+struct YAML::convert<erl::sdf_mapping::RaySelector2Df::Setting>
+    : erl::sdf_mapping::RaySelector2Df::Setting::YamlConvertImpl {};
+
+template<>
+struct YAML::convert<erl::sdf_mapping::RaySelector2Dd::Setting>
+    : erl::sdf_mapping::RaySelector2Dd::Setting::YamlConvertImpl {};
+
+template<>
+struct YAML::convert<erl::sdf_mapping::RaySelector3Df::Setting>
+    : erl::sdf_mapping::RaySelector3Df::Setting::YamlConvertImpl {};
+
+template<>
+struct YAML::convert<erl::sdf_mapping::RaySelector3Dd::Setting>
+    : erl::sdf_mapping::RaySelector3Dd::Setting::YamlConvertImpl {};
 
 template<>
 struct YAML::convert<erl::sdf_mapping::LocalBayesianHilbertMapSettingF>

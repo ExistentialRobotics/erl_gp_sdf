@@ -45,6 +45,8 @@ struct SdfMappingNodeSetting : Yamlable<SdfMappingNodeSetting> {
     bool use_odom = false;
     // name of the odometry topic
     std::string odom_topic = "/jackal_velocity_controller/odom";
+    // can be "nav_msgs::Odometry" or "geometry_msgs::TransformStamped"
+    std::string odom_msg_type = "nav_msgs::Odometry";
     // size of the odometry queue
     int odom_queue_size = 100;
     // name of the world frame
@@ -109,7 +111,7 @@ class SdfMappingNode {
     // for the sensor pose
 
     std::mutex m_odom_queue_lock_;
-    std::vector<nav_msgs::Odometry::ConstPtr> m_odom_queue_{};
+    std::vector<geometry_msgs::TransformStamped> m_odom_queue_{};
     int m_odom_queue_head_ = -1;
     tf2_ros::Buffer m_tf_buffer_;
     tf2_ros::TransformListener m_tf_listener_{m_tf_buffer_};
@@ -163,8 +165,23 @@ public:
         }
 
         if (m_setting_.use_odom) {
-            m_sub_odom_ =
-                m_nh_.subscribe(m_setting_.odom_topic, 1, &SdfMappingNode::CallbackOdom, this);
+            if (m_setting_.odom_msg_type == "nav_msgs::Odometry") {
+                m_sub_odom_ = m_nh_.subscribe(
+                    m_setting_.odom_topic,
+                    1,
+                    &SdfMappingNode::CallbackOdomOdometry,
+                    this);
+            } else if (m_setting_.odom_msg_type == "geometry_msgs::TransformStamped") {
+                m_sub_odom_ = m_nh_.subscribe(
+                    m_setting_.odom_topic,
+                    1,
+                    &SdfMappingNode::CallbackOdomTransformStamped,
+                    this);
+            } else {
+                ERL_FATAL("Invalid odometry message type: {}", m_setting_.odom_msg_type);
+                ros::shutdown();
+                return;
+            }
             m_odom_queue_.resize(m_setting_.odom_queue_size);
         }
         switch (m_scan_type_) {
@@ -305,6 +322,7 @@ private:
         if (!LoadParam("sdf_mapping_type", m_setting_.sdf_mapping_type)) { return false; }
         if (!LoadParam("use_odom", m_setting_.use_odom)) { return false; }
         if (!LoadParam("odom_topic", m_setting_.odom_topic)) { return false; }
+        if (!LoadParam("odom_msg_type", m_setting_.odom_msg_type)) { return false; }
         if (!LoadParam("odom_queue_size", m_setting_.odom_queue_size)) { return false; }
         if (!LoadParam("world_frame", m_setting_.world_frame)) { return false; }
         if (!LoadParam("sensor_frame", m_setting_.sensor_frame)) { return false; }
@@ -474,40 +492,40 @@ private:
                 ERL_WARN("No odometry message available");
                 return {false, {}, {}};
             }
-            nav_msgs::Odometry::ConstPtr odom = nullptr;
+            geometry_msgs::TransformStamped* transform = nullptr;
             for (int i = head; i >= 0; --i) {
-                if (m_odom_queue_[i]->header.stamp <= time) {
-                    odom = m_odom_queue_[i];
+                if (m_odom_queue_[i].header.stamp <= time) {
+                    transform = &m_odom_queue_[i];
                     break;
                 }
             }
-            if (!odom) {  // search older messages
+            if (!transform) {  // search older messages
                 const int size = static_cast<int>(m_odom_queue_.size());
                 for (int i = size - 1; i > head; --i) {
-                    if (m_odom_queue_[i]->header.stamp <= time) {
-                        odom = m_odom_queue_[i];
+                    if (m_odom_queue_[i].header.stamp <= time) {
+                        transform = &m_odom_queue_[i];
                         break;
                     }
                 }
             }
-            if (!odom) {
+            if (!transform) {
                 ERL_WARN("No odometry message available for time {}", time.toSec());
                 return {false, {}, {}};
             }
-            auto& pose = odom->pose.pose;
+            auto& pose = transform->transform;
             if (m_sdf_mapping_->GetMapDim() == 2) {
-                const double yaw = tf::getYaw(pose.orientation);
+                const double yaw = tf::getYaw(pose.rotation);
                 Eigen::Matrix2d rotation = Eigen::Rotation2Dd(yaw).toRotationMatrix();
-                Eigen::Vector2d translation(pose.position.x, pose.position.y);
+                Eigen::Vector2d translation(pose.translation.x, pose.translation.y);
                 return {true, rotation, translation};
             }
             Eigen::Matrix3d rotation = Eigen::Quaterniond(
-                                           pose.orientation.w,
-                                           pose.orientation.x,
-                                           pose.orientation.y,
-                                           pose.orientation.z)
+                                           pose.rotation.w,
+                                           pose.rotation.x,
+                                           pose.rotation.y,
+                                           pose.rotation.z)
                                            .toRotationMatrix();
-            Eigen::Vector3d translation(pose.position.x, pose.position.y, pose.position.z);
+            Eigen::Vector3d translation(pose.translation.x, pose.translation.y, pose.translation.z);
             return {true, rotation, translation};
         }
         // get the latest transform from the tf buffer
@@ -538,13 +556,41 @@ private:
 
     // --- callbacks to collect pose+scan and then update the map ---
     void
-    CallbackOdom(const nav_msgs::Odometry::ConstPtr& msg) {
+    CallbackOdomOdometry(const nav_msgs::Odometry::ConstPtr& msg) {
         std::lock_guard<std::mutex> lock(m_odom_queue_lock_);
         if (static_cast<int>(m_odom_queue_.size()) >= m_setting_.odom_queue_size) {
-            m_odom_queue_[m_odom_queue_head_] = msg;
+            auto& transform = m_odom_queue_[m_odom_queue_head_];
+            transform.header = msg->header;
+            transform.child_frame_id = msg->child_frame_id;
+            transform.transform.rotation = msg->pose.pose.orientation;
+            transform.transform.translation.x = msg->pose.pose.position.x;
+            transform.transform.translation.y = msg->pose.pose.position.y;
+            transform.transform.translation.z = msg->pose.pose.position.z;
             m_odom_queue_head_ = (m_odom_queue_head_ + 1) % m_setting_.odom_queue_size;
         } else {
-            m_odom_queue_.push_back(msg);
+            geometry_msgs::TransformStamped transform;
+            transform.header = msg->header;
+            transform.child_frame_id = msg->child_frame_id;
+            transform.transform.rotation = msg->pose.pose.orientation;
+            transform.transform.translation.x = msg->pose.pose.position.x;
+            transform.transform.translation.y = msg->pose.pose.position.y;
+            transform.transform.translation.z = msg->pose.pose.position.z;
+            m_odom_queue_.push_back(transform);
+            ++m_odom_queue_head_;
+        }
+    }
+
+    void
+    CallbackOdomTransformStamped(const geometry_msgs::TransformStamped::ConstPtr& msg) {
+        std::lock_guard<std::mutex> lock(m_odom_queue_lock_);
+        if (static_cast<int>(m_odom_queue_.size()) >= m_setting_.odom_queue_size) {
+            auto& transform = m_odom_queue_[m_odom_queue_head_];
+            transform.header = msg->header;
+            transform.child_frame_id = msg->child_frame_id;
+            transform.transform = msg->transform;
+            m_odom_queue_head_ = (m_odom_queue_head_ + 1) % m_setting_.odom_queue_size;
+        } else {
+            m_odom_queue_.push_back(*msg);
             ++m_odom_queue_head_;
         }
     }

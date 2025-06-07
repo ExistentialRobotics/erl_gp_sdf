@@ -1,12 +1,12 @@
 sensor_gp:
     row_group_size: 6
     row_overlap_size: 2
-    row_margin: &row_margin 0
+    row_margin: &row_margin 1
     col_group_size: 6
     col_overlap_size: 2
-    col_margin: &col_margin 0
+    col_margin: &col_margin 1
     init_variance: 1000000
-    sensor_range_var: 0.01
+    sensor_range_var: 0.005
     max_valid_range_var: 0.1
     occ_test_temperature: 30
     sensor_frame_type: erl::geometry::DepthFrame3D<float>
@@ -14,8 +14,8 @@ sensor_gp:
     sensor_frame:
         row_margin: *row_margin
         col_margin: *col_margin
-        valid_range_min: 0.1
-        valid_range_max: 30
+        valid_range_min: 0.4
+        valid_range_max: 4
         camera_intrinsic:
             image_height: 480
             image_width: 640
@@ -28,7 +28,6 @@ sensor_gp:
         kernel_setting_type: erl::covariance::Covariance<float>::Setting
         kernel:
             x_dim: 2
-            alpha: 1
             scale: 0.5
             scale_mix: 1
             weights: [ ]
@@ -52,7 +51,7 @@ update_map_points:
     max_bayes_position_var: 1
     max_bayes_gradient_var: 0.6
     min_position_var: 0.001
-    min_gradient_var: 0.001
+    min_gradient_var: 0.01
 tree:
     tree_depth: 16
     log_odd_min: -3
@@ -60,7 +59,7 @@ tree:
     log_odd_hit: 0.9
     log_odd_miss: -0.4
     log_odd_occ_threshold: 0
-    resolution: 0.1
+    resolution: 0.05
     use_change_detection: false
     use_aabb_limit: false
     aabb:
@@ -69,6 +68,6 @@ tree:
 cluster_depth: 14
 surface_resolution: 0.0
 scaling: 1.0
-perturb_delta: 0.01
+perturb_delta: 0.001
 zero_gradient_threshold: 1.0e-10
 update_occupancy: true
