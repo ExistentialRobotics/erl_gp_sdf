@@ -119,7 +119,8 @@ TestImpl3D() {
         std::string sdf_mapping_bin_file;
         std::string sensor_frame_type = type_name<LidarFrame>();
         std::string sensor_frame_config_file = kConfigDir / "sensors" / "lidar_frame_3d_360.yaml";
-        long stride = 1;
+        long seq_stride = 1;
+        long scan_stride = 1;
         long max_frames = std::numeric_limits<long>::max();
         Dtype test_res = 0.02;
         long test_xs = 150;
@@ -185,7 +186,8 @@ TestImpl3D() {
                 "sensor-frame-config-file",
                 po::value<std::string>(&options.sensor_frame_config_file)->default_value(options.sensor_frame_config_file)->value_name("file"),
                 "sensor frame config file, used when the mesh file is used")
-            ("stride", po::value<long>(&options.stride)->default_value(options.stride)->value_name("stride"), "stride")
+            ("seq-stride", po::value<long>(&options.seq_stride)->default_value(options.seq_stride)->value_name("stride"), "sequence stride")
+            ("scan-stride", po::value<long>(&options.scan_stride)->default_value(options.scan_stride)->value_name("stride"), "scan stride")
             ("max-frames", po::value<long>(&options.max_frames)->default_value(options.max_frames)->value_name("frames"), "max number of frames to process")
             ("test-res", po::value<Dtype>(&options.test_res)->default_value(options.test_res)->value_name("res"), "test resolution")
             ("test-xs", po::value<long>(&options.test_xs)->default_value(options.test_xs)->value_name("xs"), "test xs")
@@ -208,6 +210,7 @@ TestImpl3D() {
         options_parsed = true;
     } catch (std::exception &e) { std::cerr << e.what() << std::endl; }
     ASSERT_TRUE(options_parsed);
+    ASSERT_TRUE(options.scan_stride > 0);
 
     // load setting
     const auto surface_mapping_setting = std::make_shared<typename SurfaceMapping::Setting>();
@@ -246,6 +249,9 @@ TestImpl3D() {
         depth_frame_setting->camera_intrinsic.camera_fy = CowAndLady::kCameraFy;
         depth_frame_setting->camera_intrinsic.camera_cx = CowAndLady::kCameraCx;
         depth_frame_setting->camera_intrinsic.camera_cy = CowAndLady::kCameraCy;
+        if (options.scan_stride > 1) {
+            depth_frame_setting->Resize(1.0f / static_cast<Dtype>(options.scan_stride));
+        }
         range_sensor_frame = std::make_shared<DepthFrame>(depth_frame_setting);
     } else {
         ERL_INFO("Using mesh file: {}", options.mesh_file);
@@ -260,8 +266,6 @@ TestImpl3D() {
                 lidar_frame_setting->FromYamlFile(options.sensor_frame_config_file),
                 "Failed to load sensor_frame_config_file: {}",
                 options.sensor_frame_config_file);
-            range_sensor_frame = std::make_shared<LidarFrame>(lidar_frame_setting);
-
             const auto lidar_setting = std::make_shared<typename Lidar::Setting>();
             lidar_setting->azimuth_min = lidar_frame_setting->azimuth_min;
             lidar_setting->azimuth_max = lidar_frame_setting->azimuth_max;
@@ -270,6 +274,10 @@ TestImpl3D() {
             lidar_setting->num_azimuth_lines = lidar_frame_setting->num_azimuth_lines;
             lidar_setting->num_elevation_lines = lidar_frame_setting->num_elevation_lines;
             range_sensor = std::make_shared<Lidar>(lidar_setting);
+            if (options.scan_stride > 1) {
+                lidar_frame_setting->Resize(1.0f / static_cast<Dtype>(options.scan_stride));
+            }
+            range_sensor_frame = std::make_shared<LidarFrame>(lidar_frame_setting);
         } else if (options.sensor_frame_type == type_name<DepthFrame>()) {
             ERL_INFO("Using depth.");
             const auto depth_frame_setting = std::make_shared<typename DepthFrame::Setting>();
@@ -277,11 +285,13 @@ TestImpl3D() {
                 depth_frame_setting->FromYamlFile(options.sensor_frame_config_file),
                 "Failed to load sensor_frame_config_file: {}",
                 options.sensor_frame_config_file);
-            range_sensor_frame = std::make_shared<DepthFrame>(depth_frame_setting);
-
-            auto depth_camera_setting = std::make_shared<typename DepthCamera::Setting>();
-            *depth_camera_setting = depth_frame_setting->camera_intrinsic;
+            auto depth_camera_setting = std::make_shared<typename DepthCamera::Setting>(
+                depth_frame_setting->camera_intrinsic);
             range_sensor = std::make_shared<DepthCamera>(depth_camera_setting);
+            if (options.scan_stride > 1) {
+                depth_frame_setting->Resize(1.0f / static_cast<Dtype>(options.scan_stride));
+            }
+            range_sensor_frame = std::make_shared<DepthFrame>(depth_frame_setting);
         } else {
             ERL_FATAL(
                 "Unknown sensor frame type: {}. Expected either {} or {}",
@@ -369,7 +379,7 @@ TestImpl3D() {
 
     const std::filesystem::path img_dir = test_output_dir / "images";
     std::filesystem::create_directory(img_dir);
-    Eigen::Matrix2Xd fps_data(2, (max_wp_idx + options.stride - 1) / options.stride);
+    Eigen::Matrix2Xd fps_data(2, (max_wp_idx + options.seq_stride - 1) / options.seq_stride);
 
 #pragma region animation_callback
     auto callback = [&](erl::geometry::Open3dVisualizerWrapper *wrapper,
@@ -466,6 +476,18 @@ TestImpl3D() {
                     range_sensor->GetOpticalPose(rotation_sensor, translation_sensor);
                 depth_jet = ConvertDepthToImage(ranges);
             }
+            if (options.scan_stride > 1) {
+                auto [rows, cols] = range_sensor_frame->GetFrameShape();
+                MatrixX new_ranges(rows, cols);
+                for (long j = 0; j < cols; ++j) {
+                    const Dtype *ranges_j = ranges.col(j * options.scan_stride).data();
+                    Dtype *new_ranges_j = new_ranges.col(j).data();
+                    for (long i = 0; i < rows; ++i) {
+                        new_ranges_j[i] = ranges_j[i * options.scan_stride];
+                    }
+                }
+                ranges = new_ranges;
+            }
             range_sensor_frame->UpdateRanges(rotation, translation, ranges);
         }
         ERL_TRACY_PLOT("data loading (ms)", dt);
@@ -535,8 +557,8 @@ TestImpl3D() {
         double test_fps = 1000.0 / dt;
         ERL_TRACY_PLOT("sdf_map_test (ms)", dt);
         ERL_TRACY_PLOT("sdf_map_test (fps)", test_fps);
-        fps_data.col(wp_idx / options.stride) << update_fps, test_fps;
-        wp_idx += options.stride;
+        fps_data.col(wp_idx / options.seq_stride) << update_fps, test_fps;
+        wp_idx += options.seq_stride;
 
         // update visualization
         /// update the images and voxel grid

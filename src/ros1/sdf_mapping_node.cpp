@@ -23,6 +23,7 @@
 #include <sensor_msgs/Temperature.h>
 #include <tf/transform_datatypes.h>
 #include <tf2_eigen/tf2_eigen.h>
+#include <tf2_geometry_msgs/tf2_geometry_msgs.h>
 #include <tf2_ros/transform_listener.h>
 
 using namespace erl::common;
@@ -42,7 +43,7 @@ struct SdfMappingNodeSetting : Yamlable<SdfMappingNodeSetting> {
     bool use_odom = false;
     // name of the odometry topic
     std::string odom_topic = "/jackal_velocity_controller/odom";
-    // can be "nav_msgs::Odometry" or "geometry_msgs::TransformStamped"
+    // can be "nav_msgs/Odometry" or "geometry_msgs/TransformStamped"
     std::string odom_msg_type = "nav_msgs::Odometry";
     // size of the odometry queue
     int odom_queue_size = 100;
@@ -52,9 +53,9 @@ struct SdfMappingNodeSetting : Yamlable<SdfMappingNodeSetting> {
     std::string sensor_frame = "front_laser";
     // name of the scan topic
     std::string scan_topic = "/front/scan";
-    // type of the scan: `sensor_msgs::LaserScan`, `sensor_msgs::PointCloud2`, or
+    // type of the scan: `sensor_msgs::LaserScan`, `sensor_msgs/PointCloud2`, or
     // `sensor_msgs::Image`.
-    std::string scan_type = "sensor_msgs::LaserScan";
+    std::string scan_type = "sensor_msgs/LaserScan";
     // frame class of the scan. e.g. erl::geometry::LidarFrame3D<float>,
     // erl::geometry::DepthFrame3D<float> for 3D scans. For 2D scans, the only option is
     // erl::geometry::LidarFrame2D<float> or erl::geometry::LidarFrame2D<double>.
@@ -197,13 +198,13 @@ public:
         m_sdf_mapping_ = std::make_shared<GpSdfMapping>(m_sdf_mapping_cfg_, m_surface_mapping_);
 
         if (m_setting_.use_odom) {
-            if (m_setting_.odom_msg_type == "nav_msgs::Odometry") {
+            if (m_setting_.odom_msg_type == "nav_msgs/Odometry") {
                 m_sub_odom_ = m_nh_.subscribe(
                     m_setting_.odom_topic,
                     1,
                     &SdfMappingNode::CallbackOdomOdometry,
                     this);
-            } else if (m_setting_.odom_msg_type == "geometry_msgs::TransformStamped") {
+            } else if (m_setting_.odom_msg_type == "geometry_msgs/TransformStamped") {
                 m_sub_odom_ = m_nh_.subscribe(
                     m_setting_.odom_topic,
                     1,
@@ -214,7 +215,7 @@ public:
                 ros::shutdown();
                 return;
             }
-            m_odom_queue_.resize(m_setting_.odom_queue_size);
+            m_odom_queue_.reserve(m_setting_.odom_queue_size);
         }
         switch (m_scan_type_) {
             case ScanType::Laser:
@@ -474,11 +475,11 @@ private:
             ERL_WARN("Scan topic is empty");
             return false;
         }
-        if (m_setting_.scan_type == "sensor_msgs::LaserScan") {
+        if (m_setting_.scan_type == "sensor_msgs/LaserScan") {
             m_scan_type_ = ScanType::Laser;
-        } else if (m_setting_.scan_type == "sensor_msgs::PointCloud2") {
+        } else if (m_setting_.scan_type == "sensor_msgs/PointCloud2") {
             m_scan_type_ = ScanType::PointCloud;
-        } else if (m_setting_.scan_type == "sensor_msgs::Image") {
+        } else if (m_setting_.scan_type == "sensor_msgs/Image") {
             m_scan_type_ = ScanType::Depth;
         } else {
             ERL_WARN("Unknown scan type {}", m_setting_.scan_type);
@@ -564,34 +565,59 @@ private:
     std::tuple<bool, Rotation, Translation>
     GetSensorPose(const ros::Time& time) {
         if (m_setting_.use_odom) {
-            std::lock_guard<std::mutex> lock(m_odom_queue_lock_);
-            // get the latest odometry message
-            const int& head = m_odom_queue_head_;
-            if (head < 0) {
-                ERL_WARN("No odometry message available");
-                return {false, {}, {}};
-            }
-            geometry_msgs::TransformStamped* transform = nullptr;
-            for (int i = head; i >= 0; --i) {
-                if (m_odom_queue_[i].header.stamp <= time) {
-                    transform = &m_odom_queue_[i];
-                    break;
+            geometry_msgs::TransformStamped transform;
+
+            {
+                std::lock_guard<std::mutex> lock(m_odom_queue_lock_);
+                // get the latest odometry message
+                const int& head = m_odom_queue_head_;
+                if (head < 0) {
+                    ERL_WARN("No odometry message available");
+                    return {false, {}, {}};
                 }
-            }
-            if (!transform) {  // search older messages
-                const int size = static_cast<int>(m_odom_queue_.size());
-                for (int i = size - 1; i > head; --i) {
+                geometry_msgs::TransformStamped* transform_ptr = nullptr;
+                for (int i = head; i >= 0; --i) {
                     if (m_odom_queue_[i].header.stamp <= time) {
-                        transform = &m_odom_queue_[i];
+                        transform_ptr = &m_odom_queue_[i];
                         break;
                     }
                 }
+                if (!transform_ptr) {  // search older messages
+                    const int size = static_cast<int>(m_odom_queue_.size());
+                    for (int i = size - 1; i > head; --i) {
+                        if (m_odom_queue_[i].header.stamp <= time) {
+                            transform_ptr = &m_odom_queue_[i];
+                            break;
+                        }
+                    }
+                }
+                if (!transform_ptr) {
+                    ERL_WARN("No odometry message available for time {}", time.toSec());
+                    return {false, {}, {}};
+                }
+                transform = *transform_ptr;  // copy the transform
             }
-            if (!transform) {
-                ERL_WARN("No odometry message available for time {}", time.toSec());
-                return {false, {}, {}};
+
+            if (transform.child_frame_id != m_setting_.sensor_frame) {
+                geometry_msgs::TransformStamped tf_child_to_sensor;
+                try {
+                    tf_child_to_sensor = m_tf_buffer_.lookupTransform(
+                        transform.child_frame_id,
+                        m_setting_.sensor_frame,
+                        transform.header.stamp,
+                        ros::Duration(0.5));
+                } catch (tf2::LookupException& ex) {
+                    ERL_WARN(
+                        "Failed to lookup transform from {} to {}: {}",
+                        transform.child_frame_id,
+                        m_setting_.sensor_frame,
+                        ex.what());
+                    return {false, {}, {}};
+                }
+                tf2::doTransform(tf_child_to_sensor, transform, transform);
             }
-            auto& pose = transform->transform;
+
+            auto& pose = transform.transform;
             // erase the dimension of rotation and translation temporarily
             MatrixX rotation;
             VectorX translation;
@@ -613,18 +639,15 @@ private:
         }
         // get the latest transform from the tf buffer
         geometry_msgs::TransformStamped transform_stamped;
-        while (true) {
-            try {
-                transform_stamped = m_tf_buffer_.lookupTransform(
-                    m_setting_.world_frame,
-                    m_setting_.sensor_frame,
-                    time,
-                    ros::Duration(5.0));
-                break;
-            } catch (tf2::TransformException& ex) {
-                ERL_WARN(ex.what());
-                (void) ros::Duration(1.0).sleep();
-            }
+        try {
+            transform_stamped = m_tf_buffer_.lookupTransform(
+                m_setting_.world_frame,
+                m_setting_.sensor_frame,
+                time,
+                ros::Duration(5.0));
+        } catch (tf2::TransformException& ex) {
+            ERL_WARN(ex.what());
+            return {false, {}, {}};  // no valid transform
         }
         Matrix4 pose = tf2::transformToEigen(transform_stamped).matrix().cast<Dtype>();
         MatrixX rotation;
@@ -1052,92 +1075,6 @@ private:
         return true;
     }
 
-    // bool
-    // GetQueryResponse(
-    //     erl_sdf_mapping::SdfQuery::Request& req,
-    //     erl_sdf_mapping::SdfQuery::Response& res) {
-
-    // using QuerySetting = typename GpSdfMapping::Setting::TestQuery;
-
-    // const auto n = static_cast<int>(req.query_points.size());
-    // Eigen::Map<const Eigen::MatrixXd> positions_org(
-    //     reinterpret_cast<const double*>(req.query_points.data()),
-    //     3,
-    //     n);
-    // Positions positions = positions_org.cast<Dtype>();
-    // Distances distances(n);
-    // Gradients gradients(Dim, n);
-    // Variances variances(Dim + 1, n);
-    // Covariances covariances(Dim * (Dim + 1) / 2, n);
-    // distances.setConstant(0.0);
-    // gradients.setConstant(0.0);
-    // variances.setConstant(1.0e6);
-
-    // auto t1 = ros::WallTime::now();
-    // bool ok = m_sdf_mapping_->Test(positions, distances, gradients, variances, covariances);
-    // auto t2 = ros::WallTime::now();
-    // m_msg_query_time_.header.stamp = ros::Time::now();
-    // m_msg_query_time_.header.seq++;
-    // m_msg_query_time_.temperature = (t2 - t1).toSec();
-    // m_pub_query_time_.publish(m_msg_query_time_);
-    // res.success = ok;
-    // if (!ok) { return false; }
-
-    // // TODO: CHECK ALL std::memcpy() CALLS FOR CORRECTNESS
-
-    // // store the results in the response
-    // res.dim = Dim;
-    // /// SDF
-    // res.signed_distances.resize(n);
-    // std::memcpy(
-    //     reinterpret_cast<double*>(res.signed_distances.data()),
-    //     reinterpret_cast<const double*>(distances.data()),
-    //     n * sizeof(double));
-    // /// store the remaining results based on the query setting
-    // const QuerySetting& query_setting = m_sdf_mapping_cfg_->test_query;
-    // res.compute_gradient = query_setting.compute_gradient;
-    // res.compute_gradient_variance = query_setting.compute_gradient_variance;
-    // res.compute_covariance = query_setting.compute_covariance;
-    // /// gradients
-    // res.gradients.clear();
-    // if (query_setting.compute_gradient) {
-    //     res.gradients.resize(n);
-    //     if (Dim == 2) {
-    //         for (int i = 0; i < n; ++i) {
-    //             res.gradients[i].x = gradients(0, i);
-    //             res.gradients[i].y = gradients(1, i);
-    //             res.gradients[i].z = 0.0;  // z is not used in 2D
-    //         }
-    //     } else {
-    //         std::memcpy(
-    //             reinterpret_cast<char*>(res.gradients.data()),
-    //             reinterpret_cast<const char*>(gradients.data()),
-    //             3 * n * sizeof(double));
-    //     }
-    // }
-    // /// variances
-    // if (query_setting.compute_gradient_variance) {
-    //     res.variances.resize(n * (Dim + 1));
-    //     std::memcpy(
-    //         reinterpret_cast<char*>(res.variances.data()),
-    //         reinterpret_cast<const char*>(variances.data()),
-    //         n * (Dim + 1) * sizeof(double));
-    // } else {
-    //     res.variances.resize(n);
-    //     for (int i = 0; i < n; ++i) { res.variances[i] = variances(0, i); }
-    // }
-    // /// covariances
-    // res.covariances.clear();
-    // if (query_setting.compute_covariance) {
-    //     res.covariances.resize(n * Dim * (Dim + 1) / 2);
-    //     std::memcpy(
-    //         reinterpret_cast<char*>(res.covariances.data()),
-    //         reinterpret_cast<const char*>(covariances.data()),
-    //         n * Dim * (Dim + 1) / 2 * sizeof(double));
-    // }
-    // return true;
-    // }
-
     bool
     CallbackSaveMap(
         erl_sdf_mapping::SaveMap::Request& req,
@@ -1337,6 +1274,13 @@ int
 main(int argc, char** argv) {
     ros::init(argc, argv, "sdf_mapping_node");
     ros::NodeHandle nh("~");  // ~: shorthand for the private namespace
+
+    // if (ros::Time::isSimTime()) {
+    //     while (ros::ok() && ros::Time::now().toSec() == 0.0) {
+    //         ROS_INFO("Waiting for /clock to start publishing...");
+    //         ros::Duration(0.1).sleep();
+    //     }
+    // }
 
     int map_dim = 3;
     ERL_ASSERTM(nh.param<int>("map_dim", map_dim, 3), "Failed to get map_dim parameter");

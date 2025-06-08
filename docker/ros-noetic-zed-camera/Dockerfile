@@ -62,6 +62,9 @@ RUN touch /usr/bin/pltek
 RUN sed 's/..\/..\/..\/..\/..\/include/..\/..\/..\/..\/include/g' \
     /usr/lib/x86_64-linux-gnu/cmake/yaml-cpp/yaml-cpp-config.cmake
 
+# It is 300000 by default, which slows down OpenMP programs.
+ENV GOMP_SPINCOUNT=1
+
 ####################################################################################################
 # erl_geometry dependencies
 ####################################################################################################
@@ -168,6 +171,14 @@ RUN DEBIAN_FRONTEND=noninteractive apt-get install -y \
     ros-noetic-grid-map-rviz-plugin
 
 ####################################################################################################
+# Miscellaneous
+####################################################################################################
+# Install git-credential-manager for git authentication
+RUN wget https://github.com/git-ecosystem/git-credential-manager/releases/download/v2.6.1/gcm-linux_amd64.2.6.1.deb && \
+    DEBIAN_FRONTEND=noninteractive apt install -y ./gcm-linux_amd64.2.6.1.deb && \
+    rm gcm-linux_amd64.2.6.1.deb && ln -s /usr/local/bin/git-credential-manager /usr/bin/git-credential-manager
+
+####################################################################################################
 # ZED camera
 ####################################################################################################
 # install zed-ros-wrapper
@@ -188,7 +199,10 @@ RUN mkdir -p /opt/zed_camera_ws/src && \
     . /opt/ros/noetic/setup.sh && \
     rosdep install --from-paths src --ignore-src -r -y --rosdistro noetic && \
     catkin_make -DCMAKE_BUILD_TYPE=Release
-# clean
+
+####################################################################################################
+# Clean up
+####################################################################################################
 RUN apt-get clean  && rm -rf /var/lib/apt/lists/*
 RUN if [ -n "$APT_MIRROR" ]; then \
         mv /etc/apt/sources.list.backup /etc/apt/sources.list; \

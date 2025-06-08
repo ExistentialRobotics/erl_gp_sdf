@@ -241,9 +241,9 @@ TestImpl3D() {
         } else if (options.sensor_frame_type == type_name<DepthFrame3D>()) {
             const auto depth_frame_setting = std::make_shared<typename DepthFrame3D::Setting>();
             ASSERT_TRUE(depth_frame_setting->FromYamlFile(options.sensor_frame_config_file));
-            range_sensor =
-                std::make_shared<DepthCamera3D>(std::make_shared<typename DepthCamera3D::Setting>(
-                    depth_frame_setting->camera_intrinsic));
+            auto depth_camera_setting = std::make_shared<typename DepthCamera3D::Setting>(
+                depth_frame_setting->camera_intrinsic);
+            range_sensor = std::make_shared<DepthCamera3D>(depth_camera_setting);
             if (options.scan_stride > 1) {
                 depth_frame_setting->Resize(1.0f / static_cast<Dtype>(options.scan_stride));
             }

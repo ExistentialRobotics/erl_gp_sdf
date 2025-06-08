@@ -4,12 +4,12 @@ surface_mapping_type: erl::sdf_mapping::BayesianHilbertSurfaceMapping<float, 2>
 sdf_mapping_setting_file: config/template/sdf_mapping_2d_float.yaml
 use_odom: false
 odom_topic: /jackal_velocity_controller/odom
-odom_msg_type: geometry_msgs::TransformStamped  # or nav_msgs::Odometry
-odom_queue_size: 100
+odom_msg_type: geometry_msgs/TransformStamped  # or nav_msgs::Odometry
+odom_queue_size: 200
 world_frame: map
 sensor_frame: front_laser
 scan_topic: /front/scan
-scan_type: sensor_msgs::LaserScan
+scan_type: sensor_msgs/LaserScan
 scan_frame_type: erl::geometry::LidarFrame2D<float>
 scan_frame_setting_file: config/sensors/lidar_frame_2d.yaml
 scan_stride: 1

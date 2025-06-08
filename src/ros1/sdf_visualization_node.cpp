@@ -215,27 +215,33 @@ private:
     void
     CallbackTimer(const ros::TimerEvent&) {
         erl_sdf_mapping::SdfQuery srv;
+        geometry_msgs::TransformStamped transform_stamped;
         if (m_setting_.attached_to_frame) {
-            geometry_msgs::TransformStamped transform_stamped;
             try {
                 transform_stamped = m_tf_buffer_.lookupTransform(
+                    m_setting_.world_frame,
                     m_setting_.attached_frame,
-                    "map",
                     ros::Time(0),
                     ros::Duration(1.0));
             } catch (tf2::TransformException& ex) {
                 ERL_WARN(ex.what());
                 return;
             }
-            const double x = transform_stamped.transform.translation.x;
-            const double y = transform_stamped.transform.translation.y;
+            // const double x = transform_stamped.transform.translation.x;
+            // const double y = transform_stamped.transform.translation.y;
             srv.request.query_points.clear();
             srv.request.query_points.reserve(m_query_points_.size());
             for (auto& ps: m_query_points_) {
+                // transform ps from the attached frame to the world frame
+                Eigen::Vector4d p_world = tf2::transformToEigen(transform_stamped.transform) *
+                                          Eigen::Vector4d(ps.x, ps.y, ps.z, 1.0);
                 geometry_msgs::Vector3 p;
-                p.x = ps.x + x;
-                p.y = ps.y + y;
-                p.z = ps.z;
+                p.x = p_world.x();
+                p.y = p_world.y();
+                p.z = p_world.z();
+                // p.x = ps.x + x;
+                // p.y = ps.y + y;
+                // p.z = ps.z;
                 srv.request.query_points.emplace_back(std::move(p));
             }
         } else {
@@ -267,7 +273,11 @@ private:
         // 2. publish the grid map / point cloud
 
         m_header_.seq++;
-        m_header_.stamp = ros::Time::now();
+        if (m_setting_.attached_to_frame) {
+            m_header_.stamp = transform_stamped.header.stamp;
+        } else {
+            m_header_.stamp = ros::Time::now();
+        }
 
         if (m_setting_.publish_grid_map) {
             m_grid_map_.setTimestamp(m_header_.stamp.toNSec());
