@@ -5,21 +5,42 @@
 #include "erl_common/exception.hpp"
 #include "erl_common/factory_pattern.hpp"
 #include "erl_common/yaml.hpp"
+#include "erl_geometry/aabb.hpp"
+#include "erl_geometry/octree_key.hpp"
+#include "erl_geometry/quadtree_key.hpp"
 
 namespace erl::sdf_mapping {
 
+    template<typename Dtype, int Dim>
     class AbstractSurfaceMapping {
-    protected:
-        std::mutex m_mutex_;
-        int m_map_dim_ = 3;
-        bool m_is_double_ = false;
-
     public:
         using Factory = common::FactoryPattern<
             AbstractSurfaceMapping,
             false,
             false,
             const std::shared_ptr<common::YamlableBase> &>;
+        using Key = std::conditional_t<Dim == 2, geometry::QuadtreeKey, geometry::OctreeKey>;
+        using KeySet = std::conditional_t<  //
+            Dim == 2,
+            geometry::QuadtreeKeySet,
+            geometry::OctreeKeySet>;
+        using SurfDataManager = SurfaceDataManager<Dtype, Dim>;
+        using SurfData = typename SurfDataManager::Data;
+        using Aabb = geometry::Aabb<Dtype, Dim>;
+        using MatrixX = Eigen::MatrixX<Dtype>;
+        using VectorX = Eigen::VectorX<Dtype>;
+        using Rotation = Eigen::Matrix<Dtype, Dim, Dim>;
+        using Translation = Eigen::Vector<Dtype, Dim>;
+        using Ranges = MatrixX;
+        using Position = Eigen::Vector<Dtype, Dim>;
+        using Positions = Eigen::Matrix<Dtype, Dim, Eigen::Dynamic>;
+
+    protected:
+        std::mutex m_mutex_;
+        // surface data manager to manage the surface data buffer
+        SurfDataManager m_surf_data_manager_;
+
+    public:
         virtual ~AbstractSurfaceMapping() = default;
 
         /**
@@ -27,19 +48,20 @@ namespace erl::sdf_mapping {
          * @return the lock guard of the mutex.
          */
         [[nodiscard]] std::lock_guard<std::mutex>
-        GetLockGuard() {
-            return std::lock_guard<std::mutex>(m_mutex_);
-        }
+        GetLockGuard();
 
-        [[nodiscard]] int
-        GetMapDim() const {
-            return m_map_dim_;
-        }
+        [[nodiscard]] const SurfDataManager &
+        GetSurfaceDataManager() const;
 
-        [[nodiscard]] bool
-        IsDoublePrecision() const {
-            return m_is_double_;
-        }
+        // [[nodiscard]] int
+        // GetMapDim() const {
+        //     return Dim;
+        // }
+
+        // [[nodiscard]] bool
+        // IsDoublePrecision() const {
+        //     return std::is_same_v<Dtype, double>;
+        // }
 
         /**
          * Update the surface mapping with the sensor observation.
@@ -54,9 +76,9 @@ namespace erl::sdf_mapping {
          */
         [[nodiscard]] virtual bool
         Update(
-            const Eigen::Ref<const Eigen::MatrixXd> &rotation,
-            const Eigen::Ref<const Eigen::VectorXd> &translation,
-            const Eigen::Ref<const Eigen::MatrixXd> &scan,
+            const Eigen::Ref<const Rotation> &rotation,
+            const Eigen::Ref<const Translation> &translation,
+            const Eigen::Ref<const Ranges> &scan,
             bool are_points,
             bool are_local) = 0;
 
@@ -66,8 +88,82 @@ namespace erl::sdf_mapping {
          * 2D, the z-axis should be set to 0.
          * @return A vector of surface points with normals, variances, etc.
          */
-        [[nodiscard]] virtual std::vector<SurfaceData<double, 3>>
-        GetSurfaceData() const = 0;
+        // [[nodiscard]] virtual std::vector<SurfaceData<Dtype, Dim>>
+        // GetSurfaceData() const = 0;
+
+        // implement the methods required by GpSdfMapping
+
+        /**
+         * @return the scaling factor of the map.
+         */
+        [[nodiscard]] virtual Dtype
+        GetScaling() const = 0;
+
+        /**
+         * Get the size of the cluster.
+         * @return the size of the cluster.
+         */
+        [[nodiscard]] virtual Dtype
+        GetClusterSize() const = 0;
+
+        /**
+         * Get the center of the cluster.
+         * @param key the key of the cluster.
+         * @return the center of the cluster.
+         */
+        [[nodiscard]] virtual Position
+        GetClusterCenter(const Key &key) const = 0;
+
+        /**
+         * Get the keys of clusters that have been changed.
+         * @return set of keys of clusters.
+         */
+        [[nodiscard]] virtual const KeySet &
+        GetChangedClusters() const = 0;
+
+        /**
+         * Iterate over the clusters in the given axis-aligned bounding box.
+         * @param aabb the axis-aligned bounding box to collect clusters.
+         * @param callback the callback function to process the key of the cluster.
+         */
+        virtual void
+        IterateClustersInAabb(const Aabb &aabb, std::function<void(const Key &)> callback)
+            const = 0;
+
+        /**
+         * Get the surface data buffer.
+         * @return vector of surface data.
+         */
+        [[nodiscard]] virtual const std::vector<SurfData> &
+        GetSurfaceDataBuffer() const = 0;
+
+        /**
+         * Collect surface data in the given axis-aligned bounding box.
+         * @param aabb the axis-aligned bounding box to collect surface data.
+         * @param surface_data_indices vector of (distance to point, surface point index).
+         */
+        virtual void
+        CollectSurfaceDataInAabb(
+            const Aabb &aabb,
+            std::vector<std::pair<Dtype, std::size_t>> &surface_data_indices) const = 0;
+
+        /**
+         * Get the boundary of the map.
+         * @return the boundary of the map as an axis-aligned bounding box.
+         */
+        [[nodiscard]] virtual Aabb
+        GetMapBoundary() const = 0;
+
+        /**
+         * Check if the given positions are in free space.
+         * @param positions the positions to check.
+         * @param in_free_space the vector to store the result. 1.0 if the position is in free
+         * space, -1.0 otherwise.
+         * @return true if this method is successful. false if the algorithm fails / is not
+         * implemented.
+         */
+        [[nodiscard]] virtual bool
+        IsInFreeSpace(const Positions &positions, VectorX &in_free_space) const = 0;
 
         // Comparison
         [[nodiscard]] virtual bool
@@ -100,7 +196,7 @@ namespace erl::sdf_mapping {
         template<typename Derived>
         static std::enable_if_t<std::is_base_of_v<AbstractSurfaceMapping, Derived>, bool>
         Register(std::string mapping_type = "") {
-            return Factory::GetInstance().Register<Derived>(
+            return Factory::GetInstance().template Register<Derived>(
                 mapping_type,
                 [](const std::shared_ptr<common::YamlableBase> &setting)
                     -> std::shared_ptr<AbstractSurfaceMapping> {
@@ -119,4 +215,14 @@ namespace erl::sdf_mapping {
                 });
         }
     };
+
+    using AbstractSurfaceMapping2Df = AbstractSurfaceMapping<float, 2>;
+    using AbstractSurfaceMapping2Dd = AbstractSurfaceMapping<double, 2>;
+    using AbstractSurfaceMapping3Df = AbstractSurfaceMapping<float, 3>;
+    using AbstractSurfaceMapping3Dd = AbstractSurfaceMapping<double, 3>;
+
+    extern template class AbstractSurfaceMapping<float, 2>;
+    extern template class AbstractSurfaceMapping<double, 2>;
+    extern template class AbstractSurfaceMapping<float, 3>;
+    extern template class AbstractSurfaceMapping<double, 3>;
 }  // namespace erl::sdf_mapping

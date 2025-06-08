@@ -1,4 +1,5 @@
-#pragma once
+#include "erl_sdf_mapping/gp_occ_surface_mapping.hpp"
+
 #include "erl_common/clip.hpp"
 #include "erl_common/template_helper.hpp"
 
@@ -199,8 +200,8 @@ namespace erl::sdf_mapping {
             m_pos_perturb_(i, 2 * i + 1) = -d;
         }
 
-        this->m_map_dim_ = Dim;
-        this->m_is_double_ = std::is_same_v<Dtype, double>;
+        // this->m_map_dim_ = Dim;
+        // this->m_is_double_ = std::is_same_v<Dtype, double>;
     }
 
     template<typename Dtype, int Dim>
@@ -221,43 +222,45 @@ namespace erl::sdf_mapping {
         return m_tree_;
     }
 
-    template<typename Dtype, int Dim>
-    const typename GpOccSurfaceMapping<Dtype, Dim>::SurfDataManager &
-    GpOccSurfaceMapping<Dtype, Dim>::GetSurfaceDataManager() const {
-        return m_surf_data_manager_;
-    }
+    // template<typename Dtype, int Dim>
+    // const typename GpOccSurfaceMapping<Dtype, Dim>::SurfDataManager &
+    // GpOccSurfaceMapping<Dtype, Dim>::GetSurfaceDataManager() const {
+    //     return this->m_surf_data_manager_;
+    // }
 
     template<typename Dtype, int Dim>
     bool
     GpOccSurfaceMapping<Dtype, Dim>::Update(
-        const Eigen::Ref<const Eigen::MatrixXd> &rotation,
-        const Eigen::Ref<const Eigen::VectorXd> &translation,
-        const Eigen::Ref<const Eigen::MatrixXd> &scan,
+        const Eigen::Ref<const Rotation> &rotation,
+        const Eigen::Ref<const Translation> &translation,
+        const Eigen::Ref<const Ranges> &scan,
         const bool are_points,
         const bool are_local) {
-        ERL_ASSERTM(rotation.rows() == Dim, "rotation.rows() != Dim");
-        ERL_ASSERTM(rotation.cols() == Dim, "rotation.cols() != Dim");
-        ERL_ASSERTM(translation.rows() == Dim, "translation.rows() != Dim");
-        MatrixX rotation_ = rotation.cast<Dtype>();
-        VectorX translation_ = translation.cast<Dtype>();
-        MatrixX scan_ = scan.cast<Dtype>();
-        if (!are_points) { return Update(rotation_, translation_, scan_); }  // scan is ranges
+        // ERL_ASSERTM(rotation.rows() == Dim, "rotation.rows() != Dim");
+        // ERL_ASSERTM(rotation.cols() == Dim, "rotation.cols() != Dim");
+        // ERL_ASSERTM(translation.rows() == Dim, "translation.rows() != Dim");
+        // MatrixX rotation_ = rotation.cast<Dtype>();
+        // VectorX translation_ = translation.cast<Dtype>();
+        // MatrixX scan_ = scan.cast<Dtype>();
+        if (!are_points) { return Update(rotation, translation, scan); }  // scan is ranges
 
         // convert points to ranges
         ERL_ASSERTM(scan.rows() == Dim, "scan.rows() != Dim");
         Ranges ranges;
         if (Dim == 2) {
             using SensorGp2D = gaussian_process::LidarGaussianProcess2D<Dtype>;
-            ranges = std::reinterpret_pointer_cast<SensorGp2D>(m_sensor_gp_)
-                         ->GetSensorFrame()
-                         ->PointCloudToRanges(rotation_, translation_, scan_, are_local);
+            ranges =
+                std::reinterpret_pointer_cast<SensorGp2D>(m_sensor_gp_)
+                    ->GetSensorFrame()
+                    ->PointCloudToRanges(MatrixX(rotation), VectorX(translation), scan, are_local);
         } else {
             using SensorGp3D = gaussian_process::RangeSensorGaussianProcess3D<Dtype>;
-            ranges = std::reinterpret_pointer_cast<SensorGp3D>(m_sensor_gp_)
-                         ->GetSensorFrame()
-                         ->PointCloudToRanges(rotation_, translation_, scan_, are_local);
+            ranges =
+                std::reinterpret_pointer_cast<SensorGp3D>(m_sensor_gp_)
+                    ->GetSensorFrame()
+                    ->PointCloudToRanges(MatrixX(rotation), VectorX(translation), scan, are_local);
         }
-        return Update(rotation_, translation_, ranges);
+        return Update(rotation, translation, ranges);
     }
 
     template<typename Dtype, int Dim>
@@ -277,7 +280,7 @@ namespace erl::sdf_mapping {
         }
 
         {
-            auto lock_guard = GetLockGuard();  // CRITICAL SECTION
+            auto lock_guard = this->GetLockGuard();  // CRITICAL SECTION
             if (m_setting_->update_occupancy) { UpdateOccupancy(); }
             if (m_setting_->surface_resolution <= 0) {
                 UpdateMapPoints0();
@@ -291,41 +294,41 @@ namespace erl::sdf_mapping {
         return true;
     }
 
-    template<typename Dtype, int Dim>
-    std::vector<SurfaceData<double, 3>>
-    GpOccSurfaceMapping<Dtype, Dim>::GetSurfaceData() const {
-        std::vector<SurfaceData<Dtype, Dim>> buffer;
-        std::vector<std::size_t> unused_indices;
-        {
-            auto lock = const_cast<GpOccSurfaceMapping *>(this)->GetLockGuard();
-            buffer = m_surf_data_manager_.GetBuffer();
-            unused_indices = m_surf_data_manager_.GetAvailableIndices();
-        }
-        std::sort(unused_indices.begin(), unused_indices.end());  // sort in ascending order
-        std::vector<SurfaceData<double, 3>> result;
-        result.reserve(buffer.size());
-        std::size_t remove_idx = 0;
-        for (std::size_t read_idx = 0; read_idx < buffer.size(); ++read_idx) {
-            if (remove_idx < unused_indices.size() && read_idx == unused_indices[remove_idx]) {
-                ++remove_idx;  // skip the unused index
-                continue;
-            }
-            auto &data = buffer[read_idx];
-            SurfaceData<double, 3> data3d;
-            for (int i = 0; i < Dim; ++i) {
-                data3d.position[i] = data.position[i];
-                data3d.normal[i] = data.normal[i];
-            }
-            if (Dim == 2) {
-                data3d.position[2] = 0.0;
-                data3d.normal[2] = 0.0;
-            }
-            data3d.var_position = data.var_position;
-            data3d.var_normal = data.var_normal;
-            result.emplace_back(std::move(data3d));
-        }
-        return result;
-    }
+    // template<typename Dtype, int Dim>
+    // std::vector<SurfaceData<double, 3>>
+    // GpOccSurfaceMapping<Dtype, Dim>::GetSurfaceData() const {
+    //     std::vector<SurfaceData<Dtype, Dim>> buffer;
+    //     std::vector<std::size_t> unused_indices;
+    //     {
+    //         auto lock = const_cast<GpOccSurfaceMapping *>(this)->GetLockGuard();
+    //         buffer = this->m_surf_data_manager_.GetBuffer();
+    //         unused_indices = this->m_surf_data_manager_.GetAvailableIndices();
+    //     }
+    //     std::sort(unused_indices.begin(), unused_indices.end());  // sort in ascending order
+    //     std::vector<SurfaceData<double, 3>> result;
+    //     result.reserve(buffer.size());
+    //     std::size_t remove_idx = 0;
+    //     for (std::size_t read_idx = 0; read_idx < buffer.size(); ++read_idx) {
+    //         if (remove_idx < unused_indices.size() && read_idx == unused_indices[remove_idx]) {
+    //             ++remove_idx;  // skip the unused index
+    //             continue;
+    //         }
+    //         auto &data = buffer[read_idx];
+    //         SurfaceData<double, 3> data3d;
+    //         for (int i = 0; i < Dim; ++i) {
+    //             data3d.position[i] = data.position[i];
+    //             data3d.normal[i] = data.normal[i];
+    //         }
+    //         if (Dim == 2) {
+    //             data3d.position[2] = 0.0;
+    //             data3d.normal[2] = 0.0;
+    //         }
+    //         data3d.var_position = data.var_position;
+    //         data3d.var_normal = data.var_normal;
+    //         result.emplace_back(std::move(data3d));
+    //     }
+    //     return result;
+    // }
 
     template<typename Dtype, int Dim>
     typename GpOccSurfaceMapping<Dtype, Dim>::SurfaceDataIterator
@@ -381,7 +384,7 @@ namespace erl::sdf_mapping {
     template<typename Dtype, int Dim>
     const std::vector<typename GpOccSurfaceMapping<Dtype, Dim>::SurfData> &
     GpOccSurfaceMapping<Dtype, Dim>::GetSurfaceDataBuffer() const {
-        return m_surf_data_manager_.GetBuffer();
+        return this->m_surf_data_manager_.GetBuffer();
     }
 
     template<typename Dtype, int Dim>
@@ -398,7 +401,7 @@ namespace erl::sdf_mapping {
                 auto surf_it = m_surf_indices0_.find(key);
                 // no surface data for this key
                 if (surf_it == m_surf_indices0_.end()) { continue; }
-                const SurfData &surface_data = m_surf_data_manager_[surf_it->second];
+                const SurfData &surface_data = this->m_surf_data_manager_[surf_it->second];
                 surface_data_indices.emplace_back(
                     (aabb.center - surface_data.position).norm(),
                     surf_it->second);
@@ -413,7 +416,7 @@ namespace erl::sdf_mapping {
             const absl::flat_hash_map<int, std::size_t> &surf_indices = surf_it->second;
             if (surf_indices.empty()) { continue; }  // no surface data for this key
             for (const auto &[grid_index, surf_index]: surf_indices) {
-                const SurfData &surface_data = m_surf_data_manager_[surf_index];
+                const SurfData &surface_data = this->m_surf_data_manager_[surf_index];
                 surface_data_indices.emplace_back(
                     (aabb.center - surface_data.position).norm(),
                     surf_index);
@@ -456,7 +459,9 @@ namespace erl::sdf_mapping {
 
     template<typename Dtype, int Dim>
     bool
-    GpOccSurfaceMapping<Dtype, Dim>::operator==(const AbstractSurfaceMapping &other) const {
+    GpOccSurfaceMapping<Dtype, Dim>::operator==(
+        const AbstractSurfaceMapping<Dtype, Dim> &other) const {
+
         const auto *other_ptr = dynamic_cast<const GpOccSurfaceMapping *>(&other);
         if (other_ptr == nullptr) { return false; }
         if (m_setting_ == nullptr && other_ptr->m_setting_ != nullptr) { return false; }
@@ -477,7 +482,7 @@ namespace erl::sdf_mapping {
         if (m_strides_ != other_ptr->m_strides_) { return false; }
         if (m_surf_indices0_ != other_ptr->m_surf_indices0_) { return false; }
         if (m_surf_indices1_ != other_ptr->m_surf_indices1_) { return false; }
-        if (m_surf_data_manager_ != other_ptr->m_surf_data_manager_) { return false; }
+        if (this->m_surf_data_manager_ != other_ptr->m_surf_data_manager_) { return false; }
         if (m_pos_perturb_ != other_ptr->m_pos_perturb_) { return false; }
         if (m_surface_resolution_inv_ != other_ptr->m_surface_resolution_inv_) { return false; }
         if (m_changed_keys_ != other_ptr->m_changed_keys_) { return false; }
@@ -763,7 +768,7 @@ namespace erl::sdf_mapping {
             if (surf_it == m_surf_indices0_.end()) { continue; }
             if (update_occupancy && !m_tree_->IsNodeOccupied(*it)) {
                 // skip unoccupied nodes and clear the surface data in them.
-                m_surf_data_manager_.RemoveEntry(surf_it->second);
+                this->m_surf_data_manager_.RemoveEntry(surf_it->second);
                 m_surf_indices0_.erase(key);
                 continue;
             }
@@ -777,7 +782,7 @@ namespace erl::sdf_mapping {
         // update the surface data in the nodes
 #pragma omp parallel for default(none) shared(nodes_in_aabb)
         for (auto &[key, surf_index, updated, to_remove, new_key]: nodes_in_aabb) {
-            auto &surface_data = m_surf_data_manager_[surf_index];
+            auto &surface_data = this->m_surf_data_manager_[surf_index];
             UpdateMapPoint(surface_data, updated, to_remove);
             if (!updated) { continue; }
             // if the surface data is updated, we need to check if the node key is changed
@@ -787,7 +792,7 @@ namespace erl::sdf_mapping {
         for (auto &[key, surf_index, updated, to_remove, new_key_opt]: nodes_in_aabb) {
             if (to_remove) {  // too bad, the surface data should be removed
                 // this surface data is not used anymore
-                m_surf_data_manager_.RemoveEntry(surf_index);
+                this->m_surf_data_manager_.RemoveEntry(surf_index);
                 m_surf_indices0_.erase(key);  // the node has no surface data now
                 RecordChangedKey(key);
                 continue;
@@ -803,7 +808,7 @@ namespace erl::sdf_mapping {
                 RecordChangedKey(new_key);
             } else {  // the new key is already in the index
                 // this surface data is not used anymore
-                m_surf_data_manager_.RemoveEntry(surf_index);
+                this->m_surf_data_manager_.RemoveEntry(surf_index);
             }
             m_surf_indices0_.erase(key);  // remove the old index
             RecordChangedKey(key);
@@ -848,7 +853,7 @@ namespace erl::sdf_mapping {
             if (update_occupancy && !m_tree_->IsNodeOccupied(*it)) {
                 // skip unoccupied nodes and clear the surface data in them.
                 for (const auto &[grid_index, surf_index]: surf_it->second) {
-                    m_surf_data_manager_.RemoveEntry(surf_index);
+                    this->m_surf_data_manager_.RemoveEntry(surf_index);
                 }
                 surf_it->second.clear();  // remove the surface data from the buffer and the indices
                 continue;
@@ -866,7 +871,7 @@ namespace erl::sdf_mapping {
         // update the surface data in the nodes
 #pragma omp parallel for default(none) shared(surf_in_aabb)
         for (auto &[index, updated, to_remove, new_index]: surf_in_aabb) {
-            auto &surface_data = m_surf_data_manager_[index.surf_index];
+            auto &surface_data = this->m_surf_data_manager_[index.surf_index];
             UpdateMapPoint(surface_data, updated, to_remove);
             if (updated) {
                 const auto [new_key, grid_index] = ComputeSurfaceIndex1(surface_data.position);
@@ -879,7 +884,7 @@ namespace erl::sdf_mapping {
         for (const auto &[index, updated, to_remove, new_index]: surf_in_aabb) {
             if (to_remove) {  // too bad, the surface data should be removed.
                 // remove the surface data from the buffer
-                m_surf_data_manager_.RemoveEntry(index.surf_index);
+                this->m_surf_data_manager_.RemoveEntry(index.surf_index);
                 m_surf_indices1_[index.key].erase(index.grid_index);  // remove the index
                 RecordChangedKey(index.key);
                 continue;
@@ -900,7 +905,7 @@ namespace erl::sdf_mapping {
                     RecordChangedKey(new_key);  // record the changed key
                 } else {                        // the new grid index is already occupied
                     // this surface data is not used anymore
-                    m_surf_data_manager_.RemoveEntry(index.surf_index);
+                    this->m_surf_data_manager_.RemoveEntry(index.surf_index);
                 }
             }
             m_surf_indices1_[index.key].erase(index.grid_index);  // remove the old index
@@ -1218,7 +1223,7 @@ namespace erl::sdf_mapping {
                 var_gradient);
             var_position = std::max(var_position, min_position_var);
             var_gradient = std::max(var_gradient, min_gradient_var);
-            m_surf_indices0_[key] = m_surf_data_manager_.AddEntry(
+            m_surf_indices0_[key] = this->m_surf_data_manager_.AddEntry(
                 hit_points_global[hit_idx],
                 sensor_frame->DirFrameToWorld(gradient_local),
                 var_position,
@@ -1290,7 +1295,7 @@ namespace erl::sdf_mapping {
                 var_gradient);
             var_position = std::max(var_position, min_position_var);
             var_gradient = std::max(var_gradient, min_gradient_var);
-            std::size_t surf_index = m_surf_data_manager_.AddEntry(
+            std::size_t surf_index = this->m_surf_data_manager_.AddEntry(
                 hit_points_global[hit_idx],
                 sensor_frame->DirFrameToWorld(gradient_local),
                 var_position,
@@ -1431,4 +1436,8 @@ namespace erl::sdf_mapping {
         }
     }
 
+    template class GpOccSurfaceMapping<double, 3>;
+    template class GpOccSurfaceMapping<float, 3>;
+    template class GpOccSurfaceMapping<double, 2>;
+    template class GpOccSurfaceMapping<float, 2>;
 }  // namespace erl::sdf_mapping

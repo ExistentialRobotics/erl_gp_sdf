@@ -43,13 +43,18 @@ namespace erl::sdf_mapping {
         };
     };
 
-    using GpSdfMappingSetting3Dd = GpSdfMappingSetting<double, 3>;
-    using GpSdfMappingSetting3Df = GpSdfMappingSetting<float, 3>;
-    using GpSdfMappingSetting2Dd = GpSdfMappingSetting<double, 2>;
     using GpSdfMappingSetting2Df = GpSdfMappingSetting<float, 2>;
+    using GpSdfMappingSetting2Dd = GpSdfMappingSetting<double, 2>;
+    using GpSdfMappingSetting3Df = GpSdfMappingSetting<float, 3>;
+    using GpSdfMappingSetting3Dd = GpSdfMappingSetting<double, 3>;
+
+    extern template class GpSdfMappingSetting<float, 2>;
+    extern template class GpSdfMappingSetting<double, 2>;
+    extern template class GpSdfMappingSetting<float, 3>;
+    extern template class GpSdfMappingSetting<double, 3>;
 }  // namespace erl::sdf_mapping
 
-#include "gp_sdf_mapping_setting.tpp"
+// #include "gp_sdf_mapping_setting.tpp"
 
 template<>
 struct YAML::convert<erl::sdf_mapping::GpSdfMappingSetting3Dd>

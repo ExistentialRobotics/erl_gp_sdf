@@ -63,9 +63,6 @@ namespace erl::sdf_mapping {
             std::vector<long> &ray_indices) const;
     };
 
-    using RaySelector2Df = RaySelector2D<float>;
-    using RaySelector2Dd = RaySelector2D<double>;
-
     template<typename Dtype>
     class RaySelector3D {
     public:
@@ -120,9 +117,6 @@ namespace erl::sdf_mapping {
             std::vector<long> &ray_indices) const;
     };
 
-    using RaySelector3Df = RaySelector3D<float>;
-    using RaySelector3Dd = RaySelector3D<double>;
-
     template<typename Dtype>
     struct LocalBayesianHilbertMapSetting
         : common::Yamlable<LocalBayesianHilbertMapSetting<Dtype>> {
@@ -147,21 +141,26 @@ namespace erl::sdf_mapping {
         };
     };
 
-    using LocalBayesianHilbertMapSettingF = LocalBayesianHilbertMapSetting<float>;
-    using LocalBayesianHilbertMapSettingD = LocalBayesianHilbertMapSetting<double>;
-
     template<typename Dtype, int Dim>
-    class BayesianHilbertSurfaceMapping : public AbstractSurfaceMapping {
+    class BayesianHilbertSurfaceMapping : public AbstractSurfaceMapping<Dtype, Dim> {
 
         static_assert(Dim == 2 || Dim == 3, "Dim must be 2 or 3.");
 
     public:
-        // type definitions required by GpSdfMapping
-        using Key = std::conditional_t<Dim == 2, geometry::QuadtreeKey, geometry::OctreeKey>;
-        using KeySet = std::conditional_t<  //
-            Dim == 2,
-            geometry::QuadtreeKeySet,
-            geometry::OctreeKeySet>;
+        using Super = AbstractSurfaceMapping<Dtype, Dim>;
+        using typename Super::Aabb;
+        using typename Super::Key;
+        using typename Super::KeySet;
+        using typename Super::MatrixX;
+        using typename Super::Position;
+        using typename Super::Positions;
+        using typename Super::Ranges;
+        using typename Super::Rotation;
+        using typename Super::SurfData;
+        using typename Super::SurfDataManager;
+        using typename Super::Translation;
+        using typename Super::VectorX;
+
         using KeyVector = std::conditional_t<  //
             Dim == 2,
             geometry::QuadtreeKeyVector,
@@ -182,27 +181,17 @@ namespace erl::sdf_mapping {
             Dim == 2,
             RaySelector2D<Dtype>,
             RaySelector3D<Dtype>>;
-        using SurfDataManager = SurfaceDataManager<Dtype, Dim>;
-        using SurfData = typename SurfDataManager::Data;
 
         // other types
         using BayesianHilbertMap = geometry::BayesianHilbertMap<Dtype, Dim>;
         using TreeSetting = typename Tree::Setting;
         using Covariance = covariance::Covariance<Dtype>;
         using KernelSetting = typename Covariance::Setting;
-        using Aabb = geometry::Aabb<Dtype, Dim>;
         using Kdtree = geometry::KdTreeEigenAdaptor<Dtype, Dim>;
 
         // eigen types
         using Scalar = Eigen::Matrix<Dtype, 1, 1>;
-        using MatrixX = Eigen::MatrixX<Dtype>;
-        using VectorX = Eigen::VectorX<Dtype>;
-        using Rotation = Eigen::Matrix<Dtype, Dim, Dim>;
-        using Translation = Eigen::Vector<Dtype, Dim>;
-        using Ranges = MatrixX;
-        using Position = Eigen::Vector<Dtype, Dim>;
         using Gradient = Position;
-        using Positions = Eigen::Matrix<Dtype, Dim, Eigen::Dynamic>;
         using Gradients = Positions;
 
         struct LocalBayesianHilbertMap {
@@ -303,6 +292,7 @@ namespace erl::sdf_mapping {
         SurfDataManager m_surf_data_manager_ = {};
         KeySet m_changed_clusters_{};  // keys of the clusters that have changed
         RaySelector m_ray_selector_;
+        std::vector<std::vector<long>> m_ray_indices_;  // buffer for ray indices
 
         // buffers for the new and existing hit points
 
@@ -324,16 +314,6 @@ namespace erl::sdf_mapping {
         [[nodiscard]] const absl::flat_hash_map<Key, std::shared_ptr<LocalBayesianHilbertMap>> &
         GetLocalBayesianHilbertMaps() const;
 
-        // implement the methods required by AbstractSurfaceMapping
-
-        bool
-        Update(
-            const Eigen::Ref<const Eigen::MatrixXd> &rotation,
-            const Eigen::Ref<const Eigen::VectorXd> &translation,
-            const Eigen::Ref<const Eigen::MatrixXd> &scan,
-            bool are_points,
-            bool are_local) override;
-
         bool
         Update(
             const Eigen::Ref<const Rotation> &sensor_rotation,
@@ -341,8 +321,8 @@ namespace erl::sdf_mapping {
             const Eigen::Ref<const Positions> &points,
             bool parallel);
 
-        [[nodiscard]] std::vector<SurfaceData<double, 3>>
-        GetSurfaceData() const override;
+        // [[nodiscard]] std::vector<SurfaceData<double, 3>>
+        // GetSurfaceData() const override;
 
         typename SurfDataManager::Iterator
         BeginSurfaceData();
@@ -382,39 +362,48 @@ namespace erl::sdf_mapping {
             bool parallel,
             Gradients &gradient) const;
 
-        // implement the methods required by GpSdfMapping
-        [[nodiscard]] Dtype
-        GetScaling() const;
+        // implement the methods required by AbstractSurfaceMapping
+
+        bool
+        Update(
+            const Eigen::Ref<const Rotation> &rotation,
+            const Eigen::Ref<const Translation> &translation,
+            const Eigen::Ref<const Ranges> &scan,
+            bool are_points,
+            bool are_local) override;
 
         [[nodiscard]] Dtype
-        GetClusterSize() const;
+        GetScaling() const override;
+
+        [[nodiscard]] Dtype
+        GetClusterSize() const override;
 
         [[nodiscard]] Position
-        GetClusterCenter(const Key &key) const;
+        GetClusterCenter(const Key &key) const override;
 
         [[nodiscard]] const KeySet &
-        GetChangedClusters() const;
+        GetChangedClusters() const override;
 
         void
-        IterateClustersInAabb(const Aabb &aabb, std::function<void(const Key &)> callback) const;
+        IterateClustersInAabb(const Aabb &aabb, std::function<void(const Key &)> callback)
+            const override;
 
         [[nodiscard]] const std::vector<SurfData> &
-        GetSurfaceDataBuffer() const;
+        GetSurfaceDataBuffer() const override;
 
         void
         CollectSurfaceDataInAabb(
             const Aabb &aabb,
-            std::vector<std::pair<Dtype, std::size_t>> &surface_data_indices) const;
+            std::vector<std::pair<Dtype, std::size_t>> &surface_data_indices) const override;
 
         [[nodiscard]] Aabb
-        GetMapBoundary() const;
+        GetMapBoundary() const override;
 
         [[nodiscard]] bool
-        IsInFreeSpace(const Positions &positions, VectorX &in_free_space) const;
+        IsInFreeSpace(const Positions &positions, VectorX &in_free_space) const override;
 
-        // implement the methods required by AbstractSurfaceMapping for factory pattern
         [[nodiscard]] bool
-        operator==(const AbstractSurfaceMapping &other) const override;
+        operator==(const Super &other) const override;
 
         [[nodiscard]] bool
         Write(std::ostream &s) const override;
@@ -455,14 +444,30 @@ namespace erl::sdf_mapping {
         UpdateMapPoint(BayesianHilbertMap &bhm, SurfData &surf_data, bool &to_remove) const;
     };
 
+    using RaySelector2Df = RaySelector2D<float>;
+    using RaySelector2Dd = RaySelector2D<double>;
+    using RaySelector3Df = RaySelector3D<float>;
+    using RaySelector3Dd = RaySelector3D<double>;
+    using LocalBayesianHilbertMapSettingF = LocalBayesianHilbertMapSetting<float>;
+    using LocalBayesianHilbertMapSettingD = LocalBayesianHilbertMapSetting<double>;
     using BayesianHilbertSurfaceMapping2Df = BayesianHilbertSurfaceMapping<float, 2>;
     using BayesianHilbertSurfaceMapping3Df = BayesianHilbertSurfaceMapping<float, 3>;
     using BayesianHilbertSurfaceMapping2Dd = BayesianHilbertSurfaceMapping<double, 2>;
     using BayesianHilbertSurfaceMapping3Dd = BayesianHilbertSurfaceMapping<double, 3>;
 
+    extern template class RaySelector2D<float>;
+    extern template class RaySelector2D<double>;
+    extern template class RaySelector3D<float>;
+    extern template class RaySelector3D<double>;
+    extern template class LocalBayesianHilbertMapSetting<float>;
+    extern template class LocalBayesianHilbertMapSetting<double>;
+    extern template class BayesianHilbertSurfaceMapping<float, 2>;
+    extern template class BayesianHilbertSurfaceMapping<float, 3>;
+    extern template class BayesianHilbertSurfaceMapping<double, 2>;
+    extern template class BayesianHilbertSurfaceMapping<double, 3>;
 }  // namespace erl::sdf_mapping
 
-#include "bayesian_hilbert_surface_mapping.tpp"
+// #include "bayesian_hilbert_surface_mapping.tpp"
 
 template<>
 struct YAML::convert<erl::sdf_mapping::RaySelector2Df::Setting>

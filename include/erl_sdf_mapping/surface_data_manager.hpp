@@ -61,6 +61,15 @@ namespace erl::sdf_mapping {
         operator=(SurfaceDataManager &&) = default;
     };
 
+    extern template class SurfaceData<double, 2>;
+    extern template class SurfaceData<float, 2>;
+    extern template class SurfaceData<double, 3>;
+    extern template class SurfaceData<float, 3>;
+    extern template class SurfaceDataManager<double, 2>;
+    extern template class SurfaceDataManager<float, 2>;
+    extern template class SurfaceDataManager<double, 3>;
+    extern template class SurfaceDataManager<float, 3>;
+
 }  // namespace erl::sdf_mapping
 
-#include "surface_data_manager.tpp"
+// #include "surface_data_manager.tpp"

@@ -1,6 +1,4 @@
-#pragma once
-
-#include "sdf_gp.hpp"
+#include "erl_sdf_mapping/sdf_gp.hpp"
 
 template<>
 struct YAML::convert<erl::sdf_mapping::SignMethod> {
@@ -31,7 +29,7 @@ struct YAML::convert<erl::sdf_mapping::SignMethod> {
 
     static bool
     decode(const Node &node, erl::sdf_mapping::SignMethod &method) {
-        if (const std::string method_str = node.as<std::string>();  //
+        if (const auto method_str = node.as<std::string>();  //
             method_str == "kNone") {
             method = erl::sdf_mapping::kNone;
         } else if (method_str == "kSignGp") {
@@ -668,4 +666,10 @@ namespace erl::sdf_mapping {
         }
     }
 
+    template class SdfGaussianProcessSetting<double>;
+    template class SdfGaussianProcessSetting<float>;
+    template class SdfGaussianProcess<double, 3>;
+    template class SdfGaussianProcess<float, 3>;
+    template class SdfGaussianProcess<double, 2>;
+    template class SdfGaussianProcess<float, 2>;
 }  // namespace erl::sdf_mapping

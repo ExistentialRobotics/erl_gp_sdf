@@ -10,7 +10,7 @@
 #include <tf2_ros/transform_listener.h>
 #include <visualization_msgs/MarkerArray.h>
 
-struct SdfGridMapNodeSetting {
+struct SdfVisualizatioNodeSetting {
     // resolution of the grid map.
     double resolution = 0.1;
     // number of cells in the grid map along the x-axis.
@@ -51,8 +51,8 @@ struct SdfGridMapNodeSetting {
     std::string point_cloud_topic_name = "sdf_point_cloud";
 };
 
-class SdfGridMapNode {
-    SdfGridMapNodeSetting m_setting_;
+class SdfVisualizatioNode {
+    SdfVisualizatioNodeSetting m_setting_;
     ros::NodeHandle m_nh_;
     ros::ServiceClient m_sdf_client_;
     ros::Publisher m_pub_map_;
@@ -66,7 +66,7 @@ class SdfGridMapNode {
     sensor_msgs::PointCloud2 m_cloud_;
 
 public:
-    SdfGridMapNode(ros::NodeHandle& nh)
+    SdfVisualizatioNode(ros::NodeHandle& nh)
         : m_nh_(nh) {
         if (!LoadParameters()) {
             ERL_FATAL("Failed to load parameters");
@@ -105,8 +105,8 @@ public:
         m_cloud_.height = 1;
         m_cloud_.is_bigendian = false;
         m_cloud_.is_dense = false;
-        m_timer_ = m_nh_.createTimer(ros::Duration(0.5), &SdfGridMapNode::CallbackTimer, this);
-        ERL_INFO("SdfGridMapNode initialized");
+        m_timer_ = m_nh_.createTimer(ros::Duration(0.5), &SdfVisualizatioNode::CallbackTimer, this);
+        ERL_INFO("SdfVisualizatioNode initialized");
     }
 
 private:
@@ -584,7 +584,7 @@ int
 main(int argc, char** argv) {
     ros::init(argc, argv, "sdf_visualization_node");
     ros::NodeHandle nh("~");  // ~: shorthand for the private namespace
-    SdfGridMapNode node(nh);
+    SdfVisualizatioNode node(nh);
     ros::spin();
     return 0;
 }

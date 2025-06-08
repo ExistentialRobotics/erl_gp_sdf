@@ -10,52 +10,35 @@
 #include <open3d/visualization/utility/DrawGeometry.h>
 
 using namespace erl::common;
-using namespace erl::geometry;
-using namespace erl::sdf_mapping;
-using GpOccSurfaceSdfMapping3Dd = GpSdfMapping<double, 3, GpOccSurfaceMapping3Dd>;
-using GpOccSurfaceSdfMapping3Df = GpSdfMapping<float, 3, GpOccSurfaceMapping3Df>;
-using BayesianHilbertSdfMapping3Df = GpSdfMapping<float, 3, BayesianHilbertSurfaceMapping3Df>;
-using BayesianHilbertSdfMapping3Dd = GpSdfMapping<double, 3, BayesianHilbertSurfaceMapping3Dd>;
 
 const std::filesystem::path kProjectRootDir = ERL_SDF_MAPPING_ROOT_DIR;
 const std::filesystem::path kConfigDir = kProjectRootDir / "config";
 int g_argc = 0;
 char **g_argv = nullptr;
 
-struct Options {
-    std::string surface_mapping_type = type_name<GpOccSurfaceMapping3Df>();
-    std::string surface_mapping_setting_type = type_name<GpOccSurfaceMapping3Df::Setting>();
-    std::string sdf_mapping_type = type_name<GpOccSurfaceSdfMapping3Df>();
-    std::string sdf_mapping_setting_type = type_name<GpSdfMappingSetting3Df>();
-    std::string sdf_mapping_bin = "sdf_mapping.bin";
-    std::string output_mesh_file = "output_mesh.ply";
-    double grid_resolution = 0.05;
-};
+template<typename Dtype>
+void
+ToMeshImpl() {
 
-TEST(GpSdfMapping, ToMesh) {
+    using AbstractSurfaceMapping = erl::sdf_mapping::AbstractSurfaceMapping<Dtype, 3>;
+    using GpOccSurfaceMapping = erl::sdf_mapping::GpOccSurfaceMapping<Dtype, 3>;
+    using BayesianHilbertSurfaceMapping = erl::sdf_mapping::BayesianHilbertSurfaceMapping<Dtype, 3>;
+    using GpSdfMapping = erl::sdf_mapping::GpSdfMapping<Dtype, 3>;
 
     ERL_INFO(
-        "Surface mapping types: {}, {}, {}, {}",
-        type_name<GpOccSurfaceMapping3Dd>(),
-        type_name<GpOccSurfaceMapping3Df>(),
-        type_name<BayesianHilbertSurfaceMapping3Dd>(),
-        type_name<BayesianHilbertSurfaceMapping3Df>());
-    ERL_INFO(
-        "SDF mapping types: {}, {}, {}, {}",
-        type_name<GpOccSurfaceSdfMapping3Dd>(),
-        type_name<GpOccSurfaceSdfMapping3Df>(),
-        type_name<BayesianHilbertSdfMapping3Dd>(),
-        type_name<BayesianHilbertSdfMapping3Df>());
-    ERL_INFO(
-        "Surface mapping setting types: {}, {}, {}, {}",
-        type_name<GpOccSurfaceMapping3Dd::Setting>(),
-        type_name<GpOccSurfaceMapping3Df::Setting>(),
-        type_name<BayesianHilbertSurfaceMapping3Dd::Setting>(),
-        type_name<BayesianHilbertSurfaceMapping3Df::Setting>());
-    ERL_INFO(
-        "SDF mapping setting types: {}, {}",
-        type_name<GpSdfMappingSetting3Dd>(),
-        type_name<GpSdfMappingSetting3Df>());
+        "Surface mapping setting types: {}, {}",
+        type_name<typename GpOccSurfaceMapping::Setting>(),
+        type_name<typename BayesianHilbertSurfaceMapping::Setting>());
+    ERL_INFO("SDF mapping setting types: {}", type_name<typename GpSdfMapping::Setting>());
+
+    struct Options {
+        std::string surface_mapping_type = type_name<GpOccSurfaceMapping>();
+        std::string surface_mapping_setting_type =
+            type_name<typename GpOccSurfaceMapping::Setting>();
+        std::string sdf_mapping_bin = "sdf_mapping.bin";
+        std::string output_mesh_file = "output_mesh.ply";
+        double grid_resolution = 0.05;
+    };
 
     Options options;
     bool options_parsed = false;
@@ -73,27 +56,9 @@ TEST(GpSdfMapping, ToMesh) {
             (
                 "surface-mapping-setting-type",
                 po::value<std::string>(&options.surface_mapping_setting_type)->default_value(options.surface_mapping_setting_type),
-                fmt::format("Surface mapping setting type: {}, {}, {}, {}",
-                            type_name<GpOccSurfaceMapping3Dd::Setting>(),
-                            type_name<GpOccSurfaceMapping3Df::Setting>(),
-                            type_name<BayesianHilbertSurfaceMapping3Dd::Setting>(),
-                            type_name<BayesianHilbertSurfaceMapping3Df::Setting>()).c_str()
-            )
-            (
-                "sdf-mapping-type",
-                po::value<std::string>(&options.sdf_mapping_type)->default_value(options.sdf_mapping_type),
-                fmt::format("SDF mapping type: {}, {}, {}, {}",
-                        type_name<GpOccSurfaceSdfMapping3Dd>(),
-                        type_name<GpOccSurfaceSdfMapping3Df>(),
-                        type_name<BayesianHilbertSdfMapping3Dd>(),
-                        type_name<BayesianHilbertSdfMapping3Df>()).c_str()
-            )
-            (
-                "sdf-mapping-setting-type",
-                po::value<std::string>(&options.sdf_mapping_setting_type)->default_value(options.sdf_mapping_setting_type),
-                fmt::format("SDF mapping setting type: {}, {}",
-                            type_name<GpSdfMappingSetting3Dd>(),
-                            type_name<GpSdfMappingSetting3Df>()).c_str()
+                fmt::format("Surface mapping setting type: {}, {}",
+                            type_name<typename GpOccSurfaceMapping::Setting>(),
+                            type_name<typename BayesianHilbertSurfaceMapping::Setting>()).c_str()
             )
             (
                 "sdf-mapping-bin",
@@ -129,63 +94,41 @@ TEST(GpSdfMapping, ToMesh) {
     auto &setting_factory = YamlableBase::Factory::GetInstance();
 
     auto surface_mapping_setting = setting_factory.Create(options.surface_mapping_setting_type);
-    auto sdf_mapping_setting = setting_factory.Create(options.sdf_mapping_setting_type);
+    auto surface_mapping =
+        AbstractSurfaceMapping::Create(options.surface_mapping_type, surface_mapping_setting);
+    auto sdf_mapping_setting = std::make_shared<typename GpSdfMapping::Setting>();
+    GpSdfMapping sdf_mapping(sdf_mapping_setting, surface_mapping);
+    using Serializer = Serialization<GpSdfMapping>;
+    ASSERT_TRUE(Serializer::Read(options.sdf_mapping_bin, &sdf_mapping));
 
-    auto sdf_mapping = AbstractGpSdfMapping::Create(
-        options.sdf_mapping_type,
-        surface_mapping_setting,
-        sdf_mapping_setting);
-    using Serializer = Serialization<AbstractGpSdfMapping>;
-    ASSERT_TRUE(Serializer::Read(options.sdf_mapping_bin, sdf_mapping));
-    auto abstract_surface_mapping = sdf_mapping->GetAbstractSurfaceMapping();
+    using Aabb = erl::geometry::Aabb<Dtype, 3>;
+    using Vector3 = Eigen::Vector3<Dtype>;
+    using Matrix3X = Eigen::Matrix3X<Dtype>;
 
-    Eigen::AlignedBox3d map_boundary;
-    if (options.surface_mapping_type == type_name<BayesianHilbertSurfaceMapping3Dd>()) {
-        auto surface_mapping =
-            std::dynamic_pointer_cast<BayesianHilbertSurfaceMapping3Dd>(abstract_surface_mapping);
-        ASSERT_TRUE(surface_mapping != nullptr);
-        map_boundary = static_cast<Eigen::AlignedBox<double, 3>>(surface_mapping->GetMapBoundary());
-    } else if (options.surface_mapping_type == type_name<BayesianHilbertSurfaceMapping3Df>()) {
-        auto surface_mapping =
-            std::dynamic_pointer_cast<BayesianHilbertSurfaceMapping3Df>(abstract_surface_mapping);
-        ASSERT_TRUE(surface_mapping != nullptr);
-        map_boundary = surface_mapping->GetMapBoundary().cast<double>();
-    } else if (options.surface_mapping_type == type_name<GpOccSurfaceMapping3Dd>()) {
-        auto surface_mapping =
-            std::dynamic_pointer_cast<GpOccSurfaceMapping3Dd>(abstract_surface_mapping);
-        ASSERT_TRUE(surface_mapping != nullptr);
-        map_boundary = static_cast<Eigen::AlignedBox<double, 3>>(surface_mapping->GetMapBoundary());
-    } else if (options.surface_mapping_type == type_name<GpOccSurfaceMapping3Df>()) {
-        auto surface_mapping =
-            std::dynamic_pointer_cast<GpOccSurfaceMapping3Df>(abstract_surface_mapping);
-        ASSERT_TRUE(surface_mapping != nullptr);
-        map_boundary = surface_mapping->GetMapBoundary().cast<double>();
-    } else {
-        ERL_FATAL("Unsupported surface mapping type: {}", options.surface_mapping_type);
-    }
+    Aabb map_boundary = surface_mapping->GetMapBoundary();
 
-    GridMapInfo3Dd grid_map_info(
+    GridMapInfo3D<Dtype> grid_map_info(
         map_boundary.min(),
         map_boundary.max(),
-        Eigen::Vector3d(options.grid_resolution, options.grid_resolution, options.grid_resolution),
+        Vector3(options.grid_resolution, options.grid_resolution, options.grid_resolution),
         Eigen::Vector3i::Zero());
     constexpr bool row_major = false;
-    Eigen::Matrix3Xd positions = grid_map_info.GenerateMeterCoordinates(row_major);
+    Matrix3X positions = grid_map_info.GenerateMeterCoordinates(row_major);
 
-    Eigen::VectorXd distances(positions.cols());
-    Eigen::MatrixXd gradients(3, positions.cols());
-    Eigen::MatrixXd variances(4, positions.cols());
-    Eigen::MatrixXd covariances(6, positions.cols());
-    ASSERT_TRUE(sdf_mapping->Predict(positions, distances, gradients, variances, covariances));
+    typename GpSdfMapping::Distances distances(positions.cols());
+    typename GpSdfMapping::Gradients gradients(3, positions.cols());
+    typename GpSdfMapping::Variances variances(4, positions.cols());
+    typename GpSdfMapping::Covariances covariances(6, positions.cols());
+    ASSERT_TRUE(sdf_mapping.Test(positions, distances, gradients, variances, covariances));
     ERL_INFO("SDF mapping prediction done, {} points.", positions.cols());
 
     auto extracted_mesh = std::make_shared<open3d::geometry::TriangleMesh>();
     constexpr bool parallel = true;
-    MarchingCubes::Run(
-        grid_map_info.Min(),
-        grid_map_info.Resolution(),
+    erl::geometry::MarchingCubes::Run(
+        grid_map_info.Min().template cast<double>(),
+        grid_map_info.Resolution().template cast<double>(),
         grid_map_info.Shape(),
-        distances,
+        distances.template cast<double>(),
         row_major,
         extracted_mesh->vertices_,
         extracted_mesh->triangles_,
@@ -196,6 +139,10 @@ TEST(GpSdfMapping, ToMesh) {
     open3d::io::WriteTriangleMesh(options.output_mesh_file, *extracted_mesh, true);
     open3d::visualization::DrawGeometries({extracted_mesh});
 }
+
+TEST(GpSdfMapping, ToMeshD) { ToMeshImpl<double>(); }
+
+TEST(GpSdfMapping, ToMeshF) { ToMeshImpl<float>(); }
 
 int
 main(int argc, char *argv[]) {

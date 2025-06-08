@@ -1,4 +1,6 @@
-#pragma once
+#include "erl_sdf_mapping/sign_gp.hpp"
+
+#include <utility>
 
 namespace erl::sdf_mapping {
 
@@ -67,7 +69,7 @@ namespace erl::sdf_mapping {
 
     template<typename Dtype>
     SignGaussianProcess<Dtype>::SignGaussianProcess(std::shared_ptr<Setting> setting)
-        : Super(setting) {}
+        : Super(std::move(setting)) {}
 
     template<typename Dtype>
     std::size_t
@@ -78,65 +80,6 @@ namespace erl::sdf_mapping {
     }
 
     template<typename Dtype>
-    template<int Dim>
-    long
-    SignGaussianProcess<Dtype>::LoadSurfaceData(
-        std::vector<std::pair<Dtype, std::size_t>> &surface_data_indices,
-        const std::vector<SurfaceData<Dtype, Dim>> &surface_data_vec,
-        const Eigen::Vector<Dtype, Dim> &coord_origin,
-        const Dtype offset_distance,
-        const Dtype sensor_noise,
-        const Dtype max_valid_gradient_var,
-        const Dtype invalid_position_var) {
-
-        this->SetKernelCoordOrigin(coord_origin);
-
-        const long max_num_samples = std::min(  //
-            this->m_setting_->max_num_samples,
-            static_cast<long>(surface_data_vec.size()));
-        this->Reset(max_num_samples, Dim, 1);
-
-        std::sort(
-            surface_data_indices.begin(),
-            surface_data_indices.end(),
-            [](const auto &a, const auto &b) { return a.first < b.first; });
-        typename Super::TrainSet &train_set = this->m_train_set_;
-        const bool load_gradient = !this->m_setting_->no_gradient_observation;
-        long count = 0;
-        long count_grad = 0;
-        for (auto &[distance, surface_data_index]: surface_data_indices) {
-            auto &surface_data = surface_data_vec[surface_data_index];
-
-            train_set.x.col(count) = surface_data.position;
-            train_set.y.col(0)[count] = offset_distance;
-            train_set.var_x[count] = surface_data.var_position;
-            train_set.var_y[count] = sensor_noise;
-            if (load_gradient) {
-                train_set.grad.col(count) = surface_data.normal;
-                train_set.var_grad[count] = surface_data.var_normal;
-            }
-            train_set.grad_flag[count] = load_gradient;
-            ++count_grad;
-
-            if ((surface_data.var_normal > max_valid_gradient_var) ||  // invalid gradient
-                (surface_data.normal.norm() < 0.9f)) {                 // invalid normal
-                train_set.var_x[count] = std::max(train_set.var_x[count], invalid_position_var);
-                train_set.grad_flag[count] = false;
-                --count_grad;  // revert gradient count
-            }
-            if (++count >= train_set.x.cols()) { break; }  // reached max_num_samples
-        }
-        train_set.num_samples = count;
-        train_set.num_samples_with_grad = load_gradient ? count_grad : 0;
-
-        // for GPIS, y=0 does not work, as y* = ktest * K^-1 * y
-        // the trick is to set y = offset_distance, then y* = ktest * K^-1 * y - offset_distance
-
-        if (this->m_reduced_rank_kernel_) { this->UpdateKtrain(); }
-        return count;
-    }
-
-    template<typename Dtype>
     std::shared_ptr<typename gaussian_process::NoisyInputGaussianProcess<Dtype>::TestResult>
     SignGaussianProcess<Dtype>::Test(
         const Eigen::Ref<const MatrixX> &mat_x_test,
@@ -144,4 +87,6 @@ namespace erl::sdf_mapping {
         return std::make_shared<TestResult>(this, mat_x_test, predict_gradient);
     }
 
+    template class SignGaussianProcess<double>;
+    template class SignGaussianProcess<float>;
 }  // namespace erl::sdf_mapping

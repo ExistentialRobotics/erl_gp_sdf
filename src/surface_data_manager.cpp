@@ -1,4 +1,4 @@
-#pragma once
+#include "erl_sdf_mapping/surface_data_manager.hpp"
 
 namespace erl::sdf_mapping {
 
@@ -101,4 +101,12 @@ namespace erl::sdf_mapping {
         return ReadTokens(s, this, token_function_pairs);
     }
 
+    template class SurfaceData<double, 2>;
+    template class SurfaceData<float, 2>;
+    template class SurfaceData<double, 3>;
+    template class SurfaceData<float, 3>;
+    template class SurfaceDataManager<double, 2>;
+    template class SurfaceDataManager<float, 2>;
+    template class SurfaceDataManager<double, 3>;
+    template class SurfaceDataManager<float, 3>;
 }  // namespace erl::sdf_mapping

@@ -13,7 +13,7 @@ BindGpOccSurfaceMappingImpl(const py::module &m, const char *name) {
     using SettingComputeVariance = typename Setting::ComputeVariance;
     using SettingUpdateMapPoints = typename Setting::UpdateMapPoints;
 
-    py::class_<T, AbstractSurfaceMapping, std::shared_ptr<T>> surface_mapping(m, name);
+    py::class_<T, AbstractSurfaceMapping<Dtype, Dim>, std::shared_ptr<T>> surface_mapping(m, name);
     py::class_<Setting, YamlableBase, std::shared_ptr<Setting>> setting(surface_mapping, "Setting");
     py::class_<SettingComputeVariance>(setting, "ComputeVariance")
         .def_readwrite(

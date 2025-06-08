@@ -1,4 +1,4 @@
-#pragma once
+#include "erl_sdf_mapping/gp_sdf_mapping_setting.hpp"
 
 namespace erl::sdf_mapping {
 
@@ -55,4 +55,9 @@ namespace erl::sdf_mapping {
         ERL_YAML_LOAD_ATTR(node, setting, invalid_position_var);
         return ERL_YAML_LOAD_ATTR(node, setting, sdf_gp);
     }
+
+    template class GpSdfMappingSetting<float, 2>;
+    template class GpSdfMappingSetting<double, 2>;
+    template class GpSdfMappingSetting<float, 3>;
+    template class GpSdfMappingSetting<double, 3>;
 }  // namespace erl::sdf_mapping

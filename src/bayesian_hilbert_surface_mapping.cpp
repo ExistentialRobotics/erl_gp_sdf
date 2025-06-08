@@ -1,6 +1,4 @@
-#pragma once
-
-#include "bayesian_hilbert_surface_mapping.hpp"
+#include "erl_sdf_mapping/bayesian_hilbert_surface_mapping.hpp"
 
 #include "erl_common/angle_utils.hpp"
 
@@ -659,8 +657,19 @@ namespace erl::sdf_mapping {
           m_ray_selector_(m_setting_->ray_selector) {
         m_tree_ = std::make_shared<Tree>(m_setting_->tree);
         GenerateHingedPoints();
-        m_map_dim_ = Dim;
-        m_is_double_ = std::is_same_v<Dtype, double>;
+
+        // do it on the main thread only
+#pragma omp parallel default(none)
+#pragma omp critical
+        {
+            if (omp_get_thread_num() == 0) {
+                m_ray_indices_.resize(omp_get_num_threads());
+                for (auto &indices: m_ray_indices_) { indices.reserve(10240); }
+            }
+        }
+
+        // m_map_dim_ = Dim;
+        // m_is_double_ = std::is_same_v<Dtype, double>;
     }
 
     template<typename Dtype, int Dim>
@@ -687,9 +696,9 @@ namespace erl::sdf_mapping {
     template<typename Dtype, int Dim>
     bool
     BayesianHilbertSurfaceMapping<Dtype, Dim>::Update(
-        const Eigen::Ref<const Eigen::MatrixXd> &rotation,
-        const Eigen::Ref<const Eigen::VectorXd> &translation,
-        const Eigen::Ref<const Eigen::MatrixXd> &scan,
+        const Eigen::Ref<const Rotation> &rotation,
+        const Eigen::Ref<const Translation> &translation,
+        const Eigen::Ref<const Ranges> &scan,
         const bool are_points,
         const bool are_local) {
         ERL_ASSERTM(are_points, "scan must be points, not range data.");
@@ -700,24 +709,18 @@ namespace erl::sdf_mapping {
         }
 
         Positions points;
-        Position sensor_origin = translation.cast<Dtype>();
         if (are_local) {
             points.resize(Dim, scan.cols());
-            Rotation rotation_ = rotation.cast<Dtype>();
-            Translation translation_ = translation.cast<Dtype>();
-#pragma omp parallel for default(none) shared(scan, points, rotation_, translation_)
+#pragma omp parallel for default(none) shared(scan, points, rotation, translation)
             for (long i = 0; i < scan.cols(); ++i) {
-                Position point = scan.col(i).cast<Dtype>();
-                points.col(i) = rotation_ * point + translation_;
+                points.col(i) = rotation * scan.col(i) + translation;
             }
         } else {
-            points = scan.cast<Dtype>();
+            points = scan;
         }
-        Rotation sensor_rotation = rotation.cast<Dtype>();
         {
             ERL_BLOCK_TIMER_MSG("BHSM Update");
-            bool result = Update(sensor_rotation, sensor_origin, points, true /*parallel*/);
-            return result;
+            return Update(rotation, translation, points, true /*parallel*/);
         }
     }
 
@@ -812,36 +815,30 @@ namespace erl::sdf_mapping {
             }
         }
 
-        KeyVectorMap bhm_ray_indices;
-        bhm_ray_indices.reserve(bhm_keys_set.size());
-        for (auto &key: bhm_keys_set) { bhm_ray_indices.emplace(key, std::vector<long>{}); }
         m_ray_selector_.UpdateRays(sensor_origin_s, sensor_rotation, points_s);
         const Dtype radius = std::sqrt(static_cast<Dtype>(Dim) * half_bhm_size * half_bhm_size);
 
-#pragma omp parallel for default(none) \
-    shared(bhm_keys, bhm_ray_indices, sensor_origin_s, sensor_rotation, radius)
-        for (auto &key: bhm_keys) {
-            m_ray_selector_.SelectRays(
-                sensor_origin_s,
-                sensor_rotation,
-                m_key_bhm_dict_[key]->bhm.GetMapBoundary().center,
-                radius,
-                bhm_ray_indices[key]);
-        }
-
         // update the local Bayesian Hilbert maps
+        (void) parallel;
         std::vector<int> updated(bhm_keys.size(), 0);  // don't use bool, it is not atomic
         ERL_INFO("{} local bhm(s) to update", bhm_keys.size());
         {
             ERL_BLOCK_TIMER_MSG("bhm update");
-            (void) parallel;
 #pragma omp parallel for if (parallel) default(none) \
-    shared(bhm_keys, updated, sensor_origin_s, points_s, bhm_ray_indices)
+    shared(bhm_keys, points_s, sensor_origin_s, sensor_rotation, radius, updated) schedule(static)
             for (std::size_t i = 0; i < bhm_keys.size(); ++i) {
                 auto &bhm_key = bhm_keys[i];
+                std::vector<long> &ray_indices = m_ray_indices_[omp_get_thread_num()];
+                // ray_indices.reserve(points_s.cols() / 10);
                 LocalBayesianHilbertMap &local_bhm = *m_key_bhm_dict_[bhm_key];
                 local_bhm.active = true;
-                updated[i] = local_bhm.Update(sensor_origin_s, points_s, bhm_ray_indices[bhm_key]);
+                m_ray_selector_.SelectRays(
+                    sensor_origin_s,
+                    sensor_rotation,
+                    local_bhm.bhm.GetMapBoundary().center,
+                    radius,
+                    ray_indices);
+                updated[i] = local_bhm.Update(sensor_origin_s, points_s, ray_indices);
             }
         }
 
@@ -862,52 +859,52 @@ namespace erl::sdf_mapping {
         return any_update;
     }
 
-    template<typename Dtype, int Dim>
-    std::vector<SurfaceData<double, 3>>
-    BayesianHilbertSurfaceMapping<Dtype, Dim>::GetSurfaceData() const {
-        std::vector<SurfaceData<Dtype, Dim>> buffer;
-        std::vector<std::size_t> unused_indices;
-        {
-            auto lock = const_cast<BayesianHilbertSurfaceMapping *>(this)->GetLockGuard();
-            buffer = m_surf_data_manager_.GetBuffer();
-            unused_indices = m_surf_data_manager_.GetAvailableIndices();
-        }
-        std::sort(unused_indices.begin(), unused_indices.end());  // sort in ascending order
-        std::vector<SurfaceData<double, 3>> result;
-        result.reserve(buffer.size());
-        std::size_t remove_idx = 0;
-        for (std::size_t read_idx = 0; read_idx < buffer.size(); ++read_idx) {
-            if (remove_idx < unused_indices.size() && read_idx == unused_indices[remove_idx]) {
-                ++remove_idx;  // skip the unused index
-                continue;
-            }
-            auto &data = buffer[read_idx];
-            SurfaceData<double, 3> data3d;
-            for (int i = 0; i < Dim; ++i) {
-                data3d.position[i] = data.position[i];
-                data3d.normal[i] = data.normal[i];
-            }
-            if (Dim == 2) {
-                data3d.position[2] = 0.0;
-                data3d.normal[2] = 0.0;
-            }
-            data3d.var_position = data.var_position;
-            data3d.var_normal = data.var_normal;
-            result.emplace_back(std::move(data3d));
-        }
-        return result;
-    }
+    // template<typename Dtype, int Dim>
+    // std::vector<SurfaceData<double, 3>>
+    // BayesianHilbertSurfaceMapping<Dtype, Dim>::GetSurfaceData() const {
+    //     std::vector<SurfaceData<Dtype, Dim>> buffer;
+    //     std::vector<std::size_t> unused_indices;
+    //     {
+    //         auto lock = const_cast<BayesianHilbertSurfaceMapping *>(this)->GetLockGuard();
+    //         buffer = m_surf_data_manager_.GetBuffer();
+    //         unused_indices = m_surf_data_manager_.GetAvailableIndices();
+    //     }
+    //     std::sort(unused_indices.begin(), unused_indices.end());  // sort in ascending order
+    //     std::vector<SurfaceData<double, 3>> result;
+    //     result.reserve(buffer.size());
+    //     std::size_t remove_idx = 0;
+    //     for (std::size_t read_idx = 0; read_idx < buffer.size(); ++read_idx) {
+    //         if (remove_idx < unused_indices.size() && read_idx == unused_indices[remove_idx]) {
+    //             ++remove_idx;  // skip the unused index
+    //             continue;
+    //         }
+    //         auto &data = buffer[read_idx];
+    //         SurfaceData<double, 3> data3d;
+    //         for (int i = 0; i < Dim; ++i) {
+    //             data3d.position[i] = data.position[i];
+    //             data3d.normal[i] = data.normal[i];
+    //         }
+    //         if (Dim == 2) {
+    //             data3d.position[2] = 0.0;
+    //             data3d.normal[2] = 0.0;
+    //         }
+    //         data3d.var_position = data.var_position;
+    //         data3d.var_normal = data.var_normal;
+    //         result.emplace_back(std::move(data3d));
+    //     }
+    //     return result;
+    // }
 
     template<typename Dtype, int Dim>
-    typename SurfaceDataManager<Dtype, Dim>::Iterator
+    typename AbstractSurfaceMapping<Dtype, Dim>::SurfDataManager::Iterator
     BayesianHilbertSurfaceMapping<Dtype, Dim>::BeginSurfaceData() {
-        return m_surf_data_manager_.begin();
+        return this->m_surf_data_manager_.begin();
     }
 
     template<typename Dtype, int Dim>
-    typename SurfaceDataManager<Dtype, Dim>::Iterator
+    typename AbstractSurfaceMapping<Dtype, Dim>::SurfDataManager::Iterator
     BayesianHilbertSurfaceMapping<Dtype, Dim>::EndSurfaceData() {
-        return m_surf_data_manager_.end();
+        return this->m_surf_data_manager_.end();
     }
 
     template<typename Dtype, int Dim>
@@ -1036,7 +1033,7 @@ namespace erl::sdf_mapping {
 
             // predict
             Gradients gradients_of_key;
-            std::shared_ptr<LocalBayesianHilbertMap> bhm = m_key_bhm_dict_[bhm_key];
+            std::shared_ptr<LocalBayesianHilbertMap> bhm = m_key_bhm_dict_.at(bhm_key);
             bhm->bhm
                 .PredictGradient(points_of_key, faster, with_sigmoid, !parallel, gradients_of_key);
 
@@ -1153,8 +1150,7 @@ namespace erl::sdf_mapping {
 
     template<typename Dtype, int Dim>
     bool
-    BayesianHilbertSurfaceMapping<Dtype, Dim>::operator==(
-        const AbstractSurfaceMapping &other) const {
+    BayesianHilbertSurfaceMapping<Dtype, Dim>::operator==(const Super &other) const {
         const auto *other_ptr = dynamic_cast<const BayesianHilbertSurfaceMapping *>(&other);
         if (other_ptr == nullptr) { return false; }
         if (m_setting_ == nullptr && other_ptr->m_setting_ != nullptr) { return false; }
@@ -1439,7 +1435,8 @@ namespace erl::sdf_mapping {
             Key key;  // use the tree to predict the occupancy
             if (!m_tree_->CoordToKeyChecked(point, key)) { continue; }  // outside the map
             const TreeNode *node = m_tree_->Search(key);
-            if (node != nullptr && !m_tree_->IsNodeOccupied(node) &&
+            if (node == nullptr) { continue; }  // no observation of this point at all
+            if (!m_tree_->IsNodeOccupied(node) &&
                 m_tree_->GetNodeSize(node->GetDepth()) * 0.5 > half_size) {
                 // use the tree to predict the occupancy
                 prob_occupied_ptr[i] = logodd ? node->GetLogOdds() : node->GetOccupancy();
@@ -1801,4 +1798,14 @@ namespace erl::sdf_mapping {
         surf_data.var_normal = surf_data.var_position;  // use the same variance for normal
     }
 
+    template class RaySelector2D<float>;
+    template class RaySelector2D<double>;
+    template class RaySelector3D<float>;
+    template class RaySelector3D<double>;
+    template class LocalBayesianHilbertMapSetting<float>;
+    template class LocalBayesianHilbertMapSetting<double>;
+    template class BayesianHilbertSurfaceMapping<float, 2>;
+    template class BayesianHilbertSurfaceMapping<float, 3>;
+    template class BayesianHilbertSurfaceMapping<double, 2>;
+    template class BayesianHilbertSurfaceMapping<double, 3>;
 }  // namespace erl::sdf_mapping

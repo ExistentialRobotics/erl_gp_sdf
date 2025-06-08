@@ -87,16 +87,19 @@ TestImpl3D() {
     GTEST_PREPARE_OUTPUT_DIR();
 
     using SurfaceMapping = erl::sdf_mapping::BayesianHilbertSurfaceMapping<Dtype, 3>;
-    using SdfMapping = erl::sdf_mapping::GpSdfMapping<Dtype, 3, SurfaceMapping>;
-    using RangeSensor = erl::geometry::RangeSensor3D<double>;
-    using DepthFrame = erl::geometry::DepthFrame3D<double>;
-    using LidarFrame = erl::geometry::LidarFrame3D<double>;
+    using SdfMapping = erl::sdf_mapping::GpSdfMapping<Dtype, 3>;
+    using RangeSensor = erl::geometry::RangeSensor3D<Dtype>;
+    using DepthFrame = erl::geometry::DepthFrame3D<Dtype>;
+    using LidarFrame = erl::geometry::LidarFrame3D<Dtype>;
     using CowAndLady = erl::geometry::CowAndLady;
-    using DepthCamera = erl::geometry::DepthCamera3D<double>;
-    using Lidar = erl::geometry::Lidar3D<double>;
+    using DepthCamera = erl::geometry::DepthCamera3D<Dtype>;
+    using Lidar = erl::geometry::Lidar3D<Dtype>;
 
     using VectorX = Eigen::VectorX<Dtype>;
     using Vector3 = Eigen::Vector3<Dtype>;
+    using Matrix3 = Eigen::Matrix3<Dtype>;
+    using Matrix4 = Eigen::Matrix4<Dtype>;
+    using MatrixX = Eigen::MatrixX<Dtype>;
     using Matrix3X = Eigen::Matrix3X<Dtype>;
     using Matrix4X = Eigen::Matrix4X<Dtype>;
     using Matrix6X = Eigen::Matrix<Dtype, 6, Eigen::Dynamic>;
@@ -217,13 +220,17 @@ TestImpl3D() {
         sdf_mapping_setting->FromYamlFile(options.sdf_mapping_config_file),
         "Failed to load sdf_mapping_config_file: {}",
         options.sdf_mapping_config_file);
+    ERL_INFO("Surface mapping config: {}", options.surface_mapping_config_file);
+    std::cout << surface_mapping_setting->AsYamlString() << std::endl;
+    ERL_INFO("SDF mapping config: {}", options.sdf_mapping_config_file);
+    std::cout << sdf_mapping_setting->AsYamlString() << std::endl;
 
     // prepare the scene
     std::vector<std::shared_ptr<open3d::geometry::Geometry>> geometries;  // for visualization
     std::shared_ptr<RangeSensor> range_sensor = nullptr;
     std::shared_ptr<CowAndLady> cow_and_lady = nullptr;
-    std::vector<std::pair<Eigen::Matrix3d, Eigen::Vector3d>> poses;
-    std::shared_ptr<erl::geometry::RangeSensorFrame3Dd> range_sensor_frame = nullptr;
+    std::vector<std::pair<Matrix3, Vector3>> poses;
+    std::shared_ptr<erl::geometry::RangeSensorFrame3D<Dtype>> range_sensor_frame = nullptr;
     Vector3 map_min, map_max;
     if (options.use_cow_and_lady) {
         ERL_INFO("Using Cow and Lady dataset.");
@@ -232,7 +239,7 @@ TestImpl3D() {
         geometries.push_back(cow_and_lady->GetGroundTruthPointCloud());
         map_min = cow_and_lady->GetMapMin().cast<Dtype>();
         map_max = cow_and_lady->GetMapMax().cast<Dtype>();
-        const auto depth_frame_setting = std::make_shared<DepthFrame::Setting>();
+        const auto depth_frame_setting = std::make_shared<typename DepthFrame::Setting>();
         depth_frame_setting->camera_intrinsic.image_height = CowAndLady::kImageHeight;
         depth_frame_setting->camera_intrinsic.image_width = CowAndLady::kImageWidth;
         depth_frame_setting->camera_intrinsic.camera_fx = CowAndLady::kCameraFx;
@@ -248,14 +255,14 @@ TestImpl3D() {
         map_max = mesh->GetMaxBound().template cast<Dtype>();
         if (options.sensor_frame_type == type_name<LidarFrame>()) {
             ERL_INFO("Using LiDAR.");
-            const auto lidar_frame_setting = std::make_shared<LidarFrame::Setting>();
+            const auto lidar_frame_setting = std::make_shared<typename LidarFrame::Setting>();
             ERL_ASSERTM(
                 lidar_frame_setting->FromYamlFile(options.sensor_frame_config_file),
                 "Failed to load sensor_frame_config_file: {}",
                 options.sensor_frame_config_file);
             range_sensor_frame = std::make_shared<LidarFrame>(lidar_frame_setting);
 
-            const auto lidar_setting = std::make_shared<Lidar::Setting>();
+            const auto lidar_setting = std::make_shared<typename Lidar::Setting>();
             lidar_setting->azimuth_min = lidar_frame_setting->azimuth_min;
             lidar_setting->azimuth_max = lidar_frame_setting->azimuth_max;
             lidar_setting->elevation_min = lidar_frame_setting->elevation_min;
@@ -265,14 +272,14 @@ TestImpl3D() {
             range_sensor = std::make_shared<Lidar>(lidar_setting);
         } else if (options.sensor_frame_type == type_name<DepthFrame>()) {
             ERL_INFO("Using depth.");
-            const auto depth_frame_setting = std::make_shared<DepthFrame::Setting>();
+            const auto depth_frame_setting = std::make_shared<typename DepthFrame::Setting>();
             ERL_ASSERTM(
                 depth_frame_setting->FromYamlFile(options.sensor_frame_config_file),
                 "Failed to load sensor_frame_config_file: {}",
                 options.sensor_frame_config_file);
             range_sensor_frame = std::make_shared<DepthFrame>(depth_frame_setting);
 
-            auto depth_camera_setting = std::make_shared<DepthCamera::Setting>();
+            auto depth_camera_setting = std::make_shared<typename DepthCamera::Setting>();
             *depth_camera_setting = depth_frame_setting->camera_intrinsic;
             range_sensor = std::make_shared<DepthCamera>(depth_camera_setting);
         } else {
@@ -284,12 +291,13 @@ TestImpl3D() {
         }
         range_sensor->AddMesh(options.mesh_file);
         geometries.push_back(mesh);
-        poses = erl::geometry::Trajectory<double>::LoadSe3(options.traj_file, false);
+        poses = erl::geometry::Trajectory<Dtype>::LoadSe3(options.traj_file, false);
     }
-    (void) map_min, (void) map_max;
+    (void) map_min, (void) map_max, (void) range_sensor_frame;
 
     // prepare the mapping
     const auto surf_mapping = std::make_shared<SurfaceMapping>(surface_mapping_setting);
+    // const auto surf_mapping2 = std::make_shared<SurfaceMapping>(surface_mapping_setting);
     SdfMapping sdf_mapping(sdf_mapping_setting, surf_mapping);
 
     // prepare the visualizer
@@ -430,28 +438,26 @@ TestImpl3D() {
 #pragma endregion
 
         const auto t_start = std::chrono::high_resolution_clock::now();
-        Eigen::Matrix3d rotation_sensor, rotation;
-        Eigen::Vector3d translation_sensor, translation;
+        Matrix3 rotation_sensor, rotation;
+        Vector3 translation_sensor, translation;
         ERL_INFO("wp_idx: {}", wp_idx);
 
         cv::Mat depth_jet;
         double dt;
         {
-            Eigen::MatrixXd ranges;
+            MatrixX ranges;
             ERL_BLOCK_TIMER_MSG_TIME("data loading", dt);
             if (options.use_cow_and_lady) {
                 const auto frame = (*cow_and_lady)[wp_idx];
-                rotation = frame.rotation;
-                translation = frame.translation;
-                Eigen::Matrix4d pose = Eigen::Matrix4d::Identity();
-                pose.topLeftCorner<3, 3>() = rotation;
-                pose.topRightCorner<3, 1>() = translation;
+                rotation = frame.rotation.cast<Dtype>();
+                translation = frame.translation.cast<Dtype>();
+                Matrix4 pose = Matrix4::Identity();
+                pose.template topLeftCorner<3, 3>() = rotation;
+                pose.template topRightCorner<3, 1>() = translation;
                 pose = pose * DepthCamera::cTo;
-                // rotation_sensor = pose.topLeftCorner<3, 3>();
-                // translation_sensor = pose.topRightCorner<3, 1>();
                 std::tie(rotation_sensor, translation_sensor) =
-                    erl::geometry::CameraBase3D<double>::ComputeCameraPose(rotation, translation);
-                ranges = frame.depth;
+                    erl::geometry::CameraBase3D<Dtype>::ComputeCameraPose(rotation, translation);
+                ranges = frame.depth.cast<Dtype>();
                 depth_jet = frame.depth_jet;
             } else {
                 std::tie(rotation_sensor, translation_sensor) = poses[wp_idx];
@@ -464,21 +470,46 @@ TestImpl3D() {
         }
         ERL_TRACY_PLOT("data loading (ms)", dt);
 
+        // {
+        //     ERL_BLOCK_TIMER_MSG_TIME("BHM_MAPPING.Update", dt);
+        //     Eigen::Map<const Matrix3X> points(
+        //         range_sensor_frame->GetHitPointsWorld().data()->data(),
+        //         3,
+        //         range_sensor_frame->GetNumHitRays());
+        //     // surf_mapping2->Update(rotation_sensor, translation_sensor, points, true
+        //     // /*parallel*/);
+        //     surf_mapping2->Update(rotation_sensor, translation_sensor, points, true, false);
+        // }
+
         {
             ERL_BLOCK_TIMER_MSG_TIME("sdf_mapping.Update", dt);
             // provide ranges and frame pose in the world frame
-            ERL_WARN_COND(
-                !sdf_mapping.Update(
-                    rotation,
-                    translation,
-                    Eigen::Map<const Eigen::Matrix3Xd>(
-                        range_sensor_frame->GetHitPointsWorld().data()->data(),
-                        3,
-                        range_sensor_frame->GetNumHitRays()),
-                    true,
-                    false),
-                "sdf_mapping.Update failed.");
+            Eigen::Map<const Matrix3X> points(
+                range_sensor_frame->GetHitPointsWorld().data()->data(),
+                3,
+                range_sensor_frame->GetNumHitRays());
+
+            // the following code is the same as
+            // bool ok = sdf_mapping.Update(rotation, translation, points, true, false);
+            // but for unknown reason it is 2x faster than calling sdf_mapping.Update directly.
+            // TODO: investigate this.
+            double surf_mapping_time;
+            bool ok;
+            {
+                ERL_BLOCK_TIMER_MSG_TIME("Surface mapping update", surf_mapping_time);
+                ok = sdf_mapping.GetSurfaceMapping()
+                         ->Update(rotation_sensor, translation_sensor, points, true, false);
+            }
+
+            {
+                double time_budget_us = 1e6 / sdf_mapping_setting->update_hz;  // us
+                ERL_BLOCK_TIMER_MSG("Update SDF GPs");
+                if (ok) { sdf_mapping.UpdateGpSdf(time_budget_us - surf_mapping_time * 1000); }
+            }
+
+            ERL_WARN_COND(!ok, "Surface mapping update failed, skipping SDF mapping update.");
         }
+
         double update_fps = 1000.0 / dt;
         ERL_TRACY_PLOT("sdf_mapping_update (ms)", dt);
         ERL_TRACY_PLOT("sdf_mapping_update (fps)", update_fps);
@@ -489,7 +520,7 @@ TestImpl3D() {
             for (long i = 0; i < positions.rows(); ++i) {
                 const Vector3 &position = positions(i, j);
                 positions_test.col(i + j * positions.rows()) =
-                    rotation_sensor.cast<Dtype>() * position + translation_sensor.cast<Dtype>();
+                    rotation_sensor * position + translation_sensor;
             }
         }
         VectorX distances(positions_test.cols());
@@ -517,10 +548,10 @@ TestImpl3D() {
                 cv::resize(depth_jet, depth_jet, cv::Size(), scale, scale);
             }
         }
-        const int kFontFace = cv::FONT_HERSHEY_PLAIN;
-        const double kFontScale = 1.5;
-        const cv::Scalar kTextColor = {0, 0, 0};
-        const int kFontThickness = 2;
+        constexpr int kFontFace = cv::FONT_HERSHEY_PLAIN;
+        constexpr double kFontScale = 1.5;
+        const cv::Scalar kTextColor = {255, 255, 255, 255};
+        constexpr int kFontThickness = 2;
         cv::putText(
             depth_jet,
             fmt::format("frame {}", wp_idx),
@@ -578,8 +609,8 @@ TestImpl3D() {
         /// update the sensor mesh
         Eigen::Matrix4d last_pose_inv = last_pose.inverse();
         Eigen::Matrix4d cur_pose = Eigen::Matrix4d::Identity();
-        cur_pose.topLeftCorner<3, 3>() = rotation_sensor;
-        cur_pose.topRightCorner<3, 1>() = translation_sensor;
+        cur_pose.topLeftCorner<3, 3>() = rotation_sensor.template cast<double>();
+        cur_pose.topRightCorner<3, 1>() = translation_sensor.template cast<double>();
         Eigen::Matrix4d delta_pose = cur_pose * last_pose_inv;
         last_pose = cur_pose;
         mesh_sensor->Transform(delta_pose);

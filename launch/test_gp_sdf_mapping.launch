@@ -15,21 +15,23 @@
     <!-- playback rate for rosbag -->
     <arg name="rosbag_play_rate" default="1.0" />
 
-
     <group if="$(eval dataset_name == 'gazebo_room_2d')">
         <!-- test with GazeboRoom2D dataset -->
         <node pkg="erl_geometry" type="gazebo_room_2d_node" name="gazebo_room_2d_node" output="screen">
             <param name="laser_frame" value="front_laser" />
             <param name="map_frame" value="map" />
             <param name="topic_name" value="scan" />
-            <param name="publish_rate" value="100.0" />
+            <param name="publish_rate" value="60.0" />
         </node>
         <node pkg="tf2_ros" type="static_transform_publisher" name="map_odom_transformer" args="0 0 0 0 0 0 1 map odom" />
         <node pkg="erl_sdf_mapping" type="sdf_mapping_node" name="sdf_mapping_node" output="screen">
+            <param name="map_dim" value="2" />
+            <param name="double_precision" value="$(eval precision == 'double')" />
             <param name="setting_file" value="$(find erl_sdf_mapping)/config/ros1/ros_launch_$(arg surf_mapping_method)_$(arg precision)_2d.yaml" />
             <param name="surface_mapping_setting_file" value="$(find erl_sdf_mapping)/config/gazebo/$(arg surf_mapping_method)_mapping_gazebo_2d_$(arg precision).yaml" />
             <param name="sdf_mapping_setting_file" value="$(find erl_sdf_mapping)/config/gazebo/$(arg surf_mapping_method)_sdf_mapping_gazebo_2d_$(arg precision).yaml" />
             <param name="scan_topic" value="/gazebo_room_2d_node/scan" />
+            <param name="scan_frame_setting_file" value="$(find erl_sdf_mapping)/config/gazebo/lidar_frame_2d.yaml" />
         </node>
         <group if="$(arg visualize_sdf)">
             <node pkg="erl_sdf_mapping" type="sdf_visualization_node" name="sdf_visualization_node" output="screen">

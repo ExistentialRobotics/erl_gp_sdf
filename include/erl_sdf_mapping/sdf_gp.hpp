@@ -41,9 +41,6 @@ namespace erl::sdf_mapping {
         };
     };
 
-    using SdfGaussianProcessSettingD = SdfGaussianProcessSetting<double>;
-    using SdfGaussianProcessSettingF = SdfGaussianProcessSetting<float>;
-
     template<typename Dtype, int Dim>
     struct SdfGaussianProcess {
         static_assert(Dim == 2 || Dim == 3, "Dim must be 2 or 3.");
@@ -144,14 +141,23 @@ namespace erl::sdf_mapping {
             Dtype* covariance) const;
     };
 
+    using SdfGaussianProcessSettingD = SdfGaussianProcessSetting<double>;
+    using SdfGaussianProcessSettingF = SdfGaussianProcessSetting<float>;
     using SdfGp3Dd = SdfGaussianProcess<double, 3>;
     using SdfGp3Df = SdfGaussianProcess<float, 3>;
     using SdfGp2Dd = SdfGaussianProcess<double, 2>;
     using SdfGp2Df = SdfGaussianProcess<float, 2>;
 
+    extern template class SdfGaussianProcessSetting<double>;
+    extern template class SdfGaussianProcessSetting<float>;
+    extern template class SdfGaussianProcess<double, 3>;
+    extern template class SdfGaussianProcess<float, 3>;
+    extern template class SdfGaussianProcess<double, 2>;
+    extern template class SdfGaussianProcess<float, 2>;
+
 }  // namespace erl::sdf_mapping
 
-#include "sdf_gp.tpp"
+// #include "sdf_gp.tpp"
 
 template<>
 struct YAML::convert<erl::sdf_mapping::SdfGaussianProcessSettingD>

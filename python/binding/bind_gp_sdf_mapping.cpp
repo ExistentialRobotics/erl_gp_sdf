@@ -2,13 +2,13 @@
 #include "erl_sdf_mapping/gp_occ_surface_mapping.hpp"
 #include "erl_sdf_mapping/gp_sdf_mapping.hpp"
 
-template<typename Dtype, int Dim, typename SurfaceMapping>
+template<typename Dtype, int Dim>
 void
 BindGpSdfMappingImpl(const py::module &m, const char *name) {
     using namespace erl::common;
     using namespace erl::geometry;
     using namespace erl::sdf_mapping;
-    using T = GpSdfMapping<Dtype, Dim, SurfaceMapping>;
+    using T = GpSdfMapping<Dtype, Dim>;
     using Setting = typename T::Setting;
     using Positions = typename T::Positions;
 
@@ -16,7 +16,9 @@ BindGpSdfMappingImpl(const py::module &m, const char *name) {
 
     sdf_mapping
         .def(
-            py::init<std::shared_ptr<Setting>, std::shared_ptr<SurfaceMapping>>(),
+            py::init<
+                std::shared_ptr<Setting>,
+                std::shared_ptr<AbstractSurfaceMapping<Dtype, Dim>>>(),
             py::arg("setting"),
             py::arg("surface_mapping"))
         .def_property_readonly("setting", &T::GetSetting)
@@ -47,8 +49,8 @@ BindGpSdfMappingImpl(const py::module &m, const char *name) {
 void
 BindGpSdfMapping(const py::module &m) {
     using namespace erl::sdf_mapping;
-    BindGpSdfMappingImpl<double, 3, GpOccSurfaceMapping3Dd>(m, "GpOccSurfaceSdfMapping3Dd");
-    BindGpSdfMappingImpl<float, 3, GpOccSurfaceMapping3Df>(m, "GpOccSurfaceSdfMapping3Df");
-    BindGpSdfMappingImpl<double, 2, GpOccSurfaceMapping2Dd>(m, "GpOccSurfaceSdfMapping2Dd");
-    BindGpSdfMappingImpl<float, 2, GpOccSurfaceMapping2Df>(m, "GpOccSurfaceSdfMapping2Df");
+    BindGpSdfMappingImpl<double, 3>(m, "GpSdfMapping3Dd");
+    BindGpSdfMappingImpl<float, 3>(m, "GpSdfMapping3Df");
+    BindGpSdfMappingImpl<double, 2>(m, "GpSdfMapping2Dd");
+    BindGpSdfMappingImpl<float, 2>(m, "GpSdfMapping2Df");
 }

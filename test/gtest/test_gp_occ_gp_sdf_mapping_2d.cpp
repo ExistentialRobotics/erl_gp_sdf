@@ -146,7 +146,7 @@ DrawGp(
 template<typename Dtype, typename Drawer>
 struct OpenCvUserData {
     using SurfaceMapping = erl::sdf_mapping::GpOccSurfaceMapping<Dtype, 2>;
-    using SdfMapping = erl::sdf_mapping::GpSdfMapping<Dtype, 2, SurfaceMapping>;
+    using SdfMapping = erl::sdf_mapping::GpSdfMapping<Dtype, 2>;
 
     std::string window_name;
     Drawer *drawer = nullptr;
@@ -182,7 +182,7 @@ OpenCvMouseCallback(const int event, const int x, const int y, int /*flags*/, vo
             ERL_INFO("pick {}", reinterpret_cast<uint64_t>(gp.get()));
             ERL_INFO("position: {}, half_size: {}", gp->position.transpose(), gp->half_size);
             erl::geometry::Aabb<Dtype, 2> aabb(gp->position, gp->half_size);
-            std::vector<std::pair<Dtype, std::size_t> > distances_indices;
+            std::vector<std::pair<Dtype, std::size_t>> distances_indices;
             data->surface_mapping->CollectSurfaceDataInAabb(aabb, distances_indices);
             ERL_INFO("Found {} surface data points in the area.", distances_indices.size());
 
@@ -237,13 +237,14 @@ TestImpl2D() {
     using namespace erl::common;
 
     using SurfaceMapping = erl::sdf_mapping::GpOccSurfaceMapping<Dtype, 2>;
-    using SdfMapping = erl::sdf_mapping::GpSdfMapping<Dtype, 2, SurfaceMapping>;
+    using SdfMapping = erl::sdf_mapping::GpSdfMapping<Dtype, 2>;
     using Quadtree = typename SurfaceMapping::Tree;
     using QuadtreeDrawer = erl::geometry::OccupancyQuadtreeDrawer<Quadtree>;
     using Lidar2D = erl::geometry::Lidar2D;
 
     using Matrix2X = Eigen::Matrix2X<Dtype>;
     using Matrix3X = Eigen::Matrix3X<Dtype>;
+    using Matrix2 = Eigen::Matrix2<Dtype>;
     using Vector2 = Eigen::Vector2<Dtype>;
     using VectorX = Eigen::VectorX<Dtype>;
 
@@ -350,11 +351,11 @@ TestImpl2D() {
             << "ROS bag dat file " << options.ucsd_fah_2d_file << " does not exist.";
     }
 
-    // load the scene
+#pragma region load_scene
     long max_update_cnt;
     std::vector<VectorX> train_angles;
-    std::vector<Eigen::VectorXd> train_ranges;
-    std::vector<std::pair<Eigen::Matrix2d, Eigen::Vector2d> > train_poses;
+    std::vector<VectorX> train_ranges;
+    std::vector<std::pair<Matrix2, Vector2>> train_poses;
     Vector2 map_min(0, 0);
     Vector2 map_max(0, 0);
     Vector2 map_resolution(options.map_resolution, options.map_resolution);
@@ -380,8 +381,8 @@ TestImpl2D() {
              i += options.stride, ++cnt) {
             auto &df = train_data_loader[i];
             train_angles.push_back(df.angles.cast<Dtype>());
-            train_ranges.push_back(df.ranges);
-            train_poses.emplace_back(df.rotation, df.translation);
+            train_ranges.push_back(df.ranges.cast<Dtype>());
+            train_poses.emplace_back(df.rotation.cast<Dtype>(), df.translation.cast<Dtype>());
             cur_traj.col(cnt) << df.translation.cast<Dtype>();
             bar->Update();
         }
@@ -408,7 +409,7 @@ TestImpl2D() {
         auto lidar_setting = std::make_shared<Lidar2D::Setting>();
         lidar_setting->num_lines = 720;
         Lidar2D lidar(lidar_setting, house_expo_map.GetMeterSpace());
-        auto trajectory = LoadAndCastCsvFile<double>(
+        auto trajectory = LoadAndCastCsvFile<Dtype>(
             options.house_expo_traj_file.c_str(),
             [](const std::string &str) -> double { return std::stod(str); });
         max_update_cnt =
@@ -424,16 +425,17 @@ TestImpl2D() {
         for (std::size_t i = options.init_frame; i < trajectory.size();
              i += options.stride, cnt++) {
             bool scan_in_parallel = true;
-            std::vector<double> &waypoint = trajectory[i];
+            std::vector<Dtype> &waypoint = trajectory[i];
             cur_traj.col(cnt) << static_cast<Dtype>(waypoint[0]), static_cast<Dtype>(waypoint[1]);
 
             Eigen::Matrix2d rotation = Eigen::Rotation2Dd(waypoint[2]).toRotationMatrix();
             Eigen::Vector2d translation(waypoint[0], waypoint[1]);
-            Eigen::VectorXd lidar_ranges = lidar.Scan(rotation, translation, scan_in_parallel);
-            lidar_ranges += GenerateGaussianNoise<double>(lidar_ranges.size(), 0.0, 0.01);
+            VectorX lidar_ranges =
+                lidar.Scan(rotation, translation, scan_in_parallel).cast<Dtype>();
+            lidar_ranges += GenerateGaussianNoise<Dtype>(lidar_ranges.size(), 0.0, 0.01);
             train_angles.push_back(lidar.GetAngles().cast<Dtype>());
             train_ranges.push_back(lidar_ranges);
-            train_poses.emplace_back(rotation, translation);
+            train_poses.emplace_back(rotation.cast<Dtype>(), translation.cast<Dtype>());
             bar->Update();
         }
         train_angles.resize(cnt);
@@ -467,8 +469,8 @@ TestImpl2D() {
                  ranges] = ucsd_fah[i];
             cur_traj.col(cnt) << translation.cast<Dtype>();
             train_angles.emplace_back(angles.cast<Dtype>());
-            train_ranges.emplace_back(ranges);
-            train_poses.emplace_back(rotation, translation);
+            train_ranges.emplace_back(ranges.cast<Dtype>());
+            train_poses.emplace_back(rotation.cast<Dtype>(), translation.cast<Dtype>());
             bar->Update();
         }
         train_angles.resize(cnt);
@@ -479,8 +481,9 @@ TestImpl2D() {
         return;
     }
     max_update_cnt = cur_traj.cols();
+#pragma endregion
 
-    // load setting
+#pragma region load_setting
     const auto surface_mapping_setting = std::make_shared<typename SurfaceMapping::Setting>();
     ERL_ASSERTM(
         surface_mapping_setting->FromYamlFile(options.surface_mapping_config_file),
@@ -501,6 +504,7 @@ TestImpl2D() {
     sdf_mapping_setting->test_query.compute_covariance = true;
     sdf_mapping_setting->test_query.use_global_buffer = true;
     SdfMapping sdf_mapping(sdf_mapping_setting, surface_mapping);
+#pragma endregion
 
     // prepare the visualizer
     auto drawer_setting = std::make_shared<typename QuadtreeDrawer::Setting>();
@@ -604,11 +608,29 @@ TestImpl2D() {
     var_grad_y_values.reserve(max_update_cnt);
     for (long i = 0; i < max_update_cnt; i++) {
         const auto &[rotation, translation] = train_poses[i];
-        const Eigen::VectorXd &ranges = train_ranges[i];
+        const auto &ranges = train_ranges[i];
+#pragma region sdf_mapping_update
         auto t0 = std::chrono::high_resolution_clock::now();
-        EXPECT_TRUE(sdf_mapping.Update(rotation, translation, ranges, false, false));
+        ASSERT_TRUE(sdf_mapping.Update(rotation, translation, ranges, false, false));
+        // The following commented code is the same as the above line.
+        // No performance difference like the bayesian hilbert map in 3D.
+        // double surf_mapping_time;
+        // bool ok;
+        // {
+        //     ERL_BLOCK_TIMER_MSG_TIME("Surface mapping update", surf_mapping_time);
+        //     ok = sdf_mapping.GetSurfaceMapping()
+        //              ->Update(rotation, translation, ranges, false, false);
+        // }
+        //
+        // {
+        //     double time_budget_us = 1e6 / sdf_mapping_setting->update_hz;  // us
+        //     ERL_BLOCK_TIMER_MSG("Update SDF GPs");
+        //     if (ok) { sdf_mapping.UpdateGpSdf(time_budget_us - surf_mapping_time * 1000); }
+        // }
+        // ASSERT_TRUE(ok);
         auto t1 = std::chrono::high_resolution_clock::now();
         auto dt = std::chrono::duration<double, std::milli>(t1 - t0).count();
+#pragma endregion
         ERL_INFO("Update time: {:f} ms.", dt);
         t_ms += dt;
         traj_t += tic;

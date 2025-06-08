@@ -11,16 +11,24 @@
 namespace erl::sdf_mapping {
 
     template<typename Dtype, int Dim>
-    class GpOccSurfaceMapping : public AbstractSurfaceMapping {
+    class GpOccSurfaceMapping : public AbstractSurfaceMapping<Dtype, Dim> {
         static_assert(Dim == 2 || Dim == 3, "Dim must be 2 or 3.");
 
     public:
-        // type definitions required by GpSdfMapping
-        using Key = std::conditional_t<Dim == 2, geometry::QuadtreeKey, geometry::OctreeKey>;
-        using KeySet = std::conditional_t<  //
-            Dim == 2,
-            geometry::QuadtreeKeySet,
-            geometry::OctreeKeySet>;
+        using Super = AbstractSurfaceMapping<Dtype, Dim>;
+        using typename Super::Aabb;
+        using typename Super::Key;
+        using typename Super::KeySet;
+        using typename Super::MatrixX;
+        using typename Super::Position;
+        using typename Super::Positions;
+        using typename Super::Ranges;
+        using typename Super::Rotation;
+        using typename Super::SurfData;
+        using typename Super::SurfDataManager;
+        using typename Super::Translation;
+        using typename Super::VectorX;
+
         using KeyVector = std::conditional_t<  //
             Dim == 2,
             geometry::QuadtreeKeyVector,
@@ -33,8 +41,6 @@ namespace erl::sdf_mapping {
             Dim == 2,
             geometry::OccupancyQuadtreeNode,
             geometry::OccupancyOctreeNode>;
-        using SurfDataManager = SurfaceDataManager<Dtype, Dim>;
-        using SurfData = typename SurfDataManager::Data;
 
         // other types
         using SensorGp = std::conditional_t<
@@ -43,20 +49,12 @@ namespace erl::sdf_mapping {
             gaussian_process::RangeSensorGaussianProcess3D<Dtype>>;
         using SensorGpSetting = typename SensorGp::Setting;
         using TreeSetting = typename Tree::Setting;
-        using Aabb = geometry::Aabb<Dtype, Dim>;
         using SurfIndices0Type = absl::flat_hash_map<Key, std::size_t>;
         using SurfIndices1Type = absl::flat_hash_map<Key, absl::flat_hash_map<int, std::size_t>>;
 
         // eigen types
         using Scalar = Eigen::Matrix<Dtype, 1, 1>;
-        using MatrixX = Eigen::MatrixX<Dtype>;
-        using VectorX = Eigen::VectorX<Dtype>;
-        using Rotation = Eigen::Matrix<Dtype, Dim, Dim>;
-        using Translation = Eigen::Vector<Dtype, Dim>;
-        using Ranges = MatrixX;
-        using Position = Eigen::Vector<Dtype, Dim>;
         using Gradient = Position;
-        using Positions = Eigen::Matrix<Dtype, Dim, Eigen::Dynamic>;
 
         struct Setting : public common::Yamlable<Setting> {
             struct ComputeVariance {
@@ -162,8 +160,7 @@ namespace erl::sdf_mapping {
         SurfIndices0Type m_surf_indices0_;
         // key -> [grid_min, (grid index -> surface data index)]
         SurfIndices1Type m_surf_indices1_;
-        // surface data manager to manage the surface data buffer
-        SurfDataManager m_surf_data_manager_;
+
         Eigen::Matrix<Dtype, Dim, 2 * Dim> m_pos_perturb_ = {};
         Dtype m_surface_resolution_inv_ = 0.0f;  // inverse of the tree resolution
         KeySet m_changed_keys_ = {};
@@ -180,18 +177,8 @@ namespace erl::sdf_mapping {
         [[nodiscard]] std::shared_ptr<const Tree>
         GetTree() const;
 
-        [[nodiscard]] const SurfDataManager &
-        GetSurfaceDataManager() const;
-
-        // implement the methods required by AbstractSurfaceMapping
-
-        bool
-        Update(
-            const Eigen::Ref<const Eigen::MatrixXd> &rotation,
-            const Eigen::Ref<const Eigen::VectorXd> &translation,
-            const Eigen::Ref<const Eigen::MatrixXd> &scan,
-            bool are_points,
-            bool are_local) override;
+        // [[nodiscard]] const SurfDataManager &
+        // GetSurfaceDataManager() const;
 
         /**
          * Update the surface mapping.
@@ -209,94 +196,54 @@ namespace erl::sdf_mapping {
             const Eigen::Ref<const Translation> &translation,
             const Eigen::Ref<const Ranges> &ranges);
 
-        // surface data access methods
-
-        [[nodiscard]] std::vector<SurfaceData<double, 3>>
-        GetSurfaceData() const override;
-
         SurfaceDataIterator
         BeginSurfaceData();
 
         SurfaceDataIterator
         EndSurfaceData();
 
-        // implement the methods required by GpSdfMapping
+        // implement the methods required by AbstractSurfaceMapping
 
-        /**
-         * @return the scaling factor of the map.
-         */
+        bool
+        Update(
+            const Eigen::Ref<const Rotation> &rotation,
+            const Eigen::Ref<const Translation> &translation,
+            const Eigen::Ref<const Ranges> &scan,
+            bool are_points,
+            bool are_local) override;
+
         [[nodiscard]] Dtype
-        GetScaling() const;
+        GetScaling() const override;
 
-        /**
-         * Get the size of the cluster.
-         * @return the size of the cluster.
-         */
         [[nodiscard]] Dtype
-        GetClusterSize() const;
+        GetClusterSize() const override;
 
-        /**
-         * Get the center of the cluster.
-         * @param key the key of the cluster.
-         * @return the center of the cluster.
-         */
         [[nodiscard]] Position
-        GetClusterCenter(const Key &key) const;
+        GetClusterCenter(const Key &key) const override;
 
-        /**
-         * Get the keys of clusters that have been changed.
-         * @return set of keys of clusters.
-         */
         [[nodiscard]] const KeySet &
-        GetChangedClusters() const;
+        GetChangedClusters() const override;
 
-        /**
-         * Iterate over the clusters in the given axis-aligned bounding box.
-         * @param aabb the axis-aligned bounding box to collect clusters.
-         * @param callback the callback function to process the key of the cluster.
-         */
         void
-        IterateClustersInAabb(const Aabb &aabb, std::function<void(const Key &)> callback) const;
+        IterateClustersInAabb(const Aabb &aabb, std::function<void(const Key &)> callback)
+            const override;
 
-        /**
-         * Get the surface data buffer.
-         * @return vector of surface data.
-         */
         [[nodiscard]] const std::vector<SurfData> &
-        GetSurfaceDataBuffer() const;
+        GetSurfaceDataBuffer() const override;
 
-        /**
-         * Collect surface data in the given axis-aligned bounding box.
-         * @param aabb the axis-aligned bounding box to collect surface data.
-         * @param surface_data_indices vector of (distance to point, surface point index).
-         */
         void
         CollectSurfaceDataInAabb(
             const Aabb &aabb,
-            std::vector<std::pair<Dtype, std::size_t>> &surface_data_indices) const;
+            std::vector<std::pair<Dtype, std::size_t>> &surface_data_indices) const override;
 
-        /**
-         * Get the boundary of the map.
-         * @return the boundary of the map as an axis-aligned bounding box.
-         */
         [[nodiscard]] Aabb
-        GetMapBoundary() const;
-
-        /**
-         * Check if the given positions are in free space.
-         * @param positions the positions to check.
-         * @param in_free_space the vector to store the result. 1.0 if the position is in free
-         * space, -1.0 otherwise.
-         * @return true if this method is successful. false if the algorithm fails / is not
-         * implemented.
-         */
-        [[nodiscard]] bool
-        IsInFreeSpace(const Positions &positions, VectorX &in_free_space) const;
-
-        // implement the methods required by AbstractSurfaceMapping for factory pattern
+        GetMapBoundary() const override;
 
         [[nodiscard]] bool
-        operator==(const AbstractSurfaceMapping &other) const override;
+        IsInFreeSpace(const Positions &positions, VectorX &in_free_space) const override;
+
+        [[nodiscard]] bool
+        operator==(const Super &other) const override;
 
         [[nodiscard]] bool
         Write(std::ostream &s) const override;
@@ -326,8 +273,6 @@ namespace erl::sdf_mapping {
             const Position &pos_local,
             Dtype &distance_local,
             Dtype &distance_pred,
-            // Eigen::Ref<Scalar> distance_pred,
-            // Eigen::Ref<Scalar> distance_pred_var,
             Dtype &occ) const;
 
         template<int D = Dim>
@@ -336,8 +281,6 @@ namespace erl::sdf_mapping {
             const Position &pos_local,
             Dtype &distance_local,
             Dtype &distance_pred,
-            // Eigen::Ref<Scalar> distance_pred,
-            // Eigen::Ref<Scalar> distance_pred_var,
             Dtype &occ) const;
 
         template<int D = Dim>
@@ -391,9 +334,14 @@ namespace erl::sdf_mapping {
     using GpOccSurfaceMapping2Dd = GpOccSurfaceMapping<double, 2>;
     using GpOccSurfaceMapping2Df = GpOccSurfaceMapping<float, 2>;
 
+    extern template class GpOccSurfaceMapping<double, 3>;
+    extern template class GpOccSurfaceMapping<float, 3>;
+    extern template class GpOccSurfaceMapping<double, 2>;
+    extern template class GpOccSurfaceMapping<float, 2>;
+
 }  // namespace erl::sdf_mapping
 
-#include "gp_occ_surface_mapping.tpp"
+// #include "gp_occ_surface_mapping.tpp"
 
 template<>
 struct YAML::convert<erl::sdf_mapping::GpOccSurfaceMapping3Dd::Setting>

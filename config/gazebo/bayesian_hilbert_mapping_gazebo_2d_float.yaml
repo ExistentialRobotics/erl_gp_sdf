@@ -4,6 +4,7 @@ local_bhm:
         max_distance: 50
         free_points_per_meter: 2
         free_sampling_margin: 0.005
+        init_mu: 0.0
         init_sigma: 10000
         num_em_iterations: 3
         sparse_zero_threshold: 1.0e-6
@@ -19,6 +20,10 @@ local_bhm:
     max_dataset_size: -1
     hit_buffer_size: 16
     surface_resolution: 0.1
+ray_selector:
+    angle_min: -2.356194496154785
+    angle_max: 2.338737726211548
+    num_angles: 270
 tree:
     resolution: 0.35
     tree_depth: 16

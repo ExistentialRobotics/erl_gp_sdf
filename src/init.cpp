@@ -38,14 +38,14 @@ namespace erl::sdf_mapping {
         REGISTER(GpSdfMappingSetting2Dd);
         REGISTER(GpSdfMappingSetting2Df);
 
-        using GpOccSurfaceSdfMapping3Dd = GpSdfMapping<double, 3, GpOccSurfaceMapping3Dd>;
-        using GpOccSurfaceSdfMapping3Df = GpSdfMapping<float, 3, GpOccSurfaceMapping3Df>;
-        using GpOccSurfaceSdfMapping2Dd = GpSdfMapping<double, 2, GpOccSurfaceMapping2Dd>;
-        using GpOccSurfaceSdfMapping2Df = GpSdfMapping<float, 2, GpOccSurfaceMapping2Df>;
-        REGISTER(GpOccSurfaceSdfMapping3Dd);
-        REGISTER(GpOccSurfaceSdfMapping3Df);
-        REGISTER(GpOccSurfaceSdfMapping2Dd);
-        REGISTER(GpOccSurfaceSdfMapping2Df);
+        // using GpOccSurfaceSdfMapping3Dd = GpSdfMapping<double, 3, GpOccSurfaceMapping3Dd>;
+        // using GpOccSurfaceSdfMapping3Df = GpSdfMapping<float, 3, GpOccSurfaceMapping3Df>;
+        // using GpOccSurfaceSdfMapping2Dd = GpSdfMapping<double, 2, GpOccSurfaceMapping2Dd>;
+        // using GpOccSurfaceSdfMapping2Df = GpSdfMapping<float, 2, GpOccSurfaceMapping2Df>;
+        // REGISTER(GpOccSurfaceSdfMapping3Dd);
+        // REGISTER(GpOccSurfaceSdfMapping3Df);
+        // REGISTER(GpOccSurfaceSdfMapping2Dd);
+        // REGISTER(GpOccSurfaceSdfMapping2Df);
 
         REGISTER(LocalBayesianHilbertMapSettingF);
         REGISTER(LocalBayesianHilbertMapSettingD);
@@ -58,18 +58,18 @@ namespace erl::sdf_mapping {
         REGISTER(BayesianHilbertSurfaceMapping3Df);
         REGISTER(BayesianHilbertSurfaceMapping3Dd);
 
-        using BayesianHilbertSdfMapping2Df =
-            GpSdfMapping<float, 2, BayesianHilbertSurfaceMapping2Df>;
-        using BayesianHilbertSdfMapping2Dd =
-            GpSdfMapping<double, 2, BayesianHilbertSurfaceMapping2Dd>;
-        using BayesianHilbertSdfMapping3Df =
-            GpSdfMapping<float, 3, BayesianHilbertSurfaceMapping3Df>;
-        using BayesianHilbertSdfMapping3Dd =
-            GpSdfMapping<double, 3, BayesianHilbertSurfaceMapping3Dd>;
-        REGISTER(BayesianHilbertSdfMapping2Df);
-        REGISTER(BayesianHilbertSdfMapping2Dd);
-        REGISTER(BayesianHilbertSdfMapping3Df);
-        REGISTER(BayesianHilbertSdfMapping3Dd);
+        // using BayesianHilbertSdfMapping2Df =
+        //     GpSdfMapping<float, 2, BayesianHilbertSurfaceMapping2Df>;
+        // using BayesianHilbertSdfMapping2Dd =
+        //     GpSdfMapping<double, 2, BayesianHilbertSurfaceMapping2Dd>;
+        // using BayesianHilbertSdfMapping3Df =
+        //     GpSdfMapping<float, 3, BayesianHilbertSurfaceMapping3Df>;
+        // using BayesianHilbertSdfMapping3Dd =
+        //     GpSdfMapping<double, 3, BayesianHilbertSurfaceMapping3Dd>;
+        // REGISTER(BayesianHilbertSdfMapping2Df);
+        // REGISTER(BayesianHilbertSdfMapping2Dd);
+        // REGISTER(BayesianHilbertSdfMapping3Df);
+        // REGISTER(BayesianHilbertSdfMapping3Dd);
 
         ERL_INFO("erl_sdf_mapping initialized");
         initialized_ = true;
