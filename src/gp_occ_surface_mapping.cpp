@@ -188,8 +188,9 @@ namespace erl::sdf_mapping {
         if (m_setting_->surface_resolution > 0) {
             m_surface_resolution_inv_ = 1.0f / m_setting_->surface_resolution;
             Eigen::Vector<int, Dim> grid_shape;
-            grid_shape.fill(static_cast<int>(
-                std::ceil(m_setting_->tree->resolution * m_surface_resolution_inv_)));
+            grid_shape.fill(
+                static_cast<int>(
+                    std::ceil(m_setting_->tree->resolution * m_surface_resolution_inv_)));
             m_strides_ = common::ComputeCStrides<int>(grid_shape, 1);
         }
 
@@ -222,12 +223,6 @@ namespace erl::sdf_mapping {
         return m_tree_;
     }
 
-    // template<typename Dtype, int Dim>
-    // const typename GpOccSurfaceMapping<Dtype, Dim>::SurfDataManager &
-    // GpOccSurfaceMapping<Dtype, Dim>::GetSurfaceDataManager() const {
-    //     return this->m_surf_data_manager_;
-    // }
-
     template<typename Dtype, int Dim>
     bool
     GpOccSurfaceMapping<Dtype, Dim>::Update(
@@ -236,13 +231,10 @@ namespace erl::sdf_mapping {
         const Eigen::Ref<const Ranges> &scan,
         const bool are_points,
         const bool are_local) {
-        // ERL_ASSERTM(rotation.rows() == Dim, "rotation.rows() != Dim");
-        // ERL_ASSERTM(rotation.cols() == Dim, "rotation.cols() != Dim");
-        // ERL_ASSERTM(translation.rows() == Dim, "translation.rows() != Dim");
-        // MatrixX rotation_ = rotation.cast<Dtype>();
-        // VectorX translation_ = translation.cast<Dtype>();
-        // MatrixX scan_ = scan.cast<Dtype>();
-        if (!are_points) { return Update(rotation, translation, scan); }  // scan is ranges
+        if (!are_points) {  // scan is ranges
+            ERL_WARN_ONCE_COND(!are_local, "are_local is false, but scan is not points.");
+            return Update(rotation, translation, scan);
+        }
 
         // convert points to ranges
         ERL_ASSERTM(scan.rows() == Dim, "scan.rows() != Dim");
@@ -273,10 +265,22 @@ namespace erl::sdf_mapping {
         m_changed_keys_.clear();
         if (const Dtype s = m_setting_->scaling; s != 1.0f) {
             if (!m_sensor_gp_->Train(rotation, translation.array() * s, ranges.array() * s)) {
+                ERL_WARN(
+                    "Failed to train the sensor Gaussian process with scaling factor {}. Original "
+                    "ranges min: {}, max: {}.",
+                    s,
+                    ranges.minCoeff(),
+                    ranges.maxCoeff());
                 return false;
             }
         } else {
-            if (!m_sensor_gp_->Train(rotation, translation, ranges)) { return false; }
+            if (!m_sensor_gp_->Train(rotation, translation, ranges)) {
+                ERL_WARN(
+                    "Failed to train the sensor Gaussian process. Ranges min: {}, max: {}",
+                    ranges.minCoeff(),
+                    ranges.maxCoeff());
+                return false;
+            }
         }
 
         {

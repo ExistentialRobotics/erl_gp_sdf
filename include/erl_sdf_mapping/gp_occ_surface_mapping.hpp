@@ -177,9 +177,6 @@ namespace erl::sdf_mapping {
         [[nodiscard]] std::shared_ptr<const Tree>
         GetTree() const;
 
-        // [[nodiscard]] const SurfDataManager &
-        // GetSurfaceDataManager() const;
-
         /**
          * Update the surface mapping.
          * @param rotation The rotation of the sensor. For 2D, it is a 2x2 matrix. For 3D, it is a

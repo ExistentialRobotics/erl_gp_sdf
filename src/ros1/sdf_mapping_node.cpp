@@ -735,6 +735,9 @@ private:
         }
         scan = Eigen::Map<const Eigen::VectorXf>(scan_msg.ranges.data(), scan_msg.ranges.size())
                    .cast<Dtype>();
+        if (m_setting_.scan_stride > 1) {
+            scan = DownsampleEigenMatrix(scan, m_setting_.scan_stride, 1);
+        }
         m_lidar_scan_2d_.reset();
         return true;
     }
@@ -783,31 +786,71 @@ private:
         const uint32_t xoff = cloud.fields[xi].offset;
         const uint32_t yoff = cloud.fields[yi].offset;
         const uint32_t zoff = cloud.fields[zi].offset;
-        const uint32_t point_step = cloud.point_step;
-        scan.resize(3, static_cast<long>(cloud.width * cloud.height));
+        uint32_t point_step = cloud.point_step;
+        uint32_t row_step = cloud.row_step;
+        auto width = static_cast<int>(cloud.width);
+        auto height = static_cast<int>(cloud.height);
+        const int scan_stride = m_setting_.scan_stride;
+        if (scan_stride > 1) {
+            width = (width + scan_stride - 1) / scan_stride;
+            height = (height + scan_stride - 1) / scan_stride;
+            point_step *= scan_stride;
+            row_step *= scan_stride;
+        }
+        scan.resize(3, width * height);
         long point_count = 0;
-        const uint8_t* ptr = cloud.data.data();
-        const uint8_t* ptr_end = cloud.data.data() + cloud.data.size();
         if (xtype == sensor_msgs::PointField::FLOAT32) {
-            for (; ptr < ptr_end; ptr += point_step) {
-                Dtype* p_out = scan.col(point_count).data();
-                p_out[0] = static_cast<Dtype>(*reinterpret_cast<const float*>(ptr + xoff));
-                p_out[1] = static_cast<Dtype>(*reinterpret_cast<const float*>(ptr + yoff));
-                p_out[2] = static_cast<Dtype>(*reinterpret_cast<const float*>(ptr + zoff));
-                if (std::isfinite(p_out[0]) && std::isfinite(p_out[1]) && std::isfinite(p_out[2])) {
-                    ++point_count;
+            for (int h = 0; h < height; ++h) {
+                const uint8_t* ptr = cloud.data.data() + h * row_step;
+                for (int w = 0; w < width; ++w) {
+                    Dtype* p_out = scan.col(point_count).data();
+                    p_out[0] = static_cast<Dtype>(*reinterpret_cast<const float*>(ptr + xoff));
+                    p_out[1] = static_cast<Dtype>(*reinterpret_cast<const float*>(ptr + yoff));
+                    p_out[2] = static_cast<Dtype>(*reinterpret_cast<const float*>(ptr + zoff));
+                    if (std::isfinite(p_out[0]) && std::isfinite(p_out[1]) &&
+                        std::isfinite(p_out[2])) {
+                        ++point_count;
+                    }
+                    ptr += point_step;
                 }
             }
+
+            // for (; ptr < ptr_end; ptr += point_step) {
+            //     Dtype* p_out = scan.col(point_count).data();
+            //     p_out[0] = static_cast<Dtype>(*reinterpret_cast<const float*>(ptr + xoff));
+            //     p_out[1] = static_cast<Dtype>(*reinterpret_cast<const float*>(ptr + yoff));
+            //     p_out[2] = static_cast<Dtype>(*reinterpret_cast<const float*>(ptr + zoff));
+            //     if (std::isfinite(p_out[0]) && std::isfinite(p_out[1]) &&
+            //     std::isfinite(p_out[2])) {
+            //         ++point_count;
+            //     }
+            // }
         } else if (xtype == sensor_msgs::PointField::FLOAT64) {
-            for (; ptr < ptr_end; ptr += point_step) {
-                Dtype* p_out = scan.col(point_count).data();
-                p_out[0] = static_cast<Dtype>(*reinterpret_cast<const double*>(ptr + xoff));
-                p_out[1] = static_cast<Dtype>(*reinterpret_cast<const double*>(ptr + yoff));
-                p_out[2] = static_cast<Dtype>(*reinterpret_cast<const double*>(ptr + zoff));
-                if (std::isfinite(p_out[0]) && std::isfinite(p_out[1]) && std::isfinite(p_out[2])) {
-                    ++point_count;
+            for (int h = 0; h < height; ++h) {
+                const uint8_t* ptr = cloud.data.data() + h * row_step;
+                for (int w = 0; w < width; ++w) {
+                    Dtype* p_out = scan.col(point_count).data();
+                    p_out[0] = static_cast<Dtype>(*reinterpret_cast<const double*>(ptr + xoff));
+                    p_out[1] = static_cast<Dtype>(*reinterpret_cast<const double*>(ptr + yoff));
+                    p_out[2] = static_cast<Dtype>(*reinterpret_cast<const double*>(ptr + zoff));
+                    if (std::isfinite(p_out[0]) && std::isfinite(p_out[1]) &&
+                        std::isfinite(p_out[2])) {
+                        ++point_count;
+                    }
+                    ptr += point_step;
                 }
             }
+
+            // for (; ptr < ptr_end; ptr += point_step) {
+            //     Dtype* p_out = scan.col(point_count).data();
+            //     p_out[0] = static_cast<Dtype>(*reinterpret_cast<const double*>(ptr + xoff));
+            //     p_out[1] = static_cast<Dtype>(*reinterpret_cast<const double*>(ptr + yoff));
+            //     p_out[2] = static_cast<Dtype>(*reinterpret_cast<const double*>(ptr + zoff));
+            //     if (std::isfinite(p_out[0]) && std::isfinite(p_out[1]) &&
+            //     std::isfinite(p_out[2])) {
+            //         ++point_count;
+            //     }
+            // }
         } else {
             ERL_WARN("Unsupported point cloud data type {}", xtype);
             m_lidar_scan_3d_.reset();
@@ -858,7 +901,26 @@ private:
             m_depth_image_.reset();
             return false;
         }
-        if (scan.size() > 0) { scan.array() *= m_setting_.depth_scale; }  // convert to meters
+        if (scan.size() > 0) {
+            if (m_setting_.scan_stride > 1) {
+                scan = DownsampleEigenMatrix(scan, m_setting_.scan_stride, m_setting_.scan_stride);
+            }
+            long cnt_valid = 0;
+            Dtype* ptr = scan.data();
+            for (long i = 0; i < scan.size(); ++i) {
+                if (std::isfinite(ptr[i]) && ptr[i] > 0) {
+                    ++cnt_valid;
+                } else {
+                    ptr[i] = -1.0f;  // set invalid values to a negative value
+                }
+            }
+            if (cnt_valid == 0) {
+                ERL_WARN("No valid depth in the depth image");
+                m_depth_image_.reset();
+                return false;
+            }
+            scan.array() *= m_setting_.depth_scale;  // convert to meters
+        }
         m_depth_image_.reset();
         return true;
     }
@@ -881,24 +943,14 @@ private:
             case ScanType::Laser:
                 if (!GetScanFromLaserScan(scan)) { return; }
                 are_points = false;
-                if (m_setting_.scan_stride > 1) {
-                    scan = DownsampleEigenMatrix(scan, m_setting_.scan_stride, 1);
-                }
                 break;
             case ScanType::PointCloud:
                 if (!GetScanFromPointCloud2(scan)) { return; }
                 are_points = true;
-                if (m_setting_.scan_stride > 1) {
-                    scan = DownsampleEigenMatrix(scan, 1, m_setting_.scan_stride);
-                }
                 break;
             case ScanType::Depth:
                 if (!GetScanFromDepthImage(scan)) { return; }
                 are_points = false;
-                if (m_setting_.scan_stride > 1) {
-                    scan =
-                        DownsampleEigenMatrix(scan, m_setting_.scan_stride, m_setting_.scan_stride);
-                }
                 break;
         }
         const bool in_local = m_setting_.scan_in_local_frame;

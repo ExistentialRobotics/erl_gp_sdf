@@ -14,7 +14,7 @@
     <!-- whether to launch rqt_plot for performance analysis -->
     <arg name="open_rqt_plot" default="true" />
     <!-- playback rate for rosbag -->
-    <arg name="rosbag_play_rate" default="2.0" />
+    <arg name="rosbag_play_rate" default="1.0" />
 
     <!-- use - -clock option to make rosbag_play publish /clock. But this bag does not have /clock or tf data. -->
     <node pkg="rosbag" type="play" name="rosbag_play" args="$(arg cow_and_lady_bag) --rate=$(arg rosbag_play_rate) --start=5 --duration=128" output="screen"/>

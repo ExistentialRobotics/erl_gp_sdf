@@ -14,7 +14,7 @@ scan_frame_type: erl::geometry::DepthFrame3D<float>
 scan_frame_setting_file: config/sensors/depth_frame.yaml
 scan_stride: 1
 convert_scan_to_points: true
-scan_in_local_frame: false  # converted to points in the world frame
+scan_in_local_frame: true
 depth_scale: 0.001
 publish_tree: false
 publish_tree_topic: surface_mapping_tree

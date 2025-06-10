@@ -199,6 +199,8 @@ RUN mkdir -p /opt/zed_camera_ws/src && \
     . /opt/ros/noetic/setup.sh && \
     rosdep install --from-paths src --ignore-src -r -y --rosdistro noetic && \
     catkin_make -DCMAKE_BUILD_TYPE=Release
+COPY common.yaml /opt/zed_camera_ws/src/zed-ros-wrapper/zed_wrapper/params/common.yaml
+ENV DISABLE_ROS1_EOL_WARNINGS=1
 
 ####################################################################################################
 # Clean up
