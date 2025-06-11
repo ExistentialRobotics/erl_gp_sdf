@@ -15,7 +15,7 @@ sensor_gp:
         row_margin: *row_margin
         col_margin: *col_margin
         valid_range_min: 0.1
-        valid_range_max: 3
+        valid_range_max: 2 # 3
         camera_intrinsic:
             image_height: 360
             image_width: 640

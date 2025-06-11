@@ -92,7 +92,7 @@
             <!-- <param name="z" value="0.8" /> -->
             <param name="x" value="0.0" />
             <param name="y" value="0.0" />
-            <param name="z" value="-0.8" />
+            <param name="z" value="-0.2" />
             <param name="publish_gradient" value="true" />
             <param name="publish_sdf_variance" value="true" />
             <param name="publish_gradient_variance" value="true" />
