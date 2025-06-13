@@ -1,4 +1,4 @@
-`erl_sdf_mapping`
+`erl_gp_sdf`
 =================
 
 ![](test/gtest/assets/test_gp_sdf_mapping_cow_and_lady.png)
@@ -43,7 +43,7 @@ soon.
 3. To use a ROS1 image, run the following commands and use the generated image
    `erl/ros-noetic:cpu-sdf-mapping`.
     ```shell
-    cd /path/to/erl_sdf_mapping
+    cd /path/to/erl_gp_sdf
     cd docker/ros-noetic
     ./build.bash
     ```

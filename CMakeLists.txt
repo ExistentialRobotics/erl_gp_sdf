@@ -1,9 +1,9 @@
 cmake_minimum_required(VERSION 3.16)
 
-project(erl_sdf_mapping
+project(erl_gp_sdf
         LANGUAGES CXX
         VERSION 0.1.0
-        DESCRIPTION "erl_sdf_mapping is a C++ library for SDF estimation.")
+        DESCRIPTION "erl_gp_sdf is a C++ library for SDF estimation.")
 message(STATUS "Configuring ${PROJECT_NAME} ${PROJECT_VERSION}")
 
 if (NOT COMMAND erl_project_setup)
@@ -20,6 +20,7 @@ erl_project_setup(
         roscpp std_msgs sensor_msgs geometry_msgs tf2_ros tf2_eigen
         message_runtime grid_map_ros grid_map_msgs
 )
+
 erl_setup_ros(
         CATKIN_COMPONENTS ${${PROJECT_NAME}_CATKIN_COMPONENTS}
         SRV_FILES SdfQuery.srv SaveMap.srv

@@ -1,6 +1,6 @@
 #include "erl_common/pybind11.hpp"
 #include "erl_common/serialization.hpp"
-#include "erl_sdf_mapping/abstract_surface_mapping.hpp"
+#include "erl_gp_sdf/abstract_surface_mapping.hpp"
 
 template<typename Dtype, int Dim>
 void

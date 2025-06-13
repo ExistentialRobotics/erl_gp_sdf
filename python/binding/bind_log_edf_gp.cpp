@@ -1,5 +1,5 @@
 #include "erl_common/pybind11.hpp"
-#include "erl_sdf_mapping/log_edf_gp.hpp"
+#include "erl_gp_sdf/log_edf_gp.hpp"
 
 template<typename Dtype>
 void

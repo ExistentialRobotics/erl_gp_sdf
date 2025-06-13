@@ -30,7 +30,7 @@ mplstyle.use("fast")
 # plt.show()
 
 
-data_folder = "/home/daizhirui/results/erl_sdf_mapping/bhm_mapping/32764,32768"
+data_folder = "/home/daizhirui/results/erl_gp_sdf/bhm_mapping/32764,32768"
 
 dtype = torch.float32
 

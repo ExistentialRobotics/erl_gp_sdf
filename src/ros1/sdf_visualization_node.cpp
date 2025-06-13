@@ -1,5 +1,5 @@
 #include "erl_common/logging.hpp"
-#include "erl_sdf_mapping/SdfQuery.h"
+#include "erl_gp_sdf/SdfQuery.h"
 
 #include <geometry_msgs/Vector3.h>
 #include <grid_map_msgs/GridMap.h>
@@ -76,7 +76,7 @@ public:
 
         InitQueryPoints();
 
-        m_sdf_client_ = m_nh_.serviceClient<erl_sdf_mapping::SdfQuery>(m_setting_.service_name);
+        m_sdf_client_ = m_nh_.serviceClient<erl_gp_sdf::SdfQuery>(m_setting_.service_name);
         if (m_setting_.publish_grid_map) {
             m_pub_map_ =
                 m_nh_.advertise<grid_map_msgs::GridMap>(m_setting_.map_topic_name, 1, true);
@@ -214,7 +214,7 @@ private:
 
     void
     CallbackTimer(const ros::TimerEvent&) {
-        erl_sdf_mapping::SdfQuery srv;
+        erl_gp_sdf::SdfQuery srv;
         geometry_msgs::TransformStamped transform_stamped;
         if (m_setting_.attached_to_frame) {
             try {
@@ -297,7 +297,7 @@ private:
     }
 
     void
-    InitializePointCloudFields(const erl_sdf_mapping::SdfQuery::Response& ans) {
+    InitializePointCloudFields(const erl_gp_sdf::SdfQuery::Response& ans) {
         if (!m_cloud_.fields.empty()) { return; }
         // initialize point cloud fields
         m_cloud_.fields.reserve(14);
@@ -382,7 +382,7 @@ private:
     }
 
     void
-    LoadResponseToGridMap(const erl_sdf_mapping::SdfQuery::Response& ans) {
+    LoadResponseToGridMap(const erl_gp_sdf::SdfQuery::Response& ans) {
         if (!m_setting_.publish_grid_map) { return; }
         const auto map_size = m_grid_map_.getSize();
         const auto n = static_cast<int>(ans.signed_distances.size());
@@ -508,7 +508,7 @@ private:
     }
 
     void
-    LoadResponseToPointCloud(const erl_sdf_mapping::SdfQuery::Response& ans) {
+    LoadResponseToPointCloud(const erl_gp_sdf::SdfQuery::Response& ans) {
         if (!m_setting_.publish_point_cloud) { return; }
         const auto map_size = m_grid_map_.getSize();
         const auto n = static_cast<int>(ans.signed_distances.size());

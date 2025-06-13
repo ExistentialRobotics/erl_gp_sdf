@@ -1,6 +1,6 @@
 #include "erl_common/pybind11.hpp"
-#include "erl_sdf_mapping/gp_occ_surface_mapping.hpp"
-#include "erl_sdf_mapping/gp_sdf_mapping.hpp"
+#include "erl_gp_sdf/gp_occ_surface_mapping.hpp"
+#include "erl_gp_sdf/gp_sdf_mapping.hpp"
 
 template<typename Dtype, int Dim>
 void

@@ -64,7 +64,7 @@ struct YAML::convert<Options> {
         ERL_YAML_LOAD_ATTR(node, options, near_surface_delta);
         ERL_YAML_LOAD_ATTR(node, options, var_x);
         ERL_YAML_LOAD_ATTR(node, options, var_y);
-        ERL_YAML_LOAD_ATTR(node, options, gp);
+        if (!ERL_YAML_LOAD_ATTR(node, options, gp)) { return false; }
         ERL_YAML_LOAD_ATTR(node, options, output_dir);
         return true;
     }
@@ -311,7 +311,8 @@ main(const int argc, char **argv) {
     }
     try {
         const std::string options_file =
-            (argc == 2) ? argv[1] : (ERL_SDF_MAPPING_ROOT_DIR "/config/demo_sdf_regression.yaml");
+            (argc == 2) ? argv[1]
+                        : (ERL_GP_SDF_ROOT_DIR "/config/demo/demo_sdf_regression.yaml");
         App app(options_file);
         app.Run();
     } catch (const std::exception &e) {

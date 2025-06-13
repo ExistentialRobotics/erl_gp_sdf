@@ -61,7 +61,7 @@ struct App {
 
     void
     Run() {
-        GazeboRoom2D::TrainDataLoader dataloader(ERL_SDF_MAPPING_ROOT_DIR "/data/gazebo");
+        GazeboRoom2D::TrainDataLoader dataloader(ERL_GP_SDF_ROOT_DIR "/data/gazebo");
         auto &frame = dataloader[options.frame_idx];
         Gp gp(options.gp);
         gp.Reset();
@@ -237,7 +237,7 @@ main(int argc, char **argv) {
     try {
         const std::string options_file =
             (argc == 2) ? argv[1]
-                        : (ERL_SDF_MAPPING_ROOT_DIR "/config/demo/demo_gp_occ_regression.yaml");
+                        : (ERL_GP_SDF_ROOT_DIR "/config/demo/demo_gp_occ_regression.yaml");
         App app(options_file);
         app.Run();
     } catch (const std::exception &e) {

@@ -7,8 +7,8 @@
 #include "erl_geometry/lidar_frame_3d.hpp"
 #include "erl_geometry/open3d_visualizer_wrapper.hpp"
 #include "erl_geometry/trajectory.hpp"
-#include "erl_sdf_mapping/gp_occ_surface_mapping.hpp"
-#include "erl_sdf_mapping/gp_sdf_mapping.hpp"
+#include "erl_gp_sdf/gp_occ_surface_mapping.hpp"
+#include "erl_gp_sdf/gp_sdf_mapping.hpp"
 
 #include <boost/program_options.hpp>
 #include <open3d/geometry/LineSet.h>
@@ -17,7 +17,7 @@
 #include <open3d/io/TriangleMeshIO.h>
 #include <open3d/visualization/utility/DrawGeometry.h>
 
-const std::filesystem::path kProjectRootDir = ERL_SDF_MAPPING_ROOT_DIR;
+const std::filesystem::path kProjectRootDir = ERL_GP_SDF_ROOT_DIR;
 const std::filesystem::path kDataDir = kProjectRootDir / "data";
 const std::filesystem::path kConfigDir = kProjectRootDir / "config";
 int g_argc = 0;

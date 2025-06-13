@@ -1,4 +1,4 @@
-#include "erl_sdf_mapping/gp_occ_surface_mapping.hpp"
+#include "erl_gp_sdf/gp_occ_surface_mapping.hpp"
 
 #include "erl_common/clip.hpp"
 #include "erl_common/template_helper.hpp"

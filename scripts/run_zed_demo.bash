@@ -6,4 +6,4 @@ source /opt/ros/noetic/setup.bash
 # source /opt/zed_camera_ws/devel/setup.bash
 source ${ROS_WS_DIR}/devel/setup.bash
 
-roslaunch erl_sdf_mapping zed_ros_live.launch
+roslaunch erl_gp_sdf zed_ros_live.launch

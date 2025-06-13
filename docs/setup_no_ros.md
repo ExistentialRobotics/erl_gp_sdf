@@ -4,7 +4,7 @@
 2. Clone the repositories into the source directory
     ```shell
     cd <workspace>/src
-    for repo in erl_common erl_covariance erl_gaussian_process erl_geometry erl_sdf_mapping; do
+    for repo in erl_common erl_covariance erl_gaussian_process erl_geometry erl_gp_sdf; do
         git clone --recursive https://github.com/ExistentialRobotics/${repo}.git
     done
     ```
@@ -17,7 +17,7 @@
     add_subdirectory(src/erl_covariance)
     add_subdirectory(src/erl_geometry)
     add_subdirectory(src/erl_gaussian_process)
-    add_subdirectory(src/erl_sdf_mapping)
+    add_subdirectory(src/erl_gp_sdf)
     ```
 4. Build
     ```shell

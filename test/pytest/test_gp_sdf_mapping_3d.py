@@ -4,7 +4,7 @@ import cv2
 import numpy as np
 import open3d as o3d
 
-from erl_sdf_mapping import GpSdfMapping3D
+from erl_gp_sdf import GpSdfMapping3D
 
 
 def main():

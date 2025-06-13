@@ -8,7 +8,7 @@ Setup With ROS1
     ```
 2. Clone the repositories into the `src` directory
     ```shell
-    for repo in erl_common erl_covariance erl_gaussian_process erl_geometry erl_sdf_mapping; do
+    for repo in erl_common erl_covariance erl_gaussian_process erl_geometry erl_gp_sdf; do
         git clone --recursive https://github.com/ExistentialRobotics/${repo}.git
     done
     ```

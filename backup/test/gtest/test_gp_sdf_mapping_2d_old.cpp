@@ -15,7 +15,7 @@
 #include <filesystem>
 
 static std::string g_window_name = "ERL_SDF_MAPPING";
-const std::filesystem::path kProjectRootDir = ERL_SDF_MAPPING_ROOT_DIR;
+const std::filesystem::path kProjectRootDir = ERL_GP_SDF_ROOT_DIR;
 
 struct Options {
     std::string gazebo_train_file = kProjectRootDir / "data" / "gazebo_train.dat";

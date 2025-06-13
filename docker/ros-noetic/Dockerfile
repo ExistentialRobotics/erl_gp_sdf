@@ -58,7 +58,7 @@ RUN echo "deb [signed-by=/etc/apt/keyrings/librealsense.pgp] https://librealsens
     librealsense2-gl-dbg
 
 ####################################################################################################
-# erl_sdf_mapping dependencies
+# erl_gp_sdf dependencies
 ####################################################################################################
 RUN DEBIAN_FRONTEND=noninteractive apt-get install -y \
     ros-noetic-grid-map-ros \

@@ -1,5 +1,6 @@
-#include "erl_sdf_mapping/log_edf_gp.hpp"
+#include "erl_gp_sdf/log_edf_gp.hpp"
 
+#include "erl_covariance/matern32.hpp"
 #include "erl_covariance/reduced_rank_covariance.hpp"
 
 namespace erl::sdf_mapping {
@@ -178,6 +179,13 @@ namespace erl::sdf_mapping {
     template<typename Dtype>
     LogEdfGaussianProcess<Dtype>::LogEdfGaussianProcess(std::shared_ptr<Setting> setting)
         : Super([setting]() -> std::shared_ptr<Setting> {
+              if (setting->kernel->x_dim == 2) {
+                  setting->kernel_type = type_name<covariance::Matern32<Dtype, 2>>();
+              } else if (setting->kernel->x_dim == 3) {
+                  setting->kernel_type = type_name<covariance::Matern32<Dtype, 3>>();
+              } else {
+                  setting->kernel_type = type_name<covariance::Matern32<Dtype, Eigen::Dynamic>()>();
+              }
               setting->kernel->scale = std::sqrt(3.) / setting->log_lambda;
               setting->no_gradient_observation = true;
               return setting;

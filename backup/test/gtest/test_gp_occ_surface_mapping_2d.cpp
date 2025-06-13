@@ -34,7 +34,7 @@ struct Options {
 };
 
 static Options g_options;
-const std::filesystem::path kProjectRootDir = ERL_SDF_MAPPING_ROOT_DIR;
+const std::filesystem::path kProjectRootDir = ERL_GP_SDF_ROOT_DIR;
 
 TEST(GpOccSurfaceMapping2D, Build_Save_Load) {
     GTEST_PREPARE_OUTPUT_DIR();

@@ -18,5 +18,5 @@ gp:
         weights: [ ]
     max_num_samples: -1
     no_gradient_observation: true
-    log_lambda: 200
+    log_lambda: 40  # 200
 output_dir: log_sdf_regression

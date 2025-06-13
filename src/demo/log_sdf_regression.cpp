@@ -1,5 +1,5 @@
 #include "erl_common/plplot_fig.hpp"
-#include "erl_sdf_mapping/log_edf_gp.hpp"
+#include "erl_gp_sdf/log_edf_gp.hpp"
 
 using namespace erl::common;
 using namespace erl::sdf_mapping;
@@ -11,7 +11,7 @@ struct Options : Yamlable<Options> {
     double min_x = -2.0;
     double min_y = -2.0;
     double radius = 1.0;
-    long num_samples = 10000;
+    long num_samples = 1000;
     int test_num_x = 201;
     int test_num_y = 201;
     double var_x = 0.01;
@@ -53,7 +53,7 @@ struct YAML::convert<Options> {
         ERL_YAML_LOAD_ATTR(node, options, test_num_y);
         ERL_YAML_LOAD_ATTR(node, options, var_x);
         ERL_YAML_LOAD_ATTR(node, options, var_y);
-        ERL_YAML_LOAD_ATTR(node, options, gp);
+        if (!ERL_YAML_LOAD_ATTR(node, options, gp)) { return false; }
         ERL_YAML_LOAD_ATTR(node, options, output_dir);
         return true;
     }
@@ -116,7 +116,9 @@ struct App {
             std::filesystem::create_directories(options.output_dir);
         }
 
+        ERL_INFO("Generating dataset");
         auto dataset = GenerateDataset();
+        ERL_INFO("Training gp");
         auto gp = Train(dataset);
 
         GridMapInfo2Dd grid_info(
@@ -127,11 +129,16 @@ struct App {
         Eigen::VectorXd sdf_gt = test_pts.colwise().norm().array() - options.radius;
         Eigen::VectorXd edf_pred(test_pts.cols());
         Eigen::Matrix2Xd edf_grads(2, test_pts.cols());
+
+        ERL_INFO("Testing gp");
         auto test_result = gp->Test(test_pts, true /*predict_gradient*/);
         ERL_ASSERTM(test_result != nullptr, "Failed to test Gaussian Process.");
+
+        ERL_INFO("Getting mean and gradients");
         test_result->GetMean(0, edf_pred, true /*parallel*/);
         Eigen::VectorXb valid_gradients = test_result->GetGradient(0, edf_grads, true /*parallel*/);
 
+        ERL_INFO("Normal diffusion");
         Eigen::Matrix2Xd normals(2, test_pts.cols());
         Eigen::VectorXd buf(test_pts.cols());
         test_result->GetMean(1, buf, true);
@@ -335,20 +342,7 @@ struct App {
             .SetAreaFillPattern(PlplotFig::AreaFillPattern::Solid)
             .SetColorMap(1, PlplotFig::ColorMap::Jet)
             .Shades(var.data(), options.test_num_x, options.test_num_y, true, shades_opt)
-            .ColorBar(color_bar_opt)
-            .SetCurrentColor(PlplotFig::Color0::Black)
-            .SetPenWidth(2)
-            .DrawContour(
-                sdf_gt.data(),
-                options.test_num_x,
-                options.test_num_y,
-                options.min_x,
-                options.max_x,
-                options.min_y,
-                options.max_y,
-                true,
-                {0.0})
-            .SetPenWidth(1);
+            .ColorBar(color_bar_opt);
         draw_axes();
         img = fig.ToCvMat();
         cv::imwrite(options.output_dir + "/log_sdf_regression_gp_variance.png", img);
@@ -467,7 +461,7 @@ main(const int argc, char **argv) {
     try {
         const std::string options_file =
             (argc == 2) ? argv[1]
-                        : (ERL_SDF_MAPPING_ROOT_DIR "/config/demo_log_sdf_regression.yaml");
+                        : (ERL_GP_SDF_ROOT_DIR "/config/demo/demo_log_sdf_regression.yaml");
         App app(options_file);
         app.Run();
     } catch (const std::exception &e) {

@@ -14,7 +14,7 @@
 #include <open3d/io/TriangleMeshIO.h>
 #include <open3d/visualization/utility/DrawGeometry.h>
 
-const std::filesystem::path kProjectRootDir = ERL_SDF_MAPPING_ROOT_DIR;
+const std::filesystem::path kProjectRootDir = ERL_GP_SDF_ROOT_DIR;
 using Dtype = float;
 using GpOccSurfaceMapping3D = erl::sdf_mapping::GpOccSurfaceMapping3D<Dtype>;
 using GpSdfMapping3D = erl::sdf_mapping::GpSdfMapping3D<Dtype>;

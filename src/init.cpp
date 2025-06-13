@@ -1,11 +1,11 @@
-#include "erl_sdf_mapping/init.hpp"
+#include "erl_gp_sdf/init.hpp"
 
 #include "erl_gaussian_process/init.hpp"
-#include "erl_sdf_mapping/bayesian_hilbert_surface_mapping.hpp"
-#include "erl_sdf_mapping/gp_occ_surface_mapping.hpp"
-#include "erl_sdf_mapping/gp_sdf_mapping.hpp"
-#include "erl_sdf_mapping/gp_sdf_mapping_setting.hpp"
-#include "erl_sdf_mapping/log_edf_gp.hpp"
+#include "erl_gp_sdf/bayesian_hilbert_surface_mapping.hpp"
+#include "erl_gp_sdf/gp_occ_surface_mapping.hpp"
+#include "erl_gp_sdf/gp_sdf_mapping.hpp"
+#include "erl_gp_sdf/gp_sdf_mapping_setting.hpp"
+#include "erl_gp_sdf/log_edf_gp.hpp"
 
 namespace erl::sdf_mapping {
 
@@ -71,7 +71,7 @@ namespace erl::sdf_mapping {
         // REGISTER(BayesianHilbertSdfMapping3Df);
         // REGISTER(BayesianHilbertSdfMapping3Dd);
 
-        ERL_INFO("erl_sdf_mapping initialized");
+        ERL_INFO("erl_gp_sdf initialized");
         initialized_ = true;
 
         return true;

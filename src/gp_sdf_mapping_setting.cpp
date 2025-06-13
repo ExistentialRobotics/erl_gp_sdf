@@ -1,4 +1,4 @@
-#include "erl_sdf_mapping/gp_sdf_mapping_setting.hpp"
+#include "erl_gp_sdf/gp_sdf_mapping_setting.hpp"
 
 namespace erl::sdf_mapping {
 

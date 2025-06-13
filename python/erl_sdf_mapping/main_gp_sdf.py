@@ -15,10 +15,10 @@ from erl_geometry import Space2D
 from erl_geometry.gazebo.sequence import GazeboSequence
 from erl_geometry.house_expo.list_data import get_map_and_traj_files
 from erl_geometry.house_expo.sequence import HouseExpoSequence
-from erl_sdf_mapping import GpOccSurfaceMapping2D
-from erl_sdf_mapping import GpSdfMapping2D
-from erl_sdf_mapping.gpis import GpisMap2D
-from erl_sdf_mapping.gpis import LogGpisMap2D
+from erl_gp_sdf import GpOccSurfaceMapping2D
+from erl_gp_sdf import GpSdfMapping2D
+from erl_gp_sdf.gpis import GpisMap2D
+from erl_gp_sdf.gpis import LogGpisMap2D
 
 
 # import cv2

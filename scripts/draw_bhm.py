@@ -3,7 +3,7 @@ import numpy as np
 import matplotlib.pyplot as plt
 import matplotlib.patches as patches
 
-folder = "/home/daizhirui/D/Dev/erl_sddf/cmake-build-debug/src/erl_sdf_mapping"
+folder = "/home/daizhirui/D/Dev/erl_sddf/cmake-build-debug/src/erl_gp_sdf"
 sensor_position_file = "sensor_position.txt"
 points_file = "points.txt"
 # map_min_file = "map_min.txt"

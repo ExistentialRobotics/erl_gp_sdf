@@ -3,7 +3,7 @@ max_y: 2
 min_x: -2
 min_y: -2
 radius: 1
-num_samples: 10000
+num_samples: 1000
 test_num_x: 201
 test_num_y: 201
 seed: 0

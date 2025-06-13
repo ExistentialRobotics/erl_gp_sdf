@@ -15,13 +15,13 @@
 #include "erl_geometry/open3d_visualizer_wrapper.hpp"
 #include "erl_geometry/trajectory.hpp"
 #include "erl_geometry/ucsd_fah_2d.hpp"
-#include "erl_sdf_mapping/bayesian_hilbert_surface_mapping.hpp"
+#include "erl_gp_sdf/bayesian_hilbert_surface_mapping.hpp"
 
 #include <boost/program_options.hpp>
 
 int g_argc = 0;
 char **g_argv = nullptr;
-const std::filesystem::path kProjectRootDir = ERL_SDF_MAPPING_ROOT_DIR;
+const std::filesystem::path kProjectRootDir = ERL_GP_SDF_ROOT_DIR;
 const std::filesystem::path kDataDir = kProjectRootDir / "data";
 const std::filesystem::path kConfigDir = kProjectRootDir / "config";
 

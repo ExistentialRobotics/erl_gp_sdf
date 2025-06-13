@@ -1,4 +1,4 @@
-#include "erl_sdf_mapping/gp_sdf_mapping.hpp"
+#include "erl_gp_sdf/gp_sdf_mapping.hpp"
 
 #include "erl_common/block_timer.hpp"
 #include "erl_common/tracy.hpp"

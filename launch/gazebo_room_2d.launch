@@ -17,17 +17,17 @@
         <param name="publish_rate" value="60.0" />
     </node>
     <node pkg="tf2_ros" type="static_transform_publisher" name="map_odom_transformer" args="0 0 0 0 0 0 1 map odom" />
-    <node pkg="erl_sdf_mapping" type="sdf_mapping_node" name="sdf_mapping_node" output="screen">
+    <node pkg="erl_gp_sdf" type="sdf_mapping_node" name="sdf_mapping_node" output="screen">
         <param name="map_dim" value="2" />
         <param name="double_precision" value="$(eval precision == 'double')" />
-        <param name="setting_file" value="$(find erl_sdf_mapping)/config/ros1/ros_launch_$(arg surf_mapping_method)_$(arg precision)_2d.yaml" />
-        <param name="surface_mapping_setting_file" value="$(find erl_sdf_mapping)/config/gazebo/$(arg surf_mapping_method)_mapping_gazebo_2d_$(arg precision).yaml" />
-        <param name="sdf_mapping_setting_file" value="$(find erl_sdf_mapping)/config/gazebo/$(arg surf_mapping_method)_sdf_mapping_gazebo_2d_$(arg precision).yaml" />
+        <param name="setting_file" value="$(find erl_gp_sdf)/config/ros1/ros_launch_$(arg surf_mapping_method)_$(arg precision)_2d.yaml" />
+        <param name="surface_mapping_setting_file" value="$(find erl_gp_sdf)/config/gazebo/$(arg surf_mapping_method)_mapping_gazebo_2d_$(arg precision).yaml" />
+        <param name="sdf_mapping_setting_file" value="$(find erl_gp_sdf)/config/gazebo/$(arg surf_mapping_method)_sdf_mapping_gazebo_2d_$(arg precision).yaml" />
         <param name="scan_topic" value="/gazebo_room_2d_node/scan" />
-        <param name="scan_frame_setting_file" value="$(find erl_sdf_mapping)/config/gazebo/lidar_frame_2d.yaml" />
+        <param name="scan_frame_setting_file" value="$(find erl_gp_sdf)/config/gazebo/lidar_frame_2d.yaml" />
     </node>
     <group if="$(arg visualize_sdf)">
-        <node pkg="erl_sdf_mapping" type="sdf_visualization_node" name="sdf_visualization_node" output="screen">
+        <node pkg="erl_gp_sdf" type="sdf_visualization_node" name="sdf_visualization_node" output="screen">
             <param name="resolution" value="0.07" />
             <param name="x_cells" value="401" />
             <param name="y_cells" value="401" />
@@ -50,7 +50,7 @@
     </group>
 
     <group if="$(arg open_rviz)">
-        <node pkg="rviz" type="rviz" name="rviz" args="-d $(find erl_sdf_mapping)/rviz/gazebo_room_2d.rviz" />
+        <node pkg="rviz" type="rviz" name="rviz" args="-d $(find erl_gp_sdf)/rviz/gazebo_room_2d.rviz" />
     </group>
 
     <group if="$(arg open_rqt_plot)">

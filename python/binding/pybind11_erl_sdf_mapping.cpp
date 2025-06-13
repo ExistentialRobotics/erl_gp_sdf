@@ -28,7 +28,7 @@ void
 BindGpSdfMapping(const py::module &m);
 
 PYBIND11_MODULE(PYBIND_MODULE_NAME, m) {
-    m.doc() = "Python 3 Interface of erl_sdf_mapping";
+    m.doc() = "Python 3 Interface of erl_gp_sdf";
 
     BindSurfaceDataManager(m);
     BindLogEdfGaussianProcess(m);

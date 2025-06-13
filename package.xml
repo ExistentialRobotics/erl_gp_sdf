@@ -1,12 +1,12 @@
 <?xml version="1.0"?>
 <package format="2">
-    <name>erl_sdf_mapping</name>
+    <name>erl_gp_sdf</name>
     <version>0.1.0</version>
-    <description>erl_sdf_mapping is a C++ library for SDF estimation.</description>
+    <description>erl_gp_sdf is a C++ library for SDF estimation.</description>
     <author email="daizhirui@hotmail.com">Zhirui Dai</author>
     <maintainer email="daizhirui@hotmail.com">Zhirui Dai</maintainer>
     <license>MIT</license>
-    <url type="repository">https://github.com/ExistentialRobotics/erl_sdf_mapping.git</url>
+    <url type="repository">https://github.com/ExistentialRobotics/erl_gp_sdf.git</url>
 
     <buildtool_depend>catkin</buildtool_depend>
 

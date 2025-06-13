@@ -535,8 +535,8 @@ def main():
 
     ray_dirs = torch.tensor(lidar.ray_directions_in_frame, device=device).to(device)
     for xy, theta in zip(*trajectory):
-        pts_file = f"/home/daizhirui/D/Dev/erl_sddf/cmake-build-debug/src/erl_sdf_mapping/dataset_points_{traj_idx}.txt"
-        y_file = f"/home/daizhirui/D/Dev/erl_sddf/cmake-build-debug/src/erl_sdf_mapping/dataset_labels_{traj_idx}.txt"
+        pts_file = f"/home/daizhirui/D/Dev/erl_sddf/cmake-build-debug/src/erl_gp_sdf/dataset_points_{traj_idx}.txt"
+        y_file = f"/home/daizhirui/D/Dev/erl_sddf/cmake-build-debug/src/erl_gp_sdf/dataset_labels_{traj_idx}.txt"
         traj_idx += 1
 
         scan = lidar.scan(theta, xy)

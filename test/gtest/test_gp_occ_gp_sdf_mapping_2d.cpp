@@ -7,12 +7,12 @@
 #include "erl_geometry/occupancy_quadtree_drawer.hpp"
 #include "erl_geometry/trajectory.hpp"
 #include "erl_geometry/ucsd_fah_2d.hpp"
-#include "erl_sdf_mapping/gp_occ_surface_mapping.hpp"
-#include "erl_sdf_mapping/gp_sdf_mapping.hpp"
+#include "erl_gp_sdf/gp_occ_surface_mapping.hpp"
+#include "erl_gp_sdf/gp_sdf_mapping.hpp"
 
 #include <boost/program_options.hpp>
 
-const std::filesystem::path kProjectRootDir = ERL_SDF_MAPPING_ROOT_DIR;
+const std::filesystem::path kProjectRootDir = ERL_GP_SDF_ROOT_DIR;
 const std::filesystem::path kDataDir = kProjectRootDir / "data";
 const std::filesystem::path kConfigDir = kProjectRootDir / "config";
 int g_argc = 0;

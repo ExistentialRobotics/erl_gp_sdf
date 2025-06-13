@@ -1,5 +1,5 @@
 #include "erl_common/plplot_fig.hpp"
-#include "erl_sdf_mapping/log_edf_gp.hpp"
+#include "erl_gp_sdf/log_edf_gp.hpp"
 
 using namespace erl::common;
 using namespace erl::sdf_mapping;
@@ -17,7 +17,7 @@ struct Options : Yamlable<Options> {
     int num_x = 201;
     int num_y = 201;
     double radius = 1.0;
-    long num_samples = 10000;
+    long num_samples = 1000;
     Eigen::Vector2d test_position = {1.5, 1.5};
     double softmin_temperature = 10.0;
     double var_x_min = 0.001;
@@ -71,7 +71,7 @@ struct YAML::convert<Options> {
         ERL_YAML_LOAD_ATTR(node, options, var_x_max);
         ERL_YAML_LOAD_ATTR(node, options, num_var_x);
         ERL_YAML_LOAD_ATTR(node, options, var_y);
-        ERL_YAML_LOAD_ATTR(node, options, gp);
+        if (!ERL_YAML_LOAD_ATTR(node, options, gp)) { return false; }
         ERL_YAML_LOAD_ATTR(node, options, output_dir);
         ERL_YAML_LOAD_ATTR(node, options, show_images);
         return true;
@@ -128,8 +128,8 @@ struct App {
         const std::shared_ptr<Gp> &gp,
         const VectorD &test_position,
         const Dtype edf_pred,
+        const bool compute_var_grad,
         Dtype *var) const {
-
         const Gp::TrainSet &train_set = gp->GetTrainSet();
         const long num_samples = train_set.num_samples;
 
@@ -161,6 +161,8 @@ struct App {
             g += w * mat_v.col(k);
             f += s[k] * mat_v.col(k);
         }
+
+        if (!compute_var_grad) { return; }
 
         using SqMat = Eigen::Matrix<Dtype, Dim, Dim>;
         SqMat cov_grad = SqMat::Zero();
@@ -194,6 +196,7 @@ struct App {
         const double a = 1.0 / (2.0 * M_PI * std::sqrt(var));  // normalization constant
         const double b = -0.5 / var;                           // exponent coefficient
         Eigen::VectorXd gmm_values(test_pts.cols());
+#pragma omp parallel for default(none) shared(test_pts, points, a, b, gmm_values)
         for (long i = 0; i < test_pts.cols(); ++i) {
             double sum = 0.0;
             auto p = test_pts.col(i);
@@ -207,11 +210,33 @@ struct App {
         return gmm_values;
     }
 
+    [[nodiscard]] Eigen::VectorXd
+    ComputeSdfVar(const std::shared_ptr<Gp> &gp) const {
+        ERL_INFO("Computing SDF variances");
+
+        GridMapInfo2Dd grid_info(
+            Eigen::Vector2i(options.num_x, options.num_y),
+            Eigen::Vector2d(options.min_x, options.min_y),
+            Eigen::Vector2d(options.max_x, options.max_y));
+        Eigen::Matrix2Xd test_pts = grid_info.GenerateMeterCoordinates(true /*c_stride*/);
+        auto test_result = gp->Test(test_pts, false);
+        Eigen::VectorXd edf_pred(test_pts.cols());
+        test_result->GetMean(0, edf_pred, true /*parallel*/);
+        Eigen::VectorXd var(test_pts.cols());
+#pragma omp parallel for default(none) shared(gp, test_pts, edf_pred, var)
+        for (long i = 0; i < test_pts.cols(); ++i) {
+            EstimateVariance(gp, test_pts.col(i), edf_pred[i], false, &var[i]);
+        }
+        return var;
+    }
+
     void
     Run() const {
         std::filesystem::create_directories(options.output_dir);
-        auto img_dir = options.output_dir / "variance_estimation";
-        std::filesystem::create_directories(img_dir);
+        auto img_dir0 = options.output_dir / "variances_estimation";
+        auto img_dir1 = options.output_dir / "variance_estimation";
+        std::filesystem::create_directories(img_dir0);
+        std::filesystem::create_directories(img_dir1);
 
         const auto dataset = GenerateDataset();
         Eigen::VectorXd var_xs =
@@ -219,18 +244,19 @@ struct App {
         Eigen::VectorXd edf_pred(options.num_var_x);
         Eigen::Matrix3Xd gp_variances(3, options.num_var_x);
         Eigen::Matrix3Xd variances(3, options.num_var_x);
+        std::vector<Eigen::VectorXd> sdf_var_values(options.num_var_x);
         std::vector<Eigen::VectorXd> gmm_values(options.num_var_x);
-#pragma omp parallel for default(none) \
-    shared(options, var_xs, dataset, edf_pred, gp_variances, variances, gmm_values)
+
         for (int i = 0; i < options.num_var_x; ++i) {
             ERL_INFO("Training GP with var_x = {}", var_xs[i]);
-
             auto gp = Train(dataset, var_xs[i]);
+            ERL_INFO("Testing GP");
             auto test_result = gp->Test(options.test_position, true);
             test_result->GetMean(0, 0, edf_pred[i]);
             test_result->GetMeanVariance(0, gp_variances(0, i));
             test_result->GetGradientVariance(0, gp_variances.col(i).tail<2>().data());
-            EstimateVariance(gp, options.test_position, edf_pred[i], variances.col(i).data());
+            EstimateVariance(gp, options.test_position, edf_pred[i], true, variances.col(i).data());
+            sdf_var_values[i] = ComputeSdfVar(gp);
             gmm_values[i] = ComputeGmm(dataset, var_xs[i]);
         }
 
@@ -247,7 +273,7 @@ struct App {
         auto clear_fig = [&fig, this]() {
             fig.Clear()
                 .SetFontSize(0.0, 1.1)
-                .SetMargin(0.15, 0.85, 0.15, 0.85)
+                .SetMargin(0.12, 0.82, 0.15, 0.85)
                 .SetAxisLimits(options.min_x, options.max_x, options.min_y, options.max_y);
         };
         auto draw_axes = [&fig]() {
@@ -258,13 +284,46 @@ struct App {
                 .SetAxisLabelX("x")
                 .SetAxisLabelY("y");
         };
+
         PlplotFig::ShadesOpt shades_opt;
-        shades_opt.SetColorLevels(gmm_values.back().data(), options.num_x, options.num_y, 127);
         shades_opt.SetXMin(options.min_x)
             .SetXMax(options.max_x)
             .SetYMin(options.min_y)
             .SetYMax(options.max_y);
+        PlplotFig::ColorBarOpt color_bar_opt;
 
+        shades_opt.SetColorLevels(
+            sdf_var_values.front().minCoeff(),
+            sdf_var_values.back().maxCoeff(),
+            127);
+        color_bar_opt.SetLabelOpts({PL_COLORBAR_LABEL_BOTTOM})
+            .AddColorMap(0, shades_opt.color_levels, 10);
+        for (int i = 0; i < options.num_var_x; ++i) {
+            clear_fig();
+
+            fig.SetAreaFillPattern(PlplotFig::AreaFillPattern::Solid)
+                .SetColorMap(1, PlplotFig::ColorMap::Jet)
+                .Shades(sdf_var_values[i].data(), options.num_x, options.num_y, true, shades_opt)
+                .SetCurrentColor(PlplotFig::Color0::Black)
+                .ColorBar(color_bar_opt);
+
+            generate_circle(options.radius, 0, 0);
+            fig.SetCurrentColor(PlplotFig::Color0::Black)
+                .SetPenWidth(2)
+                .DrawLine(static_cast<int>(xs.size()), xs.data(), ys.data())
+                .SetPenWidth(1)
+                .SetCurrentColor(PlplotFig::Color0::Black)
+                .SetTitle(fmt::format("variance of dataset: {:.3e}", var_xs[i]).c_str());
+            draw_axes();
+
+            cv::Mat img = fig.ToCvMat();
+            cv::imwrite(fmt::format("{}/{:03d}.png", img_dir0, i), img);
+            if (options.show_images) {
+                cv::imshow(fmt::format("variances_estimation_{:03d}", i), img);
+            }
+        }
+
+        shades_opt.SetColorLevels(gmm_values.back().data(), options.num_x, options.num_y, 127);
         for (int i = 0; i < options.num_var_x; ++i) {
             clear_fig();
             shades_opt.SetColorLevels(gmm_values[i].data(), options.num_x, options.num_y, 127);
@@ -298,7 +357,7 @@ struct App {
             draw_axes();
 
             cv::Mat img = fig.ToCvMat();
-            cv::imwrite(fmt::format("{}/{:03d}.png", img_dir, i), img);
+            cv::imwrite(fmt::format("{}/{:03d}.png", img_dir1, i), img);
             if (options.show_images) {
                 cv::imshow(fmt::format("variance_estimation_{:03d}", i), img);
             }
@@ -435,7 +494,7 @@ main(const int argc, char **argv) {
     try {
         const std::string options_file =
             (argc == 2) ? argv[1]
-                        : (ERL_SDF_MAPPING_ROOT_DIR "/config/demo_variance_estimation.yaml");
+                        : (ERL_GP_SDF_ROOT_DIR "/config/demo/demo_variance_estimation.yaml");
         App app(options_file);
         app.Run();
     } catch (const std::exception &e) {

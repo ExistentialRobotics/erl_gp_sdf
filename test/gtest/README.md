@@ -19,7 +19,7 @@ with `--test-io` option.
 # Gazebo Room 2D
 
 ```bash
-export CONFIG_DIR=<erl_sdf_mapping_repo>/config>
+export CONFIG_DIR=<erl_gp_sdf_repo>/config>
 test_gp_sdf_mapping_2d --use-gazebo-room-2d --visualize --hold \
   --surface-mapping-config-file ${CONFIG_DIR}/gp_occ_mapping_gazebo_2d_float.yaml \
   --sdf-mapping-config-file ${CONFIG_DIR}/sdf_mapping_gazebo_2d_float.yaml \
@@ -44,7 +44,7 @@ is provided.
 
 ```bash
 test_gp_sdf_mapping_3d --gtest_filter=GpSdfMapping3D.Build_Save_Load \
-  --sdf-mapping-config-file <erl_sdf_mapping_repo>/config/sdf_mapping_3d_depth.yaml \
+  --sdf-mapping-config-file <erl_gp_sdf_repo>/config/sdf_mapping_3d_depth.yaml \
   --use-cow-and-lady \
   --cow-and-lady-dir <cow_and_lady_dir>
 ```
@@ -60,7 +60,7 @@ test_gp_sdf_mapping_3d --gtest_filter=GpSdfMapping3D.Build_Save_Load \
 
 ```bash
 test_gp_sdf_mapping_3d --gtest_filter=GpSdfMapping3D.Build_Save_Load \
-    --sdf-mapping-config-file <erl_sdf_mapping_repo>/config/sdf_mapping_3d_depth.yaml
+    --sdf-mapping-config-file <erl_gp_sdf_repo>/config/sdf_mapping_3d_depth.yaml
 ```
 
 ![](assets/test_gp_sdf_mapping_replica_depth.png)
@@ -71,7 +71,7 @@ is provided.
 # Replica Hotel + 3D LiDAR
 
 ```bash
-export CONFIG_DIR=<erl_sdf_mapping_repo>/config
+export CONFIG_DIR=<erl_gp_sdf_repo>/config
 test_gp_sdf_mapping_3d \
   --surface-mapping-config-file ${CONFIG_DIR}/gp_occ_mapping_replica_3d_lidar_360_float.yaml \
   --sdf-mapping-config-file ${CONFIG_DIR}/sdf_mapping_replica_lidar_360_float.yaml \

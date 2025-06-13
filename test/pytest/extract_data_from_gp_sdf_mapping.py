@@ -7,14 +7,14 @@ import yaml
 
 from erl_covariance import Covariance
 
-from erl_sdf_mapping import GpSdfMapping2D
-from erl_sdf_mapping import GpSdfMapping3D
+from erl_gp_sdf import GpSdfMapping2D
+from erl_gp_sdf import GpSdfMapping3D
 
 from tqdm import tqdm
-from erl_sdf_mapping import LogSdfGaussianProcess
+from erl_gp_sdf import LogSdfGaussianProcess
 
-# from erl_sdf_mapping import GpOccSurfaceMapping2D
-# from erl_sdf_mapping import GpOccSurfaceMapping3D
+# from erl_gp_sdf import GpOccSurfaceMapping2D
+# from erl_gp_sdf import GpOccSurfaceMapping3D
 
 
 def main():

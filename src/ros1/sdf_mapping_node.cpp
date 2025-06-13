@@ -6,11 +6,11 @@
 #include "erl_geometry/lidar_frame_2d.hpp"
 #include "erl_geometry/lidar_frame_3d.hpp"
 #include "erl_geometry/ros_msgs/occupancy_tree_msg.hpp"
-#include "erl_sdf_mapping/bayesian_hilbert_surface_mapping.hpp"
-#include "erl_sdf_mapping/gp_occ_surface_mapping.hpp"
-#include "erl_sdf_mapping/gp_sdf_mapping.hpp"
-#include "erl_sdf_mapping/SaveMap.h"
-#include "erl_sdf_mapping/SdfQuery.h"
+#include "erl_gp_sdf/bayesian_hilbert_surface_mapping.hpp"
+#include "erl_gp_sdf/gp_occ_surface_mapping.hpp"
+#include "erl_gp_sdf/gp_sdf_mapping.hpp"
+#include "erl_gp_sdf/SaveMap.h"
+#include "erl_gp_sdf/SdfQuery.h"
 
 #include <geometry_msgs/Vector3.h>
 #include <nav_msgs/Odometry.h>
@@ -217,6 +217,7 @@ public:
             }
             m_odom_queue_.reserve(m_setting_.odom_queue_size);
         }
+        // TODO: support setting queue size
         switch (m_scan_type_) {
             case ScanType::Laser:
                 ERL_INFO("Subscribing to {} as laser scan", m_setting_.scan_topic);
@@ -1013,8 +1014,8 @@ private:
     // --- service handler: runs Test() on the current map ---
     bool
     CallbackSdfQuery(
-        erl_sdf_mapping::SdfQuery::Request& req,
-        erl_sdf_mapping::SdfQuery::Response& res) {
+        erl_gp_sdf::SdfQuery::Request& req,
+        erl_gp_sdf::SdfQuery::Response& res) {
 
         if (!m_sdf_mapping_) {
             ERL_WARN("SDF mapping is not initialized");
@@ -1129,8 +1130,8 @@ private:
 
     bool
     CallbackSaveMap(
-        erl_sdf_mapping::SaveMap::Request& req,
-        erl_sdf_mapping::SaveMap::Response& res) {
+        erl_gp_sdf::SaveMap::Request& req,
+        erl_gp_sdf::SaveMap::Response& res) {
         if (!m_sdf_mapping_) {
             ERL_WARN("SDF mapping is not initialized");
             res.success = false;

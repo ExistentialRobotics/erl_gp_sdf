@@ -3,7 +3,7 @@ import argparse
 import matplotlib.pyplot as plt
 import numpy as np
 
-from erl_sdf_mapping import GpSdfMapping2D
+from erl_gp_sdf import GpSdfMapping2D
 
 
 def main():

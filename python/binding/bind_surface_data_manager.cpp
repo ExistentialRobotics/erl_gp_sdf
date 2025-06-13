@@ -1,6 +1,6 @@
 #include "erl_common/pybind11.hpp"
 #include "erl_common/pybind11_data_buffer_manager.hpp"
-#include "erl_sdf_mapping/surface_data_manager.hpp"
+#include "erl_gp_sdf/surface_data_manager.hpp"
 
 template<typename Dtype, int Dim>
 void

@@ -1,4 +1,4 @@
-#include "erl_sdf_mapping/abstract_surface_mapping.hpp"
+#include "erl_gp_sdf/abstract_surface_mapping.hpp"
 
 namespace erl::sdf_mapping {
     template<typename Dtype, int Dim>

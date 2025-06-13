@@ -1,8 +1,8 @@
 #include "erl_common/test_helper.hpp"
 #include "erl_geometry/marching_cubes.hpp"
-#include "erl_sdf_mapping/bayesian_hilbert_surface_mapping.hpp"
-#include "erl_sdf_mapping/gp_occ_surface_mapping.hpp"
-#include "erl_sdf_mapping/gp_sdf_mapping.hpp"
+#include "erl_gp_sdf/bayesian_hilbert_surface_mapping.hpp"
+#include "erl_gp_sdf/gp_occ_surface_mapping.hpp"
+#include "erl_gp_sdf/gp_sdf_mapping.hpp"
 
 #include <boost/program_options.hpp>
 #include <open3d/geometry/TriangleMesh.h>
@@ -11,7 +11,7 @@
 
 using namespace erl::common;
 
-const std::filesystem::path kProjectRootDir = ERL_SDF_MAPPING_ROOT_DIR;
+const std::filesystem::path kProjectRootDir = ERL_GP_SDF_ROOT_DIR;
 const std::filesystem::path kConfigDir = kProjectRootDir / "config";
 int g_argc = 0;
 char **g_argv = nullptr;

@@ -132,7 +132,7 @@ def grad_v():
 def main():
     build_type = "release"
     sdf_gp_id = "100431781586896"
-    folder = f"/home/daizhirui/D/Dev/erl_sddf/cmake-build-{build_type}/src/erl_sdf_mapping/sdf_gp_debug_{sdf_gp_id}"
+    folder = f"/home/daizhirui/D/Dev/erl_sddf/cmake-build-{build_type}/src/erl_gp_sdf/sdf_gp_debug_{sdf_gp_id}"
     x = read_array_from_bin(f"{folder}/train_set.x.bin")
     y = read_array_from_bin(f"{folder}/train_set.y.bin")
     var_x = read_array_from_bin(f"{folder}/train_set.var_x.bin")

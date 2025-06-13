@@ -1,4 +1,4 @@
-#include "erl_sdf_mapping/sign_gp.hpp"
+#include "erl_gp_sdf/sign_gp.hpp"
 
 #include <utility>
 

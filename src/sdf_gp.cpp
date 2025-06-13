@@ -1,4 +1,4 @@
-#include "erl_sdf_mapping/sdf_gp.hpp"
+#include "erl_gp_sdf/sdf_gp.hpp"
 
 template<>
 struct YAML::convert<erl::sdf_mapping::SignMethod> {

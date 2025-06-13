@@ -1,4 +1,4 @@
-#include "erl_sdf_mapping/surface_data_manager.hpp"
+#include "erl_gp_sdf/surface_data_manager.hpp"
 
 namespace erl::sdf_mapping {
 
