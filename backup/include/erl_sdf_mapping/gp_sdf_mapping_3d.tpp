@@ -3,14 +3,14 @@
 #include "erl_common/block_timer.hpp"
 #include "erl_common/template_helper.hpp"
 #include "erl_common/tracy.hpp"
-#include "erl_sdf_mapping/gp_sdf_mapping_3d.hpp"
+#include "erl_gp_sdf/gp_sdf_mapping_3d.hpp"
 
 #include <algorithm>
 #include <chrono>
 #include <thread>
 #include <vector>
 
-namespace erl::sdf_mapping {
+namespace erl::gp_sdf {
 
     template<typename Dtype>
     YAML::Node
@@ -443,7 +443,7 @@ namespace erl::sdf_mapping {
     //     return success;
     // }
 
-    static const std::string kFileHeader = "# erl::sdf_mapping::GpSdfMapping3D";
+    static const std::string kFileHeader = "# erl::gp_sdf::GpSdfMapping3D";
 
     template<typename Dtype>
     bool
@@ -965,4 +965,4 @@ namespace erl::sdf_mapping {
         }
     }
 
-}  // namespace erl::sdf_mapping
+}  // namespace erl::gp_sdf

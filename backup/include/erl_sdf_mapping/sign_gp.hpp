@@ -6,7 +6,7 @@
 
 #include <memory>
 
-namespace erl::sdf_mapping {
+namespace erl::gp_sdf {
 
     class SignGaussianProcess : public gaussian_process::NoisyInputGaussianProcess {
 
@@ -85,20 +85,20 @@ namespace erl::sdf_mapping {
         Read(std::istream &s) override;
     };
 
-}  // namespace erl::sdf_mapping
+}  // namespace erl::gp_sdf
 
 // ReSharper disable CppInconsistentNaming
 template<>
-struct YAML::convert<erl::sdf_mapping::SignGaussianProcess::Setting> {
+struct YAML::convert<erl::gp_sdf::SignGaussianProcess::Setting> {
     static Node
-    encode(const erl::sdf_mapping::SignGaussianProcess::Setting &setting) {
+    encode(const erl::gp_sdf::SignGaussianProcess::Setting &setting) {
         Node node = convert<erl::gaussian_process::NoisyInputGaussianProcess::Setting>::encode(setting);
         node["offset_distance"] = setting.offset_distance;
         return node;
     }
 
     static bool
-    decode(const Node &node, erl::sdf_mapping::SignGaussianProcess::Setting &setting) {
+    decode(const Node &node, erl::gp_sdf::SignGaussianProcess::Setting &setting) {
         if (!node.IsMap()) { return false; }
         convert<erl::gaussian_process::NoisyInputGaussianProcess::Setting>::decode(node, setting);
         setting.offset_distance = node["offset_distance"].as<double>();

@@ -1,4 +1,4 @@
-#include "erl_sdf_mapping/gpis/incremental_quadtree.hpp"
+#include "erl_gp_sdf/gpis/incremental_quadtree.hpp"
 
 #include "erl_common/string_utils.hpp"
 #include "erl_geometry/utils.hpp"
@@ -9,7 +9,7 @@
 #include <algorithm>
 #include <utility>
 
-namespace erl::sdf_mapping::gpis {
+namespace erl::gp_sdf::gpis {
 
     std::shared_ptr<IncrementalQuadtree>
     IncrementalQuadtree::Insert(const std::shared_ptr<GpisNode2D> &node, std::shared_ptr<IncrementalQuadtree> &new_root) {  // NOLINT(misc-no-recursion)

@@ -2,7 +2,7 @@
 #include "erl_gp_sdf/log_edf_gp.hpp"
 
 using namespace erl::common;
-using namespace erl::sdf_mapping;
+using namespace erl::gp_sdf;
 constexpr int Dim = 2;
 using Dtype = double;
 using VectorD = Eigen::Vector<Dtype, Dim>;

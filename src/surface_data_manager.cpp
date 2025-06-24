@@ -1,6 +1,6 @@
 #include "erl_gp_sdf/surface_data_manager.hpp"
 
-namespace erl::sdf_mapping {
+namespace erl::gp_sdf {
 
     template<typename Dtype, int Dim>
     bool
@@ -109,4 +109,4 @@ namespace erl::sdf_mapping {
     template class SurfaceDataManager<float, 2>;
     template class SurfaceDataManager<double, 3>;
     template class SurfaceDataManager<float, 3>;
-}  // namespace erl::sdf_mapping
+}  // namespace erl::gp_sdf

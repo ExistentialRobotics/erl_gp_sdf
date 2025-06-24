@@ -9,7 +9,7 @@
 #include "erl_geometry/octree_key.hpp"
 #include "erl_geometry/quadtree_key.hpp"
 
-namespace erl::sdf_mapping {
+namespace erl::gp_sdf {
 
     template<typename Dtype, int Dim>
     class AbstractSurfaceMapping {
@@ -225,4 +225,4 @@ namespace erl::sdf_mapping {
     extern template class AbstractSurfaceMapping<double, 2>;
     extern template class AbstractSurfaceMapping<float, 3>;
     extern template class AbstractSurfaceMapping<double, 3>;
-}  // namespace erl::sdf_mapping
+}  // namespace erl::gp_sdf

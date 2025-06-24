@@ -2,7 +2,7 @@
 
 #include "erl_common/eigen.hpp"
 
-namespace erl::sdf_mapping::gpis {
+namespace erl::gp_sdf::gpis {
 
     /**
      * GpisData stores the distance, gradient and the corresponding variances of surface points for GPIS training.
@@ -86,4 +86,4 @@ namespace erl::sdf_mapping::gpis {
         return os;
     }
 
-}  // namespace erl::sdf_mapping::gpis
+}  // namespace erl::gp_sdf::gpis

@@ -31,8 +31,8 @@ test_query:
     compute_covariance: false  # whether to compute covariance
     recompute_variance: false
     softmax_temperature: 5
-surface_mapping_type: erl::sdf_mapping::GpOccSurfaceMapping3D
-surface_mapping_setting_type: erl::sdf_mapping::GpOccSurfaceMapping3D::Setting
+surface_mapping_type: erl::gp_sdf::GpOccSurfaceMapping3D
+surface_mapping_setting_type: erl::gp_sdf::GpOccSurfaceMapping3D::Setting
 surface_mapping:
     compute_variance:
         zero_gradient_position_var: 1

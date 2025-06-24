@@ -1,6 +1,6 @@
-#include "erl_sdf_mapping/sign_gp.hpp"
+#include "erl_gp_sdf/sign_gp.hpp"
 
-namespace erl::sdf_mapping {
+namespace erl::gp_sdf {
 
     std::size_t
     SignGaussianProcess::GetMemoryUsage() const {
@@ -175,7 +175,7 @@ namespace erl::sdf_mapping {
     //     return success;
     // }
 
-    // static const std::string kFileHeader = "# erl::sdf_mapping::SignGaussianProcess";
+    // static const std::string kFileHeader = "# erl::gp_sdf::SignGaussianProcess";
 
     bool
     SignGaussianProcess::Write(std::ostream &s) const {
@@ -278,4 +278,4 @@ namespace erl::sdf_mapping {
         return false;  // should not reach here
     }
 
-}  // namespace erl::sdf_mapping
+}  // namespace erl::gp_sdf

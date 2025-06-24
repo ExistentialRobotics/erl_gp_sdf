@@ -3,7 +3,7 @@
 #include "erl_common/block_timer.hpp"
 #include "erl_common/clip.hpp"
 
-namespace erl::sdf_mapping {
+namespace erl::gp_sdf {
 
     template<typename Dtype>
     YAML::Node
@@ -631,4 +631,4 @@ namespace erl::sdf_mapping {
             var_gradient = common::ClipRange(occ_mean_abs + distance_var, min_gradient_var, max_gradient_var) + 0.1 * var_direction;
         }
     }
-}  // namespace erl::sdf_mapping
+}  // namespace erl::gp_sdf

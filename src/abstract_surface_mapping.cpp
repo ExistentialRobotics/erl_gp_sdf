@@ -1,6 +1,6 @@
 #include "erl_gp_sdf/abstract_surface_mapping.hpp"
 
-namespace erl::sdf_mapping {
+namespace erl::gp_sdf {
     template<typename Dtype, int Dim>
     std::lock_guard<std::mutex>
     AbstractSurfaceMapping<Dtype, Dim>::GetLockGuard() {
@@ -17,4 +17,4 @@ namespace erl::sdf_mapping {
     template class AbstractSurfaceMapping<double, 2>;
     template class AbstractSurfaceMapping<float, 3>;
     template class AbstractSurfaceMapping<double, 3>;
-}  // namespace erl::sdf_mapping
+}  // namespace erl::gp_sdf

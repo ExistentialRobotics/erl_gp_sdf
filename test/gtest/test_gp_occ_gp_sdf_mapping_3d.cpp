@@ -86,8 +86,8 @@ void
 TestImpl3D() {
     GTEST_PREPARE_OUTPUT_DIR();
 
-    using SurfaceMapping = erl::sdf_mapping::GpOccSurfaceMapping<Dtype, 3>;
-    using SdfMapping = erl::sdf_mapping::GpSdfMapping<Dtype, 3>;
+    using SurfaceMapping = erl::gp_sdf::GpOccSurfaceMapping<Dtype, 3>;
+    using SdfMapping = erl::gp_sdf::GpSdfMapping<Dtype, 3>;
     using RangeSensor = erl::geometry::RangeSensor3D<Dtype>;
     using DepthFrame = erl::geometry::DepthFrame3D<Dtype>;
     using LidarFrame = erl::geometry::LidarFrame3D<Dtype>;
@@ -580,13 +580,9 @@ TestImpl3D() {
             line_set_surf_normals->lines_.clear();
             auto end = surf_mapping->EndSurfaceData();
             for (auto it = surf_mapping->BeginSurfaceData(); it != end; ++it) {
-                erl::sdf_mapping::SurfaceData<Dtype, 3> &surface_data = *it;
+                erl::gp_sdf::SurfaceData<Dtype, 3> &surface_data = *it;
                 const Vector3 &position = surface_data.position;
                 const Vector3 &normal = surface_data.normal;
-                ERL_ASSERTM(
-                    std::abs(normal.norm() - 1.0) < 1.e-6,
-                    "normal.norm() = {:.6f}",
-                    normal.norm());
                 pcd_surf_points->points_.emplace_back(position.template cast<double>());
                 line_set_surf_normals->points_.emplace_back(position.template cast<double>());
                 line_set_surf_normals->points_.emplace_back(

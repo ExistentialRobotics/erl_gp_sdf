@@ -1,6 +1,6 @@
 #pragma once
 
-namespace erl::sdf_mapping {
+namespace erl::gp_sdf {
 
     extern bool initialized;
 
@@ -9,4 +9,4 @@ namespace erl::sdf_mapping {
      */
     bool
     Init();
-}  // namespace erl::sdf_mapping
+}  // namespace erl::gp_sdf

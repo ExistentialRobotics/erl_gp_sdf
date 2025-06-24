@@ -1,6 +1,6 @@
-surface_mapping_setting_type: erl::sdf_mapping::BayesianHilbertSurfaceMapping<float, 3>::Setting
+surface_mapping_setting_type: erl::gp_sdf::BayesianHilbertSurfaceMapping<float, 3>::Setting
 surface_mapping_setting_file: config/template/bayesian_hilbert_mapping_3d_float.yaml
-surface_mapping_type: erl::sdf_mapping::BayesianHilbertSurfaceMapping<float, 3>
+surface_mapping_type: erl::gp_sdf::BayesianHilbertSurfaceMapping<float, 3>
 sdf_mapping_setting_file: config/template/sdf_mapping_3d_float.yaml
 use_odom: false
 odom_topic: /jackal_velocity_controller/odom

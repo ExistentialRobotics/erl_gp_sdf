@@ -7,7 +7,7 @@
 #include "erl_gp_sdf/gp_sdf_mapping_setting.hpp"
 #include "erl_gp_sdf/log_edf_gp.hpp"
 
-namespace erl::sdf_mapping {
+namespace erl::gp_sdf {
 
 #define REGISTER(x) (void) x::Register<x>()
 
@@ -76,4 +76,4 @@ namespace erl::sdf_mapping {
 
         return true;
     }
-}  // namespace erl::sdf_mapping
+}  // namespace erl::gp_sdf

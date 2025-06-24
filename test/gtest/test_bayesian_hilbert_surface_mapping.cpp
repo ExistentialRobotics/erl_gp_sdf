@@ -60,9 +60,9 @@ ConvertToVoxelGrid(
 
 template<typename Dtype, int Dim>
 void
-TestIo(const erl::sdf_mapping::BayesianHilbertSurfaceMapping<Dtype, Dim> *bhm_surf_mapping) {
+TestIo(const erl::gp_sdf::BayesianHilbertSurfaceMapping<Dtype, Dim> *bhm_surf_mapping) {
     ERL_BLOCK_TIMER_MSG("IO");
-    using Mapping = erl::sdf_mapping::BayesianHilbertSurfaceMapping<Dtype, Dim>;
+    using Mapping = erl::gp_sdf::BayesianHilbertSurfaceMapping<Dtype, Dim>;
     using Serializer = erl::common::Serialization<Mapping>;
     GTEST_PREPARE_OUTPUT_DIR();
     std::string filename = fmt::format("bhm_surf_mapping_{}d_{}.bin", Dim, type_name<Dtype>());
@@ -79,7 +79,7 @@ TestImpl3D() {
     GTEST_PREPARE_OUTPUT_DIR();
     using Octree = erl::geometry::OccupancyOctree<Dtype>;
     using OctreeDrawer = erl::geometry::OccupancyOctreeDrawer<Octree>;
-    using BayesianHilbertSurfaceMapping = erl::sdf_mapping::BayesianHilbertSurfaceMapping<Dtype, 3>;
+    using BayesianHilbertSurfaceMapping = erl::gp_sdf::BayesianHilbertSurfaceMapping<Dtype, 3>;
     using RangeSensor3D = erl::geometry::RangeSensor3D<Dtype>;
     using RangeSensorFrame3D = erl::geometry::RangeSensorFrame3D<Dtype>;
     using Lidar3D = erl::geometry::Lidar3D<Dtype>;
@@ -559,7 +559,7 @@ TestImpl2D() {
     GTEST_PREPARE_OUTPUT_DIR();
     using namespace erl::common;
     using Lidar2D = erl::geometry::Lidar2D;
-    using BayesianHilbertSurfaceMapping = erl::sdf_mapping::BayesianHilbertSurfaceMapping<Dtype, 2>;
+    using BayesianHilbertSurfaceMapping = erl::gp_sdf::BayesianHilbertSurfaceMapping<Dtype, 2>;
     using Quadtree = erl::geometry::OccupancyQuadtree<Dtype>;
     using QuadtreeDrawer = erl::geometry::OccupancyQuadtreeDrawer<Quadtree>;
     using Matrix2 = Eigen::Matrix2<Dtype>;
@@ -826,6 +826,7 @@ TestImpl2D() {
         cv::imshow("logodd", tree_img);
         cv::imshow("prob_occupied", tree_img);
         cv::imshow("gradient_norms", tree_img);
+        cv::waitKey(10);
 
         std::string filename = fmt::format("{:04d}.png", img_cnt++);
         cv::imwrite(tree_img_dir / filename, tree_img);

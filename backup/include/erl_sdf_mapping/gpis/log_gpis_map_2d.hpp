@@ -2,9 +2,9 @@
 
 #include "gpis_map_base_2d.hpp"
 
-#include "erl_sdf_mapping/log_edf_gp.hpp"
+#include "erl_gp_sdf/log_edf_gp.hpp"
 
-namespace erl::sdf_mapping::gpis {
+namespace erl::gp_sdf::gpis {
 
     class LogGpisMap2D : public GpisMapBase2D {
 
@@ -58,4 +58,4 @@ namespace erl::sdf_mapping::gpis {
         }
     };
 
-}  // namespace erl::sdf_mapping::gpis
+}  // namespace erl::gp_sdf::gpis

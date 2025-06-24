@@ -13,7 +13,6 @@ local_bhm:
     kernel_setting_type: erl::covariance::Covariance<float>::Setting
     kernel:
         x_dim: 2
-        alpha: 1
         scale: 0.075
         scale_mix: 1
         weights: [ ]
@@ -43,12 +42,16 @@ hinged_grid_size: 9
 surface_max_abs_logodd: 2
 surface_bad_abs_logodd: 100
 surface_step_size: 0.001
+faster_prediction: true
 max_adjust_tries: 2
 var_scale: 0.01
 var_max: 1.5
 scaling: 1.0
 bhm_depth: 15
 bhm_overlap: 0.3
+update_with_cuda: false
+cuda_device_id: 0
+update_batch_size: 128
 bhm_test_margin: 0.15
 test_knn: 1
 test_batch_size: 10000

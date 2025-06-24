@@ -1,6 +1,6 @@
 #include "erl_gp_sdf/gp_sdf_mapping_setting.hpp"
 
-namespace erl::sdf_mapping {
+namespace erl::gp_sdf {
 
     template<typename Dtype, int Dim>
     YAML::Node
@@ -60,4 +60,4 @@ namespace erl::sdf_mapping {
     template class GpSdfMappingSetting<double, 2>;
     template class GpSdfMappingSetting<float, 3>;
     template class GpSdfMappingSetting<double, 3>;
-}  // namespace erl::sdf_mapping
+}  // namespace erl::gp_sdf

@@ -3,7 +3,7 @@
 #include "erl_common/clip.hpp"
 #include "erl_common/template_helper.hpp"
 
-namespace erl::sdf_mapping {
+namespace erl::gp_sdf {
 
     template<typename Dtype, int Dim>
     YAML::Node
@@ -956,6 +956,7 @@ namespace erl::sdf_mapping {
         int num_adjust_tries = 0;
         Dtype occ_abs = std::fabs(occ);
         Dtype distance_new = distance_old;
+        bool good_occ = true;
         while (num_adjust_tries < max_adjust_tries && occ_abs > max_surface_abs_occ) {
             // move one step
             // the direction is determined by the occupancy sign, the step size is heuristically
@@ -968,7 +969,8 @@ namespace erl::sdf_mapping {
 
             // test the new point
             Dtype occ_new;
-            if (!ComputeOcc(pos_local_new, distance_new, distance_pred, occ_new)) { break; }
+            good_occ = ComputeOcc(pos_local_new, distance_new, distance_pred, occ_new);
+            if (!good_occ) { break; }
             occ_abs = std::fabs(occ_new);
             distance_new = distance_pred;
             if (occ_abs <= max_surface_abs_occ) { break; }
@@ -980,12 +982,17 @@ namespace erl::sdf_mapping {
             occ = occ_new;
             ++num_adjust_tries;
         }
+        if (!good_occ) { return; }
 
         // compute new gradient and uncertainty
         Dtype occ_mean, var_distance;
         Gradient grad_local_new;
         if (!ComputeGradient1(pos_local_new, grad_local_new, occ_mean, var_distance)) {
-            return;  // failed to compute gradient
+            // failed to compute gradient, double the variance values
+            // but don't remove the surface data immediately.
+            surface_data.var_position *= 2.0f;
+            surface_data.var_normal *= 2.0f;
+            return;
         }
         Gradient grad_global_new = sensor_frame->DirFrameToWorld(grad_local_new);
         Dtype var_position_new, var_gradient_new;
@@ -1005,6 +1012,7 @@ namespace erl::sdf_mapping {
             var_gradient_old = surface_data.var_normal;
             var_gradient_old <= max_valid_gradient_var) {
             // Perform bayes update when the old result is not too bad but not good enough.
+            // Otherwise, we just use the new result.
             const Dtype var_position_sum = var_position_new + var_position_old;
             const Dtype var_gradient_sum = var_gradient_new + var_gradient_old;
 
@@ -1444,4 +1452,4 @@ namespace erl::sdf_mapping {
     template class GpOccSurfaceMapping<float, 3>;
     template class GpOccSurfaceMapping<double, 2>;
     template class GpOccSurfaceMapping<float, 2>;
-}  // namespace erl::sdf_mapping
+}  // namespace erl::gp_sdf

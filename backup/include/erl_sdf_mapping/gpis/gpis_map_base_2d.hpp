@@ -13,7 +13,7 @@
 #include <memory>
 #include <unordered_set>
 
-namespace erl::sdf_mapping::gpis {
+namespace erl::gp_sdf::gpis {
 
     class GpisMapBase2D {
 
@@ -198,10 +198,10 @@ namespace erl::sdf_mapping::gpis {
         virtual void
         TestThread(int j_1, size_t j_2, size_t end_idx);
     };
-}  // namespace erl::sdf_mapping::gpis
+}  // namespace erl::gp_sdf::gpis
 
 template<>
-struct YAML::convert<erl::sdf_mapping::gpis::GpisMapBase2D::Setting::ComputeVariance> {
+struct YAML::convert<erl::gp_sdf::gpis::GpisMapBase2D::Setting::ComputeVariance> {
 
     static Node
     encode(const GpisMapBase2D::Setting::ComputeVariance &rhs) {
@@ -231,7 +231,7 @@ struct YAML::convert<erl::sdf_mapping::gpis::GpisMapBase2D::Setting::ComputeVari
 };
 
 template<>
-struct YAML::convert<erl::sdf_mapping::gpis::GpisMapBase2D::Setting::UpdateMapPoints> {
+struct YAML::convert<erl::gp_sdf::gpis::GpisMapBase2D::Setting::UpdateMapPoints> {
 
     static Node
     encode(const GpisMapBase2D::Setting::UpdateMapPoints &rhs) {
@@ -259,7 +259,7 @@ struct YAML::convert<erl::sdf_mapping::gpis::GpisMapBase2D::Setting::UpdateMapPo
 };
 
 template<>
-struct YAML::convert<erl::sdf_mapping::gpis::GpisMapBase2D::Setting::UpdateGpSdf> {
+struct YAML::convert<erl::gp_sdf::gpis::GpisMapBase2D::Setting::UpdateGpSdf> {
 
     static Node
     encode(const GpisMapBase2D::Setting::UpdateGpSdf &rhs) {
@@ -287,7 +287,7 @@ struct YAML::convert<erl::sdf_mapping::gpis::GpisMapBase2D::Setting::UpdateGpSdf
 };
 
 template<>
-struct YAML::convert<erl::sdf_mapping::gpis::GpisMapBase2D::Setting::TestQuery> {
+struct YAML::convert<erl::gp_sdf::gpis::GpisMapBase2D::Setting::TestQuery> {
 
     static Node
     encode(const GpisMapBase2D::Setting::TestQuery &rhs) {
@@ -309,7 +309,7 @@ struct YAML::convert<erl::sdf_mapping::gpis::GpisMapBase2D::Setting::TestQuery> 
 };
 
 template<>
-struct YAML::convert<erl::sdf_mapping::gpis::GpisMapBase2D::Setting> {
+struct YAML::convert<erl::gp_sdf::gpis::GpisMapBase2D::Setting> {
 
     static Node
     encode(const GpisMapBase2D::Setting &setting) {

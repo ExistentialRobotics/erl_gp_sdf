@@ -6,7 +6,7 @@
 
 #include <memory>
 
-namespace erl::sdf_mapping {
+namespace erl::gp_sdf {
 
     template<typename Dtype>
     class SignGaussianProcess : public gaussian_process::NoisyInputGaussianProcess<Dtype> {
@@ -48,6 +48,7 @@ namespace erl::sdf_mapping {
             std::vector<std::pair<Dtype, std::size_t>> &surface_data_indices,
             const std::vector<SurfaceData<Dtype, Dim>> &surface_data_vec,
             const Eigen::Vector<Dtype, Dim> &coord_origin,
+            const Dtype normal_scale,
             Dtype offset_distance,
             Dtype sensor_noise,
             Dtype max_valid_gradient_var,
@@ -55,7 +56,7 @@ namespace erl::sdf_mapping {
 
             this->SetKernelCoordOrigin(coord_origin);
 
-            const long max_num_samples = std::min(  //
+            const long max_num_samples = std::min(
                 this->m_setting_->max_num_samples,
                 static_cast<long>(surface_data_vec.size()));
             this->Reset(max_num_samples, Dim, 1);
@@ -76,7 +77,7 @@ namespace erl::sdf_mapping {
                 train_set.var_x[count] = surface_data.var_position;
                 train_set.var_y[count] = sensor_noise;
                 if (load_gradient) {
-                    train_set.grad.col(count) = surface_data.normal;
+                    train_set.grad.col(count) = normal_scale * surface_data.normal;
                     train_set.var_grad[count] = surface_data.var_normal;
                 }
                 train_set.grad_flag[count] = load_gradient;
@@ -109,6 +110,6 @@ namespace erl::sdf_mapping {
 
     extern template class SignGaussianProcess<double>;
     extern template class SignGaussianProcess<float>;
-}  // namespace erl::sdf_mapping
+}  // namespace erl::gp_sdf
 
 // #include "sign_gp.tpp"

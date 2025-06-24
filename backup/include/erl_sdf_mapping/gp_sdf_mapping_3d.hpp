@@ -12,15 +12,15 @@
 #include <memory>
 #include <vector>
 
-namespace erl::sdf_mapping {
+namespace erl::gp_sdf {
 
     template<typename Dtype>
     class GpSdfMapping3D {
 
     public:
         struct Setting : common::Yamlable<Setting, GpSdfMappingBaseSetting<Dtype>> {
-            std::string surface_mapping_type = "erl::sdf_mapping::GpOccSurfaceMapping3D";
-            std::string surface_mapping_setting_type = "erl::sdf_mapping::GpOccSurfaceMapping3D::Setting";
+            std::string surface_mapping_type = "erl::gp_sdf::GpOccSurfaceMapping3D";
+            std::string surface_mapping_setting_type = "erl::gp_sdf::GpOccSurfaceMapping3D::Setting";
             std::shared_ptr<typename AbstractSurfaceMapping3D<Dtype>::Setting> surface_mapping = nullptr;
 
             struct YamlConvertImpl {
@@ -195,12 +195,12 @@ namespace erl::sdf_mapping {
 
     using GpSdfMapping3Dd = GpSdfMapping3D<double>;
     using GpSdfMapping3Df = GpSdfMapping3D<float>;
-}  // namespace erl::sdf_mapping
+}  // namespace erl::gp_sdf
 
 #include "gp_sdf_mapping_3d.tpp"
 
 template<>
-struct YAML::convert<erl::sdf_mapping::GpSdfMapping3Dd::Setting> : erl::sdf_mapping::GpSdfMapping3Dd::Setting::YamlConvertImpl {};
+struct YAML::convert<erl::gp_sdf::GpSdfMapping3Dd::Setting> : erl::gp_sdf::GpSdfMapping3Dd::Setting::YamlConvertImpl {};
 
 template<>
-struct YAML::convert<erl::sdf_mapping::GpSdfMapping3Df::Setting> : erl::sdf_mapping::GpSdfMapping3Df::Setting::YamlConvertImpl {};
+struct YAML::convert<erl::gp_sdf::GpSdfMapping3Df::Setting> : erl::gp_sdf::GpSdfMapping3Df::Setting::YamlConvertImpl {};

@@ -6,7 +6,7 @@
 
 #include <utility>
 
-namespace erl::sdf_mapping {
+namespace erl::gp_sdf {
 
     template<typename Dtype>
     class LogEdfGaussianProcess : public gaussian_process::NoisyInputGaussianProcess<Dtype> {
@@ -105,12 +105,16 @@ namespace erl::sdf_mapping {
             std::vector<std::pair<Dtype, std::size_t>> &surface_data_indices,
             const std::vector<SurfaceData<Dtype, Dim>> &surface_data_vec,
             const Eigen::Vector<Dtype, Dim> &coord_origin,
-            bool load_normals,
-            Dtype normal_scale,
-            Dtype offset_distance,
-            Dtype sensor_noise,
-            Dtype max_valid_gradient_var,
-            Dtype invalid_position_var) {
+            const bool load_normals,
+            const Dtype normal_scale,
+            const Dtype offset_distance,
+            const Dtype sensor_noise,
+            const Dtype max_valid_gradient_var,
+            const Dtype invalid_position_var) {
+
+            ERL_ASSERTM(
+                offset_distance >= 0.0f,
+                "offset_distance must be non-negative for log_edf.");
 
             this->SetKernelCoordOrigin(coord_origin);
             const long max_num_samples =
@@ -168,14 +172,12 @@ namespace erl::sdf_mapping {
 
     extern template class LogEdfGaussianProcess<float>;
     extern template class LogEdfGaussianProcess<double>;
-}  // namespace erl::sdf_mapping
-
-// #include "log_edf_gp.tpp"
+}  // namespace erl::gp_sdf
 
 template<>
-struct YAML::convert<erl::sdf_mapping::LogEdfGaussianProcessD::Setting>
-    : erl::sdf_mapping::LogEdfGaussianProcessD::Setting::YamlConvertImpl {};
+struct YAML::convert<erl::gp_sdf::LogEdfGaussianProcessD::Setting>
+    : erl::gp_sdf::LogEdfGaussianProcessD::Setting::YamlConvertImpl {};
 
 template<>
-struct YAML::convert<erl::sdf_mapping::LogEdfGaussianProcessF::Setting>
-    : erl::sdf_mapping::LogEdfGaussianProcessF::Setting::YamlConvertImpl {};
+struct YAML::convert<erl::gp_sdf::LogEdfGaussianProcessF::Setting>
+    : erl::gp_sdf::LogEdfGaussianProcessF::Setting::YamlConvertImpl {};

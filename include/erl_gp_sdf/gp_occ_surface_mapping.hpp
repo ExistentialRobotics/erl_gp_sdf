@@ -8,7 +8,7 @@
 #include "erl_geometry/occupancy_octree.hpp"
 #include "erl_geometry/occupancy_quadtree.hpp"
 
-namespace erl::sdf_mapping {
+namespace erl::gp_sdf {
 
     template<typename Dtype, int Dim>
     class GpOccSurfaceMapping : public AbstractSurfaceMapping<Dtype, Dim> {
@@ -336,22 +336,22 @@ namespace erl::sdf_mapping {
     extern template class GpOccSurfaceMapping<double, 2>;
     extern template class GpOccSurfaceMapping<float, 2>;
 
-}  // namespace erl::sdf_mapping
+}  // namespace erl::gp_sdf
 
 // #include "gp_occ_surface_mapping.tpp"
 
 template<>
-struct YAML::convert<erl::sdf_mapping::GpOccSurfaceMapping3Dd::Setting>
-    : erl::sdf_mapping::GpOccSurfaceMapping3Dd::Setting::YamlConvertImpl {};
+struct YAML::convert<erl::gp_sdf::GpOccSurfaceMapping3Dd::Setting>
+    : erl::gp_sdf::GpOccSurfaceMapping3Dd::Setting::YamlConvertImpl {};
 
 template<>
-struct YAML::convert<erl::sdf_mapping::GpOccSurfaceMapping3Df::Setting>
-    : erl::sdf_mapping::GpOccSurfaceMapping3Df::Setting::YamlConvertImpl {};
+struct YAML::convert<erl::gp_sdf::GpOccSurfaceMapping3Df::Setting>
+    : erl::gp_sdf::GpOccSurfaceMapping3Df::Setting::YamlConvertImpl {};
 
 template<>
-struct YAML::convert<erl::sdf_mapping::GpOccSurfaceMapping2Dd::Setting>
-    : erl::sdf_mapping::GpOccSurfaceMapping2Dd::Setting::YamlConvertImpl {};
+struct YAML::convert<erl::gp_sdf::GpOccSurfaceMapping2Dd::Setting>
+    : erl::gp_sdf::GpOccSurfaceMapping2Dd::Setting::YamlConvertImpl {};
 
 template<>
-struct YAML::convert<erl::sdf_mapping::GpOccSurfaceMapping2Df::Setting>
-    : erl::sdf_mapping::GpOccSurfaceMapping2Df::Setting::YamlConvertImpl {};
+struct YAML::convert<erl::gp_sdf::GpOccSurfaceMapping2Df::Setting>
+    : erl::gp_sdf::GpOccSurfaceMapping2Df::Setting::YamlConvertImpl {};

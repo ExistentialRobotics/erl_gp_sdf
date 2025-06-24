@@ -30,12 +30,12 @@ using namespace erl::common;
 
 struct SdfMappingNodeSetting : Yamlable<SdfMappingNodeSetting> {
     // setting class for the surface mapping. For example, to use
-    // erl::sdf_mapping::GpOccSurfaceMapping<float, 2>, you should use its setting class
-    // erl::sdf_mapping::GpOccSurfaceMapping<float, 2>::Setting.
+    // erl::gp_sdf::GpOccSurfaceMapping<float, 2>, you should use its setting class
+    // erl::gp_sdf::GpOccSurfaceMapping<float, 2>::Setting.
     std::string surface_mapping_setting_type = "";
     // path to the yaml file for the surface mapping setting
     std::string surface_mapping_setting_file = "";
-    // surface mapping class type. For example, erl::sdf_mapping::GpOccSurfaceMapping<float, 2>.
+    // surface mapping class type. For example, erl::gp_sdf::GpOccSurfaceMapping<float, 2>.
     std::string surface_mapping_type = "";
     // path to the yaml file for the SDF mapping setting
     std::string sdf_mapping_setting_file = "";
@@ -94,11 +94,11 @@ class SdfMappingNode {
         Depth = 2,
     };
 
-    using AbstractSurfaceMapping = erl::sdf_mapping::AbstractSurfaceMapping<Dtype, Dim>;
-    using GpSdfMapping = erl::sdf_mapping::GpSdfMapping<Dtype, Dim>;
-    using GpOccSurfaceMapping = erl::sdf_mapping::GpOccSurfaceMapping<Dtype, Dim>;
+    using AbstractSurfaceMapping = erl::gp_sdf::AbstractSurfaceMapping<Dtype, Dim>;
+    using GpSdfMapping = erl::gp_sdf::GpSdfMapping<Dtype, Dim>;
+    using GpOccSurfaceMapping = erl::gp_sdf::GpOccSurfaceMapping<Dtype, Dim>;
     using BayesianHilbertSurfaceMapping =
-        erl::sdf_mapping::BayesianHilbertSurfaceMapping<Dtype, Dim>;
+        erl::gp_sdf::BayesianHilbertSurfaceMapping<Dtype, Dim>;
     using Tree = std::conditional_t<
         Dim == 2,
         erl::geometry::OccupancyQuadtree<Dtype>,
@@ -1219,7 +1219,7 @@ private:
     CallbackPublishSurfacePoints(const ros::TimerEvent& /* event */) {
         if (m_pub_surface_points_.getNumSubscribers() == 0) { return; }  // no subscribers
 
-        using namespace erl::sdf_mapping;
+        using namespace erl::gp_sdf;
 
         const auto& surf_data_manager = m_surface_mapping_->GetSurfaceDataManager();
         // std::vector<SurfaceData<double, 3>> data =

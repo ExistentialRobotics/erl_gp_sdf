@@ -1,8 +1,10 @@
 #include "erl_gp_sdf/bayesian_hilbert_surface_mapping.hpp"
 
 #include "erl_common/angle_utils.hpp"
+#include "erl_geometry/bayesian_hilbert_map_torch.hpp"
+#include "erl_gp_sdf/surface_data_manager.hpp"
 
-namespace erl::sdf_mapping {
+namespace erl::gp_sdf {
     template<typename Dtype>
     YAML::Node
     RaySelector2D<Dtype>::Setting::YamlConvertImpl::encode(const Setting &setting) {
@@ -318,12 +320,16 @@ namespace erl::sdf_mapping {
         ERL_YAML_SAVE_ATTR(node, setting, surface_max_abs_logodd);
         ERL_YAML_SAVE_ATTR(node, setting, surface_bad_abs_logodd);
         ERL_YAML_SAVE_ATTR(node, setting, surface_step_size);
+        ERL_YAML_SAVE_ATTR(node, setting, faster_prediction);
         ERL_YAML_SAVE_ATTR(node, setting, max_adjust_tries);
         ERL_YAML_SAVE_ATTR(node, setting, var_scale);
         ERL_YAML_SAVE_ATTR(node, setting, var_max);
         ERL_YAML_SAVE_ATTR(node, setting, scaling);
         ERL_YAML_SAVE_ATTR(node, setting, bhm_depth);
         ERL_YAML_SAVE_ATTR(node, setting, bhm_overlap);
+        ERL_YAML_SAVE_ATTR(node, setting, update_with_cuda);
+        ERL_YAML_SAVE_ATTR(node, setting, cuda_device_id);
+        ERL_YAML_SAVE_ATTR(node, setting, update_batch_size);
         ERL_YAML_SAVE_ATTR(node, setting, bhm_test_margin);
         ERL_YAML_SAVE_ATTR(node, setting, test_knn);
         ERL_YAML_SAVE_ATTR(node, setting, test_batch_size);
@@ -344,12 +350,16 @@ namespace erl::sdf_mapping {
         ERL_YAML_LOAD_ATTR(node, setting, surface_max_abs_logodd);
         ERL_YAML_LOAD_ATTR(node, setting, surface_bad_abs_logodd);
         ERL_YAML_LOAD_ATTR(node, setting, surface_step_size);
+        ERL_YAML_LOAD_ATTR(node, setting, faster_prediction);
         ERL_YAML_LOAD_ATTR(node, setting, max_adjust_tries);
         ERL_YAML_LOAD_ATTR(node, setting, var_scale);
         ERL_YAML_LOAD_ATTR(node, setting, var_max);
         ERL_YAML_LOAD_ATTR(node, setting, scaling);
         ERL_YAML_LOAD_ATTR(node, setting, bhm_depth);
         ERL_YAML_LOAD_ATTR(node, setting, bhm_overlap);
+        ERL_YAML_LOAD_ATTR(node, setting, update_with_cuda);
+        ERL_YAML_LOAD_ATTR(node, setting, cuda_device_id);
+        ERL_YAML_LOAD_ATTR(node, setting, update_batch_size);
         ERL_YAML_LOAD_ATTR(node, setting, bhm_test_margin);
         ERL_YAML_LOAD_ATTR(node, setting, test_knn);
         ERL_YAML_LOAD_ATTR(node, setting, test_batch_size);
@@ -385,12 +395,11 @@ namespace erl::sdf_mapping {
     }
 
     template<typename Dtype, int Dim>
-    bool
-    BayesianHilbertSurfaceMapping<Dtype, Dim>::LocalBayesianHilbertMap::Update(
+    void
+    BayesianHilbertSurfaceMapping<Dtype, Dim>::LocalBayesianHilbertMap::GenerateDataset(
         const Eigen::Ref<const Position> &sensor_origin,
         const Eigen::Ref<const Positions> &points,
         const std::vector<long> &point_indices) {
-
         const long max_dataset_size = setting->max_dataset_size;
         bhm.GenerateDataset(
             sensor_origin,
@@ -402,7 +411,7 @@ namespace erl::sdf_mapping {
             dataset_labels,
             hit_indices);
 
-        if (num_dataset_points == 0) { return false; }
+        if (num_dataset_points == 0) { return; }
         if (!hit_buffer.empty() &&
             (max_dataset_size < 0 || num_dataset_points < max_dataset_size)) {
 
@@ -422,7 +431,26 @@ namespace erl::sdf_mapping {
                 if (num_dataset_points >= n) { break; }  // the dataset size limit is reached
             }
         }
+    }
+
+    template<typename Dtype, int Dim>
+    bool
+    BayesianHilbertSurfaceMapping<Dtype, Dim>::LocalBayesianHilbertMap::Update(
+        const Eigen::Ref<const Position> &sensor_origin,
+        const Eigen::Ref<const Positions> &points,
+        const std::vector<long> &point_indices) {
+
+        GenerateDataset(sensor_origin, points, point_indices);
+        if (num_dataset_points == 0) { return false; }
         bhm.RunExpectationMaximization(dataset_points, dataset_labels, num_dataset_points);
+        UpdateHitBuffer(points);
+        return true;
+    }
+
+    template<typename Dtype, int Dim>
+    void
+    BayesianHilbertSurfaceMapping<Dtype, Dim>::LocalBayesianHilbertMap::UpdateHitBuffer(
+        const Eigen::Ref<const Positions> &points) {
         if (setting->hit_buffer_size > 0 && !hit_indices.empty()) {
             // hit buffer has space and there are hit points
             for (const long &hit_index: hit_indices) {
@@ -430,7 +458,6 @@ namespace erl::sdf_mapping {
                 hit_buffer_head = (hit_buffer_head + 1) % hit_buffer.capacity();
             }
         }
-        return true;
     }
 
     template<typename Dtype, int Dim>
@@ -819,7 +846,111 @@ namespace erl::sdf_mapping {
         (void) parallel;
         std::vector<int> updated(bhm_keys.size(), 0);  // don't use bool, it is not atomic
         ERL_INFO("{} local bhm(s) to update", bhm_keys.size());
-        {
+
+#ifdef ERL_USE_LIBTORCH
+        bool use_cuda = m_setting_->update_with_cuda;
+        if (use_cuda && !torch::cuda::is_available()) {
+            ERL_WARN_ONCE(
+                "update_with_cuda is set to true, but CUDA is not available. "
+                "Falling back to CPU update.");
+            use_cuda = false;
+        }
+        if (use_cuda) {
+            ERL_BLOCK_TIMER_MSG("bhm update");
+            // generate dataset
+    #pragma omp parallel for if (parallel) default(none)                              \
+        shared(bhm_keys, points_s, sensor_origin_s, sensor_rotation, radius, updated) \
+        schedule(static)
+            for (std::size_t i = 0; i < bhm_keys.size(); ++i) {
+                auto &bhm_key = bhm_keys[i];
+                std::vector<long> &ray_indices = m_ray_indices_[omp_get_thread_num()];
+                // ray_indices.reserve(points_s.cols() / 10);
+                LocalBayesianHilbertMap &local_bhm = *m_key_bhm_dict_[bhm_key];
+                local_bhm.active = true;
+                m_ray_selector_.SelectRays(
+                    sensor_origin_s,
+                    sensor_rotation,
+                    local_bhm.bhm.GetMapBoundary().center,
+                    radius,
+                    ray_indices);
+                local_bhm.GenerateDataset(sensor_origin_s, points_s, ray_indices);
+            }
+
+            geometry::BayesianHilbertMapTorch<Dtype, Dim> bhm_torch(m_setting_->local_bhm->bhm);
+            bhm_torch.SetDevice(torch::Device(torch::kCUDA, m_setting_->cuda_device_id));
+            bhm_torch.SetKernelScale(m_setting_->local_bhm->kernel->scale);
+            bhm_torch.LoadHingedPoints(m_hinged_points_);
+
+            for (std::size_t i = 0; i < bhm_keys.size(); i += m_setting_->update_batch_size) {
+                std::size_t end = std::min(i + m_setting_->update_batch_size, bhm_keys.size());
+                std::vector<std::pair<std::size_t, long>> map_indices;
+                map_indices.reserve(end - i);
+
+                {
+                    ERL_BLOCK_TIMER_MSG("bhm load weights and dataset");
+                    long num_maps = 0;
+                    long max_dataset_size = m_setting_->local_bhm->max_dataset_size;
+                    for (std::size_t j = i; j < end; ++j) {
+                        auto &bhm_key = bhm_keys[j];
+                        LocalBayesianHilbertMap &local_bhm = *m_key_bhm_dict_[bhm_key];
+                        if (local_bhm.num_dataset_points == 0) { continue; }
+                        map_indices.emplace_back(j, num_maps);
+                        ++num_maps;
+                        max_dataset_size = std::max(max_dataset_size, local_bhm.num_dataset_points);
+                    }
+                    ERL_INFO("num_maps: {}, max_dataset_size: {}", num_maps, max_dataset_size);
+                    bhm_torch.PrepareMemory(num_maps, max_dataset_size);
+
+    #pragma omp parallel for if (parallel) default(none) \
+        shared(bhm_keys, bhm_torch, points_s, sensor_origin_s, map_indices)
+                    for (auto &[j, k]: map_indices) {
+                        auto &bhm_key = bhm_keys[j];
+                        LocalBayesianHilbertMap &local_bhm = *m_key_bhm_dict_[bhm_key];
+                        bhm_torch.LoadWeightsAndCovariance(
+                            k,
+                            local_bhm.bhm.GetWeights(),
+                            local_bhm.bhm.GetWeightsCovariance());
+                        bhm_torch.LoadDataset(
+                            k,
+                            local_bhm.bhm.GetMapBoundary().center,
+                            local_bhm.dataset_points,
+                            local_bhm.dataset_labels,
+                            local_bhm.num_dataset_points);
+                        local_bhm.UpdateHitBuffer(points_s);
+                    }
+                }
+
+                {
+                    ERL_BLOCK_TIMER_MSG("bhm em");
+                    bhm_torch.RunExpectationMaximization();
+                }
+
+                {
+                    ERL_BLOCK_TIMER_MSG("bhm get weights and covariance");
+    #pragma omp parallel for if (parallel) default(none) \
+        shared(bhm_keys, bhm_torch, map_indices, updated)
+                    for (auto &[j, k]: map_indices) {
+                        auto &bhm_key = bhm_keys[j];
+                        LocalBayesianHilbertMap &local_bhm = *m_key_bhm_dict_[bhm_key];
+                        bhm_torch.GetWeightsAndCovariance(
+                            k,
+                            local_bhm.bhm.GetWeights(),
+                            local_bhm.bhm.GetWeightsCovariance());
+                        updated[j] = 1;
+                    }
+                }
+            }
+            bhm_torch.Reset();
+        }
+#else
+        bool use_cuda = false;
+        ERL_WARN_ONCE_COND(
+            m_setting_->update_with_cuda,
+            "update_with_cuda is set to true, but the erl_geometry library is not compiled with "
+            "CUDA support.");
+#endif
+
+        if (!use_cuda) {
             ERL_BLOCK_TIMER_MSG("bhm update");
 #pragma omp parallel for if (parallel) default(none) \
     shared(bhm_keys, points_s, sensor_origin_s, sensor_rotation, radius, updated) schedule(static)
@@ -1096,7 +1227,7 @@ namespace erl::sdf_mapping {
         Predict(
             positions,
             true /*logodd*/,
-            true /*faster*/,
+            m_setting_->faster_prediction,
             false /*compute_gradient*/,
             false /*gradient_with_sigmoid*/,
             true /*parallel*/,
@@ -1661,7 +1792,7 @@ namespace erl::sdf_mapping {
         bhm.Predict(
             surf_data.position,
             true /*logodd*/,
-            true /*faster*/,
+            m_setting_->faster_prediction,
             true /*compute_gradient*/,
             false /*gradient_with_sigmoid*/,
             logodd, /*logodd output*/
@@ -1691,7 +1822,7 @@ namespace erl::sdf_mapping {
         bhm.Predict(
             surf_data.position,
             true /*logodd*/,
-            true /*faster*/,
+            m_setting_->faster_prediction,
             true /*compute_gradient*/,
             false /*gradient_with_sigmoid*/,
             logodd, /*logodd output*/
@@ -1718,7 +1849,7 @@ namespace erl::sdf_mapping {
             bhm.Predict(
                 surf_data.position,
                 true /*logodd*/,
-                true /*faster*/,
+                m_setting_->faster_prediction,
                 true /*compute_gradient*/,
                 false /*gradient_with_sigmoid*/,
                 logodd_new, /*logodd output*/
@@ -1768,4 +1899,4 @@ namespace erl::sdf_mapping {
     template class BayesianHilbertSurfaceMapping<float, 3>;
     template class BayesianHilbertSurfaceMapping<double, 2>;
     template class BayesianHilbertSurfaceMapping<double, 3>;
-}  // namespace erl::sdf_mapping
+}  // namespace erl::gp_sdf

@@ -6,7 +6,7 @@
 
 #include "erl_common/exception.hpp"
 
-namespace erl::sdf_mapping {
+namespace erl::gp_sdf {
 
     template<typename Dtype>
     class AbstractSurfaceMapping2D : public AbstractSurfaceMapping {
@@ -43,4 +43,4 @@ namespace erl::sdf_mapping {
             return !(*this == other);
         }
     };
-}  // namespace erl::sdf_mapping
+}  // namespace erl::gp_sdf

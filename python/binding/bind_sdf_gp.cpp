@@ -4,7 +4,7 @@
 template<typename Dtype, int Dim>
 void
 BindSdfGpImpl(const py::module &m, const char *name) {
-    using namespace erl::sdf_mapping;
+    using namespace erl::gp_sdf;
 
     using T = SdfGaussianProcess<Dtype, Dim>;
 
@@ -48,7 +48,7 @@ BindSdfGpImpl(const py::module &m, const char *name) {
             "test",
             [](T &self,
                const typename T::VectorD &test_position,
-               const Dtype external_sign,
+               Dtype external_sign,
                const bool compute_gradient,
                const bool compute_gradient_variance,
                const bool compute_covariance,

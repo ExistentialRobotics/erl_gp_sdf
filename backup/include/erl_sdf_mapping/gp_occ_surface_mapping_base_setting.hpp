@@ -3,7 +3,7 @@
 
 #include "erl_common/yaml.hpp"
 
-namespace erl::sdf_mapping {
+namespace erl::gp_sdf {
     struct GpOccSurfaceMappingBaseSetting : common::Yamlable<GpOccSurfaceMappingBaseSetting, AbstractSurfaceMapping::Setting> {
 
         struct ComputeVariance : Yamlable<ComputeVariance> {
@@ -35,14 +35,14 @@ namespace erl::sdf_mapping {
         bool update_occupancy = true;
     };
 
-}  // namespace erl::sdf_mapping
+}  // namespace erl::gp_sdf
 
 // ReSharper disable CppInconsistentNaming
 template<>
-struct YAML::convert<erl::sdf_mapping::GpOccSurfaceMappingBaseSetting::ComputeVariance> {
+struct YAML::convert<erl::gp_sdf::GpOccSurfaceMappingBaseSetting::ComputeVariance> {
 
     static Node
-    encode(const erl::sdf_mapping::GpOccSurfaceMappingBaseSetting::ComputeVariance &rhs) {
+    encode(const erl::gp_sdf::GpOccSurfaceMappingBaseSetting::ComputeVariance &rhs) {
         Node node;
         node["zero_gradient_position_var"] = rhs.zero_gradient_position_var;
         node["zero_gradient_gradient_var"] = rhs.zero_gradient_gradient_var;
@@ -55,7 +55,7 @@ struct YAML::convert<erl::sdf_mapping::GpOccSurfaceMappingBaseSetting::ComputeVa
     }
 
     static bool
-    decode(const Node &node, erl::sdf_mapping::GpOccSurfaceMappingBaseSetting::ComputeVariance &rhs) {
+    decode(const Node &node, erl::gp_sdf::GpOccSurfaceMappingBaseSetting::ComputeVariance &rhs) {
         if (!node.IsMap()) { return false; }
         rhs.zero_gradient_position_var = node["zero_gradient_position_var"].as<double>();
         rhs.zero_gradient_gradient_var = node["zero_gradient_gradient_var"].as<double>();
@@ -69,10 +69,10 @@ struct YAML::convert<erl::sdf_mapping::GpOccSurfaceMappingBaseSetting::ComputeVa
 };
 
 template<>
-struct YAML::convert<erl::sdf_mapping::GpOccSurfaceMappingBaseSetting::UpdateMapPoints> {
+struct YAML::convert<erl::gp_sdf::GpOccSurfaceMappingBaseSetting::UpdateMapPoints> {
 
     static Node
-    encode(const erl::sdf_mapping::GpOccSurfaceMappingBaseSetting::UpdateMapPoints &rhs) {
+    encode(const erl::gp_sdf::GpOccSurfaceMappingBaseSetting::UpdateMapPoints &rhs) {
         Node node;
         node["min_observable_occ"] = rhs.min_observable_occ;
         node["max_surface_abs_occ"] = rhs.max_surface_abs_occ;
@@ -86,7 +86,7 @@ struct YAML::convert<erl::sdf_mapping::GpOccSurfaceMappingBaseSetting::UpdateMap
     }
 
     static bool
-    decode(const Node &node, erl::sdf_mapping::GpOccSurfaceMappingBaseSetting::UpdateMapPoints &rhs) {
+    decode(const Node &node, erl::gp_sdf::GpOccSurfaceMappingBaseSetting::UpdateMapPoints &rhs) {
         if (!node.IsMap()) { return false; }
         rhs.min_observable_occ = node["min_observable_occ"].as<double>();
         rhs.max_surface_abs_occ = node["max_surface_abs_occ"].as<double>();
@@ -101,9 +101,9 @@ struct YAML::convert<erl::sdf_mapping::GpOccSurfaceMappingBaseSetting::UpdateMap
 };
 
 template<>
-struct YAML::convert<erl::sdf_mapping::GpOccSurfaceMappingBaseSetting> {
+struct YAML::convert<erl::gp_sdf::GpOccSurfaceMappingBaseSetting> {
     static Node
-    encode(const erl::sdf_mapping::GpOccSurfaceMappingBaseSetting &setting) {
+    encode(const erl::gp_sdf::GpOccSurfaceMappingBaseSetting &setting) {
         Node node;
         node["compute_variance"] = setting.compute_variance;
         node["update_map_points"] = setting.update_map_points;
@@ -115,7 +115,7 @@ struct YAML::convert<erl::sdf_mapping::GpOccSurfaceMappingBaseSetting> {
     }
 
     static bool
-    decode(const Node &node, erl::sdf_mapping::GpOccSurfaceMappingBaseSetting &setting) {
+    decode(const Node &node, erl::gp_sdf::GpOccSurfaceMappingBaseSetting &setting) {
         if (!node.IsMap()) { return false; }
         setting.compute_variance = node["compute_variance"].as<decltype(setting.compute_variance)>();
         setting.update_map_points = node["update_map_points"].as<decltype(setting.update_map_points)>();

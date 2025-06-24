@@ -3,7 +3,7 @@
 #include "erl_common/data_buffer_manager.hpp"
 #include "erl_common/eigen.hpp"
 
-namespace erl::sdf_mapping {
+namespace erl::gp_sdf {
 
     template<typename Dtype, int Dim>
     struct SurfaceData {
@@ -70,6 +70,6 @@ namespace erl::sdf_mapping {
     extern template class SurfaceDataManager<double, 3>;
     extern template class SurfaceDataManager<float, 3>;
 
-}  // namespace erl::sdf_mapping
+}  // namespace erl::gp_sdf
 
 // #include "surface_data_manager.tpp"

@@ -6,7 +6,7 @@ template<typename Dtype, int Dim>
 void
 BindAbstractSurfaceMappingImpl(const py::module &m, const char *name) {
     using namespace erl::common;
-    using namespace erl::sdf_mapping;
+    using namespace erl::gp_sdf;
     using T = AbstractSurfaceMapping<Dtype, Dim>;
 
     py::class_<T, std::shared_ptr<T>> abstract_surface_mapping(m, name);

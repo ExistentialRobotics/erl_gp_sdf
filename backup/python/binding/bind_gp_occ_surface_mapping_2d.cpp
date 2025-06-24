@@ -1,11 +1,11 @@
 #include "erl_common/pybind11.hpp"
-#include "erl_sdf_mapping/gp_occ_surface_mapping_2d.hpp"
+#include "erl_gp_sdf/gp_occ_surface_mapping_2d.hpp"
 
 void
 BindGpOccSurfaceMapping2D(const py::module &m) {
     using namespace erl::common;
     using namespace erl::geometry;
-    using namespace erl::sdf_mapping;
+    using namespace erl::gp_sdf;
 
     py::class_<GpOccSurfaceMapping2D, AbstractSurfaceMapping2D, std::shared_ptr<GpOccSurfaceMapping2D>> surface_mapping(m, "GpOccSurfaceMapping2D");
     py::class_<GpOccSurfaceMapping2D::Setting, GpOccSurfaceMappingBaseSetting, std::shared_ptr<GpOccSurfaceMapping2D::Setting>>(surface_mapping, "Setting")

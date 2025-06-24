@@ -7,8 +7,8 @@
 #include "erl_geometry/lidar_2d.hpp"
 #include "erl_geometry/occupancy_quadtree_drawer.hpp"
 #include "erl_geometry/ucsd_fah_2d.hpp"
-#include "erl_sdf_mapping/gp_occ_surface_mapping_2d.hpp"
-#include "erl_sdf_mapping/gp_sdf_mapping_2d.hpp"
+#include "erl_gp_sdf/gp_occ_surface_mapping_2d.hpp"
+#include "erl_gp_sdf/gp_sdf_mapping_2d.hpp"
 
 #include <boost/program_options.hpp>
 
@@ -175,15 +175,15 @@ TEST(GpOccSurfaceMapping2D, Build_Save_Load) {
     }
     max_update_cnt = cur_traj.cols();
 
-    const auto gp_setting = std::make_shared<erl::sdf_mapping::GpOccSurfaceMapping2D::Setting>();
+    const auto gp_setting = std::make_shared<erl::gp_sdf::GpOccSurfaceMapping2D::Setting>();
     ASSERT_TRUE(gp_setting->FromYamlFile(g_options.surface_mapping_config_file)) << "Failed to load config file.";
     gp_setting->sensor_gp->lidar_frame->angle_min = train_angles[0].minCoeff();
     gp_setting->sensor_gp->lidar_frame->angle_max = train_angles[0].maxCoeff();
     gp_setting->sensor_gp->lidar_frame->num_rays = train_ranges[0].size();
-    erl::sdf_mapping::GpOccSurfaceMapping2D gp(gp_setting);
+    erl::gp_sdf::GpOccSurfaceMapping2D gp(gp_setting);
     std::cout << "Surface Mapping Setting:" << std::endl << *gp_setting << std::endl;
 
-    using OccupancyQuadtreeDrawer = erl::sdf_mapping::SurfaceMappingQuadtree::Drawer;
+    using OccupancyQuadtreeDrawer = erl::gp_sdf::SurfaceMappingQuadtree::Drawer;
     auto drawer_setting = std::make_shared<OccupancyQuadtreeDrawer::Setting>();
     drawer_setting->area_min = map_min;
     drawer_setting->area_max = map_max;
@@ -194,7 +194,7 @@ TEST(GpOccSurfaceMapping2D, Build_Save_Load) {
     auto drawer = std::make_shared<OccupancyQuadtreeDrawer>(drawer_setting);
     std::vector<std::pair<cv::Point, cv::Point>> arrowed_lines;
     auto &surface_data_manager = gp.GetSurfaceDataManager();
-    drawer->SetDrawTreeCallback([&](const OccupancyQuadtreeDrawer *self, cv::Mat &img, erl::sdf_mapping::SurfaceMappingQuadtree::TreeIterator &it) {
+    drawer->SetDrawTreeCallback([&](const OccupancyQuadtreeDrawer *self, cv::Mat &img, erl::gp_sdf::SurfaceMappingQuadtree::TreeIterator &it) {
         const uint32_t cluster_depth = gp.GetQuadtree()->GetTreeDepth() - gp.GetClusterLevel();
         const auto grid_map_info = self->GetGridMapInfo();
         if (it->GetDepth() == cluster_depth) {
@@ -212,7 +212,7 @@ TEST(GpOccSurfaceMapping2D, Build_Save_Load) {
         cv::Point arrow_end_px(position_px[0] + normal_px[0], position_px[1] + normal_px[1]);
         arrowed_lines.emplace_back(position_px_cv, arrow_end_px);
     });
-    drawer->SetDrawLeafCallback([&](const OccupancyQuadtreeDrawer *self, cv::Mat &img, erl::sdf_mapping::SurfaceMappingQuadtree::LeafIterator &it) {
+    drawer->SetDrawLeafCallback([&](const OccupancyQuadtreeDrawer *self, cv::Mat &img, erl::gp_sdf::SurfaceMappingQuadtree::LeafIterator &it) {
         if (!it->HasSurfaceData()) { return; }
         const auto grid_map_info = self->GetGridMapInfo();
         auto &surface_data = surface_data_manager[it->surface_data_index];
@@ -284,7 +284,7 @@ TEST(GpOccSurfaceMapping2D, Build_Save_Load) {
 
         if (g_options.test_io) {
             ASSERT_TRUE(gp.Write(bin_file)) << "Failed to write to " << bin_file;
-            erl::sdf_mapping::GpOccSurfaceMapping2D gp_load(std::make_shared<erl::sdf_mapping::GpOccSurfaceMapping2D::Setting>());
+            erl::gp_sdf::GpOccSurfaceMapping2D gp_load(std::make_shared<erl::gp_sdf::GpOccSurfaceMapping2D::Setting>());
             ASSERT_TRUE(gp_load.Read(bin_file)) << "Failed to read from " << bin_file;
             ASSERT_TRUE(gp == gp_load) << "Loaded GP is not equal to the original GP.";
         }

@@ -438,10 +438,13 @@ def main():
     trajectory = generate_trajectory(1)
 
     # generate the grid
-    x_min = y_min = -5.0
-    x_max = y_max = 5.0
+    # x_min = y_min = -5.0
+    x_min = y_min = -3.0
+    # x_max = y_max = 5.0
+    x_max = y_max = 3.0
     # grid_size = 51
-    grid_size = 31
+    # grid_size = 31
+    grid_size = 21
     grid_cpu = torch.meshgrid(
         torch.linspace(x_min, x_max, grid_size, dtype=dtype),
         torch.linspace(y_min, y_max, grid_size, dtype=dtype),
@@ -450,16 +453,19 @@ def main():
     grid = grid_cpu.to(device)
     m = grid.shape[0]
     # gamma = 45
-    gamma = 20
+    gamma = 30
+    # gamma = 20
     mu = torch.zeros(m, dtype=dtype).to(device)
     sigma = 10000 * torch.eye(m, dtype=dtype).to(device)
     print_sigma(sigma)
 
     n_iter = 3
-    # sigma_scheme = "full"
-    sigma_scheme = "diagonal"
-    faster_predict = True
-    faster_grad_predict = True
+    sigma_scheme = "full"
+    # sigma_scheme = "diagonal"
+    faster_predict = False
+    # faster_predict = True
+    faster_grad_predict = False
+    # faster_grad_predict = True
 
     h = w = 100
     x_test = torch.meshgrid(

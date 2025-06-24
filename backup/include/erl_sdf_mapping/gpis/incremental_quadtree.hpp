@@ -13,7 +13,7 @@
 #include <unordered_map>
 #include <utility>
 
-namespace erl::sdf_mapping::gpis {
+namespace erl::gp_sdf::gpis {
 
     class IncrementalQuadtree : public std::enable_shared_from_this<IncrementalQuadtree> {  // NOTE: MUST BE PUBLIC INHERITANCE
 
@@ -404,10 +404,10 @@ namespace erl::sdf_mapping::gpis {
         void
         DeleteChildren();
     };
-}  // namespace erl::sdf_mapping::gpis
+}  // namespace erl::gp_sdf::gpis
 
 template<>
-struct YAML::convert<erl::sdf_mapping::gpis::IncrementalQuadtree::Setting> {
+struct YAML::convert<erl::gp_sdf::gpis::IncrementalQuadtree::Setting> {
     static Node
     encode(const IncrementalQuadtree::Setting &setting) {
         Node node;

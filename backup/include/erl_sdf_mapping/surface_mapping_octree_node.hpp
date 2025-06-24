@@ -2,7 +2,7 @@
 
 #include "erl_geometry/occupancy_octree_node.hpp"
 
-namespace erl::sdf_mapping {
+namespace erl::gp_sdf {
 
     struct SurfaceMappingOctreeNode : geometry::OccupancyOctreeNode {
         std::size_t surface_data_index = -1;
@@ -108,4 +108,4 @@ namespace erl::sdf_mapping {
         }
     };
 
-}  // namespace erl::sdf_mapping
+}  // namespace erl::gp_sdf

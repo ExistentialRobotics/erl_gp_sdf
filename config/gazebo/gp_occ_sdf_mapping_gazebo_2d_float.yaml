@@ -16,12 +16,12 @@ gp_sdf_area_scale: 4
 max_valid_gradient_var: 0.1
 invalid_position_var: 0.25
 sdf_gp:
-    sign_method: "kNormalGp"  # "kSignGp"
+    sign_method: "kSignGp"  # "kSignGp", "kNormalGp", "kExternal", "kHybrid"
     hybrid_sign_methods: [ "kNormalGp", "kExternal" ]
     hybrid_sign_threshold: 0.2
     normal_scale: 100.0
     softmin_temperature: 10.0
-    sign_gp_offset_distance: 0.00
+    sign_gp_offset_distance: -0.01
     edf_gp_offset_distance: 0.0
     sign_gp:
         kernel_type: erl::covariance::Matern32<float, 2>

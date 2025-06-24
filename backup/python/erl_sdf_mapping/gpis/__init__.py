@@ -1,4 +1,4 @@
-from erl_sdf_mapping.pyerl_sdf_mapping.gpis import (
+from erl_gp_sdf.pyerl_gp_sdf.gpis import (
     GpisData2D,
     GpisNode2D,
     GpisNodeContainer2D,

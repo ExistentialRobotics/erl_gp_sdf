@@ -7,7 +7,7 @@ void
 BindGpSdfMappingImpl(const py::module &m, const char *name) {
     using namespace erl::common;
     using namespace erl::geometry;
-    using namespace erl::sdf_mapping;
+    using namespace erl::gp_sdf;
     using T = GpSdfMapping<Dtype, Dim>;
     using Setting = typename T::Setting;
     using Positions = typename T::Positions;
@@ -48,7 +48,7 @@ BindGpSdfMappingImpl(const py::module &m, const char *name) {
 
 void
 BindGpSdfMapping(const py::module &m) {
-    using namespace erl::sdf_mapping;
+    using namespace erl::gp_sdf;
     BindGpSdfMappingImpl<double, 3>(m, "GpSdfMapping3Dd");
     BindGpSdfMappingImpl<float, 3>(m, "GpSdfMapping3Df");
     BindGpSdfMappingImpl<double, 2>(m, "GpSdfMapping2Dd");

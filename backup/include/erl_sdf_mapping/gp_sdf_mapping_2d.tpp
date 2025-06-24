@@ -1,4 +1,4 @@
-#include "erl_sdf_mapping/gp_sdf_mapping_2d.hpp"
+#include "erl_gp_sdf/gp_sdf_mapping_2d.hpp"
 
 #include "erl_common/angle_utils.hpp"
 #include "erl_common/block_timer.hpp"
@@ -9,7 +9,7 @@
 #include <thread>
 #include <vector>
 
-namespace erl::sdf_mapping {
+namespace erl::gp_sdf {
     bool
     GpSdfMapping2D::TestBuffer::ConnectBuffers(
         const Eigen::Ref<const Eigen::Matrix2Xd> &positions_in,
@@ -286,7 +286,7 @@ namespace erl::sdf_mapping {
     //     return success;
     // }
 
-    static const std::string kFileHeader = "# erl::sdf_mapping::GpSdfMapping2D";
+    static const std::string kFileHeader = "# erl::gp_sdf::GpSdfMapping2D";
 
     bool
     GpSdfMapping2D::Write(std::ostream &s) const {
@@ -884,4 +884,4 @@ namespace erl::sdf_mapping {
         }
     }
 
-}  // namespace erl::sdf_mapping
+}  // namespace erl::gp_sdf

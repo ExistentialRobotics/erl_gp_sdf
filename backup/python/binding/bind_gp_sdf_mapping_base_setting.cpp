@@ -1,10 +1,10 @@
 #include "erl_common/pybind11.hpp"
-#include "erl_sdf_mapping/gp_sdf_mapping_base_setting.hpp"
+#include "erl_gp_sdf/gp_sdf_mapping_base_setting.hpp"
 
 void
 BindGpSdfMappingSetting(const py::module &m) {
     using namespace erl::common;
-    using namespace erl::sdf_mapping;
+    using namespace erl::gp_sdf;
 
     py::class_<GpSdfMappingBaseSetting, YamlableBase, std::shared_ptr<GpSdfMappingBaseSetting>> sdf_mapping_setting(m, "GpSdfMappingBaseSetting");
     py::class_<GpSdfMappingBaseSetting::TestQuery, YamlableBase, std::shared_ptr<GpSdfMappingBaseSetting::TestQuery>>(sdf_mapping_setting, "TestQuery")

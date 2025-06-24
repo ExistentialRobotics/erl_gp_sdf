@@ -3,12 +3,12 @@
 #include "erl_common/test_helper.hpp"
 #include "erl_gaussian_process/noisy_input_gp.hpp"
 #include "erl_geometry/gazebo_room.hpp"
-#include "erl_sdf_mapping/gpis/gpis_map_2d.hpp"
+#include "erl_gp_sdf/gpis/gpis_map_2d.hpp"
 
 #include <filesystem>
 
 void
-PrintStatusOfErlGpisMap(const erl::sdf_mapping::gpis::GpisMap2D &gpis_map, std::ostream &os = std::cout) {
+PrintStatusOfErlGpisMap(const erl::gp_sdf::gpis::GpisMap2D &gpis_map, std::ostream &os = std::cout) {
     if (&os == &std::cout) {
         erl::common::Logging::Info("Tree Structure of ERL-GpisMap2D:");
     } else {
@@ -37,7 +37,7 @@ TEST(ERL_SDF_MAPPING, GpisMap2D) {
     auto train_data_loader = erl::geometry::GazeboRoom2D::TrainDataLoader(path.string().c_str());
 
     GPisMap gpm;
-    erl::sdf_mapping::gpis::GpisMap2D gpis_map;
+    erl::gp_sdf::gpis::GpisMap2D gpis_map;
     auto gpis_map_setting = gpis_map.GetSetting();
     gpis_map_setting->num_threads = std::thread::hardware_concurrency();
     gpis_map_setting->update_gp_sdf->offset_distance = GPISMAP_FBIAS;
@@ -153,7 +153,7 @@ TEST(ERL_SDF_MAPPING, GpisMap2D) {
     }
 
     // Check UpdateSurfacePoints & AddNewSurfaceSamples
-    std::vector<std::shared_ptr<erl::sdf_mapping::gpis::GpisNode2D>> nodes_ans;
+    std::vector<std::shared_ptr<erl::gp_sdf::gpis::GpisNode2D>> nodes_ans;
     gpis_map.GetQuadtree()->CollectNodesOfTypeInArea(0, gpis_map.GetQuadtree()->GetArea(), nodes_ans);
     std::vector<std::shared_ptr<Node>> nodes_gt;
     gpm.m_tree_->QueryRange(gpm.m_tree_->m_boundary_, nodes_gt);
@@ -221,10 +221,10 @@ TEST(ERL_SDF_MAPPING, GpisMap2D) {
     }
 
     // Check UpdateGpSdf
-    std::vector<std::shared_ptr<const erl::sdf_mapping::gpis::IncrementalQuadtree>> clusters_ans;
+    std::vector<std::shared_ptr<const erl::gp_sdf::gpis::IncrementalQuadtree>> clusters_ans;
     std::vector<QuadTree *> clusters_gt;
     gpis_map.GetQuadtree()->CollectTrees(
-        [](const std::shared_ptr<const erl::sdf_mapping::gpis::IncrementalQuadtree> &tree) -> bool { return tree->GetData<void>() != nullptr; },
+        [](const std::shared_ptr<const erl::gp_sdf::gpis::IncrementalQuadtree> &tree) -> bool { return tree->GetData<void>() != nullptr; },
         clusters_ans);
     gpm.m_tree_->CollectTrees([](const QuadTree *tree) -> bool { return tree->m_gp_ != nullptr; }, clusters_gt);
     ASSERT_EQ(clusters_ans.size(), clusters_gt.size()) << "Number of QuadTrees having GP";

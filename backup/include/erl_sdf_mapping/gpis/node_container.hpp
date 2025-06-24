@@ -5,7 +5,7 @@
 #include "erl_common/yaml.hpp"
 #include "erl_geometry/aabb.hpp"
 
-namespace erl::sdf_mapping::gpis {
+namespace erl::gp_sdf::gpis {
 
     template<int Dim>
     class GpisNodeContainer {
@@ -196,12 +196,12 @@ namespace erl::sdf_mapping::gpis {
 
     using GpisNodeContainer2D = GpisNodeContainer<2>;
     using GpisNodeContainer3D = GpisNodeContainer<3>;
-}  // namespace erl::sdf_mapping::gpis
+}  // namespace erl::gp_sdf::gpis
 
 // ReSharper disable CppInconsistentNaming
 namespace YAML {
 
-    using namespace erl::sdf_mapping::gpis;
+    using namespace erl::gp_sdf::gpis;
 
     template<int Dim>
     struct ConvertGpisNodeContainerSetting {

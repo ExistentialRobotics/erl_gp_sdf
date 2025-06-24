@@ -27,8 +27,8 @@ test_query:
     compute_covariance: true  # whether to compute covariance
     use_gp_covariance: false
     softmin_temperature: 10.0
-surface_mapping_type: erl::sdf_mapping::GpOccSurfaceMapping2D
-surface_mapping_setting_type: erl::sdf_mapping::GpOccSurfaceMapping2D::Setting
+surface_mapping_type: erl::gp_sdf::GpOccSurfaceMapping2D
+surface_mapping_setting_type: erl::gp_sdf::GpOccSurfaceMapping2D::Setting
 surface_mapping:
     sensor_gp:
         group_size: 26  # number of points in each group, including the overlap ones

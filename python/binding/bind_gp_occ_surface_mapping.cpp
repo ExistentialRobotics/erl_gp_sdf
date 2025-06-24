@@ -6,7 +6,7 @@ void
 BindGpOccSurfaceMappingImpl(const py::module &m, const char *name) {
     using namespace erl::common;
     using namespace erl::geometry;
-    using namespace erl::sdf_mapping;
+    using namespace erl::gp_sdf;
 
     using T = GpOccSurfaceMapping<Dtype, Dim>;
     using Setting = typename T::Setting;

@@ -1,10 +1,10 @@
 sensor_gp:
     row_group_size: 8
     row_overlap_size: 4
-    row_margin: &row_margin 0
+    row_margin: &row_margin 1
     col_group_size: 8
     col_overlap_size: 4
-    col_margin: &col_margin 0
+    col_margin: &col_margin 1
     init_variance: 1000000
     sensor_range_var: 0.001
     max_valid_range_var: 0.1
@@ -46,8 +46,8 @@ update_map_points:
     min_observable_occ: -0.08
     max_surface_abs_occ: 0.02
     max_valid_gradient_var: 0.5
-    max_adjust_tries: 5
-    max_bayes_position_var: 1
+    max_adjust_tries: 3
+    max_bayes_position_var: 1.0
     max_bayes_gradient_var: 0.6
     min_position_var: 0.001
     min_gradient_var: 0.001
@@ -64,8 +64,8 @@ tree:
     aabb:
         center: [ 0, 0, 0 ]
         half_sizes: [ 0, 0, 0 ]
-cluster_depth: 14
-surface_resolution: 0.0
+cluster_depth: 15
+surface_resolution: 0.05
 scaling: 1.0
 perturb_delta: 0.01
 zero_gradient_threshold: 1.0e-10

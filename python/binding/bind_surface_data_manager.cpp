@@ -5,7 +5,7 @@
 template<typename Dtype, int Dim>
 void
 BindSurfaceDataImpl(const py::module &m, const char *name) {
-    using namespace erl::sdf_mapping;
+    using namespace erl::gp_sdf;
     using T = SurfaceData<Dtype, Dim>;
     using VectorD = typename T::VectorD;
     py::class_<T>(m, name)
@@ -21,7 +21,7 @@ template<typename Dtype, int Dim>
 void
 BindSurfaceDataManagerImpl(const py::module &m, const char *name) {
     using namespace erl::common;
-    using namespace erl::sdf_mapping;
+    using namespace erl::gp_sdf;
     using Data = SurfaceData<Dtype, Dim>;
     // using Base = DataBufferManager<Data>;
     using T = SurfaceDataManager<Dtype, Dim>;

@@ -4,7 +4,7 @@
 
 #include "erl_common/yaml.hpp"
 
-namespace erl::sdf_mapping {
+namespace erl::gp_sdf {
     template<typename Dtype>
     struct GpSdfMappingBaseSetting : common::Yamlable<GpSdfMappingBaseSetting<Dtype>> {
         struct TestQuery : common::Yamlable<TestQuery> {
@@ -46,18 +46,18 @@ namespace erl::sdf_mapping {
 
     using GpSdfMappingBaseSetting_d = GpSdfMappingBaseSetting<double>;
     using GpSdfMappingBaseSetting_f = GpSdfMappingBaseSetting<float>;
-}  // namespace erl::sdf_mapping
+}  // namespace erl::gp_sdf
 
 #include "gp_sdf_mapping_base_setting.tpp"
 
 template<>
-struct YAML::convert<erl::sdf_mapping::GpSdfMappingBaseSetting_d::TestQuery> : erl::sdf_mapping::GpSdfMappingBaseSetting_d::TestQuery::YamlConvertImpl {};
+struct YAML::convert<erl::gp_sdf::GpSdfMappingBaseSetting_d::TestQuery> : erl::gp_sdf::GpSdfMappingBaseSetting_d::TestQuery::YamlConvertImpl {};
 
 template<>
-struct YAML::convert<erl::sdf_mapping::GpSdfMappingBaseSetting_f::TestQuery> : erl::sdf_mapping::GpSdfMappingBaseSetting_f::TestQuery::YamlConvertImpl {};
+struct YAML::convert<erl::gp_sdf::GpSdfMappingBaseSetting_f::TestQuery> : erl::gp_sdf::GpSdfMappingBaseSetting_f::TestQuery::YamlConvertImpl {};
 
 template<>
-struct YAML::convert<erl::sdf_mapping::GpSdfMappingBaseSetting_d> : erl::sdf_mapping::GpSdfMappingBaseSetting_d::YamlConvertImpl {};
+struct YAML::convert<erl::gp_sdf::GpSdfMappingBaseSetting_d> : erl::gp_sdf::GpSdfMappingBaseSetting_d::YamlConvertImpl {};
 
 template<>
-struct YAML::convert<erl::sdf_mapping::GpSdfMappingBaseSetting_f> : erl::sdf_mapping::GpSdfMappingBaseSetting_f::YamlConvertImpl {};
+struct YAML::convert<erl::gp_sdf::GpSdfMappingBaseSetting_f> : erl::gp_sdf::GpSdfMappingBaseSetting_f::YamlConvertImpl {};

@@ -56,3 +56,7 @@ soon.
 
 1. 🚪 [Without ROS](docs/usage_no_ros.md)
 2. 🚪 [With ROS1](docs/usage_ros1.md)
+
+# Known Issues
+
+- The program slows down (GPOCC-SDF on Gazebo 2D slows down by 30%) when `libtorch` is linked to.

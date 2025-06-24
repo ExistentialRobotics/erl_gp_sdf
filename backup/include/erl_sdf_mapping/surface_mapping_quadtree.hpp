@@ -4,7 +4,7 @@
 
 #include "erl_geometry/occupancy_quadtree_base.hpp"
 
-namespace erl::sdf_mapping {
+namespace erl::gp_sdf {
 
     template<typename Dtype>
     class SurfaceMappingQuadtree : public geometry::OccupancyQuadtreeBase<Dtype, SurfaceMappingQuadtreeNode, geometry::OccupancyQuadtreeBaseSetting> {
@@ -45,4 +45,4 @@ namespace erl::sdf_mapping {
 
     using SurfaceMappingQuadtreeD = SurfaceMappingQuadtree<double>;
     using SurfaceMappingQuadtreeF = SurfaceMappingQuadtree<float>;
-}  // namespace erl::sdf_mapping
+}  // namespace erl::gp_sdf

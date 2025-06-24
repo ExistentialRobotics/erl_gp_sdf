@@ -9,11 +9,11 @@
 
 #include "erl_common/eigen.hpp"
 #include "erl_geometry/occupancy_quadtree_drawer.hpp"  // must make sure the tree is included before the drawer
-#include "erl_sdf_mapping/gp_occ_surface_mapping_2d.hpp"
-#include "erl_sdf_mapping/gp_sdf_mapping_2d.hpp"
+#include "erl_gp_sdf/gp_occ_surface_mapping_2d.hpp"
+#include "erl_gp_sdf/gp_sdf_mapping_2d.hpp"
 #define BOOST_BIND_GLOBAL_PLACEHOLDERS
 #include <cv_bridge/cv_bridge.h>
-#include <erl_sdf_mapping/PredictSdf.h>
+#include <erl_gp_sdf/PredictSdf.h>
 #include <ros/ros.h>
 #include <sensor_msgs/LaserScan.h>
 #include <tf2_eigen/tf2_eigen.h>
@@ -23,8 +23,8 @@
 #include <filesystem>
 #include <mutex>
 
-static const std::string kRosNodeName = "erl_sdf_mapping_node";
-static const std::filesystem::path kRosNodeParamRoot = "/erl_sdf_mapping_node";
+static const std::string kRosNodeName = "erl_gp_sdf_node";
+static const std::filesystem::path kRosNodeParamRoot = "/erl_gp_sdf_node";
 
 class RosNode {
 
@@ -50,12 +50,12 @@ class RosNode {
     tf2_ros::Buffer m_tf_buffer_;
     tf2_ros::TransformListener m_tf_listener_{m_tf_buffer_};
 
-    std::shared_ptr<erl::sdf_mapping::GpOccSurfaceMapping2D::Setting> m_surface_mapping_setting_ = nullptr;
-    std::shared_ptr<erl::sdf_mapping::GpOccSurfaceMapping2D> m_surface_mapping_ = nullptr;
-    std::shared_ptr<erl::sdf_mapping::GpSdfMapping2D::Setting> m_sdf_mapping_setting_ = nullptr;
-    std::shared_ptr<erl::sdf_mapping::GpSdfMapping2D> m_sdf_mapping_ = nullptr;
+    std::shared_ptr<erl::gp_sdf::GpOccSurfaceMapping2D::Setting> m_surface_mapping_setting_ = nullptr;
+    std::shared_ptr<erl::gp_sdf::GpOccSurfaceMapping2D> m_surface_mapping_ = nullptr;
+    std::shared_ptr<erl::gp_sdf::GpSdfMapping2D::Setting> m_sdf_mapping_setting_ = nullptr;
+    std::shared_ptr<erl::gp_sdf::GpSdfMapping2D> m_sdf_mapping_ = nullptr;
 
-    using OccupancyQuadtreeDrawer = erl::geometry::OccupancyQuadtreeDrawer<erl::sdf_mapping::SurfaceMappingQuadtree>;
+    using OccupancyQuadtreeDrawer = erl::geometry::OccupancyQuadtreeDrawer<erl::gp_sdf::SurfaceMappingQuadtree>;
     std::shared_ptr<OccupancyQuadtreeDrawer::Setting> m_quadtree_drawer_setting_ = nullptr;
     std::shared_ptr<OccupancyQuadtreeDrawer> m_quadtree_drawer_ = nullptr;
     bool m_drawer_connected_ = false;
@@ -72,12 +72,12 @@ public:
         (void) ros::Duration(1.0).sleep();
         LoadParameters();  // load parameters from ros parameter server
 
-        m_surface_mapping_ = std::make_shared<erl::sdf_mapping::GpOccSurfaceMapping2D>(m_surface_mapping_setting_);
-        m_sdf_mapping_ = std::make_shared<erl::sdf_mapping::GpSdfMapping2D>(m_surface_mapping_, m_sdf_mapping_setting_);
+        m_surface_mapping_ = std::make_shared<erl::gp_sdf::GpOccSurfaceMapping2D>(m_surface_mapping_setting_);
+        m_sdf_mapping_ = std::make_shared<erl::gp_sdf::GpSdfMapping2D>(m_surface_mapping_, m_sdf_mapping_setting_);
         if (m_params_.visualize_quadtree) {
             m_quadtree_drawer_ = std::make_shared<OccupancyQuadtreeDrawer>(m_quadtree_drawer_setting_);
             m_quadtree_drawer_->SetDrawTreeCallback(
-                [&](const OccupancyQuadtreeDrawer *self, cv::Mat &img, erl::sdf_mapping::SurfaceMappingQuadtree::TreeIterator &it) {
+                [&](const OccupancyQuadtreeDrawer *self, cv::Mat &img, erl::gp_sdf::SurfaceMappingQuadtree::TreeIterator &it) {
                     unsigned int cluster_depth = m_surface_mapping_->GetQuadtree()->GetTreeDepth() - m_surface_mapping_->GetClusterLevel();
                     auto grid_map_info = self->GetGridMapInfo();
                     if (it->GetDepth() == cluster_depth) {
@@ -95,7 +95,7 @@ public:
                     m_arrowed_lines_.emplace_back(position_px_cv, arrow_end_px);
                 });
             m_quadtree_drawer_->SetDrawLeafCallback(
-                [&](const OccupancyQuadtreeDrawer *self, cv::Mat &img, erl::sdf_mapping::SurfaceMappingQuadtree::LeafIterator &it) {
+                [&](const OccupancyQuadtreeDrawer *self, cv::Mat &img, erl::gp_sdf::SurfaceMappingQuadtree::LeafIterator &it) {
                     if (it->GetSurfaceData() == nullptr) { return; }
                     auto grid_map_info = self->GetGridMapInfo();
                     Eigen::Vector2i position_px = grid_map_info->MeterToPixelForPoints(it->GetSurfaceData()->position);
@@ -170,9 +170,9 @@ private:
         LOAD_PARAMETER(lidar_frame_name);
         LOAD_PARAMETER(surface_mapping_config_path);
         LOAD_PARAMETER(sdf_mapping_config_path);
-        m_surface_mapping_setting_ = std::make_shared<erl::sdf_mapping::GpOccSurfaceMapping2D::Setting>();
+        m_surface_mapping_setting_ = std::make_shared<erl::gp_sdf::GpOccSurfaceMapping2D::Setting>();
         if (!m_params_.surface_mapping_config_path.empty()) { m_surface_mapping_setting_->FromYamlFile(m_params_.surface_mapping_config_path); }
-        m_sdf_mapping_setting_ = std::make_shared<erl::sdf_mapping::GpSdfMapping2D::Setting>();
+        m_sdf_mapping_setting_ = std::make_shared<erl::gp_sdf::GpSdfMapping2D::Setting>();
         if (!m_params_.sdf_mapping_config_path.empty()) { m_sdf_mapping_setting_->FromYamlFile(m_params_.sdf_mapping_config_path); }
         LOAD_PARAMETER(visualize_quadtree);
         if (m_params_.visualize_quadtree) {
@@ -241,7 +241,7 @@ private:
     }
 
     bool
-    SrvCallbackPredictSdf(erl_sdf_mapping::PredictSdf::Request &request, erl_sdf_mapping::PredictSdf::Response &response) {
+    SrvCallbackPredictSdf(erl_gp_sdf::PredictSdf::Request &request, erl_gp_sdf::PredictSdf::Response &response) {
         try {
             auto t0 = std::chrono::high_resolution_clock::now();
             auto num_queries = static_cast<long>(request.x.size());

@@ -1,4 +1,4 @@
-#include "erl_sdf_mapping/gpis/gpis_map_base_2d.hpp"
+#include "erl_gp_sdf/gpis/gpis_map_base_2d.hpp"
 
 #include <algorithm>
 #include <memory>
@@ -6,7 +6,7 @@
 #include <thread>
 #include <unordered_set>
 
-namespace erl::sdf_mapping::gpis {
+namespace erl::gp_sdf::gpis {
 
     static double
     Clip(const double x, const double min_x, const double max_x) {
@@ -783,4 +783,4 @@ namespace erl::sdf_mapping::gpis {
             normals_variance[i] = gpis_data->var_gradient;
         }
     }
-}  // namespace erl::sdf_mapping::gpis
+}  // namespace erl::gp_sdf::gpis

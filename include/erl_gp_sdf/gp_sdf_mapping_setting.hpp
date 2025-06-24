@@ -4,7 +4,7 @@
 
 #include "erl_common/yaml.hpp"
 
-namespace erl::sdf_mapping {
+namespace erl::gp_sdf {
 
     template<typename Dtype, int Dim>
     struct GpSdfMappingSetting : common::Yamlable<GpSdfMappingSetting<Dtype, Dim>> {
@@ -52,22 +52,22 @@ namespace erl::sdf_mapping {
     extern template class GpSdfMappingSetting<double, 2>;
     extern template class GpSdfMappingSetting<float, 3>;
     extern template class GpSdfMappingSetting<double, 3>;
-}  // namespace erl::sdf_mapping
+}  // namespace erl::gp_sdf
 
 // #include "gp_sdf_mapping_setting.tpp"
 
 template<>
-struct YAML::convert<erl::sdf_mapping::GpSdfMappingSetting3Dd>
-    : erl::sdf_mapping::GpSdfMappingSetting3Dd::YamlConvertImpl {};
+struct YAML::convert<erl::gp_sdf::GpSdfMappingSetting3Dd>
+    : erl::gp_sdf::GpSdfMappingSetting3Dd::YamlConvertImpl {};
 
 template<>
-struct YAML::convert<erl::sdf_mapping::GpSdfMappingSetting3Df>
-    : erl::sdf_mapping::GpSdfMappingSetting3Df::YamlConvertImpl {};
+struct YAML::convert<erl::gp_sdf::GpSdfMappingSetting3Df>
+    : erl::gp_sdf::GpSdfMappingSetting3Df::YamlConvertImpl {};
 
 template<>
-struct YAML::convert<erl::sdf_mapping::GpSdfMappingSetting2Dd>
-    : erl::sdf_mapping::GpSdfMappingSetting2Dd::YamlConvertImpl {};
+struct YAML::convert<erl::gp_sdf::GpSdfMappingSetting2Dd>
+    : erl::gp_sdf::GpSdfMappingSetting2Dd::YamlConvertImpl {};
 
 template<>
-struct YAML::convert<erl::sdf_mapping::GpSdfMappingSetting2Df>
-    : erl::sdf_mapping::GpSdfMappingSetting2Df::YamlConvertImpl {};
+struct YAML::convert<erl::gp_sdf::GpSdfMappingSetting2Df>
+    : erl::gp_sdf::GpSdfMappingSetting2Df::YamlConvertImpl {};

@@ -7,7 +7,7 @@ import numpy.typing as npt
 
 from erl_common.yaml import YamlableBase
 from erl_gaussian_process import LidarGaussianProcess2D
-from erl_sdf_mapping import LogSdfGaussianProcess
+from erl_gp_sdf import LogSdfGaussianProcess
 from erl_gaussian_process import NoisyInputGaussianProcess
 from erl_geometry import NodeData
 from erl_geometry import IncrementalQuadtree

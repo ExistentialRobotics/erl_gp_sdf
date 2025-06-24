@@ -3,44 +3,7 @@
 #include "erl_common/block_timer.hpp"
 #include "erl_common/tracy.hpp"
 
-namespace erl::sdf_mapping {
-    // template<typename Derived>
-    // std::enable_if_t<std::is_base_of_v<AbstractGpSdfMapping, Derived>, bool>
-    // AbstractGpSdfMapping::Register(const std::string &mapping_type) {
-    //     using SurfaceMapping = typename Derived::SurfaceMappingType;
-    //
-    //     s_surface_mapping_to_sdf_mapping_[type_name<SurfaceMapping>()] = mapping_type;
-    //
-    //     return Factory::GetInstance().Register<Derived>(
-    //         mapping_type,
-    //         [](const std::shared_ptr<common::YamlableBase> &surface_mapping_setting,
-    //            const std::shared_ptr<common::YamlableBase> &sdf_mapping_setting)
-    //             -> std::shared_ptr<AbstractGpSdfMapping> {
-    //             using SurfaceMappingSetting = typename SurfaceMapping::Setting;
-    //
-    //             auto casted_surface_mapping_setting =
-    //                 std::dynamic_pointer_cast<SurfaceMappingSetting>(surface_mapping_setting);
-    //             if (casted_surface_mapping_setting == nullptr) {
-    //                 ERL_WARN(
-    //                     "Failed to cast surface_mapping_setting to {}",
-    //                     type_name<SurfaceMappingSetting>());
-    //                 return nullptr;
-    //             }
-    //             auto surface_mapping =
-    //                 std::make_shared<SurfaceMapping>(casted_surface_mapping_setting);
-    //
-    //             using SdfMappingSetting = typename Derived::Setting;
-    //             auto casted_sdf_mapping_setting =
-    //                 std::dynamic_pointer_cast<SdfMappingSetting>(sdf_mapping_setting);
-    //             if (casted_sdf_mapping_setting == nullptr) {
-    //                 ERL_WARN(
-    //                     "Failed to cast sdf_mapping_setting to {}",
-    //                     type_name<SdfMappingSetting>());
-    //                 return nullptr;
-    //             }
-    //             return std::make_shared<Derived>(casted_sdf_mapping_setting, surface_mapping);
-    //         });
-    // }
+namespace erl::gp_sdf {
 
     template<typename Dtype, int Dim>
     bool
@@ -233,6 +196,8 @@ namespace erl::sdf_mapping {
             m_map_boundary_ = m_surface_mapping_->GetMapBoundary();
         }
 
+#pragma region test_prepare_gps
+
         // If we iterate through the clusters for each query position separately, it takes too much
         // CPU time. Instead, we collect all GPs in the area of all query positions and then assign
         // them to the query positions. Some query positions may not have any GPs from
@@ -266,7 +231,9 @@ namespace erl::sdf_mapping {
             }
             TrainGps();  // m_surface_mapping_ is locked in TrainGps
         }
+#pragma endregion
 
+#pragma region test_search_gps
         m_kdtree_candidate_gps_.reset();
         if (!m_candidate_gps_.empty()) {
             // build kdtree of candidate GPs to allow fast search.
@@ -337,7 +304,9 @@ namespace erl::sdf_mapping {
             }
             TrainGps();  // m_surface_mapping_ is locked in TrainGps
         }
+#pragma endregion
 
+#pragma region test_gps
         bool surface_mapping_sign = false;
         const SignMethod sign_method = m_setting_->sdf_gp->sign_method;
         m_query_signs_.setConstant(num_queries, 1.0f);
@@ -377,6 +346,7 @@ namespace erl::sdf_mapping {
             for (auto &thread: threads) { thread.join(); }
             threads.clear();
         }
+#pragma endregion
 
         m_test_buffer_.DisconnectBuffers();
 
@@ -399,36 +369,6 @@ namespace erl::sdf_mapping {
 
         return true;
     }
-
-    // template<typename Dtype, int Dim>
-    // bool
-    // GpSdfMapping<Dtype, Dim>::Predict(
-    //     const Eigen::Ref<const Eigen::MatrixXd> &positions_in,
-    //     Eigen::VectorXd &distances_out,
-    //     Eigen::MatrixXd &gradients_out,
-    //     Eigen::MatrixXd &variances_out,
-    //     Eigen::MatrixXd &covariances_out) {
-    //
-    //     ERL_ASSERTM(positions_in.rows() >= Dim, "positions_in.rows() must be >={}.", Dim);
-    //     ERL_ASSERTM(positions_in.cols() > 0, "positions_in.cols() must be greater than 0.");
-    //
-    //     const long n = positions_in.cols();
-    //     Positions positions = positions_in.topRows<Dim>().template cast<Dtype>();
-    //     Distances distances(n);
-    //     Gradients gradients(Dim, n);
-    //     Variances variances(Dim + 1, n);
-    //     Covariances covariances(Dim * (Dim + 1) / 2, n);
-    //     const bool success = Test(positions, distances, gradients, variances, covariances);
-    //     if (success) {
-    //         distances_out = distances.template cast<double>();
-    //         gradients_out = gradients.template cast<double>();
-    //         variances_out = variances.template cast<double>();
-    //         covariances_out = covariances.template cast<double>();
-    //     } else {
-    //         ERL_WARN("Failed to test GPs.");
-    //     }
-    //     return success;
-    // }
 
     template<typename Dtype, int Dim>
     bool
@@ -963,7 +903,7 @@ namespace erl::sdf_mapping {
             tested_idx.clear();
             bool need_weighted_sum = false;
             long cnt = 0;
-            long pos_cnt = 0;  // count the number of positive GPs
+            Dtype sign = m_query_signs_[i], sign_sum = 0;
             for (const std::size_t &j: gp_indices) {
                 // call selected GPs for inference
                 const auto &gp = gps[j].second.second;              // (distance, (key, gp))
@@ -973,14 +913,15 @@ namespace erl::sdf_mapping {
                         fs.col(cnt),
                         variances.col(cnt),
                         covariances.col(cnt),
-                        m_query_signs_[i],
+                        sign,
                         compute_gradient,
                         compute_gradient_variance,
                         compute_covariance,
                         use_gp_covariance)) {
                     continue;
                 }
-                if (fs(0, cnt) > 0) { ++pos_cnt; }  // count the number of positive GPs
+                sign_sum += sign;
+                // if (fs(0, cnt) > 0) { ++pos_cnt; }  // count the number of positive GPs
                 tested_idx.emplace_back(cnt++, j);
                 if (use_smallest) { continue; }
                 // the current gp prediction is not good enough,
@@ -1069,20 +1010,20 @@ namespace erl::sdf_mapping {
                     variance_out[0]);
             }
 
-            // flip the sign of the distance and gradient if necessary
-            bool flip = false;
-            if ((pos_cnt << 1) > cnt) {
-                if (distance_out < 0) { flip = true; }
-            } else if ((pos_cnt << 1) < cnt) {
-                if (distance_out > 0) { flip = true; }
-            }
-            if (flip) {
-                // flip the sign of the distance and gradient
-                distance_out = -distance_out;
-                if (compute_gradient) {
-                    for (long j = 0; j < Dim; ++j) { gradient_out[j] = -gradient_out[j]; }
-                }
-            }
+            // // flip the sign of the distance and gradient if necessary
+            // bool flip = false;
+            // if (sign_sum > 0.0f) {
+            //     if (distance_out < 0) { flip = true; }
+            // } else if (sign_sum < 0.0f) {
+            //     if (distance_out > 0) { flip = true; }
+            // }
+            // if (flip) {
+            //     // flip the sign of the distance and gradient
+            //     distance_out = -distance_out;
+            //     if (compute_gradient) {
+            //         for (long j = 0; j < Dim; ++j) { gradient_out[j] = -gradient_out[j]; }
+            //     }
+            // }
         }
     }
 
@@ -1189,4 +1130,4 @@ namespace erl::sdf_mapping {
     template class GpSdfMapping<double, 2>;
     template class GpSdfMapping<float, 3>;
     template class GpSdfMapping<double, 3>;
-}  // namespace erl::sdf_mapping
+}  // namespace erl::gp_sdf

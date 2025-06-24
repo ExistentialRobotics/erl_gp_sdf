@@ -25,8 +25,8 @@ test_query:
     compute_covariance: false  # whether to compute covariance
     use_gp_covariance: false
     softmin_temperature: 10.0
-surface_mapping_type: erl::sdf_mapping::GpOccSurfaceMapping3D<double>
-surface_mapping_setting_type: erl::sdf_mapping::GpOccSurfaceMapping3D<double>::Setting
+surface_mapping_type: erl::gp_sdf::GpOccSurfaceMapping3D<double>
+surface_mapping_setting_type: erl::gp_sdf::GpOccSurfaceMapping3D<double>::Setting
 surface_mapping:
     sensor_gp:
         row_group_size: 6

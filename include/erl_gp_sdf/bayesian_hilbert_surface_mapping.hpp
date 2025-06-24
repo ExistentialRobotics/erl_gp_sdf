@@ -1,7 +1,6 @@
 #pragma once
 
 #include "abstract_surface_mapping.hpp"
-#include "surface_data_manager.hpp"
 
 #include "erl_geometry/bayesian_hilbert_map.hpp"
 #include "erl_geometry/kdtree_eigen_adaptor.hpp"
@@ -10,7 +9,7 @@
 #include "erl_geometry/octree_key.hpp"
 #include "erl_geometry/quadtree_key.hpp"
 
-namespace erl::sdf_mapping {
+namespace erl::gp_sdf {
 
     /**
      * Select 2D rays for Bayesian Hilbert Map.
@@ -217,11 +216,20 @@ namespace erl::sdf_mapping {
                 uint64_t seed,
                 std::optional<Aabb> track_surface_boundary_ = std::nullopt);
 
+            void
+            GenerateDataset(
+                const Eigen::Ref<const Position> &sensor_origin,
+                const Eigen::Ref<const Positions> &points,
+                const std::vector<long> &point_indices);
+
             bool
             Update(
                 const Eigen::Ref<const Position> &sensor_origin,
                 const Eigen::Ref<const Positions> &points,
                 const std::vector<long> &point_indices);
+
+            void
+            UpdateHitBuffer(const Eigen::Ref<const Positions> &points);
 
             [[nodiscard]] bool
             Write(std::ostream &s) const;
@@ -251,6 +259,9 @@ namespace erl::sdf_mapping {
             Dtype surface_bad_abs_logodd = 0.1f;
             // step size for the surface adjustment
             Dtype surface_step_size = 0.01f;
+            // if true, pass faster=true to the Bayesian Hilbert map predict methods, which assumes
+            // that the weight covariance is very small.
+            bool faster_prediction = false;
             // maximum number of tries to adjust the surface points
             int max_adjust_tries = 3;
             // scale for the variance
@@ -263,6 +274,12 @@ namespace erl::sdf_mapping {
             uint32_t bhm_depth = 14;
             // overlap between the Bayesian Hilbert maps
             Dtype bhm_overlap = 0.2f;
+            // if true, update the local Bayesian Hilbert maps with CUDA
+            bool update_with_cuda = false;
+            // CUDA device ID to use for the local Bayesian Hilbert maps
+            int cuda_device_id = 0;
+            // number of local Bayesian Hilbert maps to update in one batch when using CUDA
+            std::size_t update_batch_size = 128;
             // bhm_cluster_size * 0.5 + bhm_test_margin is the half-size of the local test region
             Dtype bhm_test_margin = 0.1f;
             // number of nearest neighboring local Bayesian Hilbert maps to use for one test point
@@ -465,46 +482,46 @@ namespace erl::sdf_mapping {
     extern template class BayesianHilbertSurfaceMapping<float, 3>;
     extern template class BayesianHilbertSurfaceMapping<double, 2>;
     extern template class BayesianHilbertSurfaceMapping<double, 3>;
-}  // namespace erl::sdf_mapping
+}  // namespace erl::gp_sdf
 
 // #include "bayesian_hilbert_surface_mapping.tpp"
 
 template<>
-struct YAML::convert<erl::sdf_mapping::RaySelector2Df::Setting>
-    : erl::sdf_mapping::RaySelector2Df::Setting::YamlConvertImpl {};
+struct YAML::convert<erl::gp_sdf::RaySelector2Df::Setting>
+    : erl::gp_sdf::RaySelector2Df::Setting::YamlConvertImpl {};
 
 template<>
-struct YAML::convert<erl::sdf_mapping::RaySelector2Dd::Setting>
-    : erl::sdf_mapping::RaySelector2Dd::Setting::YamlConvertImpl {};
+struct YAML::convert<erl::gp_sdf::RaySelector2Dd::Setting>
+    : erl::gp_sdf::RaySelector2Dd::Setting::YamlConvertImpl {};
 
 template<>
-struct YAML::convert<erl::sdf_mapping::RaySelector3Df::Setting>
-    : erl::sdf_mapping::RaySelector3Df::Setting::YamlConvertImpl {};
+struct YAML::convert<erl::gp_sdf::RaySelector3Df::Setting>
+    : erl::gp_sdf::RaySelector3Df::Setting::YamlConvertImpl {};
 
 template<>
-struct YAML::convert<erl::sdf_mapping::RaySelector3Dd::Setting>
-    : erl::sdf_mapping::RaySelector3Dd::Setting::YamlConvertImpl {};
+struct YAML::convert<erl::gp_sdf::RaySelector3Dd::Setting>
+    : erl::gp_sdf::RaySelector3Dd::Setting::YamlConvertImpl {};
 
 template<>
-struct YAML::convert<erl::sdf_mapping::LocalBayesianHilbertMapSettingF>
-    : erl::sdf_mapping::LocalBayesianHilbertMapSettingF::YamlConvertImpl {};
+struct YAML::convert<erl::gp_sdf::LocalBayesianHilbertMapSettingF>
+    : erl::gp_sdf::LocalBayesianHilbertMapSettingF::YamlConvertImpl {};
 
 template<>
-struct YAML::convert<erl::sdf_mapping::LocalBayesianHilbertMapSettingD>
-    : erl::sdf_mapping::LocalBayesianHilbertMapSettingD::YamlConvertImpl {};
+struct YAML::convert<erl::gp_sdf::LocalBayesianHilbertMapSettingD>
+    : erl::gp_sdf::LocalBayesianHilbertMapSettingD::YamlConvertImpl {};
 
 template<>
-struct YAML::convert<erl::sdf_mapping::BayesianHilbertSurfaceMapping2Df::Setting>
-    : erl::sdf_mapping::BayesianHilbertSurfaceMapping2Df::Setting::YamlConvertImpl {};
+struct YAML::convert<erl::gp_sdf::BayesianHilbertSurfaceMapping2Df::Setting>
+    : erl::gp_sdf::BayesianHilbertSurfaceMapping2Df::Setting::YamlConvertImpl {};
 
 template<>
-struct YAML::convert<erl::sdf_mapping::BayesianHilbertSurfaceMapping2Dd::Setting>
-    : erl::sdf_mapping::BayesianHilbertSurfaceMapping2Dd::Setting::YamlConvertImpl {};
+struct YAML::convert<erl::gp_sdf::BayesianHilbertSurfaceMapping2Dd::Setting>
+    : erl::gp_sdf::BayesianHilbertSurfaceMapping2Dd::Setting::YamlConvertImpl {};
 
 template<>
-struct YAML::convert<erl::sdf_mapping::BayesianHilbertSurfaceMapping3Df::Setting>
-    : erl::sdf_mapping::BayesianHilbertSurfaceMapping3Df::Setting::YamlConvertImpl {};
+struct YAML::convert<erl::gp_sdf::BayesianHilbertSurfaceMapping3Df::Setting>
+    : erl::gp_sdf::BayesianHilbertSurfaceMapping3Df::Setting::YamlConvertImpl {};
 
 template<>
-struct YAML::convert<erl::sdf_mapping::BayesianHilbertSurfaceMapping3Dd::Setting>
-    : erl::sdf_mapping::BayesianHilbertSurfaceMapping3Dd::Setting::YamlConvertImpl {};
+struct YAML::convert<erl::gp_sdf::BayesianHilbertSurfaceMapping3Dd::Setting>
+    : erl::gp_sdf::BayesianHilbertSurfaceMapping3Dd::Setting::YamlConvertImpl {};

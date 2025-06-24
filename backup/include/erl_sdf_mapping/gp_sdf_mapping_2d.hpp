@@ -14,14 +14,14 @@
 #include <memory>
 #include <vector>
 
-namespace erl::sdf_mapping {
+namespace erl::gp_sdf {
 
     class GpSdfMapping2D {
 
     public:
         struct Setting : common::Yamlable<Setting, GpSdfMappingBaseSetting> {
-            std::string surface_mapping_type = "erl::sdf_mapping::GpOccSurfaceMapping2D";
-            std::string surface_mapping_setting_type = "erl::sdf_mapping::GpOccSurfaceMapping2D::Setting";
+            std::string surface_mapping_type = "erl::gp_sdf::GpOccSurfaceMapping2D";
+            std::string surface_mapping_setting_type = "erl::gp_sdf::GpOccSurfaceMapping2D::Setting";
             std::shared_ptr<AbstractSurfaceMapping2D::Setting> surface_mapping = nullptr;
         };
 
@@ -185,14 +185,14 @@ namespace erl::sdf_mapping {
         void
         TestGpThread(uint32_t thread_idx, std::size_t start_idx, std::size_t end_idx);
     };
-}  // namespace erl::sdf_mapping
+}  // namespace erl::gp_sdf
 
 // ReSharper disable CppInconsistentNaming
 template<>
-struct YAML::convert<erl::sdf_mapping::GpSdfMapping2D::Setting> {
+struct YAML::convert<erl::gp_sdf::GpSdfMapping2D::Setting> {
     static Node
-    encode(const erl::sdf_mapping::GpSdfMapping2D::Setting& rhs) {
-        Node node = convert<erl::sdf_mapping::GpSdfMappingBaseSetting>::encode(rhs);
+    encode(const erl::gp_sdf::GpSdfMapping2D::Setting& rhs) {
+        Node node = convert<erl::gp_sdf::GpSdfMappingBaseSetting>::encode(rhs);
         node["surface_mapping_type"] = rhs.surface_mapping_type;
         node["surface_mapping_setting_type"] = rhs.surface_mapping_setting_type;
         node["surface_mapping"] = rhs.surface_mapping->AsYamlNode();
@@ -200,11 +200,11 @@ struct YAML::convert<erl::sdf_mapping::GpSdfMapping2D::Setting> {
     }
 
     static bool
-    decode(const Node& node, erl::sdf_mapping::GpSdfMapping2D::Setting& rhs) {
-        if (!convert<erl::sdf_mapping::GpSdfMappingBaseSetting>::decode(node, rhs)) { return false; }
+    decode(const Node& node, erl::gp_sdf::GpSdfMapping2D::Setting& rhs) {
+        if (!convert<erl::gp_sdf::GpSdfMappingBaseSetting>::decode(node, rhs)) { return false; }
         rhs.surface_mapping_type = node["surface_mapping_type"].as<std::string>();
         rhs.surface_mapping_setting_type = node["surface_mapping_setting_type"].as<std::string>();
-        using SettingBase = erl::sdf_mapping::AbstractSurfaceMapping2D::Setting;
+        using SettingBase = erl::gp_sdf::AbstractSurfaceMapping2D::Setting;
         rhs.surface_mapping = SettingBase::Create<SettingBase>(rhs.surface_mapping_setting_type);
         if (rhs.surface_mapping == nullptr) {
             ERL_WARN("Failed to decode surface_mapping of type: {}", rhs.surface_mapping_setting_type);

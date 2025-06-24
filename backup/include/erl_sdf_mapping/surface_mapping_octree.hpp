@@ -4,7 +4,7 @@
 
 #include "erl_geometry/occupancy_octree_base.hpp"
 
-namespace erl::sdf_mapping {
+namespace erl::gp_sdf {
 
     template<typename Dtype>
     class SurfaceMappingOctree : public geometry::OccupancyOctreeBase<Dtype, SurfaceMappingOctreeNode, geometry::OccupancyOctreeBaseSetting> {
@@ -45,4 +45,4 @@ namespace erl::sdf_mapping {
 
     using SurfaceMappingOctreeD = SurfaceMappingOctree<double>;
     using SurfaceMappingOctreeF = SurfaceMappingOctree<float>;
-}  // namespace erl::sdf_mapping
+}  // namespace erl::gp_sdf

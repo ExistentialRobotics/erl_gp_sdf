@@ -1,10 +1,10 @@
 sensor_gp:
     row_group_size: 6
     row_overlap_size: 2
-    row_margin: &row_margin 0
+    row_margin: &row_margin 1
     col_group_size: 6
     col_overlap_size: 2
-    col_margin: &col_margin 0
+    col_margin: &col_margin 1
     init_variance: 1000000
     sensor_range_var: 0.001
     max_valid_range_var: 0.1

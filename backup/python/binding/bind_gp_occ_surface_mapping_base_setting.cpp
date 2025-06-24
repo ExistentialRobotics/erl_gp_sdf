@@ -1,10 +1,10 @@
 #include "erl_common/pybind11.hpp"
-#include "erl_sdf_mapping/gp_occ_surface_mapping_base_setting.hpp"
+#include "erl_gp_sdf/gp_occ_surface_mapping_base_setting.hpp"
 
 void
 BindGpOccSurfaceMappingBaseSetting(const py::module& m) {
     using namespace erl::common;
-    using namespace erl::sdf_mapping;
+    using namespace erl::gp_sdf;
 
     py::class_<GpOccSurfaceMappingBaseSetting, AbstractSurfaceMapping::Setting, std::shared_ptr<GpOccSurfaceMappingBaseSetting>> setting(
         m,

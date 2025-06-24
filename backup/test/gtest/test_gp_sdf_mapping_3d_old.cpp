@@ -4,8 +4,8 @@
 #include "erl_geometry/lidar_3d.hpp"
 #include "erl_geometry/open3d_visualizer_wrapper.hpp"
 #include "erl_geometry/trajectory.hpp"
-#include "erl_sdf_mapping/gp_occ_surface_mapping_3d.hpp"
-#include "erl_sdf_mapping/gp_sdf_mapping_3d.hpp"
+#include "erl_gp_sdf/gp_occ_surface_mapping_3d.hpp"
+#include "erl_gp_sdf/gp_sdf_mapping_3d.hpp"
 
 #include <boost/program_options.hpp>
 #include <open3d/geometry/LineSet.h>
@@ -16,8 +16,8 @@
 
 const std::filesystem::path kProjectRootDir = ERL_GP_SDF_ROOT_DIR;
 using Dtype = float;
-using GpOccSurfaceMapping3D = erl::sdf_mapping::GpOccSurfaceMapping3D<Dtype>;
-using GpSdfMapping3D = erl::sdf_mapping::GpSdfMapping3D<Dtype>;
+using GpOccSurfaceMapping3D = erl::gp_sdf::GpOccSurfaceMapping3D<Dtype>;
+using GpSdfMapping3D = erl::gp_sdf::GpSdfMapping3D<Dtype>;
 using Lidar3D = erl::geometry::Lidar3D<Dtype>;
 using RangeSensor3D = erl::geometry::RangeSensor3D<Dtype>;
 using DepthCamera3D = erl::geometry::DepthCamera3D<Dtype>;

@@ -21,6 +21,9 @@ erl_project_setup(
         message_runtime grid_map_ros grid_map_msgs
 )
 
+if (NOT TARGET Open3D::Open3D)
+    erl_config_open3d()
+endif ()
 erl_setup_ros(
         CATKIN_COMPONENTS ${${PROJECT_NAME}_CATKIN_COMPONENTS}
         SRV_FILES SdfQuery.srv SaveMap.srv
@@ -32,9 +35,6 @@ erl_catkin_package(
         CATKIN_DEPENDS ${${PROJECT_NAME}_CATKIN_DEPENDS}
         DEPENDS ${${PROJECT_NAME}_DEPENDS})   # non-catkin dependencies are collected via erl_find_package
 
-if (NOT TARGET Open3D::Open3D)
-    erl_config_open3d()
-endif ()
 ####################################################################################################
 # BUILD
 ####################################################################################################
@@ -49,6 +49,10 @@ target_include_directories(${PROJECT_NAME}
         PUBLIC
         $<BUILD_INTERFACE:${${PROJECT_NAME}_INCLUDE_DIR}>
         $<INSTALL_INTERFACE:${${PROJECT_NAME}_INSTALL_INCLUDE_DIR}>)
+if (ERL_USE_LIBTORCH)
+    target_include_directories(${PROJECT_NAME} SYSTEM PUBLIC ${TORCH_INCLUDE_DIRS})
+    target_link_libraries(${PROJECT_NAME} PUBLIC ${TORCH_LIBRARIES})
+endif ()
 if (ROS1_ACTIVATED)
     target_include_directories(${PROJECT_NAME} SYSTEM PUBLIC ${catkin_INCLUDE_DIRS})
     target_link_libraries(${PROJECT_NAME} PUBLIC ${catkin_LIBRARIES})

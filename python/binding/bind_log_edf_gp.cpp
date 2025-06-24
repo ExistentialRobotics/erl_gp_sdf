@@ -6,7 +6,7 @@ void
 BindLogEdfGaussianProcessImpl(const py::module &m, const char *name) {
 
     using ParentT = erl::gaussian_process::NoisyInputGaussianProcess<Dtype>;
-    using T = erl::sdf_mapping::LogEdfGaussianProcess<Dtype>;
+    using T = erl::gp_sdf::LogEdfGaussianProcess<Dtype>;
     using ParentSetting = typename ParentT::Setting;
     using Setting = typename T::Setting;
 

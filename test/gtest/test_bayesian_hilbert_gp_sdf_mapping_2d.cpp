@@ -145,8 +145,8 @@ DrawGp(
 
 template<typename Dtype, typename Drawer>
 struct OpenCvUserData {
-    using SurfaceMapping = erl::sdf_mapping::BayesianHilbertSurfaceMapping<Dtype, 2>;
-    using SdfMapping = erl::sdf_mapping::GpSdfMapping<Dtype, 2>;
+    using SurfaceMapping = erl::gp_sdf::BayesianHilbertSurfaceMapping<Dtype, 2>;
+    using SdfMapping = erl::gp_sdf::GpSdfMapping<Dtype, 2>;
 
     std::string window_name;
     Drawer *drawer = nullptr;
@@ -236,8 +236,8 @@ TestImpl2D() {
     GTEST_PREPARE_OUTPUT_DIR();
     using namespace erl::common;
 
-    using SurfaceMapping = erl::sdf_mapping::BayesianHilbertSurfaceMapping<Dtype, 2>;
-    using SdfMapping = erl::sdf_mapping::GpSdfMapping<Dtype, 2>;
+    using SurfaceMapping = erl::gp_sdf::BayesianHilbertSurfaceMapping<Dtype, 2>;
+    using SdfMapping = erl::gp_sdf::GpSdfMapping<Dtype, 2>;
     using Quadtree = typename SurfaceMapping::Tree;
     using QuadtreeDrawer = erl::geometry::OccupancyQuadtreeDrawer<Quadtree>;
     using Lidar2D = erl::geometry::Lidar2D;

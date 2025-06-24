@@ -2,7 +2,7 @@
 
 #include "gpis_map_base_2d.hpp"
 
-namespace erl::sdf_mapping::gpis {
+namespace erl::gp_sdf::gpis {
     class GpisMap2D : public GpisMapBase2D {
     public:
         explicit GpisMap2D()
@@ -53,4 +53,4 @@ namespace erl::sdf_mapping::gpis {
             gp->Test(vec_xt, f, var, mat_cov_out);
         }
     };
-}  // namespace erl::sdf_mapping::gpis
+}  // namespace erl::gp_sdf::gpis

@@ -5,8 +5,8 @@ template<typename Dtype>
 void
 BindSdfGpSettingImpl(const py::module &m, const char *name) {
     using namespace erl::common;
-    using namespace erl::sdf_mapping;
-    using T = erl::sdf_mapping::SdfGaussianProcessSetting<Dtype>;
+    using namespace erl::gp_sdf;
+    using T = erl::gp_sdf::SdfGaussianProcessSetting<Dtype>;
     py::class_<T, YamlableBase, std::shared_ptr<T>>(m, name)
         .def_readwrite("sign_method", &T::sign_method)
         .def_readwrite("hybrid_sign_methods", &T::hybrid_sign_methods)
@@ -21,12 +21,12 @@ BindSdfGpSettingImpl(const py::module &m, const char *name) {
 
 void
 BindSdfGpSetting(const py::module &m) {
-    py::enum_<erl::sdf_mapping::SignMethod>(m, "SignMethod")
-        .value("kNone", erl::sdf_mapping::SignMethod::kNone)
-        .value("kSignGp", erl::sdf_mapping::SignMethod::kSignGp)
-        .value("kNormalGp", erl::sdf_mapping::SignMethod::kNormalGp)
-        .value("kExternal", erl::sdf_mapping::SignMethod::kExternal)
-        .value("kHybrid", erl::sdf_mapping::SignMethod::kHybrid)
+    py::enum_<erl::gp_sdf::SignMethod>(m, "SignMethod")
+        .value("kNone", erl::gp_sdf::SignMethod::kNone)
+        .value("kSignGp", erl::gp_sdf::SignMethod::kSignGp)
+        .value("kNormalGp", erl::gp_sdf::SignMethod::kNormalGp)
+        .value("kExternal", erl::gp_sdf::SignMethod::kExternal)
+        .value("kHybrid", erl::gp_sdf::SignMethod::kHybrid)
         .export_values();
     BindSdfGpSettingImpl<double>(m, "SdfGaussianProcessSettingD");
     BindSdfGpSettingImpl<float>(m, "SdfGaussianProcessSettingF");

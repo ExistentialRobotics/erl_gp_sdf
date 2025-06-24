@@ -35,7 +35,7 @@ TestImpl3D() {
 
     using namespace erl::common;
     using namespace erl::geometry;
-    using namespace erl::sdf_mapping;
+    using namespace erl::gp_sdf;
 
     using SurfaceMapping = GpOccSurfaceMapping<Dtype, 3>;
     using Octree = OccupancyOctree<Dtype>;
@@ -387,7 +387,7 @@ TestImpl2D() {
     GTEST_PREPARE_OUTPUT_DIR();
     using namespace erl::common;
     using namespace erl::geometry;
-    using namespace erl::sdf_mapping;
+    using namespace erl::gp_sdf;
 
     using SurfaceMapping = GpOccSurfaceMapping<Dtype, 2>;
     using Quadtree = OccupancyQuadtree<Dtype>;

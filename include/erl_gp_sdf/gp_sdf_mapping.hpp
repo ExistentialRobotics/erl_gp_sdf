@@ -15,7 +15,7 @@
 
 #include <vector>
 
-namespace erl::sdf_mapping {
+namespace erl::gp_sdf {
 
     // class AbstractGpSdfMapping {
     //     inline static std::unordered_map<std::string, std::string>
@@ -360,4 +360,4 @@ namespace erl::sdf_mapping {
     extern template class GpSdfMapping<float, 3>;
     extern template class GpSdfMapping<double, 3>;
 
-}  // namespace erl::sdf_mapping
+}  // namespace erl::gp_sdf

@@ -4,7 +4,7 @@
 
 #include "erl_common/eigen.hpp"
 
-namespace erl::sdf_mapping::gpis {
+namespace erl::gp_sdf::gpis {
     struct TestBuffer {
         using InBuffer = Eigen::Ref<const Eigen::Matrix2Xd>;
         using OutVectorBuffer = Eigen::Ref<Eigen::VectorXd>;
@@ -60,4 +60,4 @@ namespace erl::sdf_mapping::gpis {
         }
     };
 
-}  // namespace erl::sdf_mapping::gpis
+}  // namespace erl::gp_sdf::gpis

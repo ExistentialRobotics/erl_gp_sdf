@@ -2,7 +2,7 @@
 
 #include "erl_geometry/occupancy_quadtree_node.hpp"
 
-namespace erl::sdf_mapping {
+namespace erl::gp_sdf {
 
     struct SurfaceMappingQuadtreeNode : geometry::OccupancyQuadtreeNode {
         std::size_t surface_data_index = -1;
@@ -81,4 +81,4 @@ namespace erl::sdf_mapping {
             return s;
         }
     };
-}  // namespace erl::sdf_mapping
+}  // namespace erl::gp_sdf

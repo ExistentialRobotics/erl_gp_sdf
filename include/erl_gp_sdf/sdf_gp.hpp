@@ -7,7 +7,7 @@
 #include <atomic>
 #include <memory>
 
-namespace erl::sdf_mapping {
+namespace erl::gp_sdf {
 
     enum SignMethod {
         kNone = 0,      // No sign prediction.
@@ -55,7 +55,6 @@ namespace erl::sdf_mapping {
         bool active = false;
         bool outdated = true;  // whether the GP is outdated and needs to be retrained
         bool use_normal_gp = false;
-        Dtype offset_distance = 0;
         std::atomic_bool locked_for_test = false;
         VectorD position{};
         Dtype half_size = 0;
@@ -112,7 +111,7 @@ namespace erl::sdf_mapping {
             Eigen::Ref<Eigen::Vector<Dtype, 2 * Dim + 1>> f,
             Eigen::Ref<Eigen::Vector<Dtype, Dim + 1>> var,
             Eigen::Ref<Eigen::Vector<Dtype, Dim*(Dim + 1) / 2>> covariance,
-            Dtype external_sign,
+            Dtype& sign,
             bool compute_gradient,
             bool compute_gradient_variance,
             bool compute_covariance,
@@ -155,14 +154,14 @@ namespace erl::sdf_mapping {
     extern template class SdfGaussianProcess<double, 2>;
     extern template class SdfGaussianProcess<float, 2>;
 
-}  // namespace erl::sdf_mapping
+}  // namespace erl::gp_sdf
 
 // #include "sdf_gp.tpp"
 
 template<>
-struct YAML::convert<erl::sdf_mapping::SdfGaussianProcessSettingD>
-    : erl::sdf_mapping::SdfGaussianProcessSettingD::YamlConvertImpl {};
+struct YAML::convert<erl::gp_sdf::SdfGaussianProcessSettingD>
+    : erl::gp_sdf::SdfGaussianProcessSettingD::YamlConvertImpl {};
 
 template<>
-struct YAML::convert<erl::sdf_mapping::SdfGaussianProcessSettingF>
-    : erl::sdf_mapping::SdfGaussianProcessSettingF::YamlConvertImpl {};
+struct YAML::convert<erl::gp_sdf::SdfGaussianProcessSettingF>
+    : erl::gp_sdf::SdfGaussianProcessSettingF::YamlConvertImpl {};

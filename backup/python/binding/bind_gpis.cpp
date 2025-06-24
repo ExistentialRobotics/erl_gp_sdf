@@ -1,14 +1,14 @@
 #include "erl_common/pybind11.hpp"
-#include "erl_sdf_mapping/gpis/gpis_map_2d.hpp"
-#include "erl_sdf_mapping/gpis/log_gpis_map_2d.hpp"
-#include "erl_sdf_mapping/gpis/node.hpp"
-#include "erl_sdf_mapping/gpis/node_container.hpp"
+#include "erl_gp_sdf/gpis/gpis_map_2d.hpp"
+#include "erl_gp_sdf/gpis/log_gpis_map_2d.hpp"
+#include "erl_gp_sdf/gpis/node.hpp"
+#include "erl_gp_sdf/gpis/node_container.hpp"
 
 static void
 BindGpSdf2D(const py::module &m) {
     using namespace erl::common;
     using namespace erl::geometry;
-    using namespace erl::sdf_mapping::gpis;
+    using namespace erl::gp_sdf::gpis;
 
     // GpisData2D
     py::class_<GpisData2D, std::shared_ptr<GpisData2D>>(m, "GpisData2D")
@@ -141,7 +141,7 @@ static void
 BindGpSdf3D(const py::module &m) {
     using namespace erl::common;
     using namespace erl::geometry;
-    using namespace erl::sdf_mapping::gpis;
+    using namespace erl::gp_sdf::gpis;
 
     // GpisData3D
     py::class_<GpisData3D, std::shared_ptr<GpisData3D>>(m, "GpisData3D")

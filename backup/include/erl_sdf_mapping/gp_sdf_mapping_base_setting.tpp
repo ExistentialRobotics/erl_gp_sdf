@@ -4,7 +4,7 @@
 
 #include "erl_common/yaml.hpp"
 
-namespace erl::sdf_mapping {
+namespace erl::gp_sdf {
     template<typename Dtype>
     YAML::Node
     GpSdfMappingBaseSetting<Dtype>::TestQuery::YamlConvertImpl::encode(const TestQuery& setting) {
@@ -65,4 +65,4 @@ namespace erl::sdf_mapping {
         return true;
     }
 
-}  // namespace erl::sdf_mapping
+}  // namespace erl::gp_sdf

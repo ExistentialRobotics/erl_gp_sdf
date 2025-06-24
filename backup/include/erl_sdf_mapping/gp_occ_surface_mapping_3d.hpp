@@ -10,7 +10,7 @@
 
 #include <memory>
 
-namespace erl::sdf_mapping {
+namespace erl::gp_sdf {
 
     template<typename Dtype>
     class GpOccSurfaceMapping3D : public AbstractSurfaceMapping3D<Dtype> {
@@ -142,12 +142,12 @@ namespace erl::sdf_mapping {
 
     using GpOccSurfaceMapping3Dd = GpOccSurfaceMapping3D<double>;
     using GpOccSurfaceMapping3Df = GpOccSurfaceMapping3D<float>;
-}  // namespace erl::sdf_mapping
+}  // namespace erl::gp_sdf
 
 #include "gp_occ_surface_mapping_3d.tpp"
 
 template<>
-struct YAML::convert<erl::sdf_mapping::GpOccSurfaceMapping3Dd::Setting> : erl::sdf_mapping::GpOccSurfaceMapping3Dd::Setting::YamlConvertImpl {};
+struct YAML::convert<erl::gp_sdf::GpOccSurfaceMapping3Dd::Setting> : erl::gp_sdf::GpOccSurfaceMapping3Dd::Setting::YamlConvertImpl {};
 
 template<>
-struct YAML::convert<erl::sdf_mapping::GpOccSurfaceMapping3Df::Setting> : erl::sdf_mapping::GpOccSurfaceMapping3Df::Setting::YamlConvertImpl {};
+struct YAML::convert<erl::gp_sdf::GpOccSurfaceMapping3Df::Setting> : erl::gp_sdf::GpOccSurfaceMapping3Df::Setting::YamlConvertImpl {};

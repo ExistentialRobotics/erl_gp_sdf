@@ -2,7 +2,7 @@
 
 #include <utility>
 
-namespace erl::sdf_mapping {
+namespace erl::gp_sdf {
 
     template<typename Dtype>
     SignGaussianProcess<Dtype>::TestResult::TestResult(
@@ -89,4 +89,4 @@ namespace erl::sdf_mapping {
 
     template class SignGaussianProcess<double>;
     template class SignGaussianProcess<float>;
-}  // namespace erl::sdf_mapping
+}  // namespace erl::gp_sdf

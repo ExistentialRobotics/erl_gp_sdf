@@ -3,7 +3,7 @@
 #include "erl_covariance/matern32.hpp"
 #include "erl_covariance/reduced_rank_covariance.hpp"
 
-namespace erl::sdf_mapping {
+namespace erl::gp_sdf {
 
     template<typename Dtype>
     YAML::Node
@@ -222,4 +222,4 @@ namespace erl::sdf_mapping {
 
     template class LogEdfGaussianProcess<float>;
     template class LogEdfGaussianProcess<double>;
-}  // namespace erl::sdf_mapping
+}  // namespace erl::gp_sdf

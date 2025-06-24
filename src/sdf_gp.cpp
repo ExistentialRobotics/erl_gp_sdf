@@ -1,24 +1,24 @@
 #include "erl_gp_sdf/sdf_gp.hpp"
 
 template<>
-struct YAML::convert<erl::sdf_mapping::SignMethod> {
+struct YAML::convert<erl::gp_sdf::SignMethod> {
     static Node
-    encode(const erl::sdf_mapping::SignMethod &method) {
+    encode(const erl::gp_sdf::SignMethod &method) {
         Node node;
         switch (method) {
-            case erl::sdf_mapping::kNone:
+            case erl::gp_sdf::kNone:
                 node = "kNone";
                 break;
-            case erl::sdf_mapping::kSignGp:
+            case erl::gp_sdf::kSignGp:
                 node = "kSignGp";
                 break;
-            case erl::sdf_mapping::kNormalGp:
+            case erl::gp_sdf::kNormalGp:
                 node = "kNormalGp";
                 break;
-            case erl::sdf_mapping::kExternal:
+            case erl::gp_sdf::kExternal:
                 node = "kExternal";
                 break;
-            case erl::sdf_mapping::kHybrid:
+            case erl::gp_sdf::kHybrid:
                 node = "kHybrid";
                 break;
             default:
@@ -28,18 +28,18 @@ struct YAML::convert<erl::sdf_mapping::SignMethod> {
     }
 
     static bool
-    decode(const Node &node, erl::sdf_mapping::SignMethod &method) {
+    decode(const Node &node, erl::gp_sdf::SignMethod &method) {
         if (const auto method_str = node.as<std::string>();  //
             method_str == "kNone") {
-            method = erl::sdf_mapping::kNone;
+            method = erl::gp_sdf::kNone;
         } else if (method_str == "kSignGp") {
-            method = erl::sdf_mapping::kSignGp;
+            method = erl::gp_sdf::kSignGp;
         } else if (method_str == "kNormalGp") {
-            method = erl::sdf_mapping::kNormalGp;
+            method = erl::gp_sdf::kNormalGp;
         } else if (method_str == "kExternal") {
-            method = erl::sdf_mapping::kExternal;
+            method = erl::gp_sdf::kExternal;
         } else if (method_str == "kHybrid") {
-            method = erl::sdf_mapping::kHybrid;
+            method = erl::gp_sdf::kHybrid;
         } else {
             ERL_FATAL("Unknown SignMethod: {}", method_str);
         }
@@ -47,7 +47,7 @@ struct YAML::convert<erl::sdf_mapping::SignMethod> {
     }
 };
 
-namespace erl::sdf_mapping {
+namespace erl::gp_sdf {
 
     template<typename Dtype>
     YAML::Node
@@ -99,7 +99,6 @@ namespace erl::sdf_mapping {
           active(other.active),
           outdated(other.outdated),
           use_normal_gp(other.use_normal_gp),
-          offset_distance(other.offset_distance),
           locked_for_test(other.locked_for_test.load()),
           position(other.position),
           half_size(other.half_size) {
@@ -113,7 +112,6 @@ namespace erl::sdf_mapping {
           active(other.active),
           outdated(other.outdated),
           use_normal_gp(other.use_normal_gp),
-          offset_distance(other.offset_distance),
           locked_for_test(other.locked_for_test.load()),
           position(std::move(other.position)),
           half_size(other.half_size),
@@ -128,7 +126,6 @@ namespace erl::sdf_mapping {
         active = other.active;
         outdated = other.outdated;
         use_normal_gp = other.use_normal_gp;
-        offset_distance = other.offset_distance;
         locked_for_test = other.locked_for_test.load();
         position = other.position;
         half_size = other.half_size;
@@ -153,7 +150,6 @@ namespace erl::sdf_mapping {
         active = other.active;
         outdated = other.outdated;
         use_normal_gp = other.use_normal_gp;
-        offset_distance = other.offset_distance;
         locked_for_test = other.locked_for_test.load();
         position = other.position;
         half_size = other.half_size;
@@ -230,12 +226,12 @@ namespace erl::sdf_mapping {
         Dtype sensor_noise,
         Dtype max_valid_gradient_var,
         Dtype invalid_position_var) {
-        this->offset_distance = offset_distance;
         if (sign_gp != nullptr) {
             sign_gp->template LoadSurfaceData<Dim>(
                 surface_data_indices,
                 surface_data_vec,
                 position,
+                setting->normal_scale,
                 setting->sign_gp_offset_distance,
                 sensor_noise,
                 max_valid_gradient_var,
@@ -278,7 +274,7 @@ namespace erl::sdf_mapping {
         Eigen::Ref<Eigen::Vector<Dtype, 2 * Dim + 1>> f,  // sdf, sdf_gradient, normal
         Eigen::Ref<Eigen::Vector<Dtype, Dim + 1>> var,
         Eigen::Ref<Eigen::Vector<Dtype, Dim *(Dim + 1) / 2>> covariance,
-        const Dtype external_sign,
+        Dtype &sign,
         const bool compute_gradient,
         const bool compute_gradient_variance,
         const bool compute_covariance,
@@ -294,26 +290,29 @@ namespace erl::sdf_mapping {
         ERL_DEBUG_ASSERT(active, "SdfGaussianProcess is not active.");
 
         // compute edf
+        Dtype edf = 0.0f;
         Dtype &sdf = f[0];
         auto edf_result = *std::reinterpret_pointer_cast<typename EdfGp::TestResult>(
             edf_gp->Test(test_position, compute_gradient || use_normal_gp));
-        edf_result.GetMean(0, 0, sdf);
-        if (!std::isfinite(sdf)) {  // invalid sdf
+        edf_result.GetMean(0, 0, edf);
+        if (!std::isfinite(edf)) {  // invalid sdf
             sdf = 0.0f;
             var[0] = 1e6f;  // set a large variance if sdf is invalid
             return false;
         }
+        sdf = edf - setting->edf_gp_offset_distance;
 
         // compute sign
         SignMethod sign_method = setting->sign_method;
         if (sign_method == kHybrid) {
-            if (setting->hybrid_sign_threshold < sdf) {
+            if (setting->hybrid_sign_threshold > edf) {
                 sign_method = setting->hybrid_sign_methods.first;
             } else {
                 sign_method = setting->hybrid_sign_methods.second;
             }
         }
-        Dtype sign = 1.0f;
+        const Dtype external_sign = sign;
+        sign = 1.0f;
         bool sdf_gradient_computed = false;
         auto sdf_gradient = f.template segment<Dim>(1);
         switch (sign_method) {
@@ -339,16 +338,23 @@ namespace erl::sdf_mapping {
                 sign = external_sign;
                 break;
             }
+            case kNone: {
+                sign = sdf < 0 ? -1.0f : 1.0f;  // default sign based on sdf value
+                break;
+            }
             case kHybrid:
-            case kNone:
                 break;
         }
+        if (std::signbit(sdf) != std::signbit(sign)) { sdf = std::copysign(sdf, sign); }
 
         // compute sdf gradient
         if (compute_gradient && !sdf_gradient_computed) {
             if (!edf_result.template GetGradientD<Dim>(0, 0, sdf_gradient.data())) {
                 var[0] = 1e6f;
                 return false;
+            }
+            if (sdf < 0.0f) {
+                for (long i = 0; i < Dim; ++i) { sdf_gradient[i] = -sdf_gradient[i]; }
             }
         }
 
@@ -363,20 +369,13 @@ namespace erl::sdf_mapping {
         } else {
             EstimateVariance(
                 test_position,
-                sdf,
+                edf,
                 compute_gradient_variance,
                 compute_covariance,
                 var.data(),
                 covariance.data());
         }
 
-        sdf -= offset_distance;
-        if (std::signbit(sdf) != std::signbit(sign)) {
-            sdf = std::copysign(sdf, sign);
-            if (compute_gradient) {  // flip the gradient if the sign is different
-                for (long i = 1; i <= Dim; ++i) { f[i] = -f[i]; }
-            }
-        }
         return true;
     }
 
@@ -390,7 +389,6 @@ namespace erl::sdf_mapping {
         if (active != other.active) { return false; }
         if (outdated != other.outdated) { return false; }
         if (use_normal_gp != other.use_normal_gp) { return false; }
-        if (offset_distance != other.offset_distance) { return false; }
         if (locked_for_test.load() != other.locked_for_test.load()) { return false; }
         if (position != other.position) { return false; }
         if (half_size != other.half_size) { return false; }
@@ -435,15 +433,6 @@ namespace erl::sdf_mapping {
                 "use_normal_gp",
                 [](const SdfGaussianProcess *gp, std::ostream &stream) -> bool {
                     stream << gp->use_normal_gp;
-                    return stream.good();
-                },
-            },
-            {
-                "offset_distance",
-                [](const SdfGaussianProcess *gp, std::ostream &stream) -> bool {
-                    stream.write(
-                        reinterpret_cast<const char *>(&gp->offset_distance),
-                        sizeof(gp->offset_distance));
                     return stream.good();
                 },
             },
@@ -512,15 +501,6 @@ namespace erl::sdf_mapping {
                 "use_normal_gp",
                 [](SdfGaussianProcess *gp, std::istream &stream) -> bool {
                     stream >> gp->use_normal_gp;
-                    return stream.good();
-                },
-            },
-            {
-                "offset_distance",
-                [](SdfGaussianProcess *gp, std::istream &stream) -> bool {
-                    stream.read(
-                        reinterpret_cast<char *>(&gp->offset_distance),
-                        sizeof(gp->offset_distance));
                     return stream.good();
                 },
             },
@@ -672,4 +652,4 @@ namespace erl::sdf_mapping {
     template class SdfGaussianProcess<float, 3>;
     template class SdfGaussianProcess<double, 2>;
     template class SdfGaussianProcess<float, 2>;
-}  // namespace erl::sdf_mapping
+}  // namespace erl::gp_sdf
