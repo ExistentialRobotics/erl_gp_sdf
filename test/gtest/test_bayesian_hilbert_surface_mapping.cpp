@@ -27,12 +27,12 @@ const std::filesystem::path kConfigDir = kProjectRootDir / "config";
 
 template<typename Dtype>
 cv::Mat
-ConvertToImage(int xs, int ys, Eigen::VectorX<Dtype> &prob_occupied) {
+ConvertToImage(int xs, int ys, const Eigen::VectorX<Dtype> &prob_occupied) {
     cv::Mat prob_occupied_img(
         ys,
         xs,
         sizeof(Dtype) == 4 ? CV_32FC1 : CV_64FC1,
-        prob_occupied.data());
+        const_cast<Dtype *>(prob_occupied.data()));
     prob_occupied_img = prob_occupied_img.t();
     cv::normalize(prob_occupied_img, prob_occupied_img, 0, 255, cv::NORM_MINMAX);
     prob_occupied_img.convertTo(prob_occupied_img, CV_8UC1);
@@ -111,6 +111,10 @@ TestImpl3D() {
         Dtype surf_normal_scale = 0.25;
         Dtype test_res = 0.02;
         Dtype test_z = 0.0;
+        Dtype test_x_min = 0.0f;
+        Dtype test_x_max = 0.0f;
+        Dtype test_y_min = 0.0f;
+        Dtype test_y_max = 0.0f;
         long test_xs = 150;
         long test_ys = 100;
         bool test_io = false;
@@ -168,6 +172,10 @@ TestImpl3D() {
             ("surf-normal-scale", po::value<Dtype>(&options.surf_normal_scale)->default_value(options.surf_normal_scale)->value_name("scale"), "surface normal scale")
             ("test-res", po::value<Dtype>(&options.test_res)->default_value(options.test_res)->value_name("res"), "test resolution")
             ("test-z", po::value<Dtype>(&options.test_z)->default_value(options.test_z)->value_name("z"), "test z")
+            ("test-x-min", po::value<Dtype>(&options.test_x_min)->default_value(options.test_x_min)->value_name("x_min"), "test x min")
+            ("test-x-max", po::value<Dtype>(&options.test_x_max)->default_value(options.test_x_max)->value_name("x_max"), "test x max")
+            ("test-y-min", po::value<Dtype>(&options.test_y_min)->default_value(options.test_y_min)->value_name("y_min"), "test y min")
+            ("test-y-max", po::value<Dtype>(&options.test_y_max)->default_value(options.test_y_max)->value_name("y_max"), "test y max")
             ("test-xs", po::value<long>(&options.test_xs)->default_value(options.test_xs)->value_name("xs"), "test xs")
             ("test-ys", po::value<long>(&options.test_ys)->default_value(options.test_ys)->value_name("ys"), "test ys")
             ("test-io", po::bool_switch(&options.test_io), "test IO")
@@ -267,6 +275,7 @@ TestImpl3D() {
     const auto visualizer_setting = std::make_shared<Open3dVisualizerWrapper::Setting>();
     visualizer_setting->window_name = test_info->name();
     visualizer_setting->mesh_show_back_face = false;
+    visualizer_setting->translate_step = 0.01;
     Open3dVisualizerWrapper visualizer(visualizer_setting);
     const auto o3d_mesh_sensor = open3d::geometry::TriangleMesh::CreateSphere(0.05);
     o3d_mesh_sensor->PaintUniformColor({1.0, 0.5, 0.0});
@@ -370,12 +379,61 @@ TestImpl3D() {
         ERL_TRACY_PLOT("bhsm_update (fps)", bhsm_update_fps);
     };
 
+    auto vis_bhm = [&](open3d::visualization::Visualizer *vis) {
+        auto map_boundary = bhsm.GetMapBoundary();
+        if (options.test_x_min == options.test_x_max || options.test_y_min == options.test_y_max) {
+            ERL_INFO("Map boundary is not fully defined, using surface mapping boundary.");
+            options.test_x_min = map_boundary.min()[0];
+            options.test_x_max = map_boundary.max()[0];
+            options.test_y_min = map_boundary.min()[1];
+            options.test_y_max = map_boundary.max()[1];
+        }
+        erl::common::GridMapInfo2D<Dtype> grid_map_info(
+            Eigen::Vector2<Dtype>(options.test_x_min, options.test_y_min),
+            Eigen::Vector2<Dtype>(options.test_x_max, options.test_y_max),
+            Eigen::Vector2<Dtype>(options.test_res, options.test_res),
+            Eigen::Vector2i(10, 10));
+        Matrix3X test_positions(3, grid_map_info.Size());
+        test_positions.topRows(2) =
+            grid_map_info.GenerateMeterCoordinates(false).template cast<Dtype>();
+        test_positions.row(2).setConstant(options.test_z + map_boundary.center[2]);
+        VectorX prob_occupied;
+        {
+            ERL_BLOCK_TIMER_MSG("bhsm.Predict");
+            Matrix3X gradient;
+            bhsm.Predict(
+                test_positions,
+                false /*logodd*/,
+                true /*faster*/,
+                false /*compute_gradient*/,
+                false /*gradient_with_sigmoid*/,
+                true /*parallel*/,
+                prob_occupied,
+                gradient);
+        }
+        const cv::Mat prob_occupied_img =
+            ConvertToImage(grid_map_info.Shape(0), grid_map_info.Shape(1), prob_occupied);
+        const cv::Mat occupancy_img = ConvertToImage<Dtype>(
+            grid_map_info.Shape(0),
+            grid_map_info.Shape(1),
+            (prob_occupied.array() > 0.5).template cast<Dtype>());
+        ConvertToVoxelGrid<Dtype>(prob_occupied_img, test_positions, o3d_voxel_grid);
+        vis->UpdateGeometry(o3d_voxel_grid);
+        cv::imshow("prob_occupied", prob_occupied_img);
+        cv::imshow("occupancy", occupancy_img);
+        cv::waitKey(1);
+    };
+
 #pragma region animation_callback
     auto callback = [&](Open3dVisualizerWrapper *wrapper,
                         open3d::visualization::Visualizer *vis) -> bool {
         ERL_TRACY_FRAME_MARK_START();
         // options.hold is true, so the window is not closed yet
         if (animation_ended) {
+            if (options.test_z != static_cast<Dtype>(visualizer_setting->z)) {
+                options.test_z = static_cast<Dtype>(visualizer_setting->z);
+                vis_bhm(vis);
+            }
             cv::waitKey(1);
             return false;
         }
@@ -383,38 +441,7 @@ TestImpl3D() {
 #pragma region end_of_animation
         if (wp_idx >= max_wp_idx) {
             animation_ended = true;
-            if (options.test_whole_map_at_end) {
-                auto map_boundary = bhsm.GetMapBoundary();
-                erl::common::GridMapInfo2D<Dtype> grid_map_info(
-                    map_boundary.min().template head<2>(),
-                    map_boundary.max().template head<2>(),
-                    Eigen::Vector2<Dtype>(options.test_res, options.test_res),
-                    Eigen::Vector2i(10, 10));
-                Matrix3X test_positions(3, grid_map_info.Size());
-                test_positions.topRows(2) =
-                    grid_map_info.GenerateMeterCoordinates(false).template cast<Dtype>();
-                test_positions.row(2).setConstant(options.test_z + map_boundary.center[2]);
-                VectorX prob_occupied;
-                {
-                    ERL_BLOCK_TIMER_MSG("bhsm.Predict");
-                    Matrix3X gradient;
-                    bhsm.Predict(
-                        test_positions,
-                        false,
-                        true,
-                        false,
-                        false,
-                        true,
-                        prob_occupied,
-                        gradient);
-                }
-                const cv::Mat prob_occupied_img =
-                    ConvertToImage(grid_map_info.Shape(0), grid_map_info.Shape(1), prob_occupied);
-                ConvertToVoxelGrid<Dtype>(prob_occupied_img, test_positions, o3d_voxel_grid);
-                vis->UpdateGeometry(o3d_voxel_grid);
-                cv::imshow("prob_occupied", prob_occupied_img);
-                cv::waitKey(1);
-            }
+            if (options.test_whole_map_at_end) { vis_bhm(vis); }
             if (!options.hold) {
                 wrapper->SetAnimationCallback(nullptr);  // stop calling this callback
                 vis->Close();                            // close the window
@@ -531,6 +558,7 @@ TestImpl3D() {
     if (options.no_visualize) {
         while (wp_idx < max_wp_idx) { run_update(); }
     } else {
+        visualizer_setting->z = options.test_z;
         visualizer.SetAnimationCallback(callback);
         visualizer.SetViewStatus(options.o3d_view_status_file);
         visualizer.Show();

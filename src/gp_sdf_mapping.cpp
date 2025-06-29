@@ -903,7 +903,7 @@ namespace erl::gp_sdf {
             tested_idx.clear();
             bool need_weighted_sum = false;
             long cnt = 0;
-            Dtype sign = m_query_signs_[i], sign_sum = 0;
+            Dtype sign = m_query_signs_[i];  //, sign_sum = 0;
             for (const std::size_t &j: gp_indices) {
                 // call selected GPs for inference
                 const auto &gp = gps[j].second.second;              // (distance, (key, gp))
@@ -920,7 +920,7 @@ namespace erl::gp_sdf {
                         use_gp_covariance)) {
                     continue;
                 }
-                sign_sum += sign;
+                // sign_sum += sign;
                 // if (fs(0, cnt) > 0) { ++pos_cnt; }  // count the number of positive GPs
                 tested_idx.emplace_back(cnt++, j);
                 if (use_smallest) { continue; }

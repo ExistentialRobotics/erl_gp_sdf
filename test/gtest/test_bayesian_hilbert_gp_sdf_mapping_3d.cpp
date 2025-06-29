@@ -64,6 +64,21 @@ ConvertSdfToImage(Eigen::VectorX<Dtype> &distances, const int xs, const int ys) 
 }
 
 template<typename Dtype>
+cv::Mat
+ConvertToImage(const Eigen::VectorX<Dtype> &sign, int xs, int ys) {
+    cv::Mat sign_image(
+        ys,
+        xs,
+        sizeof(Dtype) == 4 ? CV_32FC1 : CV_64FC1,
+        const_cast<Dtype *>(sign.data()));
+    sign_image = sign_image.t();
+    cv::normalize(sign_image, sign_image, 0, 255, cv::NORM_MINMAX);
+    sign_image.convertTo(sign_image, CV_8UC1);
+    cv::applyColorMap(sign_image, sign_image, cv::COLORMAP_JET);
+    return sign_image;
+}
+
+template<typename Dtype>
 void
 ConvertSdfToVoxelGrid(
     const cv::Mat &img_sdf,
@@ -123,6 +138,10 @@ TestImpl3D() {
         long scan_stride = 1;
         long max_frames = std::numeric_limits<long>::max();
         Dtype test_res = 0.02;
+        Dtype test_x_min = 0.0f;
+        Dtype test_x_max = 0.0f;
+        Dtype test_y_min = 0.0f;
+        Dtype test_y_max = 0.0f;
         long test_xs = 150;
         long test_ys = 100;
         bool test_whole_map_at_end = false;  // test the whole map at the end
@@ -190,6 +209,10 @@ TestImpl3D() {
             ("scan-stride", po::value<long>(&options.scan_stride)->default_value(options.scan_stride)->value_name("stride"), "scan stride")
             ("max-frames", po::value<long>(&options.max_frames)->default_value(options.max_frames)->value_name("frames"), "max number of frames to process")
             ("test-res", po::value<Dtype>(&options.test_res)->default_value(options.test_res)->value_name("res"), "test resolution")
+            ("test-x-min", po::value<Dtype>(&options.test_x_min)->default_value(options.test_x_min)->value_name("x_min"), "test x min")
+            ("test-x-max", po::value<Dtype>(&options.test_x_max)->default_value(options.test_x_max)->value_name("x_max"), "test x max")
+            ("test-y-min", po::value<Dtype>(&options.test_y_min)->default_value(options.test_y_min)->value_name("y_min"), "test y min")
+            ("test-y-max", po::value<Dtype>(&options.test_y_max)->default_value(options.test_y_max)->value_name("y_max"), "test y max")
             ("test-xs", po::value<long>(&options.test_xs)->default_value(options.test_xs)->value_name("xs"), "test xs")
             ("test-ys", po::value<long>(&options.test_ys)->default_value(options.test_ys)->value_name("ys"), "test ys")
             ("test-whole-map-at-end", po::bool_switch(&options.test_whole_map_at_end), "test the whole map at the end")
@@ -314,6 +337,8 @@ TestImpl3D() {
     const auto vis_setting = std::make_shared<erl::geometry::Open3dVisualizerWrapper::Setting>();
     vis_setting->window_name = test_info->name();
     vis_setting->mesh_show_back_face = false;
+    vis_setting->translate_step = 0.01;
+    vis_setting->z = options.test_z;
     erl::geometry::Open3dVisualizerWrapper visualizer(vis_setting);
     const auto mesh_sensor = open3d::geometry::TriangleMesh::CreateSphere(0.05);
     mesh_sensor->PaintUniformColor({1.0, 0.5, 0.0});
@@ -377,6 +402,61 @@ TestImpl3D() {
         ERL_ASSERTM(sdf_mapping == sdf_mapping_read, "sdf_mapping != sdf_mapping_read");
     };
 
+    auto vis_bhm = [&]() {
+        if (options.test_x_min == options.test_x_max || options.test_y_min == options.test_y_max) {
+            ERL_INFO("Map boundary is not fully defined, using surface mapping boundary.");
+            options.test_x_min = map_min[0];
+            options.test_x_max = map_max[0];
+            options.test_y_min = map_min[1];
+            options.test_y_max = map_max[1];
+        }
+        erl::common::GridMapInfo2D<Dtype> grid_map_info(
+            Eigen::Vector2<Dtype>(options.test_x_min, options.test_y_min),
+            Eigen::Vector2<Dtype>(options.test_x_max, options.test_y_max),
+            Eigen::Vector2<Dtype>(options.test_res, options.test_res),
+            Eigen::Vector2i(10, 10));
+        Matrix3X test_positions(3, grid_map_info.Size());
+        test_positions.topRows(2) =
+            grid_map_info.GenerateMeterCoordinates(false).template cast<Dtype>();
+        test_positions.row(2).setConstant(options.test_z);
+        VectorX distances;
+        {
+            Matrix3X gradients(3, test_positions.cols());
+            Matrix4X variances;
+            Matrix6X covairances;
+            ERL_BLOCK_TIMER_MSG("sdf_mapping.Test");
+            EXPECT_TRUE(
+                sdf_mapping.Test(test_positions, distances, gradients, variances, covairances));
+        }
+        auto [img_sdf, img_sdf_sign] =
+            ConvertSdfToImage(distances, grid_map_info.Shape(0), grid_map_info.Shape(1));
+        ConvertSdfToVoxelGrid(img_sdf, test_positions, voxel_grid_sdf);
+        VectorX in_free_space;
+        (void) surf_mapping->IsInFreeSpace(test_positions, in_free_space);
+        auto img_surf_mapping_sign =
+            ConvertToImage(in_free_space, grid_map_info.Shape(0), grid_map_info.Shape(1));
+        Dtype resize_scale = options.image_resize_scale;
+        resize_scale =
+            std::min(resize_scale, static_cast<Dtype>(1920.0f) / static_cast<Dtype>(img_sdf.cols));
+        resize_scale =
+            std::min(resize_scale, static_cast<Dtype>(1920.0f) / static_cast<Dtype>(img_sdf.rows));
+        cv::resize(img_sdf, img_sdf, cv::Size(), resize_scale, resize_scale);
+        cv::resize(img_sdf_sign, img_sdf_sign, cv::Size(), resize_scale, resize_scale);
+        cv::resize(
+            img_surf_mapping_sign,
+            img_surf_mapping_sign,
+            cv::Size(),
+            resize_scale,
+            resize_scale);
+        cv::imshow("sdf_whole_map", img_sdf);
+        cv::imshow("sdf_sign_whole_map", img_sdf_sign);
+        cv::imshow("surf_mapping_sign_whole_map", img_surf_mapping_sign);
+        cv::imwrite(test_output_dir / "sdf_whole_map.png", img_sdf);
+        cv::imwrite(test_output_dir / "sdf_sign_whole_map.png", img_sdf_sign);
+        cv::imwrite(test_output_dir / "surf_mapping_sign_whole_map.png", img_surf_mapping_sign);
+        cv::waitKey(1);
+    };
+
     const std::filesystem::path img_dir = test_output_dir / "images";
     std::filesystem::create_directory(img_dir);
     Eigen::Matrix2Xd fps_data(2, (max_wp_idx + options.seq_stride - 1) / options.seq_stride);
@@ -390,6 +470,10 @@ TestImpl3D() {
 
         ERL_TRACY_FRAME_MARK_START();
         if (animation_ended) {  // options.hold is true, so the window is not closed yet
+            if (options.test_z != static_cast<Dtype>(vis_setting->z)) {
+                options.test_z = static_cast<Dtype>(vis_setting->z);
+                vis_bhm();
+            }
             cv::waitKey(1);
             return false;
         }
@@ -397,44 +481,7 @@ TestImpl3D() {
 #pragma region end_of_animation
         if (wp_idx >= max_wp_idx) {
             animation_ended = true;
-            if (options.test_whole_map_at_end) {
-                erl::common::GridMapInfo2D<Dtype> grid_map_info(
-                    map_min.template head<2>(),
-                    map_max.template head<2>(),
-                    Eigen::Vector2<Dtype>(options.test_res, options.test_res),
-                    Eigen::Vector2i(10, 10));
-                Matrix3X test_positions(3, grid_map_info.Size());
-                test_positions.topRows(2) =
-                    grid_map_info.GenerateMeterCoordinates(false).template cast<Dtype>();
-                test_positions.row(2).setConstant(options.test_z);
-                VectorX distances;
-                {
-                    Matrix3X gradients(3, test_positions.cols());
-                    Matrix4X variances;
-                    Matrix6X covairances;
-                    ERL_BLOCK_TIMER_MSG("sdf_mapping.Test");
-                    EXPECT_TRUE(
-                        sdf_mapping
-                            .Test(test_positions, distances, gradients, variances, covairances));
-                }
-                auto [img_sdf, img_sdf_sign] =
-                    ConvertSdfToImage(distances, grid_map_info.Shape(0), grid_map_info.Shape(1));
-                ConvertSdfToVoxelGrid(img_sdf, test_positions, voxel_grid_sdf);
-                Dtype resize_scale = options.image_resize_scale;
-                resize_scale = std::min(
-                    resize_scale,
-                    static_cast<Dtype>(1920.0f) / static_cast<Dtype>(img_sdf.cols));
-                resize_scale = std::min(
-                    resize_scale,
-                    static_cast<Dtype>(1920.0f) / static_cast<Dtype>(img_sdf.rows));
-                cv::resize(img_sdf, img_sdf, cv::Size(), resize_scale, resize_scale);
-                cv::resize(img_sdf_sign, img_sdf_sign, cv::Size(), resize_scale, resize_scale);
-                cv::imshow("sdf_whole_map", img_sdf);
-                cv::imshow("sdf_sign_whole_map", img_sdf_sign);
-                cv::imwrite(test_output_dir / "sdf_whole_map.png", img_sdf);
-                cv::imwrite(test_output_dir / "sdf_sign_whole_map.png", img_sdf_sign);
-                cv::waitKey(1);
-            }
+            if (options.test_whole_map_at_end) { vis_bhm(); }
             if (options.save_images) {
                 vis->CaptureScreenImage(img_dir / fmt::format("{:04d}.png", wp_idx + 1), true);
             }

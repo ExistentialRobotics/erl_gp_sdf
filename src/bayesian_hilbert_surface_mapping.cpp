@@ -542,6 +542,13 @@ namespace erl::gp_sdf {
                     return stream.good();
                 },
             },
+            {
+                "active",
+                [](const LocalBayesianHilbertMap *self, std::ostream &stream) {
+                    stream.write(reinterpret_cast<const char *>(&self->active), sizeof(bool));
+                    return stream.good();
+                },
+            },
         };
         return WriteTokens(s, this, token_function_pairs);
     }
@@ -643,6 +650,13 @@ namespace erl::gp_sdf {
                     return stream.good();
                 },
             },
+            {
+                "active",
+                [](LocalBayesianHilbertMap *self, std::istream &stream) {
+                    stream.read(reinterpret_cast<char *>(&self->active), sizeof(bool));
+                    return stream.good();
+                },
+            },
         };
         return ReadTokens(s, this, token_function_pairs);
     }
@@ -667,6 +681,7 @@ namespace erl::gp_sdf {
         if (hit_indices != other.hit_indices) { return false; }
         if (hit_buffer != other.hit_buffer) { return false; }
         if (hit_buffer_head != other.hit_buffer_head) { return false; }
+        if (active != other.active) { return false; }
         return true;
     }
 
@@ -943,7 +958,7 @@ namespace erl::gp_sdf {
             bhm_torch.Reset();
         }
 #else
-        bool use_cuda = false;
+        constexpr bool use_cuda = false;
         ERL_WARN_ONCE_COND(
             m_setting_->update_with_cuda,
             "update_with_cuda is set to true, but the erl_geometry library is not compiled with "
@@ -1528,7 +1543,7 @@ namespace erl::gp_sdf {
             const TreeNode *node = m_tree_->Search(key);
             if (node == nullptr) { continue; }  // no observation of this point at all
             if (!m_tree_->IsNodeOccupied(node) &&
-                m_tree_->GetNodeSize(node->GetDepth()) * 0.5 > half_size) {
+                m_tree_->GetNodeSize(node->GetDepth()) * 0.5f > half_size) {
                 // use the tree to predict the occupancy
                 prob_occupied_ptr[i] = logodd ? node->GetLogOdds() : node->GetOccupancy();
                 continue;
@@ -1565,22 +1580,21 @@ namespace erl::gp_sdf {
                 continue;
             }
 
-            Eigen::VectorXl bhm_indices(knn);
-            VectorX bhm_distances(knn);
-            bhm_indices.fill(-1);
-            bhm_distances.fill(0);
-            m_bhm_kdtree_->Knn(knn, point, bhm_indices, bhm_distances);
+            // m_bhm_kdtree_->Knn(knn, point, bhm_indices, bhm_distances);
+            std::vector<nanoflann::ResultItem<long, Dtype>> bhm_indices_dists;
+            m_bhm_kdtree_->RadiusSearch(point, half_size, bhm_indices_dists, true /*sorted*/);
             Dtype weight_sum = 0.0f;
             Dtype prob_sum = 0.0f;
             Gradient gradient_sum = Gradient::Zero();
-            for (long j = 0; j < knn; ++j) {  // iterate over the neighbors
-                const long &bhm_index = bhm_indices[j];
-                if (bhm_index < 0) { break; }                                // no more neighbors
-                const Dtype bhm_distance = std::sqrt(bhm_distances[j]);      // distance is squared
-                if (bhm_distance > half_size) { break; }                     // too far from the bhm
-                const Key &bhm_key = m_key_bhm_positions_[bhm_index].first;  // obtain the bhm key
-                const auto &local_bhm = m_key_bhm_dict_.at(bhm_key);         // obtain the bhm
+            long cnt = 0;
+            for (auto &idx_dist: bhm_indices_dists) {  // iterate over the neighbors
+                if (cnt >= knn) { break; }             // only use the first knn active neighbors
+                const long &bhm_index = idx_dist.first;
+                const Key &bhm_key = m_key_bhm_positions_[bhm_index].first;    // obtain the bhm key
+                const auto &local_bhm = m_key_bhm_dict_.at(bhm_key);           // obtain the bhm
                 if (local_bhm == nullptr || !local_bhm->active) { continue; }  // not active bhm
+
+                ++cnt;
                 Dtype prob;
                 Gradient grad;
                 local_bhm->bhm.Predict(
@@ -1599,7 +1613,7 @@ namespace erl::gp_sdf {
                     for (int dim = 0; dim < Dim; ++dim) { gradient_sum[dim] += grad[dim] * weight; }
                 }
             }
-            if (weight_sum == 0.0f) {               // no neighboring bhm
+            if (cnt == 0) {                         // no neighboring bhm
                 if (node == nullptr) { continue; }  // unknown
                 // get the occupancy from the tree, gradient is not available
                 prob_occupied_ptr[i] = logodd ? node->GetLogOdds() : node->GetOccupancy();
