@@ -13,7 +13,7 @@ struct Options : Yamlable<Options> {
     double min_x = -2.0;
     double min_y = -2.0;
     double radius = 1.0;
-    long num_samples = 10000;
+    long num_surf_samples = 10000;
     int test_num_x = 201;
     int test_num_y = 201;
     uint64_t seed = 0;
@@ -35,7 +35,7 @@ struct YAML::convert<Options> {
         ERL_YAML_SAVE_ATTR(node, options, min_x);
         ERL_YAML_SAVE_ATTR(node, options, min_y);
         ERL_YAML_SAVE_ATTR(node, options, radius);
-        ERL_YAML_SAVE_ATTR(node, options, num_samples);
+        ERL_YAML_SAVE_ATTR(node, options, num_surf_samples);
         ERL_YAML_SAVE_ATTR(node, options, test_num_x);
         ERL_YAML_SAVE_ATTR(node, options, test_num_y);
         ERL_YAML_SAVE_ATTR(node, options, seed);
@@ -56,7 +56,7 @@ struct YAML::convert<Options> {
         ERL_YAML_LOAD_ATTR(node, options, min_x);
         ERL_YAML_LOAD_ATTR(node, options, min_y);
         ERL_YAML_LOAD_ATTR(node, options, radius);
-        ERL_YAML_LOAD_ATTR(node, options, num_samples);
+        ERL_YAML_LOAD_ATTR(node, options, num_surf_samples);
         ERL_YAML_LOAD_ATTR(node, options, test_num_x);
         ERL_YAML_LOAD_ATTR(node, options, test_num_y);
         ERL_YAML_LOAD_ATTR(node, options, seed);
@@ -91,9 +91,9 @@ struct App {
     std::pair<Eigen::Matrix2Xd, Eigen::VectorXd>
     GenerateDataset() {
         if (options.near_surface) {
-            Eigen::Matrix2Xd points(2, options.num_samples);
-            Eigen::VectorXd sdf_values(options.num_samples);
-            for (long i = 0; i < options.num_samples; ++i) {
+            Eigen::Matrix2Xd points(2, options.num_surf_samples);
+            Eigen::VectorXd sdf_values(options.num_surf_samples);
+            for (long i = 0; i < options.num_surf_samples; ++i) {
                 double theta = dist(rng) * 2.0 * M_PI;
                 double r = options.radius + dist(rng) * options.near_surface_delta;
                 points.col(i) << r * std::cos(theta), r * std::sin(theta);
@@ -102,11 +102,11 @@ struct App {
             return {points, sdf_values};
         }
 
-        Eigen::Matrix2Xd points(2, options.num_samples);
-        Eigen::VectorXd sdf_values(options.num_samples);
+        Eigen::Matrix2Xd points(2, options.num_surf_samples);
+        Eigen::VectorXd sdf_values(options.num_surf_samples);
         const double range_x = options.max_x - options.min_x;
         const double range_y = options.max_y - options.min_y;
-        for (long i = 0; i < options.num_samples; ++i) {
+        for (long i = 0; i < options.num_surf_samples; ++i) {
             auto point = points.col(i);
             point.x() = dist(rng) * range_x + options.min_x;
             point.y() = dist(rng) * range_y + options.min_y;
@@ -118,13 +118,13 @@ struct App {
     std::shared_ptr<Gp>
     Train(const Eigen::Matrix2Xd &points, const Eigen::VectorXd &sdf_values) {
         auto gp = std::make_shared<Gp>(options.gp);
-        gp->Reset(options.num_samples, 2, 1);
+        gp->Reset(options.num_surf_samples, 2, 1);
         auto &train_set = gp->GetTrainSet();
         train_set.x.topRows<2>() = points;
         train_set.y.leftCols<1>() = sdf_values;
         train_set.var_x.setConstant(options.var_x);
         train_set.var_y.setConstant(options.var_y);
-        train_set.num_samples = options.num_samples;
+        train_set.num_samples = options.num_surf_samples;
         train_set.num_samples_with_grad = 0;
         train_set.grad_flag.setConstant(false);
         train_set.x_dim = 2;

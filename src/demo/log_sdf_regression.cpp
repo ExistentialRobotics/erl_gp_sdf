@@ -11,7 +11,9 @@ struct Options : Yamlable<Options> {
     double min_x = -2.0;
     double min_y = -2.0;
     double radius = 1.0;
-    long num_samples = 1000;
+    long num_surf_samples = 1000;
+    bool add_off_surf_points = false;
+    int off_surf_grid_size = 21;
     int test_num_x = 201;
     int test_num_y = 201;
     double var_x = 0.01;
@@ -30,7 +32,9 @@ struct YAML::convert<Options> {
         ERL_YAML_SAVE_ATTR(node, options, min_x);
         ERL_YAML_SAVE_ATTR(node, options, min_y);
         ERL_YAML_SAVE_ATTR(node, options, radius);
-        ERL_YAML_SAVE_ATTR(node, options, num_samples);
+        ERL_YAML_SAVE_ATTR(node, options, num_surf_samples);
+        ERL_YAML_SAVE_ATTR(node, options, add_off_surf_points);
+        ERL_YAML_SAVE_ATTR(node, options, off_surf_grid_size);
         ERL_YAML_SAVE_ATTR(node, options, test_num_x);
         ERL_YAML_SAVE_ATTR(node, options, test_num_y);
         ERL_YAML_SAVE_ATTR(node, options, var_x);
@@ -48,7 +52,9 @@ struct YAML::convert<Options> {
         ERL_YAML_LOAD_ATTR(node, options, min_x);
         ERL_YAML_LOAD_ATTR(node, options, min_y);
         ERL_YAML_LOAD_ATTR(node, options, radius);
-        ERL_YAML_LOAD_ATTR(node, options, num_samples);
+        ERL_YAML_LOAD_ATTR(node, options, num_surf_samples);
+        ERL_YAML_LOAD_ATTR(node, options, add_off_surf_points);
+        ERL_YAML_LOAD_ATTR(node, options, off_surf_grid_size);
         ERL_YAML_LOAD_ATTR(node, options, test_num_x);
         ERL_YAML_LOAD_ATTR(node, options, test_num_y);
         ERL_YAML_LOAD_ATTR(node, options, var_x);
@@ -74,12 +80,23 @@ struct App {
 
     [[nodiscard]] Eigen::Matrix2Xd
     GenerateDataset() const {
-        Eigen::Matrix2Xd points(2, options.num_samples);
-        Eigen::VectorXd angles = Eigen::VectorXd::LinSpaced(options.num_samples, 0.0, 2.0 * M_PI);
-        for (long i = 0; i < options.num_samples; ++i) {
+        const long num_off_surf_samples =
+            options.add_off_surf_points ? options.off_surf_grid_size * options.off_surf_grid_size
+                                        : 0;
+        Eigen::Matrix2Xd points(2, options.num_surf_samples + num_off_surf_samples);
+        Eigen::VectorXd angles =
+            Eigen::VectorXd::LinSpaced(options.num_surf_samples, 0.0, 2.0 * M_PI);
+        for (long i = 0; i < options.num_surf_samples; ++i) {
             auto point = points.col(i);
             point.x() = options.radius * std::cos(angles[i]);
             point.y() = options.radius * std::sin(angles[i]);
+        }
+        if (options.add_off_surf_points) {
+            GridMapInfo2Dd grid_info(
+                Eigen::Vector2i(options.off_surf_grid_size, options.off_surf_grid_size),
+                Eigen::Vector2d(options.min_x, options.min_y),
+                Eigen::Vector2d(options.max_x, options.max_y));
+            points.rightCols(num_off_surf_samples) = grid_info.GenerateMeterCoordinates(true);
         }
         return points;
     }
@@ -89,19 +106,21 @@ struct App {
         options.gp->no_gradient_observation = true;
         options.gp->kernel->scale = std::sqrt(3.) / options.gp->log_lambda;
         auto gp = std::make_shared<Gp>(options.gp);
-        gp->Reset(options.num_samples, 2, 3);
+        const long num_samples = points.cols();
+        gp->Reset(num_samples, 2, 3);
 
         Eigen::Matrix2Xd normals = points;
         normals.colwise().normalize();
+        Eigen::VectorXd sdf = points.colwise().norm().array() - options.radius;
 
         auto &train_set = gp->GetTrainSet();
         train_set.x.topRows<2>() = points;
-        train_set.y.leftCols<1>().setConstant(1);
+        train_set.y.col(0) = (sdf.array() * -options.gp->log_lambda).exp();
         train_set.y.col(1) = 10 * normals.row(0).transpose();
         train_set.y.col(2) = 10 * normals.row(1).transpose();
         train_set.var_x.setConstant(options.var_x);
         train_set.var_y.setConstant(options.var_y);
-        train_set.num_samples = options.num_samples;
+        train_set.num_samples = num_samples;
         train_set.num_samples_with_grad = 0;
         train_set.grad_flag.setConstant(false);
         train_set.x_dim = 2;
@@ -127,7 +146,7 @@ struct App {
             Eigen::Vector2d(options.max_x, options.max_y));
         Eigen::Matrix2Xd test_pts = grid_info.GenerateMeterCoordinates(true /*c_stride*/);
         Eigen::VectorXd sdf_gt = test_pts.colwise().norm().array() - options.radius;
-        Eigen::VectorXd edf_pred(test_pts.cols());
+        Eigen::VectorXd udf_pred(test_pts.cols());
         Eigen::Matrix2Xd edf_grads(2, test_pts.cols());
 
         ERL_INFO("Testing gp");
@@ -135,7 +154,7 @@ struct App {
         ERL_ASSERTM(test_result != nullptr, "Failed to test Gaussian Process.");
 
         ERL_INFO("Getting mean and gradients");
-        test_result->GetMean(0, edf_pred, true /*parallel*/);
+        test_result->GetMean(0, udf_pred, true /*parallel*/);
         Eigen::VectorXb valid_gradients = test_result->GetGradient(0, edf_grads, true /*parallel*/);
 
         ERL_INFO("Normal diffusion");
@@ -156,7 +175,7 @@ struct App {
             (edf_grads.array() * normals.array()).colwise().sum();
         Eigen::VectorXd signs = edf_pred_dot_normals.unaryExpr(
             [](const double a) -> double { return (a < 0.0) ? -1.0 : 1.0; });
-        Eigen::VectorXd sdf_pred = edf_pred.array() * signs.array();
+        Eigen::VectorXd sdf_pred = udf_pred.array() * signs.array();
 
         PlplotFig fig(640, 640, true);
         auto clear_fig = [&fig, this]() {
@@ -175,7 +194,7 @@ struct App {
                 .SetAxisLabelY("y");
         };
         PlplotFig::ShadesOpt shades_opt;
-        shades_opt.SetColorLevels(edf_pred.data(), options.test_num_x, options.test_num_y, 127)
+        shades_opt.SetColorLevels(udf_pred.data(), options.test_num_x, options.test_num_y, 127)
             .SetXMin(options.min_x)
             .SetXMax(options.max_x)
             .SetYMin(options.min_y)
@@ -188,7 +207,7 @@ struct App {
         fig.SetTitle("UDF Prediction")
             .SetAreaFillPattern(PlplotFig::AreaFillPattern::Solid)
             .SetColorMap(1, PlplotFig::ColorMap::Jet)
-            .Shades(edf_pred.data(), options.test_num_x, options.test_num_y, true, shades_opt)
+            .Shades(udf_pred.data(), options.test_num_x, options.test_num_y, true, shades_opt)
             .ColorBar(color_bar_opt)
             .SetCurrentColor(PlplotFig::Color0::Black)
             .SetPenWidth(2)
@@ -281,7 +300,7 @@ struct App {
         cv::imwrite(options.output_dir + "/log_sdf_regression_gt.png", img);
         cv::imshow("log_sdf_regression: ground truth", img);
 
-        Eigen::VectorXd error = (edf_pred - sdf_gt).cwiseAbs();
+        Eigen::VectorXd error = (udf_pred - sdf_gt).cwiseAbs();
         shades_opt.SetColorLevels(error.data(), options.test_num_x, options.test_num_y, 127);
         color_bar_opt.SetLabelTexts({"Abs. Err."}).AddColorMap(0, shades_opt.color_levels, 10);
         clear_fig();
@@ -309,6 +328,7 @@ struct App {
         cv::imshow("log_sdf_regression: udf error", img);
 
         error = (sdf_pred - sdf_gt).cwiseAbs();
+        ERL_INFO("SDF error: {}.", error.mean());
         shades_opt.SetColorLevels(error.data(), options.test_num_x, options.test_num_y, 127);
         color_bar_opt.SetLabelTexts({"Abs. Err."}).AddColorMap(0, shades_opt.color_levels, 10);
         clear_fig();
@@ -412,7 +432,7 @@ struct App {
         cv::imwrite(options.output_dir + "/log_sdf_regression_normal_diffusion.png", img);
         cv::imshow("log_sdf_regression: normal diffusion", img);
 
-        const long stride = std::max(1l, dataset.cols() / 65l);
+        const long stride = std::max(1l, dataset.cols() / 100l);
         u.resize((dataset.cols() + stride - 1l) / stride);
         v.resize(u.size());
         x.resize(u.size());

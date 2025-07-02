@@ -17,7 +17,7 @@ struct Options : Yamlable<Options> {
     int num_x = 201;
     int num_y = 201;
     double radius = 1.0;
-    long num_samples = 1000;
+    long num_surf_samples = 1000;
     Eigen::Vector2d test_position = {1.5, 1.5};
     double softmin_temperature = 10.0;
     double var_x_min = 0.001;
@@ -41,7 +41,7 @@ struct YAML::convert<Options> {
         ERL_YAML_SAVE_ATTR(node, options, num_x);
         ERL_YAML_SAVE_ATTR(node, options, num_y);
         ERL_YAML_SAVE_ATTR(node, options, radius);
-        ERL_YAML_SAVE_ATTR(node, options, num_samples);
+        ERL_YAML_SAVE_ATTR(node, options, num_surf_samples);
         ERL_YAML_SAVE_ATTR(node, options, test_position);
         ERL_YAML_SAVE_ATTR(node, options, softmin_temperature);
         ERL_YAML_SAVE_ATTR(node, options, var_x_min);
@@ -64,7 +64,7 @@ struct YAML::convert<Options> {
         ERL_YAML_LOAD_ATTR(node, options, num_x);
         ERL_YAML_LOAD_ATTR(node, options, num_y);
         ERL_YAML_LOAD_ATTR(node, options, radius);
-        ERL_YAML_LOAD_ATTR(node, options, num_samples);
+        ERL_YAML_LOAD_ATTR(node, options, num_surf_samples);
         ERL_YAML_LOAD_ATTR(node, options, test_position);
         ERL_YAML_LOAD_ATTR(node, options, softmin_temperature);
         ERL_YAML_LOAD_ATTR(node, options, var_x_min);
@@ -93,9 +93,9 @@ struct App {
 
     [[nodiscard]] Eigen::Matrix2Xd
     GenerateDataset() const {
-        Eigen::Matrix2Xd points(2, options.num_samples);
-        Eigen::VectorXd angles = Eigen::VectorXd::LinSpaced(options.num_samples, 0.0, 2 * M_PI);
-        for (long i = 0; i < options.num_samples; ++i) {
+        Eigen::Matrix2Xd points(2, options.num_surf_samples);
+        Eigen::VectorXd angles = Eigen::VectorXd::LinSpaced(options.num_surf_samples, 0.0, 2 * M_PI);
+        for (long i = 0; i < options.num_surf_samples; ++i) {
             auto point = points.col(i);
             point.x() = options.radius * std::cos(angles[i]);
             point.y() = options.radius * std::sin(angles[i]);
@@ -107,14 +107,14 @@ struct App {
     Train(const Eigen::Matrix2Xd &points, const double var_x) const {
         options.gp->no_gradient_observation = true;
         auto gp = std::make_shared<Gp>(options.gp);
-        gp->Reset(options.num_samples, 2, 1);
+        gp->Reset(options.num_surf_samples, 2, 1);
 
         auto &train_set = gp->GetTrainSet();
         train_set.x.topRows<2>() = points;
         train_set.y.leftCols<1>().setConstant(1);
         train_set.var_x.setConstant(var_x);
         train_set.var_y.setConstant(options.var_y);
-        train_set.num_samples = options.num_samples;
+        train_set.num_samples = options.num_surf_samples;
         train_set.num_samples_with_grad = 0;
         train_set.grad_flag.setConstant(false);
         train_set.x_dim = 2;
@@ -260,9 +260,9 @@ struct App {
             gmm_values[i] = ComputeGmm(dataset, var_xs[i]);
         }
 
-        Eigen::VectorXd angles = Eigen::VectorXd::LinSpaced(options.num_samples, 0.0, 2.0 * M_PI);
-        Eigen::VectorXd xs(options.num_samples);
-        Eigen::VectorXd ys(options.num_samples);
+        Eigen::VectorXd angles = Eigen::VectorXd::LinSpaced(options.num_surf_samples, 0.0, 2.0 * M_PI);
+        Eigen::VectorXd xs(options.num_surf_samples);
+        Eigen::VectorXd ys(options.num_surf_samples);
         auto generate_circle = [&angles, &xs, &ys](double r, double cx, double cy) {
             for (long k = 0; k < angles.size(); ++k) {
                 xs[k] = r * std::cos(angles[k]) + cx;

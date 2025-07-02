@@ -3,7 +3,9 @@ max_y: 2
 min_x: -2
 min_y: -2
 radius: 1
-num_samples: 1000
+num_surf_samples: 1000
+add_off_surf_points: false
+off_surf_grid_size: 51
 test_num_x: 201
 test_num_y: 201
 var_x: 0.001
