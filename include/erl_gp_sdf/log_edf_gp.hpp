@@ -17,6 +17,8 @@ namespace erl::gp_sdf {
 
         struct Setting : public common::Yamlable<Setting, typename Super::Setting> {
             Dtype log_lambda = 40.0f;
+            bool softmin_mode = false;         // whether to use softmin instead of GP
+            Dtype softmin_temperature = 1.0f;  // temperature for softmin
 
             struct YamlConvertImpl {
                 static YAML::Node

@@ -25,8 +25,8 @@ namespace erl::gp_sdf {
         SignMethod sign_method = kNormalGp;
         std::pair<SignMethod, SignMethod> hybrid_sign_methods = {kNormalGp, kExternal};
         Dtype hybrid_sign_threshold = 0.2f;
-        Dtype normal_scale = 1.0f;  // scale for normal gp
-        Dtype softmin_temperature = 1.0f;
+        Dtype normal_scale = 1.0f;              // scale for normal gp
+        Dtype softmin_temperature = 1.0f;       // temperature for softmin
         Dtype sign_gp_offset_distance = 0.01f;  // distance to shift for surface data for sign_gp.
         Dtype edf_gp_offset_distance = 0.0f;    // distance to shift for surface data for edf_gp.
         std::shared_ptr<SignGpSetting> sign_gp = std::make_shared<SignGpSetting>();

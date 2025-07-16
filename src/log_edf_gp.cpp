@@ -60,8 +60,9 @@ namespace erl::gp_sdf {
             const Dtype a = -1.0f / gp->m_setting_->log_lambda;
 #pragma omp parallel for if (parallel) default(none) shared(num_test, mat_k_test, f, a, alpha)
             for (long index = 0; index < num_test; ++index) {
-                const Dtype f_log_gpis = mat_k_test.col(index).dot(alpha);
-                f[index] = a * std::log(std::abs(f_log_gpis));
+                Dtype f_log_gpis = mat_k_test.col(index).dot(alpha);
+                f_log_gpis = std::min(std::abs(f_log_gpis), static_cast<Dtype>(1.0));
+                f[index] = a * std::log(f_log_gpis);
             }
             return;
         }
@@ -82,7 +83,10 @@ namespace erl::gp_sdf {
         const auto alpha = gp->m_mat_alpha_.col(y_index).head(gp->m_k_train_cols_);
         f = mat_k_test.col(index).dot(alpha);  // std::log(std::abs(f_log_gpis)) / -log_lambda
         // we only apply the log transformation to the first output dimension
-        if (y_index == 0) { f = std::log(std::abs(f)) / -gp->m_setting_->log_lambda; }
+        if (y_index == 0) {
+            f = std::min(std::abs(f), static_cast<Dtype>(1.0));
+            f = std::log(f) / -gp->m_setting_->log_lambda;
+        }
     }
 
     template<typename Dtype>

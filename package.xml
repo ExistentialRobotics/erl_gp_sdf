@@ -1,5 +1,6 @@
 <?xml version="1.0"?>
-<package format="2">
+<?xml-model href="http://download.ros.org/schema/package_format3.xsd" schematypens="http://www.w3.org/2001/XMLSchema"?>
+<package format="3">
     <name>erl_gp_sdf</name>
     <version>0.1.0</version>
     <description>erl_gp_sdf is a C++ library for SDF estimation.</description>
@@ -8,9 +9,12 @@
     <license>MIT</license>
     <url type="repository">https://github.com/ExistentialRobotics/erl_gp_sdf.git</url>
 
-    <buildtool_depend>catkin</buildtool_depend>
+    <buildtool_depend condition="$ROS_VERSION == 1">catkin</buildtool_depend>
+    <buildtool_depend condition="$ROS_VERSION == 2">ament_cmake</buildtool_depend>
 
-    <depend>roscpp</depend>
+    <depend condition="$ROS_VERSION == 1">roscpp</depend>
+    <depend condition="$ROS_VERSION == 2">rclcpp</depend>
+
     <depend>std_msgs</depend>
     <depend>sensor_msgs</depend>
     <depend>geometry_msgs</depend>
@@ -18,6 +22,7 @@
     <depend>grid_map_msgs</depend>
     <depend>tf2_ros</depend>
     <depend>tf2_eigen</depend>
+
     <depend>erl_common</depend>
     <depend>erl_covariance</depend>
     <depend>erl_geometry</depend>
@@ -34,4 +39,9 @@
     <test_depend>erl_covariance</test_depend>
     <test_depend>erl_geometry</test_depend>
     <test_depend>erl_gaussian_process</test_depend>
+
+    <export>
+        <build_type condition="$ROS_VERSION == 2">ament_cmake</build_type>
+    </export>
+
 </package>

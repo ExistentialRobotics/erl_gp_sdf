@@ -3,13 +3,17 @@ max_y: 2
 min_x: -2
 min_y: -2
 radius: 1
-num_surf_samples: 1000
+num_surf_samples: 500
 add_off_surf_points: false
 off_surf_grid_size: 51
-test_num_x: 201
-test_num_y: 201
-var_x: 0.001
-var_y: 0.001
+test_num_x: 301
+test_num_y: 301
+add_noise_to_surf_points: true
+add_noise_along_radius: false
+var_x: 0.1
+var_y: 0.0
+softmin_alpha: 10
+softmin_knn: 10
 gp:
     kernel_type: erl::covariance::Matern32<double, 2>
     kernel_setting_type: erl::covariance::Covariance<double>::Setting
@@ -20,5 +24,7 @@ gp:
         weights: [ ]
     max_num_samples: -1
     no_gradient_observation: true
-    log_lambda: 40  # 200
+    log_lambda: 100  # 200
 output_dir: log_sdf_regression
+hold: false
+visualize: false
