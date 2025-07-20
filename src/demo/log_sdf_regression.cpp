@@ -2,6 +2,8 @@
 #include "erl_geometry/kdtree_eigen_adaptor.hpp"
 #include "erl_gp_sdf/log_edf_gp.hpp"
 
+#include <random>
+
 using namespace erl::common;
 using namespace erl::geometry;
 using namespace erl::gp_sdf;

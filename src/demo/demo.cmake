@@ -1,0 +1,19 @@
+add_executable(demo_sdf_regression src/demo/sdf_regression.cpp)
+erl_target_dependencies(demo_sdf_regression)
+erl_collect_targets(EXECUTABLES demo_sdf_regression)
+target_compile_definitions(demo_sdf_regression PRIVATE "ERL_USE_PLPLOT")
+
+add_executable(demo_log_sdf_regression src/demo/log_sdf_regression.cpp)
+erl_target_dependencies(demo_log_sdf_regression PRIVATE erl_gp_sdf)
+erl_collect_targets(EXECUTABLES demo_log_sdf_regression)
+target_compile_definitions(demo_log_sdf_regression PRIVATE "ERL_USE_PLPLOT")
+
+add_executable(demo_gp_occ_regression src/demo/gp_occ_regression.cpp)
+erl_target_dependencies(demo_gp_occ_regression PRIVATE erl_gp_sdf)
+erl_collect_targets(EXECUTABLES demo_gp_occ_regression)
+target_compile_definitions(demo_gp_occ_regression PRIVATE "ERL_USE_PLPLOT")
+
+add_executable(demo_variance_estimation src/demo/variance_estimation.cpp)
+erl_target_dependencies(demo_variance_estimation PRIVATE erl_gp_sdf)
+erl_collect_targets(EXECUTABLES demo_variance_estimation)
+target_compile_definitions(demo_variance_estimation PRIVATE "ERL_USE_PLPLOT")
