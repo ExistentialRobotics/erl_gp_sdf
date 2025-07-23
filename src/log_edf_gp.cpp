@@ -58,7 +58,8 @@ namespace erl::gp_sdf {
         Dtype *f = vec_f_out.data();
         if (y_index == 0) {
             const Dtype a = -1.0f / gp->m_setting_->log_lambda;
-#pragma omp parallel for if (parallel) default(none) shared(num_test, mat_k_test, f, a, alpha)
+#pragma omp parallel for if (parallel) default(none) shared(num_test, mat_k_test, f, a, alpha) \
+    schedule(static)
             for (long index = 0; index < num_test; ++index) {
                 Dtype f_log_gpis = mat_k_test.col(index).dot(alpha);
                 f_log_gpis = std::min(std::abs(f_log_gpis), static_cast<Dtype>(1.0));
@@ -66,7 +67,8 @@ namespace erl::gp_sdf {
             }
             return;
         }
-#pragma omp parallel for if (parallel) default(none) shared(num_test, mat_k_test, f, alpha)
+#pragma omp parallel for if (parallel) default(none) shared(num_test, mat_k_test, f, alpha) \
+    schedule(static)
         for (long index = 0; index < num_test; ++index) {
             f[index] = mat_k_test.col(index).dot(alpha);
         }
@@ -103,7 +105,7 @@ namespace erl::gp_sdf {
         const auto &mat_k_test = this->m_mat_k_test_;
         Eigen::VectorXb valid_gradients(num_test);
         valid_gradients.setConstant(true);  // assume all gradients are valid
-#pragma omp parallel for if (parallel) default(none) \
+#pragma omp parallel for if (parallel) default(none) schedule(static) \
     shared(num_test, mat_grad_out, x_dim, mat_k_test, alpha, y_index, valid_gradients)
         for (long index = 0; index < num_test; ++index) {
             Dtype *grad = mat_grad_out.col(index).data();

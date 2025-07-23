@@ -784,12 +784,12 @@ namespace erl::gp_sdf {
             "Run fallback search for {} query positions.",
             no_gps_indices.size());
 
-#pragma omp parallel for default(none) shared(no_gps_indices)
+#pragma omp parallel for default(none) shared(no_gps_indices) schedule(dynamic)
         for (const std::size_t &i: no_gps_indices) {
             auto &gps = m_query_to_gps_[i];
             // failed to find GPs in the kd-tree, fall back to search clusters in the area
             // double search area size
-            Dtype search_area_hs = 2 * m_setting_->test_query.search_area_half_size;
+            Dtype search_area_hs = 2.0f * m_setting_->test_query.search_area_half_size;
             const Position test_position = m_test_buffer_.positions->col(i);
             Aabb search_area = m_map_boundary_.Intersection({test_position, search_area_hs});
             while (gps.empty()) {
@@ -810,7 +810,7 @@ namespace erl::gp_sdf {
                         });
                 }
                 if (!gps.empty()) { break; }  // found at least one gp
-                search_area_hs *= 2;          // double search area size
+                search_area_hs *= 2.0f;       // double search area size
                 Aabb new_area = m_map_boundary_.Intersection({test_position, search_area_hs});
                 if (new_area.IsValid() && (search_area.min() == new_area.min()) &&
                     (search_area.max() == new_area.max())) {

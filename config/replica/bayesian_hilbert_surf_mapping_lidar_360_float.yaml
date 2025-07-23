@@ -1,44 +1,46 @@
 local_bhm:
     bhm:
         diagonal_sigma: true
-        max_distance: 50
+        min_distance: 0.0
+        max_distance: 30
         free_points_per_meter: 2
-        free_sampling_margin: 0.005
+        free_sampling_margin: 0.001
         init_mu: 0.0
         init_sigma: 10000
-        num_em_iterations: 3
-        sparse_zero_threshold: 1.0e-6
+        num_em_iterations: 2
+        sparse_zero_threshold: 1.0e-3
         use_sparse: true
-    kernel_type: erl::covariance::RadialBiasFunction<float, 2>
+    kernel_type: erl::covariance::RadialBiasFunction<float, 3>
     kernel_setting_type: erl::covariance::Covariance<float>::Setting
     kernel:
-        x_dim: 2
-        scale: 0.075
+        x_dim: 3
+        scale: 0.02
         scale_mix: 1
         weights: [ ]
-    max_dataset_size: -1
-    hit_buffer_size: 16
+    max_dataset_size: 1024
+    hit_buffer_size: 0
     surface_resolution: 0.1
 ray_selector:
-    angle_min: -2.356194496154785
-    angle_max: 2.338737726211548
-    num_angles: 270
+    azimuth_min: -3.1415926535897931
+    azimuth_max: 3.1415926535897931
+    elevation_min: -1.5707963267948966
+    elevation_max: 1.5707963267948966
+    num_azimuth_angles: 360
+    num_elevation_angles: 90
 tree:
-    resolution: 0.35
+    resolution: 0.15
     tree_depth: 16
-    log_odd_min: -5
-    log_odd_max: 5
+    log_odd_min: -10
+    log_odd_max: 10
     log_odd_hit: 0.85
     log_odd_miss: -0.4
     log_odd_occ_threshold: 0
     use_change_detection: false
     use_aabb_limit: false
     aabb:
-        center: [ 0, 0 ]
-        half_sizes: [ 0, 0 ]
-valid_range_min: 0.0
-valid_range_max: 30.0
-hinged_grid_size: 9
+        center: [ 0, 0, 0 ]
+        half_sizes: [ 0, 0, 0 ]
+hinged_grid_size: 7
 surface_max_abs_logodd: 2
 surface_bad_abs_logodd: 100
 surface_step_size: 0.001
@@ -48,11 +50,11 @@ var_scale: 0.01
 var_max: 1.5
 scaling: 1.0
 bhm_depth: 15
-bhm_overlap: 0.3
+bhm_overlap: 0.15
 update_with_cuda: false
 cuda_device_id: 0
-update_batch_size: 128
-bhm_test_margin: 0.15
+update_batch_size: 512
+bhm_test_margin: 0.11
 test_knn: 1
-test_batch_size: 10000
+test_batch_size: 1000
 build_bhm_on_hit: true

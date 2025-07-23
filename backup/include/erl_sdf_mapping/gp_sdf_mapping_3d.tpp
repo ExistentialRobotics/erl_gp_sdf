@@ -345,7 +345,7 @@ namespace erl::gp_sdf {
                 // collect the sign of query positions since the quadtree is not thread-safe
                 const auto tree = m_surface_mapping_->GetOctree();
                 if (m_query_signs_.size() < num_queries) { m_query_signs_.resize(num_queries); }
-#pragma omp parallel for default(none) shared(tree, positions_in, num_queries)
+#pragma omp parallel for default(none) shared(tree, positions_in, num_queries) schedule(static)
                 for (uint32_t i = 0; i < num_queries; i++) {
                     const Vector3 &position = positions_in.col(i);
                     const auto node = tree->Search(position.x(), position.y(), position.z());

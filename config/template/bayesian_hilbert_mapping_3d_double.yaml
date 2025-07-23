@@ -1,6 +1,7 @@
 local_bhm:
     bhm:
         diagonal_sigma: true
+        min_distance: 0.0
         max_distance: 50
         free_points_per_meter: 2
         free_sampling_margin: 0.001

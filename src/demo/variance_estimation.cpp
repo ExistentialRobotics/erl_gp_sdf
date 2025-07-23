@@ -94,7 +94,8 @@ struct App {
     [[nodiscard]] Eigen::Matrix2Xd
     GenerateDataset() const {
         Eigen::Matrix2Xd points(2, options.num_surf_samples);
-        Eigen::VectorXd angles = Eigen::VectorXd::LinSpaced(options.num_surf_samples, 0.0, 2 * M_PI);
+        Eigen::VectorXd angles =
+            Eigen::VectorXd::LinSpaced(options.num_surf_samples, 0.0, 2 * M_PI);
         for (long i = 0; i < options.num_surf_samples; ++i) {
             auto point = points.col(i);
             point.x() = options.radius * std::cos(angles[i]);
@@ -196,7 +197,7 @@ struct App {
         const double a = 1.0 / (2.0 * M_PI * std::sqrt(var));  // normalization constant
         const double b = -0.5 / var;                           // exponent coefficient
         Eigen::VectorXd gmm_values(test_pts.cols());
-#pragma omp parallel for default(none) shared(test_pts, points, a, b, gmm_values)
+#pragma omp parallel for default(none) shared(test_pts, points, a, b, gmm_values) schedule(static)
         for (long i = 0; i < test_pts.cols(); ++i) {
             double sum = 0.0;
             auto p = test_pts.col(i);
@@ -223,7 +224,7 @@ struct App {
         Eigen::VectorXd edf_pred(test_pts.cols());
         test_result->GetMean(0, edf_pred, true /*parallel*/);
         Eigen::VectorXd var(test_pts.cols());
-#pragma omp parallel for default(none) shared(gp, test_pts, edf_pred, var)
+#pragma omp parallel for default(none) shared(gp, test_pts, edf_pred, var) schedule(static)
         for (long i = 0; i < test_pts.cols(); ++i) {
             EstimateVariance(gp, test_pts.col(i), edf_pred[i], false, &var[i]);
         }
@@ -260,7 +261,8 @@ struct App {
             gmm_values[i] = ComputeGmm(dataset, var_xs[i]);
         }
 
-        Eigen::VectorXd angles = Eigen::VectorXd::LinSpaced(options.num_surf_samples, 0.0, 2.0 * M_PI);
+        Eigen::VectorXd angles =
+            Eigen::VectorXd::LinSpaced(options.num_surf_samples, 0.0, 2.0 * M_PI);
         Eigen::VectorXd xs(options.num_surf_samples);
         Eigen::VectorXd ys(options.num_surf_samples);
         auto generate_circle = [&angles, &xs, &ys](double r, double cx, double cy) {

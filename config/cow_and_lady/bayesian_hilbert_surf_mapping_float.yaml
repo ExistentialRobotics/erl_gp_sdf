@@ -1,6 +1,7 @@
 local_bhm:
     bhm:
         diagonal_sigma: true
+        min_distance: 0.1
         max_distance: 5
         free_points_per_meter: 3
         free_sampling_margin: 0.001
@@ -39,8 +40,6 @@ tree:
     aabb:
         center: [ 0, 0, 0 ]
         half_sizes: [ 0, 0, 0 ]
-valid_range_min: 0.1
-valid_range_max: 4.0
 hinged_grid_size: 5
 surface_max_abs_logodd: 2
 surface_bad_abs_logodd: 200

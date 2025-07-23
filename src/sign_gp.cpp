@@ -37,7 +37,8 @@ namespace erl::gp_sdf {
         const auto &mat_k_test = this->m_mat_k_test_;
         const Dtype offset = gp->m_train_set_.y.data()[0];
         Dtype *f = vec_f_out.data();
-#pragma omp parallel for if (parallel) default(none) shared(num_test, mat_k_test, f, offset, alpha)
+#pragma omp parallel for if (parallel) default(none) \
+    shared(num_test, mat_k_test, f, offset, alpha) schedule(static)
         for (long index = 0; index < num_test; ++index) {
             f[index] = mat_k_test.col(index).dot(alpha) - offset;
         }

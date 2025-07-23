@@ -116,7 +116,7 @@ struct App {
             return true;
         };
 
-#pragma omp parallel for default(none) \
+#pragma omp parallel for default(none) schedule(static) \
     shared(sensor_frame, test_pts, occ_values, occ_variances, valid_occ, compute_occ)
         for (long i = 0; i < occ_values.size(); ++i) {
             auto pt = test_pts.col(i);
@@ -130,7 +130,7 @@ struct App {
         Eigen::VectorXd ny = Eigen::VectorXd::Zero(x.size());
         const Eigen::VectorXb &hit_mask = sensor_frame->GetHitMask();
         const Eigen::VectorXb &con_mask = sensor_frame->GetContinuityMask();
-#pragma omp parallel for default(none) \
+#pragma omp parallel for default(none) schedule(static) \
     shared(pts_world, x, y, nx, ny, valid_occ, compute_occ, options, hit_mask, con_mask)
         for (long i = 0; i < pts_world.cols(); i += stride) {
             // need to check if the point is valid

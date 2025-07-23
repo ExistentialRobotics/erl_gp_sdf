@@ -25,7 +25,7 @@ add_library(${PROJECT_NAME} SHARED ${SRC_FILES})
 add_library(${PROJECT_NAME}::${PROJECT_NAME} ALIAS ${PROJECT_NAME})
 erl_collect_targets(LIBRARIES ${PROJECT_NAME})
 target_include_directories(${PROJECT_NAME} PUBLIC $<BUILD_INTERFACE:${${PROJECT_NAME}_INCLUDE_DIR}>
-                                                  $<INSTALL_INTERFACE:${${PROJECT_NAME}_INSTALL_INCLUDE_DIR}>)
+                           $<INSTALL_INTERFACE:${${PROJECT_NAME}_INSTALL_INCLUDE_DIR}>)
 erl_target_dependencies(${PROJECT_NAME})
 if (ERL_USE_LIBTORCH)
     target_include_directories(${PROJECT_NAME} SYSTEM PUBLIC ${TORCH_INCLUDE_DIRS})
@@ -54,7 +54,7 @@ erl_install(
 # ######################################################################################################################
 # TEST
 # ######################################################################################################################
-erl_add_tests(LIBRARIES ${PROJECT_NAME} Open3D::Open3D)
+erl_add_tests(LIBRARIES ${PROJECT_NAME})
 
 # ######################################################################################################################
 # export variables

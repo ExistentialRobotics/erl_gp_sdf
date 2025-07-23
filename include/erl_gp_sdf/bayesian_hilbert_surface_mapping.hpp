@@ -199,6 +199,7 @@ namespace erl::gp_sdf {
             std::shared_ptr<Setting> setting = nullptr;  // settings for the local map
             Aabb tracked_surface_boundary{};             // boundary of the surface to track
             BayesianHilbertMap bhm;                      // local Bayesian Hilbert map
+            Eigen::Vector<int, Dim> grid_shape;          // shape of the grid for the surface points
             Eigen::Vector<int, Dim> strides;             // strides for indexing the surface points
             absl::flat_hash_map<int, std::size_t> surface_indices;  // local index -> buffer index
             long num_dataset_points = 0;                            // number of dataset points
@@ -313,11 +314,25 @@ namespace erl::gp_sdf {
 
         // buffers for the new and existing hit points
 
-        // bhm_key, local_index, surf_index, to_remove
-        std::vector<std::tuple<Key, int, std::size_t, bool>> m_new_hit_points_;
+        struct PointInfo {
+            int local_idx;
+            std::size_t surf_idx;
+            bool to_remove;
+            int new_local_idx;
 
-        // bhm_key, local_index, surf_index, to_remove, new_local_index
-        std::vector<std::tuple<Key, int, std::size_t, bool, int>> m_existing_hit_points_;
+            PointInfo(
+                const int local_idx_,
+                const std::size_t surf_idx_,
+                const bool to_remove_ = false,
+                const int new_local_idx_ = -1)
+                : local_idx(local_idx_),
+                  surf_idx(surf_idx_),
+                  to_remove(to_remove_),
+                  new_local_idx(new_local_idx_) {}
+        };
+
+        // bhm_key, new_hit_points, existing_hit_points
+        std::vector<std::tuple<Key, std::vector<PointInfo>, std::vector<PointInfo>>> m_hit_points_;
 
     public:
         explicit BayesianHilbertSurfaceMapping(std::shared_ptr<Setting> setting);
@@ -451,8 +466,8 @@ namespace erl::gp_sdf {
         void
         UpdateMapPoints(const Eigen::Ref<const Positions> &points);
 
-        void
-        InitMapPointThread(int thread_id, int start, int end);
+        // void
+        // InitMapPointThread(int thread_id, int start, int end);
 
         void
         InitMapPoint(BayesianHilbertMap &bhm, SurfData &surf_data, bool &to_remove) const;

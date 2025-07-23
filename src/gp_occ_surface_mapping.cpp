@@ -410,7 +410,8 @@ namespace erl::gp_sdf {
         if (in_free_space.size() < num_positions) { in_free_space.resize(num_positions); }
         const Dtype s = m_setting_->scaling;
 
-#pragma omp parallel for default(none) shared(positions, in_free_space, num_positions, s)
+#pragma omp parallel for default(none) shared(positions, in_free_space, num_positions, s) \
+    schedule(static)
         for (long i = 0; i < num_positions; ++i) {
             const auto node = m_tree_->Search(positions.col(i) * s);
             if (node == nullptr || m_tree_->IsNodeOccupied(node)) {
@@ -744,8 +745,9 @@ namespace erl::gp_sdf {
             nodes_in_aabb.emplace_back(key, surf_it->second, false, false, std::nullopt);
         }
 
-        // update the surface data in the nodes
-#pragma omp parallel for default(none) shared(nodes_in_aabb)
+        // update the surface data in the nodes.
+        // use static scheduling because it is light to compute the key if updated.
+#pragma omp parallel for default(none) shared(nodes_in_aabb) schedule(static)
         for (auto &[key, surf_index, updated, to_remove, new_key]: nodes_in_aabb) {
             auto &surface_data = this->m_surf_data_manager_[surf_index];
             UpdateMapPoint(surface_data, updated, to_remove);
@@ -834,7 +836,7 @@ namespace erl::gp_sdf {
         }
 
         // update the surface data in the nodes
-#pragma omp parallel for default(none) shared(surf_in_aabb)
+#pragma omp parallel for default(none) shared(surf_in_aabb) schedule(static)
         for (auto &[index, updated, to_remove, new_index]: surf_in_aabb) {
             auto &surface_data = this->m_surf_data_manager_[index.surf_index];
             UpdateMapPoint(surface_data, updated, to_remove);
@@ -1130,6 +1132,7 @@ namespace erl::gp_sdf {
         m_tree_->InsertPointCloud(
             map_points,
             sensor_frame->GetTranslationVector(),
+            sensor_frame->GetMinValidRange(),
             sensor_frame->GetMaxValidRange(),
             parallel,
             lazy_eval,
@@ -1174,7 +1177,7 @@ namespace erl::gp_sdf {
         }
 
         ERL_DEBUG("Check validity of new measurements");
-#pragma omp parallel for default(none) shared(new_measurements, hit_points_local)
+#pragma omp parallel for default(none) shared(new_measurements, hit_points_local) schedule(static)
         for (auto &[key, hit_idx, invalid_flag, occ_mean, gradient_local]: new_measurements) {
             invalid_flag = !ComputeGradient2(hit_points_local[hit_idx], gradient_local, occ_mean);
         }
@@ -1244,7 +1247,7 @@ namespace erl::gp_sdf {
         }
 
         ERL_DEBUG("Check validity of new measurements");
-#pragma omp parallel for default(none) shared(new_measurements, hit_points_local)
+#pragma omp parallel for default(none) shared(new_measurements, hit_points_local) schedule(static)
         for (auto &[hit_idx, key, grid_index, invalid_flag, occ_mean, gradient_local]:
              new_measurements) {
             invalid_flag = !ComputeGradient2(hit_points_local[hit_idx], gradient_local, occ_mean);
