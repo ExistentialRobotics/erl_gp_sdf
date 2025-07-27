@@ -16,6 +16,15 @@ from setuptools import find_packages
 from setuptools import setup
 from setuptools.command.build_ext import build_ext
 
+torch_dir = None
+try:
+    import torch
+
+    torch_dir = pathlib.Path(torch.__file__).parent / "share" / "cmake" / "Torch"
+except ImportError:
+    print("torch is not installed, the system libtorch will be used if needed.")
+    pass
+
 # read project configuration from pyproject.toml
 with open("pyproject.toml", "r") as f:
     config = tomllib.loads("".join(f.readlines()))
@@ -164,6 +173,8 @@ class CMakeBuild(build_ext):
                 f"-DERL_BUILD_TEST:BOOL={cmake_build_test}",
                 f"-DPIP_LIB_DIR:PATH={ext_dir}",
             ]
+            if torch_dir is not None:
+                cmake_args.append(f"-DTorch_DIR:PATH={torch_dir}")
             # add dependencies
             site_packages_dir = site.getsitepackages()[0]
             user_site_packages_dir = site.getusersitepackages()
