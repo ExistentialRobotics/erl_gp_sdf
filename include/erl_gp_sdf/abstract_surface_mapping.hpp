@@ -34,6 +34,7 @@ namespace erl::gp_sdf {
         using Ranges = MatrixX;
         using Position = Eigen::Vector<Dtype, Dim>;
         using Positions = Eigen::Matrix<Dtype, Dim, Eigen::Dynamic>;
+        using Face = Eigen::Vector<int, Dim>;
 
     protected:
         std::mutex m_mutex_;
@@ -53,16 +54,6 @@ namespace erl::gp_sdf {
         [[nodiscard]] const SurfDataManager &
         GetSurfaceDataManager() const;
 
-        // [[nodiscard]] int
-        // GetMapDim() const {
-        //     return Dim;
-        // }
-
-        // [[nodiscard]] bool
-        // IsDoublePrecision() const {
-        //     return std::is_same_v<Dtype, double>;
-        // }
-
         /**
          * Update the surface mapping with the sensor observation.
          * @param rotation The rotation of the sensor. For 2D, it is a 2x2 matrix. For 3D, it is a
@@ -81,15 +72,6 @@ namespace erl::gp_sdf {
             const Eigen::Ref<const Ranges> &scan,
             bool are_points,
             bool are_local) = 0;
-
-        /**
-         * Get the surface data. When this method is called, the mutex should be locked temporarily
-         * to copy the data, which blocks the Update method. If the mapping implementation is for
-         * 2D, the z-axis should be set to 0.
-         * @return A vector of surface points with normals, variances, etc.
-         */
-        // [[nodiscard]] virtual std::vector<SurfaceData<Dtype, Dim>>
-        // GetSurfaceData() const = 0;
 
         // implement the methods required by GpSdfMapping
 
@@ -146,6 +128,9 @@ namespace erl::gp_sdf {
         CollectSurfaceDataInAabb(
             const Aabb &aabb,
             std::vector<std::pair<Dtype, std::size_t>> &surface_data_indices) const = 0;
+
+        virtual void
+        GetMesh(std::vector<Position> &vertices, std::vector<Face> &faces) const;
 
         /**
          * Get the boundary of the map.

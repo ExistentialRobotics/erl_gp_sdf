@@ -1,3 +1,5 @@
+#include "utils.hpp"
+
 #include "erl_common/csv.hpp"
 #include "erl_common/test_helper.hpp"
 #include "erl_geometry/cow_and_lady.hpp"
@@ -6,6 +8,7 @@
 #include "erl_geometry/house_expo_map.hpp"
 #include "erl_geometry/lidar_2d.hpp"
 #include "erl_geometry/lidar_3d.hpp"
+#include "erl_geometry/newer_college.hpp"
 #include "erl_geometry/occupancy_octree_drawer.hpp"
 #include "erl_geometry/occupancy_quadtree_drawer.hpp"
 #include "erl_geometry/open3d_visualizer_wrapper.hpp"
@@ -15,18 +18,31 @@
 #include "erl_gp_sdf/gp_occ_surface_mapping.hpp"
 
 #include <boost/program_options.hpp>
+#include <open3d/io/PointCloudIO.h>
 
 // expected performance (Intel i9-14900K):
 // - Cow and Lady, Depth: 30 to 60 fps (float) / 25 to 50 fps (double)
+// - Newer College, LiDAR: 20 to 30 fps (float)
 // - Replica Hotel, LiDAR, 360: 50 to 100 fps
 // - Replica Hotel, Depth Camera: 40 to 60 fps (float) / 30 to 50 fps (double)
-// - Gazebo Room: 300 to 500 fps
-// - House Expo: 1000 to 1400 fps
-// - UCSD FAH: 400 to 800 fps
+// - Gazebo Room: 300 to 500 fps (2D)
+// - House Expo: 1000 to 1400 fps (2D)
+// - UCSD FAH: 400 to 800 fps (2D)
 
+enum class DataSetType {
+    CowAndLady,
+    Mesh,
+    GazeboRoom,
+    HouseExpo,
+    UcsdFah,
+    NewerCollege,
+};
+
+const std::filesystem::path kProjectRootDir = ERL_GP_SDF_ROOT_DIR;
+const std::filesystem::path kDataDir = kProjectRootDir / "data";
+const std::filesystem::path kConfigDir = kProjectRootDir / "config";
 int g_argc = 0;
 char **g_argv = nullptr;
-const std::filesystem::path kProjectRootDir = ERL_GP_SDF_ROOT_DIR;
 
 template<typename Dtype>
 void
@@ -53,14 +69,18 @@ TestImpl3D() {
 #pragma region options_3d
 
     struct Options {
-        bool use_cow_and_lady = false;
+        std::string dataset_name = "cow_and_lady";
         std::string cow_and_lady_dir;
-        std::string mesh_file = kProjectRootDir / "data" / "replica-hotel-0.ply";
-        std::string traj_file = kProjectRootDir / "data" / "replica-hotel-0-traj.txt";
+        std::string newer_college_dir;
+        std::string mesh_file = kDataDir / "replica-hotel-0.ply";
+        std::string traj_file = kDataDir / "replica-hotel-0-traj.txt";
         std::string surface_mapping_config_file =
-            kProjectRootDir / "config" / "template" /
+            kConfigDir / "template" /
             fmt::format("gp_occ_mapping_3d_lidar_{}.yaml", type_name<Dtype>());
+        long start_wp_idx = 0;
+        long end_wp_idx = -1;  // -1 means all waypoints
         long stride = 1;
+        long vis_stride = 1;  // for visualization
         Dtype surf_normal_scale = 0.5;
         Dtype test_res = 0.02;
         Dtype test_z = 0.0;
@@ -81,13 +101,17 @@ TestImpl3D() {
         desc.add_options()
             ("help", "produce help message")
             (
-                "use-cow-and-lady",
-                po::bool_switch(&options.use_cow_and_lady),
-                "use Cow and Lady dataset, otherwise use the mesh file and trajectory file"
+                "dataset-name",
+                po::value<std::string>(&options.dataset_name)->default_value(options.dataset_name)->value_name("name"),
+                "name of the dataset to use, options: cow_and_lady, mesh, newer_college"
             )(
                 "cow-and-lady-dir",
                 po::value<std::string>(&options.cow_and_lady_dir)->default_value(options.cow_and_lady_dir)->value_name("dir"),
                 "directory containing the Cow and Lady dataset"
+            )(
+                "newer-college-dir",
+                po::value<std::string>(&options.newer_college_dir)->default_value(options.newer_college_dir)->value_name("dir"),
+                "directory containing the Newer College dataset"
             )
             ("mesh-file", po::value<std::string>(&options.mesh_file)->default_value(options.mesh_file)->value_name("file"), "mesh file")
             ("traj-file", po::value<std::string>(&options.traj_file)->default_value(options.traj_file)->value_name("file"), "trajectory file")
@@ -96,7 +120,10 @@ TestImpl3D() {
                 po::value<std::string>(&options.surface_mapping_config_file)->default_value(options.surface_mapping_config_file)->value_name("file"),
                 "SDF mapping config file"
             )
+            ("start-wp-idx", po::value<long>(&options.start_wp_idx)->default_value(options.start_wp_idx)->value_name("idx"), "start waypoint index")
+            ("end-wp-idx", po::value<long>(&options.end_wp_idx)->default_value(options.end_wp_idx)->value_name("idx"), "end waypoint index (-1 means all waypoints)")
             ("stride", po::value<long>(&options.stride)->default_value(options.stride)->value_name("stride"), "stride")
+            ("vis-stride", po::value<long>(&options.vis_stride)->default_value(options.vis_stride)->value_name("stride"), "visualization stride")
             ("surf-normal-scale", po::value<Dtype>(&options.surf_normal_scale)->default_value(options.surf_normal_scale)->value_name("scale"), "surface normal scale")
             ("test-res", po::value<Dtype>(&options.test_res)->default_value(options.test_res)->value_name("res"), "test resolution")
             ("test-z", po::value<Dtype>(&options.test_z)->default_value(options.test_z)->value_name("z"), "test z")
@@ -117,6 +144,17 @@ TestImpl3D() {
     } catch (std::exception &e) { std::cerr << e.what() << std::endl; }
     ASSERT_TRUE(options_parsed);
 
+    DataSetType dataset_type = DataSetType::Mesh;
+    if (options.dataset_name == "cow_and_lady") {
+        dataset_type = DataSetType::CowAndLady;
+    } else if (options.dataset_name == "mesh") {
+        dataset_type = DataSetType::Mesh;
+    } else if (options.dataset_name == "newer_college") {
+        dataset_type = DataSetType::NewerCollege;
+    } else {
+        ERL_FATAL("Unknown dataset name {} for 3D", options.dataset_name);
+    }
+
     // load setting
     const auto gp_surf_setting = std::make_shared<typename SurfaceMapping::Setting>();
     ASSERT_TRUE(gp_surf_setting->FromYamlFile(options.surface_mapping_config_file));
@@ -126,53 +164,110 @@ TestImpl3D() {
     std::shared_ptr<RangeSensor> range_sensor = nullptr;
     bool is_lidar = false;
     std::shared_ptr<CowAndLady> cow_and_lady = nullptr;
+    std::shared_ptr<NewerCollege> newer_college = nullptr;
     std::vector<std::pair<Matrix3, Vector3>> poses;
-    Vector3 area_min, area_max;
-    if (options.use_cow_and_lady) {
-        cow_and_lady = std::make_shared<CowAndLady>(options.cow_and_lady_dir);
-        geometries.push_back(cow_and_lady->GetGroundTruthPointCloud());
-        area_min = cow_and_lady->GetMapMin().cast<Dtype>();
-        area_max = cow_and_lady->GetMapMax().cast<Dtype>();
-        const auto depth_frame_setting = std::make_shared<typename DepthFrame::Setting>();
-        depth_frame_setting->camera_intrinsic.image_height = CowAndLady::kImageHeight;
-        depth_frame_setting->camera_intrinsic.image_width = CowAndLady::kImageWidth;
-        depth_frame_setting->camera_intrinsic.camera_fx = CowAndLady::kCameraFx;
-        depth_frame_setting->camera_intrinsic.camera_fy = CowAndLady::kCameraFy;
-        depth_frame_setting->camera_intrinsic.camera_cx = CowAndLady::kCameraCx;
-        depth_frame_setting->camera_intrinsic.camera_cy = CowAndLady::kCameraCy;
-    } else {
-        const auto mesh = open3d::io::CreateMeshFromFile(options.mesh_file);
-        ERL_ASSERTM(!mesh->vertices_.empty(), "Failed to load mesh file: {}", options.mesh_file);
-        area_min = mesh->GetMinBound().template cast<Dtype>();
-        area_max = mesh->GetMaxBound().template cast<Dtype>();
-        if (gp_surf_setting->sensor_gp->sensor_frame_type == type_name<LidarFrame>()) {
-            auto lidar_frame_setting = std::dynamic_pointer_cast<typename LidarFrame::Setting>(
-                gp_surf_setting->sensor_gp->sensor_frame);
-            const auto lidar_setting = std::make_shared<typename Lidar::Setting>();
-            lidar_setting->azimuth_min = lidar_frame_setting->azimuth_min;
-            lidar_setting->azimuth_max = lidar_frame_setting->azimuth_max;
-            lidar_setting->num_azimuth_lines = lidar_frame_setting->num_azimuth_lines;
-            lidar_setting->elevation_min = lidar_frame_setting->elevation_min;
-            lidar_setting->elevation_max = lidar_frame_setting->elevation_max;
-            lidar_setting->num_elevation_lines = lidar_frame_setting->num_elevation_lines;
-            range_sensor = std::make_shared<Lidar>(lidar_setting);
-            range_sensor->AddMesh(options.mesh_file);
-            is_lidar = true;
-        } else if (gp_surf_setting->sensor_gp->sensor_frame_type == type_name<DepthFrame>()) {
-            auto depth_frame_setting = std::dynamic_pointer_cast<typename DepthFrame::Setting>(
-                gp_surf_setting->sensor_gp->sensor_frame);
-            const auto depth_camera_setting = std::make_shared<typename DepthCamera::Setting>();
-            *depth_camera_setting = depth_frame_setting->camera_intrinsic;
-            range_sensor = std::make_shared<DepthCamera>(depth_camera_setting);
-            range_sensor->AddMesh(options.mesh_file);
-        } else {
-            ERL_FATAL(
-                "Unknown sensor_frame_type: {}",
-                gp_surf_setting->sensor_gp->sensor_frame_type);
+    Vector3 map_min, map_max;
+    long max_wp_idx = 0;
+    switch (dataset_type) {
+        case DataSetType::CowAndLady: {
+            cow_and_lady = std::make_shared<CowAndLady>(options.cow_and_lady_dir);
+            max_wp_idx = cow_and_lady->Size();
+            geometries.push_back(cow_and_lady->GetGroundTruthPointCloud());
+            map_min = cow_and_lady->GetMapMin().cast<Dtype>();
+            map_max = cow_and_lady->GetMapMax().cast<Dtype>();
+            const auto depth_frame_setting = std::make_shared<typename DepthFrame::Setting>();
+            depth_frame_setting->camera_intrinsic.image_height = CowAndLady::kImageHeight;
+            depth_frame_setting->camera_intrinsic.image_width = CowAndLady::kImageWidth;
+            depth_frame_setting->camera_intrinsic.camera_fx = CowAndLady::kCameraFx;
+            depth_frame_setting->camera_intrinsic.camera_fy = CowAndLady::kCameraFy;
+            depth_frame_setting->camera_intrinsic.camera_cx = CowAndLady::kCameraCx;
+            depth_frame_setting->camera_intrinsic.camera_cy = CowAndLady::kCameraCy;
+            ERL_ASSERTM(
+                options.start_wp_idx < cow_and_lady->Size(),
+                "Start waypoint index {} is out of range [0, {}]",
+                options.start_wp_idx,
+                cow_and_lady->Size());
+            ERL_ASSERTM(
+                options.end_wp_idx < cow_and_lady->Size() || options.end_wp_idx == -1,
+                "End waypoint index {} is out of range [-1, {}), -1 means all waypoints",
+                options.end_wp_idx,
+                cow_and_lady->Size());
+            break;
         }
-        geometries.push_back(mesh);
-        poses = Trajectory<Dtype>::LoadSe3(options.traj_file, false);
+        case DataSetType::Mesh: {
+            const auto mesh = open3d::io::CreateMeshFromFile(options.mesh_file);
+            ERL_ASSERTM(
+                !mesh->vertices_.empty(),
+                "Failed to load mesh file: {}",
+                options.mesh_file);
+            map_min = mesh->GetMinBound().template cast<Dtype>();
+            map_max = mesh->GetMaxBound().template cast<Dtype>();
+            if (gp_surf_setting->sensor_gp->sensor_frame_type == type_name<LidarFrame>()) {
+                auto lidar_frame_setting = std::dynamic_pointer_cast<typename LidarFrame::Setting>(
+                    gp_surf_setting->sensor_gp->sensor_frame);
+                const auto lidar_setting = std::make_shared<typename Lidar::Setting>();
+                lidar_setting->azimuth_min = lidar_frame_setting->azimuth_min;
+                lidar_setting->azimuth_max = lidar_frame_setting->azimuth_max;
+                lidar_setting->num_azimuth_lines = lidar_frame_setting->num_azimuth_lines;
+                lidar_setting->elevation_min = lidar_frame_setting->elevation_min;
+                lidar_setting->elevation_max = lidar_frame_setting->elevation_max;
+                lidar_setting->num_elevation_lines = lidar_frame_setting->num_elevation_lines;
+                range_sensor = std::make_shared<Lidar>(lidar_setting);
+                range_sensor->AddMesh(options.mesh_file);
+                is_lidar = true;
+            } else if (gp_surf_setting->sensor_gp->sensor_frame_type == type_name<DepthFrame>()) {
+                auto depth_frame_setting = std::dynamic_pointer_cast<typename DepthFrame::Setting>(
+                    gp_surf_setting->sensor_gp->sensor_frame);
+                const auto depth_camera_setting = std::make_shared<typename DepthCamera::Setting>();
+                *depth_camera_setting = depth_frame_setting->camera_intrinsic;
+                range_sensor = std::make_shared<DepthCamera>(depth_camera_setting);
+                range_sensor->AddMesh(options.mesh_file);
+            } else {
+                ERL_FATAL(
+                    "Unknown sensor_frame_type: {}",
+                    gp_surf_setting->sensor_gp->sensor_frame_type);
+            }
+            geometries.push_back(mesh);
+            poses = Trajectory<Dtype>::LoadSe3(options.traj_file, false);
+            max_wp_idx = static_cast<long>(poses.size());
+            ERL_ASSERTM(
+                options.start_wp_idx < max_wp_idx,
+                "Start waypoint index {} is out of range [0, {}]",
+                options.start_wp_idx,
+                max_wp_idx);
+            ERL_ASSERTM(
+                options.end_wp_idx < max_wp_idx || options.end_wp_idx == -1,
+                "End waypoint index {} is out of range [-1, {}), -1 means all waypoints",
+                options.end_wp_idx,
+                max_wp_idx);
+            break;
+        }
+        case DataSetType::NewerCollege: {
+            ERL_ASSERTM(
+                !options.newer_college_dir.empty(),
+                "Please provide the Newer College dataset directory via --newer-college-dir");
+            newer_college = std::make_shared<NewerCollege>(options.newer_college_dir);
+            max_wp_idx = newer_college->Size();
+            geometries.push_back(newer_college->GetGroundTruthPointCloud());
+            map_min = newer_college->GetMapMin().cast<Dtype>();
+            map_max = newer_college->GetMapMax().cast<Dtype>();
+            is_lidar = true;
+            ERL_ASSERTM(
+                options.start_wp_idx < newer_college->Size(),
+                "Start waypoint index {} is out of range [0, {}]",
+                options.start_wp_idx,
+                newer_college->Size());
+            ERL_ASSERTM(
+                options.end_wp_idx < newer_college->Size() || options.end_wp_idx == -1,
+                "End waypoint index {} is out of range [-1, {}), -1 means all waypoints",
+                options.end_wp_idx,
+                newer_college->Size());
+            break;
+        }
+        default:
+            ERL_FATAL("Unsupported dataset type.");
     }
+
     (void) is_lidar;
 
     // prepare the mapping
@@ -189,19 +284,20 @@ TestImpl3D() {
     const auto pcd_obs = std::make_shared<open3d::geometry::PointCloud>();
     const auto pcd_surf_points = std::make_shared<open3d::geometry::PointCloud>();
     const auto line_set_surf_normals = std::make_shared<open3d::geometry::LineSet>();
+    const auto line_set_traj = std::make_shared<open3d::geometry::LineSet>();
     geometries.push_back(mesh_sensor);
     geometries.push_back(mesh_sensor_xyz);
     geometries.push_back(pcd_obs);
     geometries.push_back(pcd_surf_points);
     geometries.push_back(line_set_surf_normals);
+    geometries.push_back(line_set_traj);
     visualizer.AddGeometries(geometries);
 
     // animation callback
-    long wp_idx = 0;
+    long wp_idx = options.start_wp_idx;
+    max_wp_idx = (options.end_wp_idx == -1) ? max_wp_idx : options.end_wp_idx;
     double gp_update_dt = 0.0;
     double cnt = 0.0;
-    long max_wp_idx =
-        options.use_cow_and_lady ? cow_and_lady->Size() : static_cast<long>(poses.size());
     (void) wp_idx, (void) gp_update_dt, (void) cnt, (void) max_wp_idx;
     Matrix4 last_pose = Matrix4::Identity();
     auto callback = [&](Open3dVisualizerWrapper *wrapper,
@@ -218,13 +314,11 @@ TestImpl3D() {
                     Serialization<SurfaceMapping>::Write(filename.string(), &gp),
                     "Failed to write to file: {}",
                     filename);
-                // ERL_ASSERTM(gp.Write(filename), "Failed to write to file: {}", filename);
                 SurfaceMapping gp_load(std::make_shared<typename SurfaceMapping::Setting>());
                 ERL_ASSERTM(
                     erl::common::Serialization<SurfaceMapping>::Read(filename.string(), &gp_load),
                     "Failed to read from file: {}",
                     filename);
-                // ERL_ASSERTM(gp_load.Read(filename), "Failed to read from file: {}", filename);
                 ERL_ASSERTM(gp == gp_load, "gp != gp_load");
             }
             wrapper->SetAnimationCallback(nullptr);  // stop calling this callback
@@ -242,17 +336,41 @@ TestImpl3D() {
         double dt;
         {
             ERL_BLOCK_TIMER_MSG_TIME("data loading", dt);
-            if (options.use_cow_and_lady) {
-                const auto frame = (*cow_and_lady)[wp_idx];
-                rotation = frame.rotation.cast<Dtype>();
-                translation = frame.translation.cast<Dtype>();
-                ranges = frame.depth.cast<Dtype>();
-                ranges_img = frame.depth_jet;
-            } else {
-                std::tie(rotation, translation) = poses[wp_idx];
-                ranges = range_sensor->Scan(rotation, translation);
-                std::tie(rotation, translation) =
-                    range_sensor->GetOpticalPose(rotation, translation);
+            switch (dataset_type) {
+                case DataSetType::CowAndLady: {
+                    const auto frame = (*cow_and_lady)[wp_idx];
+                    rotation = frame.rotation.cast<Dtype>();
+                    translation = frame.translation.cast<Dtype>();
+                    ranges = frame.depth.cast<Dtype>();
+                    ranges_img = frame.depth_jet;
+                    break;
+                }
+                case DataSetType::Mesh: {
+                    std::tie(rotation, translation) = poses[wp_idx];
+                    ranges = range_sensor->Scan(rotation, translation);
+                    std::tie(rotation, translation) =
+                        range_sensor->GetOpticalPose(rotation, translation);
+                    ranges_img = ConvertMatrixToImage(ranges, true);
+                    if (is_lidar) {
+                        ranges_img = ranges_img.t();
+                        cv::flip(ranges_img, ranges_img, 0);
+                    }
+                    break;
+                }
+                case DataSetType::NewerCollege: {
+                    const auto frame = (*newer_college)[wp_idx];
+                    rotation = frame.rotation.cast<Dtype>();
+                    translation = frame.translation.cast<Dtype>();
+                    ranges = frame.GetRangeMatrix().cast<Dtype>();
+                    ranges_img = ConvertMatrixToImage(ranges, true);
+                    if (is_lidar) {
+                        ranges_img = ranges_img.t();
+                        cv::flip(ranges_img, ranges_img, 0);
+                    }
+                    break;
+                }
+                default:
+                    ERL_FATAL("Unsupported dataset type.");
             }
         }
         ERL_TRACY_PLOT("data loading (ms)", dt);
@@ -271,22 +389,6 @@ TestImpl3D() {
 
         // update visualization
         /// update the image
-        if (!options.use_cow_and_lady) {
-            for (long i = 0; i < ranges.size(); ++i) {
-                Dtype &range = ranges.data()[i];
-                if (range < 0.0 || range > 1000.0) { range = 0.0; }
-            }
-            if (is_lidar) {
-                cv::eigen2cv(MatrixX(ranges.transpose()), ranges_img);
-                cv::flip(ranges_img, ranges_img, 0);
-                cv::resize(ranges_img, ranges_img, {0, 0}, 2, 2);
-            } else {
-                cv::eigen2cv(ranges, ranges_img);
-            }
-            cv::normalize(ranges_img, ranges_img, 0, 255, cv::NORM_MINMAX);
-            ranges_img.convertTo(ranges_img, CV_8UC1);
-            cv::applyColorMap(ranges_img, ranges_img, cv::COLORMAP_JET);
-        }
         cv::putText(
             ranges_img,
             fmt::format("update {:.2f} fps", gp_update_fps),
@@ -297,6 +399,10 @@ TestImpl3D() {
             2);
         cv::imshow("ranges", ranges_img);
         cv::waitKey(1);
+
+        // skip o3d visualization for some waypoints
+        if (wp_idx % options.vis_stride != 0) { return true; }
+
         /// update the sensor mesh
         Matrix4 last_pose_inv = last_pose.inverse();
         Matrix4 cur_pose = Matrix4::Identity();
@@ -316,10 +422,18 @@ TestImpl3D() {
         pcd_obs->PaintUniformColor({0.0, 1.0, 0.0});
         /// update the surface point cloud and normals
         pcd_surf_points->points_.clear();
+        pcd_surf_points->normals_.clear();
         line_set_surf_normals->points_.clear();
         line_set_surf_normals->lines_.clear();
-        for (auto it = gp.BeginSurfaceData(), end = gp.EndSurfaceData(); it != end; ++it) {
-            auto &surface_data = *it;
+        std::vector<std::pair<Dtype, std::size_t>> surface_data_indices;
+        gp.CollectSurfaceDataInAabb(Aabb<Dtype, 3>(map_min, map_max), surface_data_indices);
+        std::sort(
+            surface_data_indices.begin(),
+            surface_data_indices.end(),
+            [](const auto &a, const auto &b) { return a.second < b.second; });
+        auto buffer = gp.GetSurfaceDataBuffer();
+        for (const auto &[dist, index]: surface_data_indices) {
+            const auto &surface_data = buffer[index];
             const Vector3 &position = surface_data.position;
             const Vector3 &normal = surface_data.normal;
             ERL_ASSERTM(
@@ -327,6 +441,7 @@ TestImpl3D() {
                 "normal.norm() = {:.6f}",
                 normal.norm());
             pcd_surf_points->points_.emplace_back(position.template cast<double>());
+            pcd_surf_points->normals_.emplace_back(normal.template cast<double>());
             line_set_surf_normals->points_.emplace_back(position.template cast<double>());
             line_set_surf_normals->points_.emplace_back(
                 (position + options.surf_normal_scale * normal).template cast<double>());
@@ -336,6 +451,13 @@ TestImpl3D() {
         }
         if (!pcd_surf_points->points_.empty()) {
             line_set_surf_normals->PaintUniformColor({1.0, 0.0, 0.0});
+        }
+        line_set_traj->points_.emplace_back(translation.template cast<double>());
+        if (line_set_traj->points_.size() >= 2) {
+            line_set_traj->lines_.emplace_back(
+                line_set_traj->points_.size() - 2,
+                line_set_traj->points_.size() - 1);
+            line_set_traj->colors_.emplace_back(0.0, 1.0, 0.0);
         }
 
         const auto t_end = std::chrono::high_resolution_clock::now();
@@ -368,8 +490,8 @@ TestImpl3D() {
     visualizer.Show();
 
     auto drawer_setting = std::make_shared<typename OctreeDrawer::Setting>();
-    drawer_setting->area_min = area_min.template cast<double>();
-    drawer_setting->area_max = area_max.template cast<double>();
+    drawer_setting->area_min = map_min.template cast<double>();
+    drawer_setting->area_max = map_max.template cast<double>();
     drawer_setting->occupied_only = true;
     OctreeDrawer octree_drawer(drawer_setting, gp.GetTree());
     auto mesh = geometries[0];
@@ -379,6 +501,10 @@ TestImpl3D() {
     visualizer.Reset();
     visualizer.AddGeometries(geometries);
     visualizer.Show();
+
+    ERL_INFO("Writing point clouds to {}", test_output_dir);
+    open3d::io::WritePointCloud(test_output_dir / "surface_points.ply", *pcd_surf_points);
+    open3d::io::WritePointCloud(test_output_dir / "observed_points.ply", *pcd_obs);
 }
 
 template<typename Dtype>
@@ -407,9 +533,7 @@ TestImpl2D() {
         std::string surface_mapping_config_file =
             kProjectRootDir / "config" / "template" /
             fmt::format("gp_occ_mapping_2d_{}.yaml", type_name<Dtype>());
-        bool use_gazebo_room_2d = false;
-        bool use_house_expo_lidar_2d = false;
-        bool use_ucsd_fah_2d = false;
+        std::string dataset_name = "gazebo_room_2d";
         bool visualize = false;
         bool test_io = false;
         bool hold = false;
@@ -428,9 +552,11 @@ TestImpl2D() {
         // clang-format off
         desc.add_options()
             ("help", "produce help message")
-            ("use-gazebo-room-2d", po::bool_switch(&options.use_gazebo_room_2d)->default_value(options.use_gazebo_room_2d), "Use Gazebo data")
-            ("use-house-expo-lidar-2d", po::bool_switch(&options.use_house_expo_lidar_2d)->default_value(options.use_house_expo_lidar_2d), "Use HouseExpo data")
-            ("use-ucsd-fah-2d", po::bool_switch(&options.use_ucsd_fah_2d)->default_value(options.use_ucsd_fah_2d), "Use UCSD FAH 2D data")
+            (
+                "dataset-name",
+                po::value<std::string>(&options.dataset_name)->default_value(options.dataset_name),
+                "Dataset name, options: gazebo_room_2d, house_expo_lidar_2d, ucsd_fah_2d"
+            )
             ("stride", po::value<long>(&options.stride)->default_value(options.stride), "stride for running the sequence")
             ("init-frame", po::value<long>(&options.init_frame)->default_value(options.init_frame), "Initial frame index")
             ("map-resolution", po::value<Dtype>(&options.map_resolution)->default_value(options.map_resolution), "Map resolution")
@@ -471,23 +597,23 @@ TestImpl2D() {
     } catch (std::exception &e) { std::cerr << e.what() << "\n"; }
     ASSERT_TRUE(options_parsed);
 
-    ASSERT_TRUE(
-        options.use_gazebo_room_2d || options.use_house_expo_lidar_2d || options.use_ucsd_fah_2d)
-        << "Please specify one of --use-gazebo-room-2d, --use-house-expo-lidar-2d, "
-           "--use-ucsd-fah-2d.";
-    if (options.use_gazebo_room_2d) {
+    DataSetType dataset_type;
+    if (options.dataset_name == "gazebo_room_2d") {
+        dataset_type = DataSetType::GazeboRoom;
         ASSERT_TRUE(std::filesystem::exists(options.gazebo_train_file))
             << "Gazebo train data file " << options.gazebo_train_file << " does not exist.";
-    }
-    if (options.use_house_expo_lidar_2d) {
+    } else if (options.dataset_name == "house_expo_lidar_2d") {
+        dataset_type = DataSetType::HouseExpo;
         ASSERT_TRUE(std::filesystem::exists(options.house_expo_map_file))
             << "HouseExpo map file " << options.house_expo_map_file << " does not exist.";
         ASSERT_TRUE(std::filesystem::exists(options.house_expo_traj_file))
             << "HouseExpo trajectory file " << options.house_expo_traj_file << " does not exist.";
-    }
-    if (options.use_ucsd_fah_2d) {
+    } else if (options.dataset_name == "ucsd_fah_2d") {
+        dataset_type = DataSetType::UcsdFah;
         ASSERT_TRUE(std::filesystem::exists(options.ucsd_fah_2d_file))
-            << "ROS bag dat file " << options.ucsd_fah_2d_file << " does not exist.";
+            << "UCSD FAH 2D dat file " << options.ucsd_fah_2d_file << " does not exist.";
+    } else {
+        ERL_FATAL("Unknown dataset name: {} for 2D", options.dataset_name);
     }
 
     // load the scene
@@ -501,116 +627,126 @@ TestImpl2D() {
     Eigen::Vector2i map_padding(10, 10);
     Matrix2X cur_traj;
 
-    if (options.use_gazebo_room_2d) {
-        auto train_data_loader = GazeboRoom2D::TrainDataLoader(options.gazebo_train_file);
-        max_update_cnt = (train_data_loader.size() - options.init_frame) / options.stride + 1;
-        train_angles.reserve(max_update_cnt);
-        train_ranges.reserve(max_update_cnt);
-        train_poses.reserve(max_update_cnt);
-        cur_traj.resize(2, max_update_cnt);
-        auto bar_setting = std::make_shared<ProgressBar::Setting>();
-        bar_setting->total = max_update_cnt;
-        const auto bar = ProgressBar::Open(bar_setting, std::cout);
-        int cnt = 0;
-        for (long i = options.init_frame; i < train_data_loader.size(); i += options.stride) {
-            auto &df = train_data_loader[i];
-            train_angles.push_back(df.angles.cast<Dtype>());
-            train_ranges.push_back(df.ranges.cast<Dtype>());
-            train_poses.emplace_back(df.rotation.cast<Dtype>(), df.translation.cast<Dtype>());
-            cur_traj.col(cnt) << df.translation.cast<Dtype>();
-            bar->Update();
-            ++cnt;
-        }
-        map_min = GazeboRoom2D::kMapMin.cast<Dtype>();
-        map_max = GazeboRoom2D::kMapMax.cast<Dtype>();
-        map_padding.setZero();
+    switch (dataset_type) {
+        case DataSetType::GazeboRoom: {
+            auto train_data_loader = GazeboRoom2D::TrainDataLoader(options.gazebo_train_file);
+            max_update_cnt = (train_data_loader.size() - options.init_frame) / options.stride + 1;
+            train_angles.reserve(max_update_cnt);
+            train_ranges.reserve(max_update_cnt);
+            train_poses.reserve(max_update_cnt);
+            cur_traj.resize(2, max_update_cnt);
+            auto bar_setting = std::make_shared<ProgressBar::Setting>();
+            bar_setting->total = max_update_cnt;
+            const auto bar = ProgressBar::Open(bar_setting, std::cout);
+            int cnt = 0;
+            for (long i = options.init_frame; i < train_data_loader.size(); i += options.stride) {
+                auto &df = train_data_loader[i];
+                train_angles.push_back(df.angles.cast<Dtype>());
+                train_ranges.push_back(df.ranges.cast<Dtype>());
+                train_poses.emplace_back(df.rotation.cast<Dtype>(), df.translation.cast<Dtype>());
+                cur_traj.col(cnt) << df.translation.cast<Dtype>();
+                bar->Update();
+                ++cnt;
+            }
+            map_min = GazeboRoom2D::kMapMin.cast<Dtype>();
+            map_max = GazeboRoom2D::kMapMax.cast<Dtype>();
+            map_padding.setZero();
 
-        train_angles.resize(cnt);
-        train_ranges.resize(cnt);
-        train_poses.resize(cnt);
-        cur_traj.conservativeResize(2, cnt);
-    } else if (options.use_house_expo_lidar_2d) {
-        HouseExpoMap house_expo_map(options.house_expo_map_file, 0.2);
-        map_min = house_expo_map.GetMeterSpace()
-                      ->GetSurface()
-                      ->vertices.rowwise()
-                      .minCoeff()
-                      .cast<Dtype>();
-        map_max = house_expo_map.GetMeterSpace()
-                      ->GetSurface()
-                      ->vertices.rowwise()
-                      .maxCoeff()
-                      .cast<Dtype>();
-        auto lidar_setting = std::make_shared<Lidar2D::Setting>();
-        lidar_setting->num_lines = 720;
-        Lidar2D lidar(lidar_setting, house_expo_map.GetMeterSpace());
-        auto trajectory = LoadAndCastCsvFile<double>(
-            options.house_expo_traj_file.c_str(),
-            [](const std::string &str) -> double { return std::stod(str); });
-        max_update_cnt =
-            (static_cast<long>(trajectory.size()) - options.init_frame) / options.stride + 1;
-        train_angles.reserve(max_update_cnt);
-        train_ranges.reserve(max_update_cnt);
-        train_poses.reserve(max_update_cnt);
-        cur_traj.resize(2, max_update_cnt);
-        auto bar_setting = std::make_shared<ProgressBar::Setting>();
-        bar_setting->total = max_update_cnt;
-        const auto bar = ProgressBar::Open(bar_setting, std::cout);
-        int cnt = 0;
-        for (std::size_t i = options.init_frame; i < trajectory.size(); i += options.stride) {
-            bool scan_in_parallel = true;
-            std::vector<double> &waypoint = trajectory[i];
-            cur_traj.col(cnt) << static_cast<Dtype>(waypoint[0]), static_cast<Dtype>(waypoint[1]);
+            train_angles.resize(cnt);
+            train_ranges.resize(cnt);
+            train_poses.resize(cnt);
+            cur_traj.conservativeResize(2, cnt);
+            break;
+        }
+        case DataSetType::HouseExpo: {
+            HouseExpoMap house_expo_map(options.house_expo_map_file, 0.2);
+            map_min = house_expo_map.GetMeterSpace()
+                          ->GetSurface()
+                          ->vertices.rowwise()
+                          .minCoeff()
+                          .cast<Dtype>();
+            map_max = house_expo_map.GetMeterSpace()
+                          ->GetSurface()
+                          ->vertices.rowwise()
+                          .maxCoeff()
+                          .cast<Dtype>();
+            auto lidar_setting = std::make_shared<Lidar2D::Setting>();
+            lidar_setting->num_lines = 720;
+            Lidar2D lidar(lidar_setting, house_expo_map.GetMeterSpace());
+            auto trajectory = LoadAndCastCsvFile<double>(
+                options.house_expo_traj_file.c_str(),
+                [](const std::string &str) -> double { return std::stod(str); });
+            max_update_cnt =
+                (static_cast<long>(trajectory.size()) - options.init_frame) / options.stride + 1;
+            train_angles.reserve(max_update_cnt);
+            train_ranges.reserve(max_update_cnt);
+            train_poses.reserve(max_update_cnt);
+            cur_traj.resize(2, max_update_cnt);
+            auto bar_setting = std::make_shared<ProgressBar::Setting>();
+            bar_setting->total = max_update_cnt;
+            const auto bar = ProgressBar::Open(bar_setting, std::cout);
+            int cnt = 0;
+            for (std::size_t i = options.init_frame; i < trajectory.size(); i += options.stride) {
+                bool scan_in_parallel = true;
+                std::vector<double> &waypoint = trajectory[i];
+                cur_traj.col(cnt) << static_cast<Dtype>(waypoint[0]),
+                    static_cast<Dtype>(waypoint[1]);
 
-            Eigen::Matrix2d rotation = Eigen::Rotation2Dd(waypoint[2]).toRotationMatrix();
-            Eigen::Vector2d translation(waypoint[0], waypoint[1]);
-            VectorX ranges = lidar.Scan(rotation, translation, scan_in_parallel).cast<Dtype>();
-            ranges += GenerateGaussianNoise<Dtype>(ranges.size(), 0.0, 0.01);
-            train_angles.push_back(lidar.GetAngles().cast<Dtype>());
-            train_ranges.push_back(ranges);
-            train_poses.emplace_back(rotation.cast<Dtype>(), translation.cast<Dtype>());
-            bar->Update();
-            ++cnt;
+                Eigen::Matrix2d rotation = Eigen::Rotation2Dd(waypoint[2]).toRotationMatrix();
+                Eigen::Vector2d translation(waypoint[0], waypoint[1]);
+                VectorX ranges = lidar.Scan(rotation, translation, scan_in_parallel).cast<Dtype>();
+                ranges += GenerateGaussianNoise<Dtype>(ranges.size(), 0.0, 0.01);
+                train_angles.push_back(lidar.GetAngles().cast<Dtype>());
+                train_ranges.push_back(ranges);
+                train_poses.emplace_back(rotation.cast<Dtype>(), translation.cast<Dtype>());
+                bar->Update();
+                ++cnt;
+            }
+            train_angles.resize(cnt);
+            train_ranges.resize(cnt);
+            train_poses.resize(cnt);
+            cur_traj.conservativeResize(2, cnt);
+            break;
         }
-        train_angles.resize(cnt);
-        train_ranges.resize(cnt);
-        train_poses.resize(cnt);
-        cur_traj.conservativeResize(2, cnt);
-    } else if (options.use_ucsd_fah_2d) {
-        UcsdFah2D ucsd_fah(options.ucsd_fah_2d_file);
-        map_min = UcsdFah2D::kMapMin.cast<Dtype>();
-        map_max = UcsdFah2D::kMapMax.cast<Dtype>();
-        // prepare buffer
-        max_update_cnt =
-            (ucsd_fah.Size() - options.init_frame + options.stride - 1) / options.stride;
-        train_angles.reserve(max_update_cnt);
-        train_ranges.reserve(max_update_cnt);
-        train_poses.reserve(max_update_cnt);
-        cur_traj.resize(2, max_update_cnt);
-        // load data into buffer
-        auto bar_setting = std::make_shared<ProgressBar::Setting>();
-        bar_setting->total = max_update_cnt;
-        const auto bar = ProgressBar::Open(bar_setting, std::cout);
-        long cnt = 0;
-        for (long i = options.init_frame; i < ucsd_fah.Size(); i += options.stride, ++cnt) {
-            auto
-                [sequence_number,
-                 timestamp,
-                 header_timestamp,
-                 rotation,
-                 translation,
-                 angles,
-                 ranges] = ucsd_fah[i];
-            cur_traj.col(cnt) << translation.cast<Dtype>();
-            train_angles.emplace_back(angles.cast<Dtype>());
-            train_ranges.emplace_back(ranges.cast<Dtype>());
-            train_poses.emplace_back(rotation.cast<Dtype>(), translation.cast<Dtype>());
-            bar->Update();
+        case DataSetType::UcsdFah: {
+            UcsdFah2D ucsd_fah(options.ucsd_fah_2d_file);
+            map_min = UcsdFah2D::kMapMin.cast<Dtype>();
+            map_max = UcsdFah2D::kMapMax.cast<Dtype>();
+            // prepare buffer
+            max_update_cnt =
+                (ucsd_fah.Size() - options.init_frame + options.stride - 1) / options.stride;
+            train_angles.reserve(max_update_cnt);
+            train_ranges.reserve(max_update_cnt);
+            train_poses.reserve(max_update_cnt);
+            cur_traj.resize(2, max_update_cnt);
+            // load data into buffer
+            auto bar_setting = std::make_shared<ProgressBar::Setting>();
+            bar_setting->total = max_update_cnt;
+            const auto bar = ProgressBar::Open(bar_setting, std::cout);
+            long cnt = 0;
+            for (long i = options.init_frame; i < ucsd_fah.Size(); i += options.stride, ++cnt) {
+                auto
+                    [sequence_number,
+                     timestamp,
+                     header_timestamp,
+                     rotation,
+                     translation,
+                     angles,
+                     ranges] = ucsd_fah[i];
+                cur_traj.col(cnt) << translation.cast<Dtype>();
+                train_angles.emplace_back(angles.cast<Dtype>());
+                train_ranges.emplace_back(ranges.cast<Dtype>());
+                train_poses.emplace_back(rotation.cast<Dtype>(), translation.cast<Dtype>());
+                bar->Update();
+            }
+            train_angles.resize(cnt);
+            train_ranges.resize(cnt);
+            train_poses.resize(cnt);
+            cur_traj.conservativeResize(2, cnt);
+            break;
         }
-        train_angles.resize(cnt);
-        train_ranges.resize(cnt);
-        train_poses.resize(cnt);
-        cur_traj.conservativeResize(2, cnt);
+        default:
+            break;
     }
     max_update_cnt = cur_traj.cols();
 
@@ -665,7 +801,7 @@ TestImpl2D() {
         const auto &[rotation, translation] = train_poses[i];
         const VectorX &ranges = train_ranges[i];
         auto t0 = std::chrono::high_resolution_clock::now();
-        EXPECT_TRUE(gp.Update(rotation, translation, ranges));
+        EXPECT_TRUE(gp.Update(rotation, translation, ranges, false, true));
         auto t1 = std::chrono::high_resolution_clock::now();
         auto dt = std::chrono::duration<double, std::milli>(t1 - t0).count();
         ERL_INFO("Update time: {:f} ms.", dt);

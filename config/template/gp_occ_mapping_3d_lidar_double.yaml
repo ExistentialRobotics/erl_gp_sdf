@@ -1,13 +1,14 @@
 sensor_gp:
     row_group_size: 10
-    row_overlap_size: 3
+    row_overlap_size: 4
     row_margin: &row_margin 0
     col_group_size: 10
-    col_overlap_size: 3
+    col_overlap_size: 4
     col_margin: &col_margin 0
+    min_num_samples_per_group: 50
     init_variance: 1000000
-    sensor_range_var: 0.01
-    max_valid_range_var: 0.1
+    sensor_range_var: 0.005
+    max_valid_range_var: 0.04
     occ_test_temperature: 30
     sensor_frame_type: erl::geometry::LidarFrame3D<double>
     sensor_frame_setting_type: erl::geometry::LidarFrame3D<double>::Setting
@@ -16,12 +17,12 @@ sensor_gp:
         col_margin: *col_margin
         valid_range_min: 0.1
         valid_range_max: 30
-        azimuth_min: -2.3561944901923448
-        azimuth_max: 2.3561944901923448
-        elevation_min: -1.0471975512
-        elevation_max: 1.0471975512
-        num_azimuth_lines: 271
-        num_elevation_lines: 61
+        azimuth_min: -3.1415926535897931
+        azimuth_max: 3.1415926535897931
+        elevation_min: -1.5707963267948966
+        elevation_max: 1.5707963267948966
+        num_azimuth_lines: 360
+        num_elevation_lines: 90
     gp:
         kernel_type: erl::covariance::OrnsteinUhlenbeck<double, 2>
         kernel_setting_type: erl::covariance::Covariance<double>::Setting
@@ -41,6 +42,7 @@ compute_variance:
     min_distance_var: 1
     max_distance_var: 100
     position_var_alpha: 0.01
+    direction_var_alpha: 0.01
     min_gradient_var: 0.01
     max_gradient_var: 1
 update_map_points:
@@ -52,6 +54,7 @@ update_map_points:
     max_bayes_gradient_var: 0.6
     min_position_var: 0.001
     min_gradient_var: 0.001
+    max_num_points: 10000
 tree:
     tree_depth: 16
     log_odd_min: -3

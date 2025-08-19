@@ -11,7 +11,9 @@ if (NOT COMMAND erl_project_setup)
 endif ()
 
 erl_project_setup(ERL_PACKAGES erl_common erl_covariance erl_geometry erl_gaussian_process)
-erl_setup_ros(LIBRARIES ${PROJECT_NAME})
+include(cmake/erl_gp_sdf_dependencies.cmake)
+erl_setup_ros(LIBRARIES ${PROJECT_NAME} #
+              CFG_EXTRAS erl_gp_sdf_dependencies.cmake)
 
 # ######################################################################################################################
 # BUILD

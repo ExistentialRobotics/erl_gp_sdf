@@ -62,11 +62,19 @@ namespace erl::gp_sdf {
                 Dtype zero_gradient_position_var = 1.;
                 // gradient variance to set when the estimated gradient is almost zero.
                 Dtype zero_gradient_gradient_var = 1.;
-                Dtype position_var_alpha = 0.01f;  // scaling number of the position variance.
-                Dtype min_distance_var = 1.0f;     // allowed minimum distance variance.
-                Dtype max_distance_var = 100.0f;   // allowed maximum distance variance.
-                Dtype min_gradient_var = 0.01f;    // allowed minimum gradient variance.
-                Dtype max_gradient_var = 1.0f;     // allowed maximum gradient variance.
+                Dtype position_var_alpha = 0.01f;   // scaling of the position variance.
+                Dtype direction_var_alpha = 0.01f;  // scaling of the direction variance.
+                Dtype min_distance_var = 1.0f;      // allowed minimum distance variance.
+                Dtype max_distance_var = 100.0f;    // allowed maximum distance variance.
+                Dtype min_gradient_var = 0.01f;     // allowed minimum gradient variance.
+                Dtype max_gradient_var = 1.0f;      // allowed maximum gradient variance.
+            };
+
+            struct UpdateTree {
+                bool with_count = false;
+                bool parallel = true;
+                bool lazy_eval = true;
+                bool discrete = true;
             };
 
             struct UpdateMapPoints {
@@ -79,18 +87,18 @@ namespace erl::gp_sdf {
 
                 // maximum absolute value of surface points' OCC, which should be zero ideally.
                 Dtype max_surface_abs_occ = 0.02f;
-                // maximum valid gradient variance, above this threshold, it won't be used for the
-                // Bayes Update.
+                // no Bayes Update if the maximum valid gradient variance is above this threshold.
                 Dtype max_valid_gradient_var = 0.5f;
-                // if the position variance by Bayes Update is above this threshold, it will be
-                // discarded.
+                // discard it if the position variance by Bayes Update is above this threshold.
                 Dtype max_bayes_position_var = 1.0f;
-                // if the gradient variance by Bayes Update is above this threshold, it will be
-                // discarded.
+                // discard it if the gradient variance by Bayes Update is above this threshold.
                 Dtype max_bayes_gradient_var = 0.6f;
+                // maximum number of points to update in one map update.
+                long max_num_points = 100000;
             };
 
             ComputeVariance compute_variance;
+            UpdateTree update_tree;
             UpdateMapPoints update_map_points;
             std::shared_ptr<SensorGpSetting> sensor_gp = std::make_shared<SensorGpSetting>();
             std::shared_ptr<TreeSetting> tree = std::make_shared<TreeSetting>();
@@ -156,6 +164,16 @@ namespace erl::gp_sdf {
         std::shared_ptr<Tree> m_tree_ = nullptr;
         // strides for the grid indices
         Eigen::Vector<int, Dim> m_strides_ = Eigen::Vector<int, Dim>::Zero();
+
+        struct Index {
+            Key key;
+            int grid_index;
+            std::size_t surf_index;
+        };
+
+        // index, updated, to_remove, new_index
+        std::vector<std::tuple<Index, bool, bool, std::optional<Index>>> m_surf_in_aabb_;
+
         // key -> surface data index (used when the surface resolution is <= 0)
         SurfIndices0Type m_surf_indices0_;
         // key -> [grid_min, (grid index -> surface data index)]
@@ -258,27 +276,11 @@ namespace erl::gp_sdf {
         void
         UpdateMapPoints1();
 
-        void
+        Dtype
         UpdateMapPoint(SurfData &surface_data, bool &updated, bool &to_remove);
 
         [[nodiscard]] std::pair<Key, int>
         ComputeSurfaceIndex1(const Position &pos_global) const;
-
-        template<int D = Dim>
-        [[nodiscard]] std::enable_if_t<D == 2, bool>
-        ComputeOcc(
-            const Position &pos_local,
-            Dtype &distance_local,
-            Dtype &distance_pred,
-            Dtype &occ) const;
-
-        template<int D = Dim>
-        [[nodiscard]] std::enable_if_t<D == 3, bool>
-        ComputeOcc(
-            const Position &pos_local,
-            Dtype &distance_local,
-            Dtype &distance_pred,
-            Dtype &occ) const;
 
         template<int D = Dim>
         std::enable_if_t<D == 2>

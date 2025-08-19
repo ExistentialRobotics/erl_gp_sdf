@@ -1,5 +1,6 @@
 #include "erl_gp_sdf/gp_occ_surface_mapping.hpp"
 
+#include "erl_common/block_timer.hpp"
 #include "erl_common/clip.hpp"
 #include "erl_common/template_helper.hpp"
 
@@ -13,10 +14,18 @@ namespace erl::gp_sdf {
         ERL_YAML_SAVE_ATTR(cv_node, compute_variance, zero_gradient_position_var);
         ERL_YAML_SAVE_ATTR(cv_node, compute_variance, zero_gradient_gradient_var);
         ERL_YAML_SAVE_ATTR(cv_node, compute_variance, position_var_alpha);
+        ERL_YAML_SAVE_ATTR(cv_node, compute_variance, direction_var_alpha);
         ERL_YAML_SAVE_ATTR(cv_node, compute_variance, min_distance_var);
         ERL_YAML_SAVE_ATTR(cv_node, compute_variance, max_distance_var);
         ERL_YAML_SAVE_ATTR(cv_node, compute_variance, min_gradient_var);
         ERL_YAML_SAVE_ATTR(cv_node, compute_variance, max_gradient_var);
+
+        YAML::Node ut_node;
+        auto &update_tree = setting.update_tree;
+        ERL_YAML_SAVE_ATTR(ut_node, update_tree, with_count);
+        ERL_YAML_SAVE_ATTR(ut_node, update_tree, parallel);
+        ERL_YAML_SAVE_ATTR(ut_node, update_tree, lazy_eval);
+        ERL_YAML_SAVE_ATTR(ut_node, update_tree, discrete);
 
         YAML::Node ump_node;
         auto &update_map_points = setting.update_map_points;
@@ -28,9 +37,11 @@ namespace erl::gp_sdf {
         ERL_YAML_SAVE_ATTR(ump_node, update_map_points, max_valid_gradient_var);
         ERL_YAML_SAVE_ATTR(ump_node, update_map_points, max_bayes_position_var);
         ERL_YAML_SAVE_ATTR(ump_node, update_map_points, max_bayes_gradient_var);
+        ERL_YAML_SAVE_ATTR(ump_node, update_map_points, max_num_points);
 
         YAML::Node node;
         node["compute_variance"] = cv_node;
+        node["update_tree"] = ut_node;
         node["update_map_points"] = ump_node;
         ERL_YAML_SAVE_ATTR(node, setting, sensor_gp);
         ERL_YAML_SAVE_ATTR(node, setting, tree);
@@ -55,10 +66,18 @@ namespace erl::gp_sdf {
         ERL_YAML_LOAD_ATTR(cv_node, compute_variance, zero_gradient_position_var);
         ERL_YAML_LOAD_ATTR(cv_node, compute_variance, zero_gradient_gradient_var);
         ERL_YAML_LOAD_ATTR(cv_node, compute_variance, position_var_alpha);
+        ERL_YAML_LOAD_ATTR(cv_node, compute_variance, direction_var_alpha);
         ERL_YAML_LOAD_ATTR(cv_node, compute_variance, min_distance_var);
         ERL_YAML_LOAD_ATTR(cv_node, compute_variance, max_distance_var);
         ERL_YAML_LOAD_ATTR(cv_node, compute_variance, min_gradient_var);
         ERL_YAML_LOAD_ATTR(cv_node, compute_variance, max_gradient_var);
+
+        const YAML::Node ut_node = node["update_tree"];
+        auto &update_tree = setting.update_tree;
+        ERL_YAML_LOAD_ATTR(ut_node, update_tree, with_count);
+        ERL_YAML_LOAD_ATTR(ut_node, update_tree, parallel);
+        ERL_YAML_LOAD_ATTR(ut_node, update_tree, lazy_eval);
+        ERL_YAML_LOAD_ATTR(ut_node, update_tree, discrete);
 
         const YAML::Node ump_node = node["update_map_points"];
         auto &update_map_points = setting.update_map_points;
@@ -70,6 +89,7 @@ namespace erl::gp_sdf {
         ERL_YAML_LOAD_ATTR(ump_node, update_map_points, max_valid_gradient_var);
         ERL_YAML_LOAD_ATTR(ump_node, update_map_points, max_bayes_position_var);
         ERL_YAML_LOAD_ATTR(ump_node, update_map_points, max_bayes_gradient_var);
+        ERL_YAML_LOAD_ATTR(ump_node, update_map_points, max_num_points);
 
         if (!ERL_YAML_LOAD_ATTR(node, setting, sensor_gp)) { return false; }
         if (!ERL_YAML_LOAD_ATTR(node, setting, tree)) { return false; }
@@ -151,22 +171,42 @@ namespace erl::gp_sdf {
     typename GpOccSurfaceMapping<Dtype, Dim>::SurfaceDataIterator &
     GpOccSurfaceMapping<Dtype, Dim>::SurfaceDataIterator::operator++() {
         if (m_mapping_ == nullptr) { return *this; }
+        const bool update_occupancy = m_mapping_->m_setting_->update_occupancy;
+        auto tree = m_mapping_->m_tree_;
         if (m_use0_) {
-            if (m_it0_ != m_mapping_->m_surf_indices0_.end()) { ++m_it0_; }
-            // no more surface data available
-            if (m_it0_ == m_mapping_->m_surf_indices0_.end()) { m_mapping_ = nullptr; }
+            auto surf_indices0 = m_mapping_->m_surf_indices0_;
+            while (m_it0_ != surf_indices0.end()) {
+                ++m_it0_;
+                if (m_it0_ == surf_indices0.end()) {
+                    m_mapping_ = nullptr;
+                    break;
+                }
+                if (update_occupancy) {
+                    const TreeNode *node = tree->Search(m_it0_->first);
+                    if (node == nullptr || !tree->IsNodeOccupied(node)) { continue; }
+                }
+                break;  // found a valid surface data
+            }
             return *this;
         }
         if (m_it2_ != m_it1_->second.end()) { ++m_it2_; }
         if (m_it2_ == m_it1_->second.end()) {
             ++m_it1_;  // move to the next entry
-            while (m_it1_ != m_mapping_->m_surf_indices1_.end()) {
+            auto surf_indices1 = m_mapping_->m_surf_indices1_;
+            while (m_it1_ != surf_indices1.end()) {
+                if (update_occupancy) {
+                    const TreeNode *node = tree->Search(m_it1_->first);
+                    if (node == nullptr || !tree->IsNodeOccupied(node)) {
+                        m_it1_++;
+                        continue;
+                    }
+                }
                 m_it2_ = m_it1_->second.begin();
                 if (m_it2_ != m_it1_->second.end()) { break; }  // found a valid surface data
                 ++m_it1_;                                       // move to the next entry
             }
             // no valid surface data available
-            if (m_it1_ == m_mapping_->m_surf_indices1_.end()) { m_mapping_ = nullptr; }
+            if (m_it1_ == surf_indices1.end()) { m_mapping_ = nullptr; }
         }
         return *this;
     }
@@ -261,6 +301,7 @@ namespace erl::gp_sdf {
 
         m_changed_keys_.clear();
         if (const Dtype s = m_setting_->scaling; s != 1.0f) {
+            ERL_BLOCK_TIMER_MSG("Train sensor GP with scaling");
             if (!m_sensor_gp_->Train(rotation, translation.array() * s, ranges.array() * s)) {
                 ERL_WARN(
                     "Failed to train the sensor Gaussian process with scaling factor {}. Original "
@@ -271,6 +312,7 @@ namespace erl::gp_sdf {
                 return false;
             }
         } else {
+            ERL_BLOCK_TIMER_MSG("Train sensor GP");
             if (!m_sensor_gp_->Train(rotation, translation, ranges)) {
                 ERL_WARN(
                     "Failed to train the sensor Gaussian process. Ranges min: {}, max: {}",
@@ -359,10 +401,12 @@ namespace erl::gp_sdf {
         std::vector<std::pair<Dtype, std::size_t>> &surface_data_indices) const {
         surface_data_indices.clear();
         if (m_setting_->surface_resolution <= 0) {  // zero resolution, use m_surf_indices0_
+            const bool update_occupancy = m_setting_->update_occupancy;
             for (auto it = m_tree_->BeginLeafInAabb(aabb), end = m_tree_->EndLeafInAabb();
                  it != end;
                  ++it) {
                 Key key = it.GetKey();
+                if (update_occupancy && !m_tree_->IsNodeOccupied(*it)) { continue; }
                 auto surf_it = m_surf_indices0_.find(key);
                 // no surface data for this key
                 if (surf_it == m_surf_indices0_.end()) { continue; }
@@ -708,77 +752,164 @@ namespace erl::gp_sdf {
         ERL_DEBUG_ASSERT(
             m_setting_->surface_resolution <= 0,
             "UpdateMapPoints0() should only be called when the surface resolution is <= 0");
+        ERL_BLOCK_TIMER();
 
         if (!m_sensor_gp_->IsTrained()) { return; }
+        if (this->m_surf_data_manager_.GetBuffer().empty()) { return; }
 
         const auto sensor_frame = m_sensor_gp_->GetSensorFrame();
         const Position &sensor_pos = sensor_frame->GetTranslationVector();
-        const Dtype max_sensor_range = sensor_frame->GetMaxValidRange();
-        const Aabb observed_area(sensor_pos, max_sensor_range);
+        const Dtype max_range = sensor_frame->GetMaxValidRange();
+        const Aabb observed_area(sensor_pos, max_range);
         const bool update_occupancy = m_setting_->update_occupancy;  // occupancy is available.
-        const uint32_t cluster_depth = m_setting_->cluster_depth;
-        const Dtype cluster_half_size = m_tree_->GetNodeSize(cluster_depth) * 0.5f;
-        const Dtype squared_dist_max =
-            max_sensor_range * max_sensor_range +
-            cluster_half_size * cluster_half_size * static_cast<Dtype>(Dim);
+        const Dtype squared_dist_max = max_range * max_range;
+        long max_num_points = m_setting_->update_map_points.max_num_points;
 
-        // key, surf_index, updated, to_remove, new_key
-        std::vector<std::tuple<Key, std::size_t, bool, bool, std::optional<Key>>> nodes_in_aabb;
-        for (auto it = m_tree_->BeginLeafInAabb(observed_area), end = m_tree_->EndLeafInAabb();
-             it != end;
-             ++it) {
-            Key key = it.GetKey();
+        // index, updated, to_remove, new_index
+        // index: key, grid_index, surf_index
+        m_surf_in_aabb_.clear();
+        m_surf_in_aabb_.reserve(std::max<std::size_t>(max_num_points, m_surf_in_aabb_.capacity()));
+
+        auto collect_points = [&](const Key &key, const TreeNode *node) {
             // find the surface index of the node
             auto surf_it = m_surf_indices0_.find(key);
             // skip nodes without surface data
-            if (surf_it == m_surf_indices0_.end()) { continue; }
-            if (update_occupancy && !m_tree_->IsNodeOccupied(*it)) {
-                // skip unoccupied nodes and clear the surface data in them.
-                this->m_surf_data_manager_.RemoveEntry(surf_it->second);
-                m_surf_indices0_.erase(key);
-                continue;
+            if (surf_it == m_surf_indices0_.end()) { return; }
+            if (update_occupancy) {
+                if (node == nullptr) { node = m_tree_->Search(key); }
+                if (node == nullptr || !m_tree_->IsNodeOccupied(node)) {
+                    // skip unoccupied nodes and clear the surface data in them.
+                    this->m_surf_data_manager_.RemoveEntry(surf_it->second);
+                    m_surf_indices0_.erase(key);
+                    return;
+                }
             }
-            if (const Position cluster_position = m_tree_->KeyToCoord(key, cluster_depth);
-                (cluster_position - sensor_pos).squaredNorm() > squared_dist_max) {
-                continue;  // skip nodes that are too far away
+            m_surf_in_aabb_
+                .emplace_back(Index{key, 0, surf_it->second}, false, false, std::nullopt);
+        };
+
+        if (max_num_points <= 0) {
+            // no limits
+            // for UpdateMapPoints0, this one is preferred because the tree resolution is usually
+            // small. the overhead is the tree traversal.
+            // when there are too many points, it might be better to use UpdateMapPoints1, where
+            // the tree resolution is larger and each leaf voxel is divided into a grid. So, the
+            // overhead is not the tree traversal but the map update computation.
+            ERL_BLOCK_TIMER_MSG("Collecting surface data to update in AABB (no limit)");
+            for (auto it = m_tree_->BeginLeafInAabb(observed_area), end = m_tree_->EndLeafInAabb();
+                 it != end;
+                 ++it) {
+                const Position center_local = sensor_frame->PosWorldToFrame(it.GetCenter());
+                if (!sensor_frame->PosIsInFrame(center_local)) { continue; }
+                Dtype distance = center_local.squaredNorm();
+                if (distance > squared_dist_max) { continue; }
+                collect_points(it.GetKey(), it.GetNode());  // collect points from the tree
             }
-            nodes_in_aabb.emplace_back(key, surf_it->second, false, false, std::nullopt);
+        } else {
+            // limited number of points
+            // collect points from the hit voxels first.
+            // add more points if there is space left.
+            ERL_BLOCK_TIMER_MSG("Collecting surface data to update in AABB");
+
+            std::vector<std::pair<Key, Dtype>> hit_keys;
+            hit_keys.resize(sensor_frame->GetNumHitRays());
+            const auto &hit_points = sensor_frame->GetHitPointsWorld();
+#pragma omp parallel for schedule(static) default(none) shared(hit_keys, sensor_frame, hit_points)
+            for (long i = 0; i < sensor_frame->GetNumHitRays(); ++i) {
+                const Position &point = hit_points[i];
+                hit_keys[i].first = m_tree_->CoordToKey(point);
+                hit_keys[i].second = point.squaredNorm();
+            }
+            std::sort(hit_keys.begin(), hit_keys.end(), [](const auto &a, const auto &b) {
+                return a.second < b.second;
+            });
+
+            absl::flat_hash_set<Key> hit_keys_set;
+            hit_keys_set.reserve(sensor_frame->GetNumHitRays());
+            for (const auto &[key, dist]: hit_keys) {
+                if (!hit_keys_set.insert(key).second) { continue; }  // skip duplicate keys
+                collect_points(key, nullptr);
+                if (m_surf_in_aabb_.size() >= static_cast<std::size_t>(max_num_points)) { break; }
+            }
+
+            if (m_surf_in_aabb_.size() < static_cast<std::size_t>(max_num_points)) {
+                // adding more points
+                std::vector<std::tuple<Key, Dtype, const TreeNode *>> node_map;
+                for (auto it = m_tree_->BeginLeafInAabb(observed_area),
+                          end = m_tree_->EndLeafInAabb();
+                     it != end;
+                     ++it) {
+                    const Position center_local = sensor_frame->PosWorldToFrame(it.GetCenter());
+                    if (!sensor_frame->PosIsInFrame(center_local)) { continue; }
+                    Dtype distance = center_local.squaredNorm();
+                    if (distance > squared_dist_max) { continue; }
+                    node_map.emplace_back(it.GetKey(), distance, *it);
+                }
+                std::sort(node_map.begin(), node_map.end(), [](const auto &a, const auto &b) {
+                    return std::get<1>(a) < std::get<1>(b);
+                });
+                // std::shuffle(node_map.begin(), node_map.end(), common::g_random_engine);
+                for (const auto &[key, dist, node]: node_map) {
+                    if (hit_keys_set.contains(key)) { continue; }  // skip keys already collected
+                    if (m_surf_in_aabb_.size() >= static_cast<std::size_t>(max_num_points)) {
+                        break;
+                    }
+                    collect_points(key, node);  // collect points from the tree
+                }
+            }
         }
 
         // update the surface data in the nodes.
         // use static scheduling because it is light to compute the key if updated.
-#pragma omp parallel for default(none) shared(nodes_in_aabb) schedule(static)
-        for (auto &[key, surf_index, updated, to_remove, new_key]: nodes_in_aabb) {
-            auto &surface_data = this->m_surf_data_manager_[surf_index];
-            UpdateMapPoint(surface_data, updated, to_remove);
-            if (!updated) { continue; }
-            // if the surface data is updated, we need to check if the node key is changed
-            if (Key tmp = m_tree_->CoordToKey(surface_data.position); tmp != key) { new_key = tmp; }
+        {
+            ERL_BLOCK_TIMER_MSG(
+                fmt::format(
+                    "Computing update of surface data in AABB: {} entries",
+                    m_surf_in_aabb_.size()));
+            std::sort(
+                m_surf_in_aabb_.begin(),
+                m_surf_in_aabb_.end(),
+                [](const auto &a, const auto &b) {
+                    return std::get<0>(a).surf_index < std::get<0>(b).surf_index;
+                });
+#pragma omp parallel for default(none) schedule(static)
+            for (auto &[index, updated, to_remove, new_index]: m_surf_in_aabb_) {
+                auto &surface_data = this->m_surf_data_manager_[index.surf_index];
+                UpdateMapPoint(surface_data, updated, to_remove);
+                if (!updated) { continue; }
+                // if the surface data is updated, we need to check if the node key is changed
+                if (Key key = m_tree_->CoordToKey(surface_data.position); key != index.key) {
+                    new_index = {key, index.grid_index, index.surf_index};
+                }
+            }
         }
 
-        for (auto &[key, surf_index, updated, to_remove, new_key_opt]: nodes_in_aabb) {
-            if (to_remove) {  // too bad, the surface data should be removed
-                // this surface data is not used anymore
-                this->m_surf_data_manager_.RemoveEntry(surf_index);
-                m_surf_indices0_.erase(key);  // the node has no surface data now
-                RecordChangedKey(key);
-                continue;
-            }
-            if (updated) { RecordChangedKey(key); }
-            if (!new_key_opt.has_value()) { continue; }  // the surface data is not moved
+        {
+            ERL_BLOCK_TIMER_MSG("Updating surface data in AABB");
+            for (const auto &[index, updated, to_remove, new_index]: m_surf_in_aabb_) {
+                if (to_remove) {  // too bad, the surface data should be removed
+                    // this surface data is not used anymore
+                    this->m_surf_data_manager_.RemoveEntry(index.surf_index);
+                    m_surf_indices0_.erase(index.key);  // the node has no surface data now
+                    RecordChangedKey(index.key);
+                    continue;
+                }
+                if (updated) { RecordChangedKey(index.key); }
+                if (!new_index.has_value()) { continue; }  // the surface data is not moved
 
-            // the node is moved to a new position
-            const auto &new_key = new_key_opt.value();
-            auto new_surf_it = m_surf_indices0_.find(new_key);
-            if (new_surf_it == m_surf_indices0_.end()) {  // the new key is not in the index
-                m_surf_indices0_[new_key] = surf_index;   // move to the new index
-                RecordChangedKey(new_key);
-            } else {  // the new key is already in the index
-                // this surface data is not used anymore
-                this->m_surf_data_manager_.RemoveEntry(surf_index);
+                // the node is moved to a new position
+                const Key &new_key = new_index.value().key;
+                auto new_surf_it = m_surf_indices0_.find(new_key);
+                if (new_surf_it == m_surf_indices0_.end()) {  // the new key is not in the index
+                    m_surf_indices0_[new_key] = index.surf_index;  // move to the new index
+                    RecordChangedKey(new_key);
+                } else {  // the new key is already in the index
+                    // this surface data is not used anymore
+                    this->m_surf_data_manager_.RemoveEntry(index.surf_index);
+                }
+                m_surf_indices0_.erase(index.key);  // remove the old index
+                RecordChangedKey(index.key);
             }
-            m_surf_indices0_.erase(key);  // remove the old index
-            RecordChangedKey(key);
         }
     }
 
@@ -788,59 +919,129 @@ namespace erl::gp_sdf {
         ERL_DEBUG_ASSERT(
             m_setting_->surface_resolution > 0,
             "UpdateMapPoints1() should only be called when the surface resolution is > 0");
+        ERL_BLOCK_TIMER();
 
         if (!m_sensor_gp_->IsTrained()) { return; }
+        if (this->m_surf_data_manager_.GetBuffer().empty()) { return; }
 
         const auto sensor_frame = m_sensor_gp_->GetSensorFrame();
         const Position &sensor_pos = sensor_frame->GetTranslationVector();
-        const Dtype max_sensor_range = sensor_frame->GetMaxValidRange();
-        const Aabb observed_area(sensor_pos, max_sensor_range);
+        const Dtype max_range = sensor_frame->GetMaxValidRange();
+        const Aabb observed_area(sensor_pos, max_range);
         const bool update_occupancy = m_setting_->update_occupancy;  // occupancy is available.
-        const uint32_t cluster_depth = m_setting_->cluster_depth;
-        const Dtype cluster_half_size = m_tree_->GetNodeSize(cluster_depth) * 0.5f;
-        const Dtype squared_dist_max =
-            max_sensor_range * max_sensor_range +
-            cluster_half_size * cluster_half_size * static_cast<Dtype>(Dim);
-
-        struct Index {
-            Key key;
-            int grid_index;
-            std::size_t surf_index;
-        };
+        const Dtype squared_dist_max = max_range * max_range;
+        long max_num_points = m_setting_->update_map_points.max_num_points;
 
         // index, updated, to_remove, new_index
-        std::vector<std::tuple<Index, bool, bool, std::optional<Index>>> surf_in_aabb;
-        for (auto it = m_tree_->BeginLeafInAabb(observed_area), end = m_tree_->EndLeafInAabb();
-             it != end;
-             ++it) {
-            Key key = it.GetKey();
+        // index: key, grid_index, surf_index
+        m_surf_in_aabb_.clear();
+        m_surf_in_aabb_.reserve(std::max<std::size_t>(max_num_points, m_surf_in_aabb_.capacity()));
+
+        auto collect_points = [&](const Key &key, const TreeNode *node) {
             auto surf_it = m_surf_indices1_.find(key);  // find the surface indices of the node
             // skip nodes without surface data
-            if (surf_it == m_surf_indices1_.end() || surf_it->second.empty()) { continue; }
-            if (update_occupancy && !m_tree_->IsNodeOccupied(*it)) {
-                // skip unoccupied nodes and clear the surface data in them.
-                for (const auto &[grid_index, surf_index]: surf_it->second) {
-                    this->m_surf_data_manager_.RemoveEntry(surf_index);
+            if (surf_it == m_surf_indices1_.end() || surf_it->second.empty()) { return; }
+            if (update_occupancy) {
+                if (node == nullptr) { node = m_tree_->Search(key); }
+                if (node == nullptr || (update_occupancy && !m_tree_->IsNodeOccupied(node))) {
+                    // skip unoccupied nodes and clear the surface data in them.
+                    for (const auto &[grid_index, surf_index]: surf_it->second) {
+                        this->m_surf_data_manager_.RemoveEntry(surf_index);
+                    }
+                    // remove the surface data from the buffer and the indices
+                    surf_it->second.clear();
+                    return;
                 }
-                surf_it->second.clear();  // remove the surface data from the buffer and the indices
-                continue;
-            }
-            if (const Position cluster_position = m_tree_->KeyToCoord(key, cluster_depth);
-                (cluster_position - sensor_pos).squaredNorm() > squared_dist_max) {
-                continue;  // skip nodes that are too far away
             }
             for (const auto &[grid_index, surf_index]: surf_it->second) {
-                surf_in_aabb
+                m_surf_in_aabb_
                     .emplace_back(Index{key, grid_index, surf_index}, false, false, std::nullopt);
+            }
+        };
+
+        if (max_num_points <= 0) {
+            // no limits
+            ERL_BLOCK_TIMER_MSG("Collecting surface data to update in AABB (no limit)");
+            for (auto it = m_tree_->BeginLeafInAabb(observed_area), end = m_tree_->EndLeafInAabb();
+                 it != end;
+                 ++it) {
+                const Position center_local = sensor_frame->PosWorldToFrame(it.GetCenter());
+                if (!sensor_frame->PosIsInFrame(center_local)) { continue; }
+                Dtype distance = center_local.squaredNorm();
+                if (distance > squared_dist_max) { continue; }
+                collect_points(it.GetKey(), it.GetNode());  // collect points from the tree
+            }
+        } else {
+            // limited number of points
+            // collect points from the hit voxels first.
+            // add more points if there is space left.
+            ERL_BLOCK_TIMER_MSG("Collecting surface data to update in AABB");
+
+            std::vector<std::pair<Key, Dtype>> hit_keys;
+            hit_keys.resize(sensor_frame->GetNumHitRays());
+            const auto &hit_points = sensor_frame->GetHitPointsWorld();
+#pragma omp parallel for schedule(static) default(none) shared(hit_keys, sensor_frame, hit_points)
+            for (long i = 0; i < sensor_frame->GetNumHitRays(); ++i) {
+                const Position &point = hit_points[i];
+                hit_keys[i].first = m_tree_->CoordToKey(point);
+                hit_keys[i].second = point.squaredNorm();
+            }
+            std::sort(hit_keys.begin(), hit_keys.end(), [](const auto &a, const auto &b) {
+                return a.second < b.second;
+            });
+
+            absl::flat_hash_set<Key> hit_keys_set;
+            hit_keys_set.reserve(sensor_frame->GetNumHitRays());
+            for (const auto &[key, dist]: hit_keys) {
+                if (!hit_keys_set.insert(key).second) { continue; }  // skip duplicate keys
+                collect_points(key, nullptr);
+                if (m_surf_in_aabb_.size() >= static_cast<std::size_t>(max_num_points)) { break; }
+            }
+
+            if (m_surf_in_aabb_.size() < static_cast<std::size_t>(max_num_points)) {
+                // adding more points
+                std::vector<std::tuple<Key, Dtype, const TreeNode *>> node_map;
+                for (auto it = m_tree_->BeginLeafInAabb(observed_area),
+                          end = m_tree_->EndLeafInAabb();
+                     it != end;
+                     ++it) {
+                    const Position center_local = sensor_frame->PosWorldToFrame(it.GetCenter());
+                    if (!sensor_frame->PosIsInFrame(center_local)) { continue; }
+                    Dtype distance = center_local.squaredNorm();
+                    if (distance > squared_dist_max) { continue; }
+                    node_map.emplace_back(it.GetKey(), distance, *it);
+                }
+                std::sort(node_map.begin(), node_map.end(), [](const auto &a, const auto &b) {
+                    return std::get<1>(a) < std::get<1>(b);
+                });
+                // std::shuffle(node_map.begin(), node_map.end(), common::g_random_engine);
+                for (const auto &[key, dist, node]: node_map) {
+                    if (hit_keys_set.contains(key)) { continue; }  // skip keys already collected
+                    if (m_surf_in_aabb_.size() >= static_cast<std::size_t>(max_num_points)) {
+                        break;
+                    }
+                    collect_points(key, node);  // collect points from the tree
+                }
             }
         }
 
         // update the surface data in the nodes
-#pragma omp parallel for default(none) shared(surf_in_aabb) schedule(static)
-        for (auto &[index, updated, to_remove, new_index]: surf_in_aabb) {
-            auto &surface_data = this->m_surf_data_manager_[index.surf_index];
-            UpdateMapPoint(surface_data, updated, to_remove);
-            if (updated) {
+        {
+            ERL_BLOCK_TIMER_MSG(
+                fmt::format(
+                    "Computing update of surface data in AABB: {} entries",
+                    m_surf_in_aabb_.size()));
+            std::sort(
+                m_surf_in_aabb_.begin(),
+                m_surf_in_aabb_.end(),
+                [](const auto &a, const auto &b) {
+                    return std::get<0>(a).surf_index < std::get<0>(b).surf_index;
+                });
+#pragma omp parallel for default(none) schedule(static)
+            for (auto &[index, updated, to_remove, new_index]: m_surf_in_aabb_) {
+                auto &surface_data = this->m_surf_data_manager_[index.surf_index];
+                UpdateMapPoint(surface_data, updated, to_remove);
+                if (!updated) { continue; }
                 const auto [new_key, grid_index] = ComputeSurfaceIndex1(surface_data.position);
                 if (index.key != new_key || index.grid_index != grid_index) {
                     new_index = {new_key, grid_index, index.surf_index};
@@ -848,44 +1049,62 @@ namespace erl::gp_sdf {
             }
         }
 
-        for (const auto &[index, updated, to_remove, new_index]: surf_in_aabb) {
-            if (to_remove) {  // too bad, the surface data should be removed.
-                // remove the surface data from the buffer
-                this->m_surf_data_manager_.RemoveEntry(index.surf_index);
-                m_surf_indices1_[index.key].erase(index.grid_index);  // remove the index
-                RecordChangedKey(index.key);
-                continue;
-            }
-            if (updated) { RecordChangedKey(index.key); }
-            if (!new_index.has_value()) { continue; }  // the surface data is not moved
-
-            const auto &[new_key, new_grid_index, surf_index] = new_index.value();
-            auto new_surf_it = m_surf_indices1_.find(new_key);
-            if (new_surf_it == m_surf_indices1_.end()) {  // the new key is not in the index
-                // move to the new index
-                m_surf_indices1_[new_key].emplace(new_grid_index, surf_index);
-                RecordChangedKey(new_key);
-            } else {
-                if (absl::flat_hash_map<int, std::size_t> &new_surf_indices = new_surf_it->second;
-                    new_surf_indices.try_emplace(new_grid_index, surf_index).second) {
-                    // move to the new index
-                    RecordChangedKey(new_key);  // record the changed key
-                } else {                        // the new grid index is already occupied
-                    // this surface data is not used anymore
+        {
+            ERL_BLOCK_TIMER_MSG("Updating surface data in AABB");
+            for (const auto &[index, updated, to_remove, new_index]: m_surf_in_aabb_) {
+                if (to_remove) {  // too bad, the surface data should be removed.
+                    // remove the surface data from the buffer
                     this->m_surf_data_manager_.RemoveEntry(index.surf_index);
+                    m_surf_indices1_[index.key].erase(index.grid_index);  // remove the index
+                    RecordChangedKey(index.key);
+                    continue;
                 }
+                if (updated) { RecordChangedKey(index.key); }
+                if (!new_index.has_value()) { continue; }  // the surface data is not moved
+
+                const auto &[new_key, new_grid_index, surf_index] = new_index.value();
+                auto new_surf_it = m_surf_indices1_.find(new_key);
+                if (new_surf_it == m_surf_indices1_.end()) {  // the new key is not in the index
+                    // move to the new index
+                    m_surf_indices1_[new_key].emplace(new_grid_index, surf_index);
+                    RecordChangedKey(new_key);
+                } else {
+                    if (absl::flat_hash_map<int, std::size_t> &new_surf_indices =
+                            new_surf_it->second;
+                        new_surf_indices.try_emplace(new_grid_index, surf_index).second) {
+                        // move to the new index
+                        RecordChangedKey(new_key);  // record the changed key
+                    } else {                        // the new grid index is already occupied
+                        // this surface data is not used anymore
+                        this->m_surf_data_manager_.RemoveEntry(index.surf_index);
+                    }
+                }
+                m_surf_indices1_[index.key].erase(index.grid_index);  // remove the old index
+                RecordChangedKey(index.key);
             }
-            m_surf_indices1_[index.key].erase(index.grid_index);  // remove the old index
-            RecordChangedKey(index.key);
         }
     }
 
     template<typename Dtype, int Dim>
-    void
+    Dtype
     GpOccSurfaceMapping<Dtype, Dim>::UpdateMapPoint(
         SurfData &surface_data,
         bool &updated,
         bool &to_remove) {
+
+        // Error codes for statistics
+        constexpr Dtype ERR_NOT_FINITE = -2.0f;
+        constexpr Dtype ERR_OCC_FAILED = -3.0f;
+        constexpr Dtype ERR_NOT_OBSERVABLE = -4.0f;
+        constexpr Dtype ERR_ADJUST_FAILED = -5.0f;
+        constexpr Dtype ERR_GRADIENT_FAILED = -6.0f;
+        constexpr Dtype ERR_VARIANCE_FAILED = -7.0f;
+
+        if (!surface_data.position.allFinite() || !surface_data.normal.allFinite()) {
+            to_remove = true;
+            return ERR_NOT_FINITE;
+        }
+
         const Dtype sensor_range_var = m_setting_->sensor_gp->sensor_range_var;
         const Dtype min_comp_gradient_var = m_setting_->compute_variance.min_gradient_var;
         const Dtype max_comp_gradient_var = m_setting_->compute_variance.max_gradient_var;
@@ -904,11 +1123,12 @@ namespace erl::gp_sdf {
 
         const Position &pos_global_old = surface_data.position;
         Position pos_local_old = sensor_frame->PosWorldToFrame(pos_global_old);
-        if (!sensor_frame->PointIsInFrame(pos_local_old)) { return; }
 
-        Dtype occ, distance_old, distance_pred;
-        if (!ComputeOcc(pos_local_old, distance_old, distance_pred, occ)) { return; }
-        if (occ < min_observable_occ) { return; }
+        Dtype occ, dist_old, dist_pred;
+        if (!m_sensor_gp_->ComputeOcc(pos_local_old, dist_old, dist_pred, occ)) {
+            return ERR_OCC_FAILED;
+        }
+        if (occ < min_observable_occ) { return ERR_NOT_OBSERVABLE; }
 
         const Gradient &grad_global_old = surface_data.normal;
         Gradient grad_local_old = sensor_frame->DirWorldToFrame(grad_global_old);
@@ -918,8 +1138,8 @@ namespace erl::gp_sdf {
         Dtype delta = m_setting_->perturb_delta;
         int num_adjust_tries = 0;
         Dtype occ_abs = std::fabs(occ);
-        Dtype distance_new = distance_old;
-        bool good_occ = true;
+        Dtype dist_new = dist_old;
+        bool good = true;
         while (num_adjust_tries < max_adjust_tries && occ_abs > max_surface_abs_occ) {
             // move one step
             // the direction is determined by the occupancy sign, the step size is heuristically
@@ -932,10 +1152,10 @@ namespace erl::gp_sdf {
 
             // test the new point
             Dtype occ_new;
-            good_occ = ComputeOcc(pos_local_new, distance_new, distance_pred, occ_new);
-            if (!good_occ) { break; }
+            good = m_sensor_gp_->ComputeOcc(pos_local_new, dist_new, dist_pred, occ_new);
+            if (!good) { break; }
             occ_abs = std::fabs(occ_new);
-            distance_new = distance_pred;
+            dist_new = dist_pred;
             if (occ_abs <= max_surface_abs_occ) { break; }
             if (occ * occ_new < 0.0f) {
                 delta *= 0.5f;  // too big, make it smaller
@@ -945,7 +1165,7 @@ namespace erl::gp_sdf {
             occ = occ_new;
             ++num_adjust_tries;
         }
-        if (!good_occ) { return; }
+        if (!good) { return ERR_ADJUST_FAILED; }
 
         // compute new gradient and uncertainty
         Dtype occ_mean, var_distance;
@@ -955,14 +1175,14 @@ namespace erl::gp_sdf {
             // but don't remove the surface data immediately.
             surface_data.var_position *= 2.0f;
             surface_data.var_normal *= 2.0f;
-            return;
+            return ERR_GRADIENT_FAILED;
         }
         Gradient grad_global_new = sensor_frame->DirFrameToWorld(grad_local_new);
         Dtype var_position_new, var_gradient_new;
         ComputeVariance(
             pos_local_new,
             grad_local_new,
-            distance_new,
+            dist_new,
             var_distance,
             std::fabs(occ_mean),
             occ_abs,
@@ -1003,7 +1223,7 @@ namespace erl::gp_sdf {
         if (var_position_new > max_bayes_position_var &&
             var_gradient_new > max_bayes_gradient_var) {
             to_remove = true;  // too bad, remove it
-            return;
+            return ERR_VARIANCE_FAILED;
         }
         surface_data.position = pos_global_new;
         surface_data.normal = grad_global_new;
@@ -1014,6 +1234,7 @@ namespace erl::gp_sdf {
             std::abs(surface_data.normal.norm() - 1.0f) < 1.e-5f,
             "surface_data->normal.norm() = {:.6f}",
             surface_data.normal.norm());
+        return occ;
     }
 
     template<typename Dtype, int Dim>
@@ -1021,48 +1242,16 @@ namespace erl::gp_sdf {
     GpOccSurfaceMapping<Dtype, Dim>::ComputeSurfaceIndex1(const Position &pos_global) const {
         const Key new_key = m_tree_->CoordToKey(pos_global);
         const Position grid_min = m_tree_->KeyToCoord(new_key, m_tree_->GetTreeDepth()).array() -
-                                  m_tree_->GetResolution() * 0.5f - 1.0e-6f;
+                                  m_tree_->GetResolution() * 0.5f;
         Eigen::Vector<int, Dim> grid_coords;
         for (long dim = 0; dim < Dim; ++dim) {
-            grid_coords[dim] = static_cast<int>(
-                std::floor((pos_global[dim] - grid_min[dim]) * m_surface_resolution_inv_));
+            grid_coords[dim] = std::max(
+                0,
+                static_cast<int>(
+                    std::floor((pos_global[dim] - grid_min[dim]) * m_surface_resolution_inv_)));
         }
         const int grid_index = common::CoordsToIndex<Dim>(m_strides_, grid_coords);
         return {new_key, grid_index};
-    }
-
-    template<typename Dtype, int Dim>
-    template<int D>
-    std::enable_if_t<D == 2, bool>
-    GpOccSurfaceMapping<Dtype, Dim>::ComputeOcc(
-        const Position &pos_local,
-        Dtype &distance_local,
-        Dtype &distance_pred,
-        Dtype &occ) const {
-
-        Scalar angle_local;
-        distance_local = pos_local.norm();
-        angle_local[0] = std::atan2(pos_local.y(), pos_local.x());
-        bool success = m_sensor_gp_->ComputeOcc(angle_local, distance_local, distance_pred, occ);
-        return success;
-    }
-
-    template<typename Dtype, int Dim>
-    template<int D>
-    std::enable_if_t<D == 3, bool>
-    GpOccSurfaceMapping<Dtype, Dim>::ComputeOcc(
-        const Position &pos_local,
-        Dtype &distance_local,
-        Dtype &distance_pred,
-        Dtype &occ) const {
-
-        distance_local = pos_local.norm();
-        bool success = m_sensor_gp_->ComputeOcc(
-            pos_local / distance_local,
-            distance_local,
-            distance_pred,
-            occ);
-        return success;
     }
 
     template<typename Dtype, int Dim>
@@ -1119,6 +1308,8 @@ namespace erl::gp_sdf {
     template<typename Dtype, int Dim>
     void
     GpOccSurfaceMapping<Dtype, Dim>::UpdateOccupancy() {
+        ERL_BLOCK_TIMER();
+
         const auto sensor_frame = m_sensor_gp_->GetSensorFrame();
         // In AddNewMeasurement(), only rays classified as hit are used. So, we use the same here to
         // avoid inconsistency. Experiments show that this achieves higher fps and better results.
@@ -1126,18 +1317,16 @@ namespace erl::gp_sdf {
             sensor_frame->GetHitPointsWorld().data()->data(),
             Dim,
             sensor_frame->GetNumHitRays());
-        constexpr bool parallel = true;
-        constexpr bool lazy_eval = true;
-        constexpr bool discrete = true;
         m_tree_->InsertPointCloud(
             map_points,
             sensor_frame->GetTranslationVector(),
             sensor_frame->GetMinValidRange(),
             sensor_frame->GetMaxValidRange(),
-            parallel,
-            lazy_eval,
-            discrete);
-        if (lazy_eval) {
+            m_setting_->update_tree.with_count,
+            m_setting_->update_tree.parallel,
+            m_setting_->update_tree.lazy_eval,
+            m_setting_->update_tree.discrete);
+        if (m_setting_->update_tree.lazy_eval) {
             m_tree_->UpdateInnerOccupancy();  // update the occupancy
             m_tree_->Prune();
         }
@@ -1149,6 +1338,7 @@ namespace erl::gp_sdf {
         ERL_DEBUG_ASSERT(
             m_setting_->surface_resolution <= 0,
             "AddNewMeasurement0() should only be called when the surface resolution is <= 0");
+        ERL_BLOCK_TIMER();
 
         const auto sensor_frame = m_sensor_gp_->GetSensorFrame();
         const Position sensor_pos = sensor_frame->GetTranslationVector();
@@ -1214,6 +1404,7 @@ namespace erl::gp_sdf {
         ERL_DEBUG_ASSERT(
             m_setting_->surface_resolution > 0.0f,
             "AddNewMeasurement1() should only be called when the surface resolution is > 0");
+        ERL_BLOCK_TIMER();
 
         const auto sensor_frame = m_sensor_gp_->GetSensorFrame();
         const long num_hit_rays = sensor_frame->GetNumHitRays();
@@ -1314,7 +1505,9 @@ namespace erl::gp_sdf {
             for (int j: {i << 1, (i << 1) + 1}) {
                 const Position pos_perturbed = pos_local + m_pos_perturb_.col(j);
                 Dtype dist_local, dist_pred;
-                if (!ComputeOcc(pos_perturbed, dist_local, dist_pred, occ[j])) { return false; }
+                if (!m_sensor_gp_->ComputeOcc(pos_perturbed, dist_local, dist_pred, occ[j])) {
+                    return false;
+                }
                 occ_mean += occ[j];
                 dist_sum += dist_pred;
                 dist_square_mean += dist_pred * dist_pred;
@@ -1356,9 +1549,9 @@ namespace erl::gp_sdf {
             for (int j: {i << 1, (i << 1) + 1}) {
                 const Position pos_perturbed = pos_local + m_pos_perturb_.col(j);
                 Dtype distance_pred;
-                if (Dtype distance; !ComputeOcc(pos_perturbed, distance, distance_pred, occ[j]) ||
-                                    distance_pred < valid_range_min ||
-                                    distance_pred > valid_range_max) {
+                if (Dtype distance;
+                    !m_sensor_gp_->ComputeOcc(pos_perturbed, distance, distance_pred, occ[j]) ||
+                    distance_pred < valid_range_min || distance_pred > valid_range_max) {
                     return false;
                 }
                 occ_mean += occ[j];
@@ -1389,6 +1582,7 @@ namespace erl::gp_sdf {
 
         auto &compute_variance = m_setting_->compute_variance;
         const Dtype &position_var_alpha = compute_variance.position_var_alpha;
+        const Dtype &direction_var_alpha = compute_variance.direction_var_alpha;
         const Dtype &min_distance_var = compute_variance.min_distance_var;
         const Dtype &max_distance_var = compute_variance.max_distance_var;
         const Dtype &min_gradient_var = compute_variance.min_gradient_var;
@@ -1401,11 +1595,11 @@ namespace erl::gp_sdf {
             std::max(cos_view_angle * cos_view_angle, static_cast<Dtype>(1.0e-2f));
         const Dtype var_direction = (1.0f - cos2_view_angle) / cos2_view_angle;
 
+        var_position = position_var_alpha * var_distance + direction_var_alpha * var_direction;
         if (new_point) {
-            var_position = position_var_alpha * (var_distance + var_direction);
             var_gradient = common::ClipRange(occ_mean_abs, min_gradient_var, max_gradient_var);
         } else {  // compute variance for update_map_points
-            var_position = position_var_alpha * (var_distance + var_direction) + occ_abs;
+            var_position += occ_abs;
             var_gradient =
                 common::ClipRange(occ_mean_abs + distance_var, min_gradient_var, max_gradient_var) +
                 0.1f * var_direction;

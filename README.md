@@ -115,15 +115,15 @@ done
 
 #### C++
 
-- [Gallery](../test/gtest/README.md)
-- [Gaussian Process based surface mapping 2D / 3D](../test/gtest/test_gp_occ_surface_mapping.cpp)
-- [Gaussian Process based SDF mapping 2D](../test/gtest/test_gp_sdf_mapping_2d.cpp)
-- [Gaussian Process based SDF mapping 3D](../test/gtest/test_gp_sdf_mapping_3d.cpp)
+- [Gallery](test/gtest/README.md)
+- [Gaussian Process based surface mapping 2D / 3D](test/gtest/test_gp_occ_surface_mapping.cpp)
+- [Gaussian Process based SDF mapping 2D](test/gtest/test_gp_sdf_mapping_2d.cpp)
+- [Gaussian Process based SDF mapping 3D](test/gtest/test_gp_sdf_mapping_3d.cpp)
 
 #### Python
 
-- [Gallery](../test/pytest/README.md)
-- [Gaussian Process based SDF mapping 3D](../test/pytest/test_gp_sdf_mapping_3d.py)
+- [Gallery](test/pytest/README.md)
+- [Gaussian Process based SDF mapping 3D](test/pytest/test_gp_sdf_mapping_3d.py)
 
 <!-- TODO: update links to the new location -->
 <!-- # Pretrained GP-SDF Models

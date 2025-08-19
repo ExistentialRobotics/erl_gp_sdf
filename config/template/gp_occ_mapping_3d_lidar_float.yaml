@@ -1,10 +1,11 @@
 sensor_gp:
     row_group_size: 10
-    row_overlap_size: 3
+    row_overlap_size: 4
     row_margin: &row_margin 0
     col_group_size: 10
-    col_overlap_size: 3
+    col_overlap_size: 4
     col_margin: &col_margin 0
+    min_num_samples_per_group: 50
     init_variance: 1000000
     sensor_range_var: 0.005
     max_valid_range_var: 0.04
@@ -41,6 +42,7 @@ compute_variance:
     min_distance_var: 1
     max_distance_var: 100
     position_var_alpha: 0.01
+    direction_var_alpha: 0.01
     min_gradient_var: 0.01
     max_gradient_var: 1
 update_map_points:
@@ -52,6 +54,7 @@ update_map_points:
     max_bayes_gradient_var: 0.6
     min_position_var: 0.001
     min_gradient_var: 0.001
+    max_num_points: 10000
 tree:
     tree_depth: 16
     log_odd_min: -3

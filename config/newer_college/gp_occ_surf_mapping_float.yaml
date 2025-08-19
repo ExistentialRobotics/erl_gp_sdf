@@ -1,0 +1,75 @@
+sensor_gp:
+    row_group_size: 8
+    row_overlap_size: 4
+    row_margin: &row_margin 1
+    col_group_size: 8
+    col_overlap_size: 4
+    col_margin: &col_margin 1
+    min_num_samples_per_group: 32
+    init_variance: 1000000
+    sensor_range_var: 0.001
+    max_valid_range_var: 0.1
+    occ_test_temperature: 30
+    sensor_frame_type: erl::geometry::LidarFrame3D<float>
+    sensor_frame_setting_type: erl::geometry::LidarFrame3D<float>::Setting
+    sensor_frame:
+        row_margin: *row_margin
+        col_margin: *col_margin
+        valid_range_min: 0.6
+        valid_range_max: 50
+        azimuth_min: -3.1415926535897931
+        azimuth_max: 3.1415926535897931
+        elevation_min: -0.7853981633974483
+        elevation_max: 0.7853981633974483
+        num_azimuth_lines: 1024
+        num_elevation_lines: 128
+    gp:
+        kernel_type: erl::covariance::OrnsteinUhlenbeck<float, 2>
+        kernel_setting_type: erl::covariance::Covariance<float>::Setting
+        kernel:
+            x_dim: 2
+            scale: 1
+            scale_mix: 1
+            weights: [ ]
+        max_num_samples: 160
+    mapping:
+        type: kInverseSqrt
+        scale: 1
+compute_variance:
+    zero_gradient_position_var: 1
+    zero_gradient_gradient_var: 1
+    min_distance_var: 1
+    max_distance_var: 2500
+    position_var_alpha: 0.0004
+    direction_var_alpha: 0.01
+    min_gradient_var: 0.01
+    max_gradient_var: 1
+update_map_points:
+    min_observable_occ: -0.08
+    max_surface_abs_occ: 0.02
+    max_valid_gradient_var: 0.5
+    max_adjust_tries: 2
+    max_bayes_position_var: 1.0
+    max_bayes_gradient_var: 0.6
+    min_position_var: 0.001
+    min_gradient_var: 0.001
+    max_num_points: 100000
+tree:
+    tree_depth: 16
+    log_odd_min: -3
+    log_odd_max: 10000
+    log_odd_hit: 10
+    log_odd_miss: -0.1
+    log_odd_occ_threshold: 0
+    resolution: 1.0
+    use_change_detection: false
+    use_aabb_limit: false
+    aabb:
+        center: [ 0, 0, 0 ]
+        half_sizes: [ 0, 0, 0 ]
+cluster_depth: 15
+surface_resolution: 0.5
+scaling: 1.0
+perturb_delta: 0.05
+zero_gradient_threshold: 1.0e-10
+update_occupancy: true

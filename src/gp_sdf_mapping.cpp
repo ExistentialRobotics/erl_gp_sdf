@@ -65,9 +65,6 @@ namespace erl::gp_sdf {
         ERL_ASSERTM(m_setting_ != nullptr, "setting is nullptr.");
         ERL_ASSERTM(m_surface_mapping_ != nullptr, "surface_mapping is nullptr.");
         ERL_ASSERTM(m_setting_->gp_sdf_area_scale > 1, "GP area scale must be greater than 1.");
-        // this->m_abstract_surface_mapping_ = m_surface_mapping_;
-        // this->m_map_dim_ = Dim;
-        // this->m_is_double_ = std::is_same_v<Dtype, double>;
     }
 
     template<typename Dtype, int Dim>
@@ -873,7 +870,7 @@ namespace erl::gp_sdf {
 
             // initialization
             fs.setZero();
-            distance_out = 0;
+            distance_out = -0.0001f;  // default to a small negative value
             gradient_out.setZero();
             variances.setConstant(1e6);
             variance_out.setConstant(1e6);
@@ -920,8 +917,6 @@ namespace erl::gp_sdf {
                         use_gp_covariance)) {
                     continue;
                 }
-                // sign_sum += sign;
-                // if (fs(0, cnt) > 0) { ++pos_cnt; }  // count the number of positive GPs
                 tested_idx.emplace_back(cnt++, j);
                 if (use_smallest) { continue; }
                 // the current gp prediction is not good enough,
@@ -1009,21 +1004,6 @@ namespace erl::gp_sdf {
                     i,
                     variance_out[0]);
             }
-
-            // // flip the sign of the distance and gradient if necessary
-            // bool flip = false;
-            // if (sign_sum > 0.0f) {
-            //     if (distance_out < 0) { flip = true; }
-            // } else if (sign_sum < 0.0f) {
-            //     if (distance_out > 0) { flip = true; }
-            // }
-            // if (flip) {
-            //     // flip the sign of the distance and gradient
-            //     distance_out = -distance_out;
-            //     if (compute_gradient) {
-            //         for (long j = 0; j < Dim; ++j) { gradient_out[j] = -gradient_out[j]; }
-            //     }
-            // }
         }
     }
 

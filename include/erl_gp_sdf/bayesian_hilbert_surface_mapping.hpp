@@ -4,10 +4,14 @@
 
 #include "erl_geometry/bayesian_hilbert_map.hpp"
 #include "erl_geometry/kdtree_eigen_adaptor.hpp"
+#include "erl_geometry/marching_cubes.hpp"
+#include "erl_geometry/marching_squares.hpp"
 #include "erl_geometry/occupancy_octree.hpp"
 #include "erl_geometry/occupancy_quadtree.hpp"
 #include "erl_geometry/octree_key.hpp"
 #include "erl_geometry/quadtree_key.hpp"
+
+#include <boost/heap/d_ary_heap.hpp>
 
 namespace erl::gp_sdf {
 
@@ -25,6 +29,8 @@ namespace erl::gp_sdf {
             Dtype angle_max = M_PI / 4.0;
             // number of angles
             long num_angles = 91;
+            // transform
+            Eigen::Matrix<Dtype, 2, 3> transform = Eigen::Matrix<Dtype, 2, 3>::Identity();
 
             struct YamlConvertImpl {
                 static YAML::Node
@@ -78,6 +84,8 @@ namespace erl::gp_sdf {
             Dtype num_azimuth_angles = 181;
             // number of elevation angles
             Dtype num_elevation_angles = 91;
+            // transform
+            Eigen::Matrix<Dtype, 3, 4> transform = Eigen::Matrix<Dtype, 3, 4>::Identity();
 
             struct YamlConvertImpl {
                 static YAML::Node
@@ -127,9 +135,10 @@ namespace erl::gp_sdf {
         std::string kernel_type = type_name<Covariance>();
         std::string kernel_setting_type = type_name<KernelSetting>();
         std::shared_ptr<KernelSetting> kernel = std::make_shared<KernelSetting>();
-        long max_dataset_size = -1;        // maximum size of the dataset to store
-        long hit_buffer_size = -1;         // -1 means no limit, 0 means no hit buffer
-        Dtype surface_resolution = 0.01f;  // resolution to track the surface points
+        long min_dataset_size = 0;   // minimum size of the dataset required to update
+        long max_dataset_size = -1;  // maximum size of the dataset to store
+        long hit_buffer_size = -1;   // -1 means no limit, 0 means no hit buffer
+        long surface_grid_size = 5;  // size of the surface grid
 
         struct YamlConvertImpl {
             static YAML::Node
@@ -148,6 +157,7 @@ namespace erl::gp_sdf {
     public:
         using Super = AbstractSurfaceMapping<Dtype, Dim>;
         using typename Super::Aabb;
+        using typename Super::Face;
         using typename Super::Key;
         using typename Super::KeySet;
         using typename Super::MatrixX;
@@ -159,6 +169,10 @@ namespace erl::gp_sdf {
         using typename Super::SurfDataManager;
         using typename Super::Translation;
         using typename Super::VectorX;
+        using GridShape = Eigen::Vector<int, Dim>;
+        using GridIndex = Eigen::Vector<int, Dim + 1>;
+        using SurfaceIndexMap = absl::flat_hash_map<GridIndex, std::size_t>;
+        using SurfaceDataMap = absl::flat_hash_map<GridIndex, SurfData>;
 
         using KeyVector = std::conditional_t<  //
             Dim == 2,
@@ -187,37 +201,45 @@ namespace erl::gp_sdf {
         using Covariance = covariance::Covariance<Dtype>;
         using KernelSetting = typename Covariance::Setting;
         using Kdtree = geometry::KdTreeEigenAdaptor<Dtype, Dim>;
+        using MC = std::conditional_t<Dim == 2, geometry::MarchingSquares, geometry::MarchingCubes>;
 
         // eigen types
         using Scalar = Eigen::Matrix<Dtype, 1, 1>;
         using Gradient = Position;
         using Gradients = Positions;
 
+        struct Voxel {
+            int surf_config = 0;
+            std::vector<GridIndex> edges{};
+        };
+
         struct LocalBayesianHilbertMap {
+
             using Setting = LocalBayesianHilbertMapSetting<Dtype>;
 
-            std::shared_ptr<Setting> setting = nullptr;  // settings for the local map
-            Aabb tracked_surface_boundary{};             // boundary of the surface to track
-            BayesianHilbertMap bhm;                      // local Bayesian Hilbert map
-            Eigen::Vector<int, Dim> grid_shape;          // shape of the grid for the surface points
-            Eigen::Vector<int, Dim> strides;             // strides for indexing the surface points
-            absl::flat_hash_map<int, std::size_t> surface_indices;  // local index -> buffer index
-            long num_dataset_points = 0;                            // number of dataset points
-            Positions dataset_points{};                             // [Dim, N] dataset points
-            VectorX dataset_labels{};                               // [N, 1] dataset labels
+            std::shared_ptr<Setting> setting = nullptr;         // settings for the local map
+            Aabb tracked_surface_boundary{};                    // boundary of the surface to track
+            BayesianHilbertMap bhm;                             // local Bayesian Hilbert map
+            SurfaceIndexMap surface_indices;                    // grid/edge index -> buffer index
+            absl::flat_hash_map<GridIndex, Voxel> surf_voxels;  // surface voxels
+            long num_dataset_points = 0;                        // number of dataset points
+            Positions dataset_points{};                         // [Dim, N] dataset points
+            VectorX dataset_labels{};                           // [N, 1] dataset labels
             std::vector<long> hit_indices{};     // indices of the hit points in the dataset
             std::vector<Position> hit_buffer{};  // hit point buffer of M points
             long hit_buffer_head = 0;            // head of the hit point buffer
-            bool active = true;                  // whether the local Bayesian Hilbert map is active
+            bool active = true;                  // whether the local BHM is active
+            bool trained = false;                // whether the local BHM ever trained
+            absl::flat_hash_map<GridIndex, SurfData> surf_data_cache;  // temporary cache
 
             LocalBayesianHilbertMap(
                 std::shared_ptr<Setting> setting_,
                 Positions hinged_points,
                 Aabb map_boundary,
                 uint64_t seed,
-                std::optional<Aabb> track_surface_boundary_ = std::nullopt);
+                Aabb track_surface_boundary_);
 
-            void
+            bool
             GenerateDataset(
                 const Eigen::Ref<const Position> &sensor_origin,
                 const Eigen::Ref<const Positions> &points,
@@ -233,6 +255,9 @@ namespace erl::gp_sdf {
             UpdateHitBuffer(const Eigen::Ref<const Positions> &points);
 
             [[nodiscard]] bool
+            GetGridCoords(const Eigen::Ref<const Position> &point, GridIndex &grid_coords) const;
+
+            [[nodiscard]] bool
             Write(std::ostream &s) const;
 
             [[nodiscard]] bool
@@ -246,49 +271,69 @@ namespace erl::gp_sdf {
         };
 
         struct Setting : public common::Yamlable<Setting> {
+
+            struct UpdateTree {
+                bool with_count = false;
+                bool parallel = true;
+                bool lazy_eval = true;
+                bool discrete = true;
+            };
+
+            struct UpdateMap {
+                // method for updating the map: 1=points, 2=marching-cubes
+                int method = 1;
+                // threshold for stopping the adjustment
+                Dtype surface_max_abs_logodd = 0.05f;
+                // threshold for bad surface points to be removed
+                Dtype surface_bad_abs_logodd = 0.1f;
+                // step size for the surface adjustment
+                Dtype surface_step_size = 0.01f;
+                // maximum number of points to update, used when method=1
+                int max_num_points = 100000;
+                // maximum number of voxels to update, used when method=2
+                int max_num_voxels = 1000;
+                // maximum number of tries to adjust the surface points
+                int max_adjust_tries = 3;
+                // scale for the variance
+                Dtype var_scale = 1.0f;
+                // maximum variance for the surface points/normals
+                Dtype var_max = 2.0f;
+                // if true, update the local Bayesian Hilbert maps with CUDA
+                bool update_with_cuda = false;
+                // CUDA device ID to use for the local Bayesian Hilbert maps
+                int cuda_device_id = 0;
+                // number of local Bayesian Hilbert maps to update in one batch when using CUDA
+                std::size_t update_batch_size = 128;
+            };
+
             std::shared_ptr<typename LocalBayesianHilbertMap::Setting> local_bhm =
                 std::make_shared<typename LocalBayesianHilbertMap::Setting>();
             std::shared_ptr<typename RaySelector::Setting> ray_selector =
                 std::make_shared<typename RaySelector::Setting>();
-            // the tree setting
             std::shared_ptr<TreeSetting> tree = std::make_shared<TreeSetting>();
-            // number of hinged points per axis
-            int hinged_grid_size = 11;
-            // threshold for stopping the adjustment
-            Dtype surface_max_abs_logodd = 0.05f;
-            // threshold for bad surface points to be removed
-            Dtype surface_bad_abs_logodd = 0.1f;
-            // step size for the surface adjustment
-            Dtype surface_step_size = 0.01f;
-            // if true, pass faster=true to the Bayesian Hilbert map predict methods, which assumes
-            // that the weight covariance is very small.
-            bool faster_prediction = false;
-            // maximum number of tries to adjust the surface points
-            int max_adjust_tries = 3;
-            // scale for the variance
-            Dtype var_scale = 1.0f;
-            // maximum variance for the surface points/normals
-            Dtype var_max = 2.0f;
+
+            UpdateTree update_tree;
+            UpdateMap update_map;
+
             // scaling factor for the map
             Dtype scaling = 1.0f;
+            // number of hinged points per axis
+            int hinged_grid_size = 11;
             // tree depth for the local Bayesian Hilbert map
             uint32_t bhm_depth = 14;
             // overlap between the Bayesian Hilbert maps
             Dtype bhm_overlap = 0.2f;
-            // if true, update the local Bayesian Hilbert maps with CUDA
-            bool update_with_cuda = false;
-            // CUDA device ID to use for the local Bayesian Hilbert maps
-            int cuda_device_id = 0;
-            // number of local Bayesian Hilbert maps to update in one batch when using CUDA
-            std::size_t update_batch_size = 128;
+            // if true, build the Bayesian Hilbert map on hit, otherwise on node occupied
+            bool build_bhm_on_hit = true;
+            // if true, pass faster=true to the Bayesian Hilbert map predict methods, which assumes
+            // that the weight covariance is very small.
+            bool faster_prediction = false;
             // bhm_cluster_size * 0.5 + bhm_test_margin is the half-size of the local test region
             Dtype bhm_test_margin = 0.1f;
             // number of nearest neighboring local Bayesian Hilbert maps to use for one test point
             int test_knn = 1;
             // number of test points to process in one batch
             int test_batch_size = 128;
-            // if true, build the Bayesian Hilbert map on hit, otherwise on node occupied
-            bool build_bhm_on_hit = true;
 
             struct YamlConvertImpl {
                 static YAML::Node
@@ -300,6 +345,30 @@ namespace erl::gp_sdf {
         };
 
     private:
+        // the priority queue uses std::less<T> by default to make it a max-heap.
+        // we want a min-heap, so we need to reverse the comparison.
+        // and we want to prioritize maps that have no surface voxels.
+        struct MarchingQueueItem {
+            long cnt_requests = 0;
+            Key key{};
+        };
+
+        struct MarchingOrder {  // greater comparison
+
+            [[nodiscard]] bool
+            operator()(const MarchingQueueItem &a, const MarchingQueueItem &b) const {
+                return a.cnt_requests > b.cnt_requests;
+            }
+        };
+
+        using PriorityQueue = boost::heap::d_ary_heap<
+            MarchingQueueItem,
+            boost::heap::mutable_<true>,
+            boost::heap::stable<true>,
+            boost::heap::arity<8>,
+            boost::heap::compare<MarchingOrder>>;
+        using KeyQueueMap = absl::flat_hash_map<Key, typename PriorityQueue::handle_type>;
+
         std::shared_ptr<Setting> m_setting_ = nullptr;
         std::shared_ptr<Tree> m_tree_ = nullptr;
         std::shared_ptr<Kdtree> m_bhm_kdtree_ = nullptr;
@@ -308,31 +377,40 @@ namespace erl::gp_sdf {
         std::vector<std::pair<Key, Position>> m_key_bhm_positions_{};  // key -> center
         absl::flat_hash_map<Key, std::shared_ptr<LocalBayesianHilbertMap>> m_key_bhm_dict_{};
         SurfDataManager m_surf_data_manager_ = {};
-        KeySet m_changed_clusters_{};  // keys of the clusters that have changed
-        RaySelector m_ray_selector_;
+        KeySet m_changed_clusters_{};                   // keys of the changed clusters by the tree
+        KeyVector m_clusters_to_update_{};              // keys of the clusters to update
+        std::vector<int> m_updated_flags_{};            // flags: which BHMs are updated
+        RaySelector m_ray_selector_;                    // selector for rays
         std::vector<std::vector<long>> m_ray_indices_;  // buffer for ray indices
 
-        // buffers for the new and existing hit points
+        /* variables used when m_setting_->update_map.method = 1 */
 
+        /**
+         * @brief Struct to hold information about points during the update process.
+         */
         struct PointInfo {
-            int local_idx;
-            std::size_t surf_idx;
-            bool to_remove;
-            int new_local_idx;
+            GridIndex grid_idx = {};
+            std::size_t surf_idx = -1;
+            bool to_remove = false;
+            GridIndex new_grid_idx = {};
+            bool to_move = false;
 
-            PointInfo(
-                const int local_idx_,
-                const std::size_t surf_idx_,
-                const bool to_remove_ = false,
-                const int new_local_idx_ = -1)
-                : local_idx(local_idx_),
-                  surf_idx(surf_idx_),
-                  to_remove(to_remove_),
-                  new_local_idx(new_local_idx_) {}
+            PointInfo() = default;
+
+            PointInfo(const GridIndex grid_idx_, const std::size_t surf_idx_)
+                : grid_idx(grid_idx_),
+                  surf_idx(surf_idx_) {}
         };
 
-        // bhm_key, new_hit_points, existing_hit_points
+        // buffers for the new and existing hit points:
+        // - Key: bhm_key
+        // - std::vector<PointInfo>: new_hit_points
+        // - std::vector<PointInfo>: existing_hit_points
         std::vector<std::tuple<Key, std::vector<PointInfo>, std::vector<PointInfo>>> m_hit_points_;
+
+        /* variables used when m_setting_->update_map.method = 2 */
+        KeyQueueMap m_marching_queue_keys_ = {};  // caching key in the queue
+        PriorityQueue m_marching_queue_;          // queue BHMs, smaller cnt first
 
     public:
         explicit BayesianHilbertSurfaceMapping(std::shared_ptr<Setting> setting);
@@ -346,15 +424,19 @@ namespace erl::gp_sdf {
         [[nodiscard]] const absl::flat_hash_map<Key, std::shared_ptr<LocalBayesianHilbertMap>> &
         GetLocalBayesianHilbertMaps() const;
 
+        /**
+         * @brief Update the Bayesian Hilbert map with a point cloud from sensor observation.
+         * @param sensor_rotation The rotation of the sensor.
+         * @param sensor_origin The origin of the sensor.
+         * @param points The point cloud in the world frame.
+         * @return True if the update was successful, false otherwise.
+         */
         bool
         Update(
             const Eigen::Ref<const Rotation> &sensor_rotation,
             const Eigen::Ref<const Position> &sensor_origin,
             const Eigen::Ref<const Positions> &points,
             bool parallel);
-
-        // [[nodiscard]] std::vector<SurfaceData<double, 3>>
-        // GetSurfaceData() const override;
 
         typename SurfDataManager::Iterator
         BeginSurfaceData();
@@ -428,6 +510,9 @@ namespace erl::gp_sdf {
             const Aabb &aabb,
             std::vector<std::pair<Dtype, std::size_t>> &surface_data_indices) const override;
 
+        void
+        GetMesh(std::vector<Position> &vertices, std::vector<Face> &faces) const override;
+
         [[nodiscard]] Aabb
         GetMapBoundary() const override;
 
@@ -464,16 +549,31 @@ namespace erl::gp_sdf {
             Dtype *gradient_ptr) const;
 
         void
-        UpdateMapPoints(const Eigen::Ref<const Positions> &points);
-
-        // void
-        // InitMapPointThread(int thread_id, int start, int end);
+        UpdateMapPoints(const Position &sensor_origin, const Eigen::Ref<const Positions> &points);
 
         void
-        InitMapPoint(BayesianHilbertMap &bhm, SurfData &surf_data, bool &to_remove) const;
+        UpdateMapPoints1(const Position &sensor_origin, const Eigen::Ref<const Positions> &points);
 
         void
-        UpdateMapPoint(BayesianHilbertMap &bhm, SurfData &surf_data, bool &to_remove) const;
+        UpdateSurfaceManager1();
+
+        void
+        InitMapPoint1(BayesianHilbertMap &bhm, SurfData &surf_data, bool &to_remove) const;
+
+        void
+        UpdateMapPoint1(BayesianHilbertMap &bhm, SurfData &surf_data, bool &to_remove) const;
+
+        void
+        UpdateMapPoints2(const Position &sensor_origin, const Eigen::Ref<const Positions> &points);
+
+        void
+        MarchingBhm(LocalBayesianHilbertMap &local_bhm) const;
+
+        void
+        UpdateSurfaceManager2(std::vector<std::shared_ptr<LocalBayesianHilbertMap>> &local_bhms);
+
+        void
+        RunMarchingQueue(bool run_all);
     };
 
     using RaySelector2Df = RaySelector2D<float>;
@@ -498,8 +598,6 @@ namespace erl::gp_sdf {
     extern template class BayesianHilbertSurfaceMapping<double, 2>;
     extern template class BayesianHilbertSurfaceMapping<double, 3>;
 }  // namespace erl::gp_sdf
-
-// #include "bayesian_hilbert_surface_mapping.tpp"
 
 template<>
 struct YAML::convert<erl::gp_sdf::RaySelector2Df::Setting>

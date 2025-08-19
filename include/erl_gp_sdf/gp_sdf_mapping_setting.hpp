@@ -54,8 +54,6 @@ namespace erl::gp_sdf {
     extern template class GpSdfMappingSetting<double, 3>;
 }  // namespace erl::gp_sdf
 
-// #include "gp_sdf_mapping_setting.tpp"
-
 template<>
 struct YAML::convert<erl::gp_sdf::GpSdfMappingSetting3Dd>
     : erl::gp_sdf::GpSdfMappingSetting3Dd::YamlConvertImpl {};
