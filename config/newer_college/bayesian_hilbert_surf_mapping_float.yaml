@@ -3,7 +3,7 @@ local_bhm:
         diagonal_sigma: true
         min_distance: 0.6
         max_distance: 35.0
-        free_points_per_meter: 0.5
+        free_points_per_meter: 0.3
         free_sampling_margin: 0.001
         init_mu: 0.0
         init_sigma: 10000
@@ -20,7 +20,7 @@ local_bhm:
     min_dataset_size: 20
     max_dataset_size: 3000
     hit_buffer_size: 0
-    surface_resolution: 0.3
+    surface_grid_size: 8
 ray_selector:
     azimuth_min: -3.1415926535897931
     azimuth_max: 3.1415926535897931
@@ -33,23 +33,30 @@ ray_selector:
         - [0, 1, 0, 0]
         - [0, 0, 1, 0]
 tree:
-    resolution: 1.8 # 0.5 # 1.0 # 2.0
+    resolution: 0.75 # 0.5 # 1.0 # 2.0
     tree_depth: 16
-    log_odd_min: -3
-    log_odd_max: 100
-    log_odd_hit: 10
-    log_odd_miss: -0.1
+    log_odd_min: -10
+    log_odd_max: 20
+    log_odd_hit: 0.8
+    log_odd_miss: -0.05
     log_odd_occ_threshold: 0
     use_change_detection: false
     use_aabb_limit: false
     aabb:
         center: [0, 0, 0]
         half_sizes: [0, 0, 0]
+update_tree:
+    with_count: false
+    parallel: true
+    lazy_eval: true
+    discrete: true
 update_map:
+    method: 2
     surface_max_abs_logodd: 2
     surface_bad_abs_logodd: 200
     surface_step_size: 0.001
     max_num_points: 50000
+    max_num_voxels: 10000
     max_adjust_tries: 1
     var_scale: 0.01
     var_max: 1.5
@@ -58,7 +65,7 @@ update_map:
     update_batch_size: 512
 scaling: 1.0
 hinged_grid_size: 5 # 5 # 7
-bhm_depth: 16 # 15 # 16
+bhm_depth: 15 # 15 # 16
 bhm_overlap: 0.8 # 0.4 # 0.8
 build_bhm_on_hit: true
 faster_prediction: true

@@ -35,6 +35,7 @@ namespace erl::gp_sdf {
         using Rotation = typename SurfaceMapping::Rotation;
         using Translation = typename SurfaceMapping::Translation;
         using VectorX = typename SurfaceMapping::VectorX;
+        using Face = typename SurfaceMapping::Face;
 
         using KeyVector = std::vector<Key>;
         using Gradient = Eigen::Vector<Dtype, Dim>;
@@ -176,6 +177,17 @@ namespace erl::gp_sdf {
         GetGpMap() const {
             return m_gp_map_;
         }
+
+        void
+        GetMesh(
+            const Position& boundary_size,
+            const Rotation& boundary_rotation,
+            const Position& boundary_center,
+            Dtype resolution,
+            Dtype iso_value,
+            std::vector<Position>& surface_points,
+            std::vector<Gradient>& point_normals,
+            std::vector<Face>& faces) const;
 
         [[nodiscard]] bool
         Write(std::ostream& s) const;

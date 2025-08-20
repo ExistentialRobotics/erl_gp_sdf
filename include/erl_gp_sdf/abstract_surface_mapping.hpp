@@ -24,6 +24,7 @@ namespace erl::gp_sdf {
             Dim == 2,
             geometry::QuadtreeKeySet,
             geometry::OctreeKeySet>;
+        using KeyVector = std::vector<Key>;
         using SurfDataManager = SurfaceDataManager<Dtype, Dim>;
         using SurfData = typename SurfDataManager::Data;
         using Aabb = geometry::Aabb<Dtype, Dim>;
@@ -102,6 +103,16 @@ namespace erl::gp_sdf {
          */
         [[nodiscard]] virtual const KeySet &
         GetChangedClusters() const = 0;
+
+        /**
+         * Get clusters.
+         * @return a collection of all cluster keys.
+         */
+        [[nodiscard]] virtual KeySet
+        GetAllClusters() const = 0;
+
+        [[nodiscard]] virtual Key
+        GetClusterKey(const Eigen::Ref<const Position> &pos) const = 0;
 
         /**
          * Iterate over the clusters in the given axis-aligned bounding box.

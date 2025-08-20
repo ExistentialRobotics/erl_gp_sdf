@@ -374,6 +374,31 @@ namespace erl::gp_sdf {
     }
 
     template<typename Dtype, int Dim>
+    typename GpOccSurfaceMapping<Dtype, Dim>::KeySet
+    GpOccSurfaceMapping<Dtype, Dim>::GetAllClusters() const {
+        KeySet cluster_keys;
+        if (m_setting_->surface_resolution <= 0) {
+            for (const auto &[key, index]: m_surf_indices0_) {
+                Key cluster_key = m_tree_->AdjustKeyToDepth(key, m_setting_->cluster_depth);
+                cluster_keys.insert(cluster_key);
+            }
+        } else {
+            for (const auto &[key, indices]: m_surf_indices1_) {
+                Key cluster_key = m_tree_->AdjustKeyToDepth(key, m_setting_->cluster_depth);
+                cluster_keys.insert(cluster_key);
+            }
+        }
+        return cluster_keys;
+    }
+
+    template<typename Dtype, int Dim>
+    typename GpOccSurfaceMapping<Dtype, Dim>::Key
+    GpOccSurfaceMapping<Dtype, Dim>::GetClusterKey(const Eigen::Ref<const Position> &pos) const {
+        Position pos_s = pos.array() * m_setting_->scaling;
+        return m_tree_->CoordToKey(pos_s, m_setting_->cluster_depth);
+    }
+
+    template<typename Dtype, int Dim>
     void
     GpOccSurfaceMapping<Dtype, Dim>::IterateClustersInAabb(
         const Aabb &aabb,

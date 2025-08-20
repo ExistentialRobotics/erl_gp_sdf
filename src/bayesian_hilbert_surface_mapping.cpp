@@ -951,7 +951,7 @@ namespace erl::gp_sdf {
                 auto &bhm_key = bhm_keys[i];
                 std::vector<long> &ray_indices = m_ray_indices_[omp_get_thread_num()];
                 // ray_indices.reserve(points_s.cols() / 10);
-                LocalBayesianHilbertMap &local_bhm = *m_key_bhm_dict_[bhm_key];
+                LocalBayesianHilbertMap &local_bhm = *m_key_bhm_dict_.at(bhm_key);
                 local_bhm.active = true;
                 m_ray_selector_.SelectRays(
                     sensor_origin_s,
@@ -981,7 +981,7 @@ namespace erl::gp_sdf {
                     long max_dataset_size = m_setting_->local_bhm->max_dataset_size;
                     for (std::size_t j = i; j < end; ++j) {
                         auto &bhm_key = bhm_keys[j];
-                        LocalBayesianHilbertMap &local_bhm = *m_key_bhm_dict_[bhm_key];
+                        LocalBayesianHilbertMap &local_bhm = *m_key_bhm_dict_.at(bhm_key);
                         if (local_bhm.num_dataset_points <= min_dataset_size) { continue; }
                         map_indices.emplace_back(j, num_maps);
                         ++num_maps;
@@ -994,7 +994,7 @@ namespace erl::gp_sdf {
         shared(bhm_keys, bhm_torch, points_s, sensor_origin_s, map_indices) schedule(static)
                     for (auto &[j, k]: map_indices) {
                         auto &bhm_key = bhm_keys[j];
-                        LocalBayesianHilbertMap &local_bhm = *m_key_bhm_dict_[bhm_key];
+                        LocalBayesianHilbertMap &local_bhm = *m_key_bhm_dict_.at(bhm_key);
                         bhm_torch.LoadWeightsAndCovariance(
                             k,
                             local_bhm.bhm.GetWeights(),
@@ -1020,7 +1020,7 @@ namespace erl::gp_sdf {
         schedule(static)
                     for (auto &[j, k]: map_indices) {
                         auto &bhm_key = bhm_keys[j];
-                        LocalBayesianHilbertMap &local_bhm = *m_key_bhm_dict_[bhm_key];
+                        LocalBayesianHilbertMap &local_bhm = *m_key_bhm_dict_.at(bhm_key);
                         bhm_torch.GetWeightsAndCovariance(
                             k,
                             local_bhm.bhm.GetWeights(),
@@ -1047,7 +1047,7 @@ namespace erl::gp_sdf {
                 auto &bhm_key = bhm_keys[i];
                 std::vector<long> &ray_indices = m_ray_indices_[omp_get_thread_num()];
                 // ray_indices.reserve(points_s.cols() / 10);
-                LocalBayesianHilbertMap &local_bhm = *m_key_bhm_dict_[bhm_key];
+                LocalBayesianHilbertMap &local_bhm = *m_key_bhm_dict_.at(bhm_key);
                 local_bhm.active = true;
                 m_ray_selector_.SelectRays(
                     sensor_origin_s,
@@ -1079,7 +1079,7 @@ namespace erl::gp_sdf {
 
         for (std::size_t i = 0; i < m_updated_flags_.size(); ++i) {
             if (m_updated_flags_[i] > 0) {
-                const auto &local_bhm = *m_key_bhm_dict_[bhm_keys[i]];
+                const auto &local_bhm = *m_key_bhm_dict_.at(bhm_keys[i]);
                 const long dataset_size = local_bhm.num_dataset_points;
                 min_dataset_size = std::min(min_dataset_size, dataset_size);
                 max_dataset_size = std::max(max_dataset_size, dataset_size);
@@ -1270,6 +1270,23 @@ namespace erl::gp_sdf {
     }
 
     template<typename Dtype, int Dim>
+    typename BayesianHilbertSurfaceMapping<Dtype, Dim>::KeySet
+    BayesianHilbertSurfaceMapping<Dtype, Dim>::GetAllClusters() const {
+        KeySet cluster_keys;
+        cluster_keys.reserve(m_key_bhm_positions_.size());
+        for (const auto &[key, position]: m_key_bhm_positions_) { cluster_keys.insert(key); }
+        return cluster_keys;
+    }
+
+    template<typename Dtype, int Dim>
+    [[nodiscard]] typename BayesianHilbertSurfaceMapping<Dtype, Dim>::Key
+    BayesianHilbertSurfaceMapping<Dtype, Dim>::GetClusterKey(
+        const Eigen::Ref<const Position> &pos) const {
+        Position pos_s = pos.array() * m_setting_->scaling;
+        return m_tree_->CoordToKey(pos_s, m_setting_->bhm_depth);
+    }
+
+    template<typename Dtype, int Dim>
     void
     BayesianHilbertSurfaceMapping<Dtype, Dim>::IterateClustersInAabb(
         const Aabb &aabb,
@@ -1356,18 +1373,9 @@ namespace erl::gp_sdf {
                 edge_to_vertex_map[edge_idx] = it->second;
             }
             for (const auto &[voxel_idx, voxel]: local_bhm.surf_voxels) {
-                std::size_t n_faces = voxel.edges.size() / Dim;
-                for (std::size_t i = 0, j = 0; i < n_faces; ++i, j += Dim) {
-                    Face face;
+                for (Face face: voxel.faces) {
                     for (int dim = 0; dim < Dim; ++dim) {
-                        // computation: (p1-p0).cross(p2-p0).normalized(), where
-                        // p0=face[0], p1=face[1], p2=face[2].
-                        // check erl_geometry/src/marching_cubes.cpp L1175 to L1180.
-                        // it load the edge in reverse order to make it consistent with face normal.
-                        // however, the marching cubes implementation defines free-space as
-                        // positive. BHM defines free-space as negative. So, there is no need to
-                        // reverse the order.
-                        face[dim] = edge_to_vertex_map[voxel.edges[j + dim]];
+                        face[dim] = edge_to_vertex_map[voxel.edges[face[dim]]];
                     }
                     faces.push_back(face);
                 }
@@ -1750,12 +1758,6 @@ namespace erl::gp_sdf {
             if (!m_tree_->CoordToKeyChecked(point, key)) { continue; }  // outside the map
             const TreeNode *node = m_tree_->Search(key);
             if (node == nullptr) { continue; }  // no observation of this point at all
-            // if (!m_tree_->IsNodeOccupied(node) &&
-            //     m_tree_->GetNodeSize(node->GetDepth()) * 0.5f > half_size) {
-            //     // use the tree to predict the occupancy
-            //     prob_occupied_ptr[i] = logodd ? node->GetLogOdds() : node->GetOccupancy();
-            //     continue;
-            // }
 
             if (knn == 1) {
                 long bhm_index = -1;
@@ -1882,13 +1884,7 @@ namespace erl::gp_sdf {
             std::vector<std::tuple<Key, Dtype, std::shared_ptr<LocalBayesianHilbertMap>>> clusters;
             clusters.reserve(m_changed_clusters_.size());
             for (const Key &key: m_changed_clusters_) {
-                auto it_bhm = m_key_bhm_dict_.find(key);
-                ERL_DEBUG_ASSERT(
-                    it_bhm != m_key_bhm_dict_.end(),
-                    "Key {} not found.",
-                    std::string(key));
-                if (it_bhm == m_key_bhm_dict_.end()) { continue; }  // should not happen
-                auto local_bhm = it_bhm->second;
+                auto local_bhm = m_key_bhm_dict_.at(key);
                 if (!local_bhm->active) { continue; }  // skip inactive local BHM
                 Dtype dist = (local_bhm->tracked_surface_boundary.center - sensor_origin).norm();
                 clusters.emplace_back(key, dist, local_bhm);
@@ -1960,7 +1956,7 @@ namespace erl::gp_sdf {
             for (auto &[key, new_points, existing_points]: m_hit_points_) {
                 // abs(logodd) may be larger than the threshold, but for new points, we don't remove
                 // them immediately, we will check when we try to update the point again.
-                LocalBayesianHilbertMap &local_bhm = *m_key_bhm_dict_[key];
+                LocalBayesianHilbertMap &local_bhm = *m_key_bhm_dict_.at(key);
                 for (PointInfo &new_point: new_points) {
                     SurfData &surf_data = m_surf_data_manager_[new_point.surf_idx];
                     InitMapPoint1(local_bhm.bhm, surf_data, new_point.to_remove);
@@ -2038,7 +2034,7 @@ namespace erl::gp_sdf {
         // sequential:
         // update the local Bayesian Hilbert maps with the new points
         for (auto &[key, new_points, existing_points]: m_hit_points_) {
-            LocalBayesianHilbertMap &local_bhm = *m_key_bhm_dict_[key];
+            LocalBayesianHilbertMap &local_bhm = *m_key_bhm_dict_.at(key);
             for (PointInfo &new_point: new_points) {
                 if (!new_point.to_remove) { continue; }
                 local_bhm.surface_indices.erase(new_point.grid_idx);
@@ -2191,9 +2187,7 @@ namespace erl::gp_sdf {
             m_changed_clusters_.end());
 #pragma omp parallel for schedule(dynamic) default(none) shared(m_clusters_to_update_, points)
         for (const Key &key: m_clusters_to_update_) {
-            auto it_bhm = m_key_bhm_dict_.find(key);
-            if (it_bhm == m_key_bhm_dict_.end()) { continue; }  // should not happen
-            LocalBayesianHilbertMap &local_bhm = *it_bhm->second;
+            LocalBayesianHilbertMap &local_bhm = *m_key_bhm_dict_.at(key);
             for (const long &hit_index: local_bhm.hit_indices) {
                 auto point = points.col(hit_index);
                 GridIndex voxel_coords;
@@ -2205,19 +2199,18 @@ namespace erl::gp_sdf {
 
         // 2. update the queue
         for (const Key &key: m_changed_clusters_) {
-            auto it_bhm = m_key_bhm_dict_.find(key);
-            if (it_bhm == m_key_bhm_dict_.end()) { continue; }  // should not happen
-            LocalBayesianHilbertMap &local_bhm = *it_bhm->second;
+            LocalBayesianHilbertMap &local_bhm = *m_key_bhm_dict_.at(key);
             if (!local_bhm.active) { continue; }  // skip inactive local BHM
-            auto n_voxels = static_cast<int>(local_bhm.surf_voxels.size());
+            const long time_stamp =
+                std::chrono::high_resolution_clock::now().time_since_epoch().count();
             if (auto it = m_marching_queue_keys_.find(key); it == m_marching_queue_keys_.end()) {
                 m_marching_queue_keys_.insert({
                     key,
-                    m_marching_queue_.push({n_voxels, key}),
+                    m_marching_queue_.push({time_stamp, key}),
                 });
             } else {
                 auto &queue_key = it->second;
-                (*queue_key).cnt_requests += n_voxels;
+                (*queue_key).priority = time_stamp;
                 m_marching_queue_.increase(queue_key);
             }
         }
@@ -2232,9 +2225,7 @@ namespace erl::gp_sdf {
             Key key = m_marching_queue_.top().key;
             m_marching_queue_.pop();
             m_marching_queue_keys_.erase(key);
-            auto it_bhm = m_key_bhm_dict_.find(key);
-            if (it_bhm == m_key_bhm_dict_.end()) { continue; }  // should not happen
-            auto local_bhm = it_bhm->second;
+            auto local_bhm = m_key_bhm_dict_.at(key);
             if (!local_bhm->active) { continue; }  // skip inactive local BHM
             local_bhms.emplace_back(local_bhm);    // collect local BHMs
             m_changed_clusters_.insert(key);       // mark cluster as changed
@@ -2274,7 +2265,6 @@ namespace erl::gp_sdf {
             vertex_coords[Dim] = 0;
             for (int i = 0; i < n_vertices; ++i) {
                 const int *vertex_code = MC::GetVertexCode(i);
-                ERL_ASSERTM(vertex_code != nullptr, "Invalid vertex code.");
                 // compute vertex coordinates
                 for (int dim = 0; dim < Dim; ++dim) {
                     vertex_coords[dim] = voxel_coords[dim] + vertex_code[dim];
@@ -2317,16 +2307,22 @@ namespace erl::gp_sdf {
             GridIndex edge_coords;
             if (config_changed) {
                 voxel.edges.clear();
-                const int *edge_indices = MC::GetEdgeIndices(new_surf_config);
                 int col = 0;
-                while (edge_indices[col] != -1) {
-                    const int edge_index = edge_indices[col++];
+                while (unique_edge_indices[col] != -1) {
+                    const int edge_index = unique_edge_indices[col++];
                     const int *edge_code = MC::GetEdgeCode(edge_index);
-                    ERL_ASSERTM(edge_code != nullptr, "Invalid edge code.");
                     for (int dim = 0; dim <= Dim; ++dim) {
                         edge_coords[dim] = voxel_coords[dim] + edge_code[dim];
                     }
                     voxel.edges.emplace_back(edge_coords);
+                }
+                voxel.faces.clear();
+                const int *vertex_indices = MC::GetVertexIndices(new_surf_config);
+                while (*vertex_indices != -1) {
+                    Face face;
+                    for (int i = 0; i < Dim; ++i) { face[i] = vertex_indices[i]; }
+                    vertex_indices += Dim;
+                    voxel.faces.emplace_back(face);
                 }
             }
             voxel.surf_config = new_surf_config;  // update the surface configuration
@@ -2335,23 +2331,30 @@ namespace erl::gp_sdf {
             while (unique_edge_indices[col] != -1) {
                 const int edge_index = unique_edge_indices[col++];
                 const int *edge_code = MC::GetEdgeCode(edge_index);
-                ERL_ASSERTM(edge_code != nullptr, "Invalid edge code.");
                 for (int dim = 0; dim <= Dim; ++dim) {
                     edge_coords[dim] = voxel_coords[dim] + edge_code[dim];
                 }
                 // check if interpolation for the edge exists
                 auto [it, inserted] = query_results.try_emplace(edge_coords, SurfData());
                 if (!inserted) { continue; }  // interpolation for the edge exists.
+
                 // do the interpolation
-                const int *vertex_index = MC::GetEdgeVertexIndices(edge_index);
-                const int v1 = vertex_index[0], v2 = vertex_index[1];
-                const int *v1_code = MC::GetVertexCode(v1);
-                const int *v2_code = MC::GetVertexCode(v2);
-                GridIndex v1_coords = GridIndex::Zero(), v2_coords = GridIndex::Zero();
-                for (int dim = 0; dim < Dim; ++dim) {
-                    v1_coords[dim] = voxel_coords[dim] + v1_code[dim];
-                    v2_coords[dim] = voxel_coords[dim] + v2_code[dim];
-                }
+
+                // const int *vertex_index = MC::GetEdgeVertexIndices(edge_index);
+                // const int v1 = vertex_index[0], v2 = vertex_index[1];
+                // const int *v1_code = MC::GetVertexCode(v1);
+                // const int *v2_code = MC::GetVertexCode(v2);
+                // GridIndex v1_coords = GridIndex::Zero(), v2_coords = GridIndex::Zero();
+                // for (int dim = 0; dim < Dim; ++dim) {
+                //     v1_coords[dim] = voxel_coords[dim] + v1_code[dim];
+                //     v2_coords[dim] = voxel_coords[dim] + v2_code[dim];
+                // }
+                // faster way to get the vertex coordinates
+                GridIndex v1_coords = edge_coords, v2_coords = edge_coords;
+                v1_coords[Dim] = 0;
+                ++v2_coords[edge_coords[Dim] - 1];
+                v2_coords[Dim] = 0;
+
                 const SurfData &v1_data = query_results[v1_coords];
                 const SurfData &v2_data = query_results[v2_coords];
                 const Dtype val_diff = v1_data.var_position - v2_data.var_position;
@@ -2429,9 +2432,7 @@ namespace erl::gp_sdf {
             Key key = m_marching_queue_.top().key;
             m_marching_queue_.pop();
             m_marching_queue_keys_.erase(key);
-            auto it_bhm = m_key_bhm_dict_.find(key);
-            if (it_bhm == m_key_bhm_dict_.end()) { continue; }  // should not happen
-            auto local_bhm = it_bhm->second;
+            auto local_bhm = m_key_bhm_dict_.at(key);
             if (!local_bhm->active) { continue; }  // skip inactive local BHM
             local_bhms.emplace_back(local_bhm);
             cnt_voxels += static_cast<int>(local_bhm->surf_voxels.size());

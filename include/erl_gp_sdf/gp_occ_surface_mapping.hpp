@@ -19,6 +19,7 @@ namespace erl::gp_sdf {
         using typename Super::Aabb;
         using typename Super::Key;
         using typename Super::KeySet;
+        using typename Super::KeyVector;
         using typename Super::MatrixX;
         using typename Super::Position;
         using typename Super::Positions;
@@ -29,10 +30,6 @@ namespace erl::gp_sdf {
         using typename Super::Translation;
         using typename Super::VectorX;
 
-        using KeyVector = std::conditional_t<  //
-            Dim == 2,
-            geometry::QuadtreeKeyVector,
-            geometry::OctreeKeyVector>;
         using Tree = std::conditional_t<
             Dim == 2,
             geometry::OccupancyQuadtree<Dtype>,
@@ -238,6 +235,12 @@ namespace erl::gp_sdf {
 
         [[nodiscard]] const KeySet &
         GetChangedClusters() const override;
+
+        [[nodiscard]] KeySet
+        GetAllClusters() const;
+
+        [[nodiscard]] Key
+        GetClusterKey(const Eigen::Ref<const Position> &pos) const;
 
         void
         IterateClustersInAabb(const Aabb &aabb, std::function<void(const Key &)> callback)

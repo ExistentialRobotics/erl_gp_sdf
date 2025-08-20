@@ -160,6 +160,7 @@ namespace erl::gp_sdf {
         using typename Super::Face;
         using typename Super::Key;
         using typename Super::KeySet;
+        using typename Super::KeyVector;
         using typename Super::MatrixX;
         using typename Super::Position;
         using typename Super::Positions;
@@ -174,10 +175,6 @@ namespace erl::gp_sdf {
         using SurfaceIndexMap = absl::flat_hash_map<GridIndex, std::size_t>;
         using SurfaceDataMap = absl::flat_hash_map<GridIndex, SurfData>;
 
-        using KeyVector = std::conditional_t<  //
-            Dim == 2,
-            geometry::QuadtreeKeyVector,
-            geometry::OctreeKeyVector>;
         using KeyVectorMap = std::conditional_t<  //
             Dim == 2,
             geometry::QuadtreeKeyVectorMap,
@@ -211,6 +208,7 @@ namespace erl::gp_sdf {
         struct Voxel {
             int surf_config = 0;
             std::vector<GridIndex> edges{};
+            std::vector<Face> faces{};
         };
 
         struct LocalBayesianHilbertMap {
@@ -349,7 +347,7 @@ namespace erl::gp_sdf {
         // we want a min-heap, so we need to reverse the comparison.
         // and we want to prioritize maps that have no surface voxels.
         struct MarchingQueueItem {
-            long cnt_requests = 0;
+            long priority = 0;
             Key key{};
         };
 
@@ -357,7 +355,7 @@ namespace erl::gp_sdf {
 
             [[nodiscard]] bool
             operator()(const MarchingQueueItem &a, const MarchingQueueItem &b) const {
-                return a.cnt_requests > b.cnt_requests;
+                return a.priority > b.priority;
             }
         };
 
@@ -377,7 +375,7 @@ namespace erl::gp_sdf {
         std::vector<std::pair<Key, Position>> m_key_bhm_positions_{};  // key -> center
         absl::flat_hash_map<Key, std::shared_ptr<LocalBayesianHilbertMap>> m_key_bhm_dict_{};
         SurfDataManager m_surf_data_manager_ = {};
-        KeySet m_changed_clusters_{};                   // keys of the changed clusters by the tree
+        KeySet m_changed_clusters_{};                   // keys of the changed clusters
         KeyVector m_clusters_to_update_{};              // keys of the clusters to update
         std::vector<int> m_updated_flags_{};            // flags: which BHMs are updated
         RaySelector m_ray_selector_;                    // selector for rays
@@ -497,6 +495,12 @@ namespace erl::gp_sdf {
 
         [[nodiscard]] const KeySet &
         GetChangedClusters() const override;
+
+        [[nodiscard]] KeySet
+        GetAllClusters() const override;
+
+        [[nodiscard]] Key
+        GetClusterKey(const Eigen::Ref<const Position> &pos) const;
 
         void
         IterateClustersInAabb(const Aabb &aabb, std::function<void(const Key &)> callback)

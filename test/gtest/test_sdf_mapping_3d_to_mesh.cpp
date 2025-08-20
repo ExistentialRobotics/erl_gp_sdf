@@ -72,6 +72,8 @@ struct ToMeshImpl {
         float z_min = 0.0f;
         float z_max = 0.0f;
         float grid_resolution = 0.05f;
+        float iso_value = 0.0f;
+        bool near_surface_only = false;
     };
 
     Options options;
@@ -162,6 +164,16 @@ struct ToMeshImpl {
                     "grid-resolution",
                     po::value<float>(&options.grid_resolution)->default_value(options.grid_resolution),
                     "Grid resolution for mesh extraction (in meters)"
+                )
+                (
+                    "iso-value",
+                    po::value<float>(&options.iso_value)->default_value(options.iso_value),
+                    "Isosurface value for mesh extraction"
+                )
+                (
+                    "near-surface-only",
+                    po::bool_switch(&options.near_surface_only),
+                    "Whether to generate mesh only near the surface"
                 );
             // clang-format on
 
@@ -225,6 +237,32 @@ struct ToMeshImpl {
             options.z_max = map_boundary.max()[2] * scaling;
         }
 
+        if (options.near_surface_only) {
+            Eigen::Vector3<Dtype> boundary_size;
+            boundary_size[0] = options.x_max - options.x_min;
+            boundary_size[1] = options.y_max - options.y_min;
+            boundary_size[2] = options.z_max - options.z_min;
+            std::vector<Eigen::Vector3<Dtype>> surface_points;
+            std::vector<Eigen::Vector3<Dtype>> point_normals;
+            auto extracted_mesh = std::make_shared<open3d::geometry::TriangleMesh>();
+            sdf_mapping->GetMesh(
+                boundary_size,
+                grid_rotation,
+                grid_translation,
+                options.grid_resolution,
+                options.iso_value,
+                surface_points,
+                point_normals,
+                extracted_mesh->triangles_);
+            for (std::size_t i = 0; i < surface_points.size(); ++i) {
+                extracted_mesh->vertices_.push_back(surface_points[i].template cast<double>());
+                extracted_mesh->vertex_normals_.push_back(point_normals[i].template cast<double>());
+            }
+            open3d::io::WriteTriangleMesh(options.output_mesh_file, *extracted_mesh, true);
+            open3d::visualization::DrawGeometries({extracted_mesh});
+            return;
+        }
+
         GridMapInfo3D<Dtype> grid_map_info(
             Vector3(options.x_min, options.y_min, options.z_min),
             Vector3(options.x_max, options.y_max, options.z_max),
@@ -256,11 +294,12 @@ struct ToMeshImpl {
             grid_map_info.Resolution().template cast<double>(),
             grid_map_info.Shape(),
             distances.template cast<double>(),
+            options.iso_value,
             row_major,
+            parallel,
             extracted_mesh->vertices_,
             extracted_mesh->triangles_,
-            extracted_mesh->triangle_normals_,
-            parallel);
+            extracted_mesh->triangle_normals_);
         ASSERT_TRUE(!extracted_mesh->vertices_.empty());
         ASSERT_TRUE(!extracted_mesh->triangles_.empty());
 
