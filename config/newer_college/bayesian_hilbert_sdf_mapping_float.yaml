@@ -1,4 +1,5 @@
 test_query:
+    default_invalid_sdf: -1
     max_test_valid_distance_var: 0.02
     search_area_half_size: 4
     num_neighbor_gps: 8

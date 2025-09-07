@@ -13,6 +13,7 @@ namespace erl::gp_sdf {
         using SdfGpSetting = typename SdfGp::Setting;
 
         struct TestQuery {
+            Dtype default_invalid_sdf = -0.001f;       // default sdf value for invalid prediction.
             Dtype max_test_valid_distance_var = 0.4f;  // maximum distance variance of prediction.
             Dtype search_area_half_size = 4.8f;        // the half-size of the search area.
             int num_neighbor_gps = 4;                  // Number of neighbors used for prediction.
