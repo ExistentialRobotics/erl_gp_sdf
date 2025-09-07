@@ -296,8 +296,7 @@ namespace erl::gp_sdf {
             edf_gp->Test(test_position, compute_gradient || use_normal_gp));
         edf_result.GetMean(0, 0, edf);
         if (!std::isfinite(edf)) {  // invalid sdf
-            sdf = 0.0f;
-            var[0] = 1e6f;  // set a large variance if sdf is invalid
+            var[0] = 1e6f;          // set a large variance if sdf is invalid
             return false;
         }
         sdf = edf - setting->edf_gp_offset_distance;

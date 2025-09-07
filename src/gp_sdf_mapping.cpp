@@ -873,7 +873,7 @@ namespace erl::gp_sdf {
 
             // initialization
             fs.setZero();
-            distance_out = 0;
+            distance_out = m_setting_->test_query.default_invalid_sdf;
             gradient_out.setZero();
             variances.setConstant(1e6);
             variance_out.setConstant(1e6);
