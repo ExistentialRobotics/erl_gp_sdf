@@ -1275,7 +1275,7 @@ namespace erl::gp_sdf {
                 static_cast<int>(
                     std::floor((pos_global[dim] - grid_min[dim]) * m_surface_resolution_inv_)));
         }
-        const int grid_index = common::CoordsToIndex<Dim>(m_strides_, grid_coords);
+        const int grid_index = common::CoordsToIndex<int, Dim>(m_strides_, grid_coords);
         return {new_key, grid_index};
     }
 

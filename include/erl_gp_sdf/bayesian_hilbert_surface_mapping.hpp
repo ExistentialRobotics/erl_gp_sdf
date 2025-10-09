@@ -170,11 +170,15 @@ namespace erl::gp_sdf {
         using typename Super::SurfDataManager;
         using typename Super::Translation;
         using typename Super::VectorX;
-        using GridShape = Eigen::Vector<int, Dim>;
-        using GridIndex = Eigen::Vector<int, Dim + 1>;
+        using GridShape = Eigen::Vector<long, Dim>;
+        using GridIndex = Eigen::Vector<long, Dim + 1>;
         using SurfaceIndexMap = absl::flat_hash_map<GridIndex, std::size_t>;
         using SurfaceDataMap = absl::flat_hash_map<GridIndex, SurfData>;
 
+        using KeyLongMap = std::conditional_t<  //
+            Dim == 2,
+            geometry::QuadtreeKeyLongMap,
+            geometry::OctreeKeyLongMap>;
         using KeyVectorMap = std::conditional_t<  //
             Dim == 2,
             geometry::QuadtreeKeyVectorMap,
@@ -209,6 +213,12 @@ namespace erl::gp_sdf {
             int surf_config = 0;
             std::vector<GridIndex> edges{};
             std::vector<Face> faces{};
+
+            [[nodiscard]] bool
+            operator==(const Voxel &other) const;
+
+            [[nodiscard]] bool
+            operator!=(const Voxel &other) const;
         };
 
         struct LocalBayesianHilbertMap {
@@ -315,17 +325,25 @@ namespace erl::gp_sdf {
 
             // scaling factor for the map
             Dtype scaling = 1.0f;
-            // number of hinged points per axis
-            int hinged_grid_size = 11;
             // tree depth for the local Bayesian Hilbert map
             uint32_t bhm_depth = 14;
+            // if true, synchronize shared weights across local Bayesian Hilbert maps
+            bool weight_sync = false;
+            // method used for weight synchronization: copy, mean, or bayesian
+            std::string sync_method = "copy";
+            // number of hinged points per axis
+            int hinged_grid_size = 11;
             // overlap between the Bayesian Hilbert maps
             Dtype bhm_overlap = 0.2f;
+            // overlap between the Bayesian Hilbert maps when weight_sync is enabled
+            int bhm_overlap_sync = 1;
             // if true, build the Bayesian Hilbert map on hit, otherwise on node occupied
             bool build_bhm_on_hit = true;
             // if true, pass faster=true to the Bayesian Hilbert map predict methods, which assumes
             // that the weight covariance is very small.
             bool faster_prediction = false;
+            // log-odds value for the surface points
+            Dtype surface_log_odds = 0.0f;
             // bhm_cluster_size * 0.5 + bhm_test_margin is the half-size of the local test region
             Dtype bhm_test_margin = 0.1f;
             // number of nearest neighboring local Bayesian Hilbert maps to use for one test point
@@ -409,6 +427,31 @@ namespace erl::gp_sdf {
         /* variables used when m_setting_->update_map.method = 2 */
         KeyQueueMap m_marching_queue_keys_ = {};  // caching key in the queue
         PriorityQueue m_marching_queue_;          // queue BHMs, smaller cnt first
+
+        // members for synchronizing weights
+
+        // (tree key offset, idx in src, idx in dst)
+        using WeightAddr = Eigen::Vector<int, Dim + 2>;
+        std::vector<WeightAddr> m_core_indices_;              // core indices
+        std::vector<WeightAddr> m_managed_share_indices_;     // managed share indices
+        std::vector<WeightAddr> m_unmanaged_share_indices_;   // unmanaged indices
+        std::vector<Eigen::Vector<int, Dim>> m_key_offsets_;  // key offsets of neighboring BHMs
+        std::vector<long> m_hinged_point_order_;              // ordered index to original index
+        std::vector<long> m_hinged_point_order_reverse_;      // original index to ordered index
+        KeySet m_bhm_to_sync_;                                // set of keys of BHMs to sync weights
+        KeyVector m_bhm_to_sync_vector_;                      // keys of BHMs to sync weights
+
+        // frequently used intermediate values
+        int m_block_size_ = 0;          // number of hinged points along one dimension of a block
+        int m_sync_method_ = 0;         // method used for synchronizing weights
+        Dtype m_bhm_node_size_ = 0.0f;  // size of a node that stores a BHM
+        Dtype m_half_bhm_node_size_ = 0.0f;      // half the size of a BHM node
+        Dtype m_half_bhm_size_ = 0.0f;           // half BHM size (with overlap)
+        Dtype m_hinged_grid_res_ = 0.0f;         // resolution of the hinged grid
+        Dtype m_ray_search_radius_ = 0.0f;       // radius to search rays for a BHM
+        Dtype m_half_bhm_test_size_ = 0.0f;      // half size of the valid test boundary
+        Dtype m_surface_res_ = 0.0f;             // resolution of the surface grid
+        std::size_t m_surf_point_capacity_ = 0;  // capacity of the surface grid
 
     public:
         explicit BayesianHilbertSurfaceMapping(std::shared_ptr<Setting> setting);
@@ -534,7 +577,21 @@ namespace erl::gp_sdf {
 
     private:
         void
+        InitConstants();
+
+        void
         GenerateHingedPoints();
+
+        void
+        GenerateWeightAddress();
+
+        std::pair<
+            typename absl::flat_hash_map<Key, std::shared_ptr<LocalBayesianHilbertMap>>::iterator,
+            bool>
+        CreateBhm(const Key &key);
+
+        void
+        SyncBhmWeights(const Key &key);
 
         void
         BuildBhmKdtree() const;
@@ -571,13 +628,17 @@ namespace erl::gp_sdf {
         UpdateMapPoints2(const Position &sensor_origin, const Eigen::Ref<const Positions> &points);
 
         void
-        MarchingBhm(LocalBayesianHilbertMap &local_bhm) const;
+        MarchingBhm(const Key &key, LocalBayesianHilbertMap &local_bhm) const;
 
         void
-        UpdateSurfaceManager2(std::vector<std::shared_ptr<LocalBayesianHilbertMap>> &local_bhms);
+        UpdateSurfaceManager2(
+            std::vector<std::pair<Key, std::shared_ptr<LocalBayesianHilbertMap>>> &local_bhms);
 
         void
         RunMarchingQueue(bool run_all);
+
+        [[nodiscard]] Position
+        GetUniqueVertex(Key key, GridIndex edge_idx, int buffer_idx) const;
     };
 
     using RaySelector2Df = RaySelector2D<float>;

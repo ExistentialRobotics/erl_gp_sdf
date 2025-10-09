@@ -3,8 +3,9 @@ local_bhm:
         diagonal_sigma: true
         min_distance: 0.06
         max_distance: 3.5
-        free_points_per_meter: 0.3
-        free_sampling_margin: 0.001
+        sampling_area_scale: 3
+        free_points_per_meter: 3
+        free_sampling_margin: 0.01
         init_mu: 0.0
         init_sigma: 10000
         num_em_iterations: 2
@@ -14,26 +15,26 @@ local_bhm:
     kernel_setting_type: erl::covariance::Covariance<float>::Setting
     kernel:
         x_dim: 3
-        scale: 0.02 # 0.16 # 0.25
+        scale: 0.022 # 0.16 # 0.25
         scale_mix: 1
-        weights: []
+        weights: [ ]
     min_dataset_size: 20
-    max_dataset_size: 3000
+    max_dataset_size: 4000
     hit_buffer_size: 0
-    surface_grid_size: 8
+    surface_grid_size: 5
 ray_selector:
     azimuth_min: -3.1415926535897931
     azimuth_max: 3.1415926535897931
     elevation_min: -0.7853981633974483
-    elevation_max: 0.7853981633974483
+    elevation_max: 0.78539816339744830
     num_azimuth_angles: 1024
     num_elevation_angles: 128
     transform:
-        - [1, 0, 0, 0]
-        - [0, 1, 0, 0]
-        - [0, 0, 1, 0]
+        - [ 1, 0, 0, 0 ]
+        - [ 0, 1, 0, 0 ]
+        - [ 0, 0, 1, 0 ]
 tree:
-    resolution: 0.075 # 0.5 # 1.0 # 2.0
+    resolution: 0.07 # 0.06 # 0.075 # 0.5 # 1.0 # 2.0
     tree_depth: 16
     log_odd_min: -10
     log_odd_max: 20
@@ -43,8 +44,8 @@ tree:
     use_change_detection: false
     use_aabb_limit: false
     aabb:
-        center: [0, 0, 0]
-        half_sizes: [0, 0, 0]
+        center: [ 0, 0, 0 ]
+        half_sizes: [ 0, 0, 0 ]
 update_tree:
     with_count: false
     parallel: true
@@ -56,7 +57,7 @@ update_map:
     surface_bad_abs_logodd: 200
     surface_step_size: 0.001
     max_num_points: 50000
-    max_num_voxels: 10000
+    max_num_voxels: 20000
     max_adjust_tries: 1
     var_scale: 0.01
     var_max: 1.5
@@ -64,11 +65,15 @@ update_map:
     cuda_device_id: 0
     update_batch_size: 512
 scaling: 0.1
-hinged_grid_size: 5 # 5 # 7
 bhm_depth: 15 # 15 # 16
-bhm_overlap: 0.08 # 0.4 # 0.8
+weight_sync: true
+sync_method: "bayesian"
+hinged_grid_size: 5 # 5 # 7
+bhm_overlap: 0.05 # 0.04  # 0.05 # 0.08 # 0.4 # 0.8
+bhm_overlap_sync: 1
 build_bhm_on_hit: true
 faster_prediction: true
-bhm_test_margin: 0.07 # 0.3 # 0.7
+surface_log_odds: 0.0
+bhm_test_margin: 0.06 # 0.045 # 0.07 # 0.3 # 0.7
 test_knn: 1
 test_batch_size: 1000

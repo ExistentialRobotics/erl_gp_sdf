@@ -243,7 +243,7 @@ struct ToMeshImpl {
             boundary_size[1] = options.y_max - options.y_min;
             boundary_size[2] = options.z_max - options.z_min;
             std::vector<Eigen::Vector3<Dtype>> surface_points;
-            std::vector<Eigen::Vector3<Dtype>> point_normals;
+            std::vector<Eigen::Vector3<Dtype>> triangle_normals;
             auto extracted_mesh = std::make_shared<open3d::geometry::TriangleMesh>();
             sdf_mapping->GetMesh(
                 boundary_size,
@@ -252,12 +252,15 @@ struct ToMeshImpl {
                 options.grid_resolution,
                 options.iso_value,
                 surface_points,
-                point_normals,
-                extracted_mesh->triangles_);
-            for (std::size_t i = 0; i < surface_points.size(); ++i) {
-                extracted_mesh->vertices_.push_back(surface_points[i].template cast<double>());
-                extracted_mesh->vertex_normals_.push_back(point_normals[i].template cast<double>());
+                extracted_mesh->triangles_,
+                triangle_normals);
+            for (const auto &point: surface_points) {
+                extracted_mesh->vertices_.push_back(point.template cast<double>());
             }
+            for (const auto &normal: triangle_normals) {
+                extracted_mesh->triangle_normals_.push_back(normal.template cast<double>());
+            }
+            extracted_mesh->ComputeVertexNormals();
             open3d::io::WriteTriangleMesh(options.output_mesh_file, *extracted_mesh, true);
             open3d::visualization::DrawGeometries({extracted_mesh});
             return;

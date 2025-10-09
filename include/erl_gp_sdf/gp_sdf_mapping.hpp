@@ -9,7 +9,6 @@
 #include "erl_geometry/kdtree_eigen_adaptor.hpp"
 
 #include <absl/container/flat_hash_map.h>
-#include <absl/container/flat_hash_set.h>
 #include <boost/heap/d_ary_heap.hpp>
 
 #include <vector>
@@ -186,8 +185,8 @@ namespace erl::gp_sdf {
             Dtype resolution,
             Dtype iso_value,
             std::vector<Position>& surface_points,
-            std::vector<Gradient>& point_normals,
-            std::vector<Face>& faces) const;
+            std::vector<Face>& faces,
+            std::vector<Gradient>& face_normals) const;
 
         [[nodiscard]] bool
         Write(std::ostream& s) const;

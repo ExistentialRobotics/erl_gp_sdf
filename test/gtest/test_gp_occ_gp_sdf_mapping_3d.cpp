@@ -1,3 +1,4 @@
+#include "erl_common/block_timer.hpp"
 #include "erl_common/test_helper.hpp"
 #include "erl_geometry/cow_and_lady.hpp"
 #include "erl_geometry/depth_camera_3d.hpp"
@@ -108,7 +109,6 @@ TestImpl3D() {
     using VectorX = Eigen::VectorX<Dtype>;
     using Vector3 = Eigen::Vector3<Dtype>;
     using Matrix3 = Eigen::Matrix3<Dtype>;
-    using Matrix4 = Eigen::Matrix4<Dtype>;
     using MatrixX = Eigen::MatrixX<Dtype>;
     using Matrix3X = Eigen::Matrix3X<Dtype>;
     using Matrix4X = Eigen::Matrix4X<Dtype>;

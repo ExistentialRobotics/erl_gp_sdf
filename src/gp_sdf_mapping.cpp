@@ -5,6 +5,8 @@
 #include "erl_geometry/marching_cubes.hpp"
 #include "erl_geometry/marching_squares.hpp"
 
+#include <utility>
+
 namespace erl::gp_sdf {
 
     template<typename Dtype, int Dim>
@@ -248,6 +250,11 @@ namespace erl::gp_sdf {
                 gp_positions.col(static_cast<long>(new_candidate_gps.size())) = gp->position;
                 new_candidate_gps.emplace_back(key, gp);
             }
+            if (new_candidate_gps.empty()) {
+                ERL_WARN("No active and trained GPs available for testing.");
+                m_candidate_gps_.clear();
+                return false;
+            }
             m_candidate_gps_ = std::move(new_candidate_gps);
             gp_positions.conservativeResize(Dim, m_candidate_gps_.size());
             m_kdtree_candidate_gps_ = std::make_shared<KdTree>(std::move(gp_positions));
@@ -378,12 +385,12 @@ namespace erl::gp_sdf {
         const Dtype resolution,
         const Dtype iso_value,
         std::vector<Position> &surface_points,
-        std::vector<Gradient> &point_normals,
-        std::vector<Face> &faces) const {
+        std::vector<Face> &faces,
+        std::vector<Gradient> &face_normals) const {
 
-        using GridShape = Eigen::Vector<int, Dim>;
-        using VoxelCoord = Eigen::Vector<int, Dim>;
-        using EdgeCoord = Eigen::Vector<int, Dim + 1>;
+        using GridShape = Eigen::Vector<long, Dim>;
+        using VoxelCoord = Eigen::Vector<long, Dim>;
+        using EdgeCoord = Eigen::Vector<long, Dim + 1>;
         using MC = std::conditional_t<Dim == 2, geometry::MarchingSquares, geometry::MarchingCubes>;
         using namespace common;
 
@@ -395,18 +402,29 @@ namespace erl::gp_sdf {
             grid_shape[i] = static_cast<int>(std::ceil(boundary_size[i] / resolution));
             grid_resolution[i] = boundary_size[i] / static_cast<Dtype>(grid_shape[i]);
         }
-        const GridShape grid_strides = ComputeCStrides<int, Dim>(grid_shape, 1);
+        const GridShape grid_strides = ComputeCStrides<long, Dim>(grid_shape, 1);
         const Position bound_min = boundary_size.array() * -0.5f;
         auto old_test_query = m_setting_->test_query;  // backup
-        m_setting_->test_query.compute_gradient = true;
+        m_setting_->test_query.compute_gradient = false;
         m_setting_->test_query.compute_gradient_variance = false;
         m_setting_->test_query.compute_covariance = false;
 
         // 2. find voxels that are near the surface, i.e. in any cluster
         ERL_INFO("Finding voxels near the surface");
         const KeySet clusters = m_surface_mapping_->GetAllClusters();
-        const Dtype cluster_size = m_surface_mapping_->GetClusterSize();
-        const int n_voxels = grid_shape.prod();
+        Positions cluster_centers(Dim, clusters.size());
+        {
+            long idx = 0;
+            for (const auto &key: clusters) {
+                cluster_centers.col(idx++) = m_surface_mapping_->GetClusterCenter(key);
+            }
+        }
+        const Dtype scaling = 1.0f / m_surface_mapping_->GetScaling();
+        cluster_centers *= scaling;
+        Dtype radius = m_surface_mapping_->GetClusterSize() * scaling + resolution;
+        radius *= std::sqrt(static_cast<Dtype>(Dim));
+        KdTree kdtree_clusters(cluster_centers);
+        const long n_voxels = grid_shape.prod();
         Eigen::VectorXb flags_near_surface(n_voxels);
 #pragma omp parallel for schedule(static) default(none) \
     shared(n_voxels,                                    \
@@ -416,16 +434,21 @@ namespace erl::gp_sdf {
                bound_min,                               \
                grid_resolution,                         \
                boundary_rotation,                       \
-               boundary_center)
-        for (int voxel_idx = 0; voxel_idx < n_voxels; ++voxel_idx) {
-            VoxelCoord voxel_coord = IndexToCoordsWithStrides<Dim>(grid_strides, voxel_idx, true);
+               boundary_center,                         \
+               kdtree_clusters,                         \
+               radius)
+        for (long voxel_idx = 0; voxel_idx < n_voxels; ++voxel_idx) {
+            VoxelCoord voxel_coord = IndexToCoordsWithStrides(grid_strides, voxel_idx, true);
             Position voxel_center;
             for (int i = 0; i < Dim; ++i) {
                 voxel_center[i] = GridToMeter(voxel_coord[i], bound_min[i], grid_resolution[i]);
             }
             voxel_center = boundary_rotation * voxel_center + boundary_center;
-            Key cluster_key = m_surface_mapping_->GetClusterKey(voxel_center);
-            flags_near_surface[voxel_idx] = clusters.contains(cluster_key);
+            // Key cluster_key = m_surface_mapping_->GetClusterKey(voxel_center);
+            // flags_near_surface[voxel_idx] = clusters.contains(cluster_key);
+            std::vector<nanoflann::ResultItem<long, Dtype>> indices_dists;
+            kdtree_clusters.RadiusSearch(voxel_center, radius, indices_dists, false);
+            flags_near_surface[voxel_idx] = !indices_dists.empty();
         }
 
         struct Voxel {
@@ -435,19 +458,18 @@ namespace erl::gp_sdf {
             std::vector<EdgeCoord> unique_edges;
             std::vector<Face> faces;
 
-            Voxel(int idx, VoxelCoord coord_)
+            Voxel(const int idx, VoxelCoord coord_)
                 : idx(idx),
-                  coord(coord_) {}
+                  coord(std::move(coord_)) {}
         };
 
         std::vector<Voxel> near_surface_voxels;
-        near_surface_voxels.reserve(
-            clusters.size() * static_cast<int>(cluster_size / resolution + 1));
+        near_surface_voxels.reserve(clusters.size() * (1 << (Dim - 1)));
         for (int i = 0; i < n_voxels; ++i) {
             if (flags_near_surface[i]) {
                 near_surface_voxels.emplace_back(
                     i,
-                    IndexToCoordsWithStrides<Dim>(grid_strides, i, true));
+                    IndexToCoordsWithStrides<long, Dim>(grid_strides, i, true));
             }
         }
 
@@ -477,7 +499,6 @@ namespace erl::gp_sdf {
             for (std::size_t idx = start_idx; idx < end_idx; ++idx) {
                 const Voxel &voxel = near_surface_voxels[idx];
                 VoxelCoord vertex_coord;
-                Position vertex_pos;
                 for (int i = 0; i < n_vertices; ++i) {
                     const int *vertex_code = MC::GetVertexCode(i);
                     // compute vertex coordinates
@@ -487,11 +508,12 @@ namespace erl::gp_sdf {
                     // check if the vertex exists
                     auto [it, inserted] = vertex_set.insert(vertex_coord);
                     if (!inserted) { continue; }
-                    for (int i = 0; i < Dim; ++i) {
-                        vertex_pos[i] = VertexIndexToMeter<Dtype>(
-                            vertex_coord[i],
-                            bound_min[i],
-                            grid_resolution[i]);
+                    Position vertex_pos;
+                    for (int dim = 0; dim < Dim; ++dim) {
+                        vertex_pos[dim] = VertexIndexToMeter<Dtype>(
+                            vertex_coord[dim],
+                            bound_min[dim],
+                            grid_resolution[dim]);
                     }
                     vertices.emplace_back(vertex_coord, vertex_pos);
                 }
@@ -595,7 +617,6 @@ namespace erl::gp_sdf {
         }
         n_unique_edges = unique_edges.size();
         surface_points.resize(n_unique_edges);
-        point_normals.resize(n_unique_edges);
 #pragma omp parallel for schedule(static) default(none) \
     shared(n_unique_edges,                              \
                unique_edges,                            \
@@ -604,7 +625,7 @@ namespace erl::gp_sdf {
                vertices,                                \
                gradients,                               \
                surface_points,                          \
-               point_normals)
+               iso_value)
         for (long i = 0; i < static_cast<long>(n_unique_edges); ++i) {
             const EdgeCoord &edge_coord = unique_edges[i];
             VoxelCoord v1_coord = edge_coord.template head<Dim>();
@@ -613,26 +634,18 @@ namespace erl::gp_sdf {
             long vid1 = vertex_map.at(v1_coord);
             long vid2 = vertex_map.at(v2_coord);
             constexpr Dtype kEpsilon = 1e-6f;
-            const Dtype val_diff = sdf_values[vid1] - sdf_values[vid2];
+            const Dtype val1 = sdf_values[vid1];
+            const Dtype val2 = sdf_values[vid2];
+            const Dtype val_diff = val1 - val2;
             Dtype *p = surface_points[i].data();
-            Dtype *n = point_normals[i].data();
             const Dtype *p1 = vertices.col(vid1).data();
             const Dtype *p2 = vertices.col(vid2).data();
-            const Dtype *n1 = gradients.col(vid1).data();
-            const Dtype *n2 = gradients.col(vid2).data();
             if (std::abs(val_diff) >= kEpsilon) {
-                Dtype t = sdf_values[vid1] / val_diff;
-                for (int dim = 0; dim < Dim; ++dim) {
-                    p[dim] = p1[dim] + t * (p2[dim] - p1[dim]);
-                    n[dim] = n1[dim] + t * (n2[dim] - n1[dim]);
-                }
+                Dtype t = (val1 - iso_value) / val_diff;
+                for (int dim = 0; dim < Dim; ++dim) { p[dim] = p1[dim] + t * (p2[dim] - p1[dim]); }
             } else {
-                for (int dim = 0; dim < Dim; ++dim) {
-                    p[dim] = 0.5f * (p1[dim] + p2[dim]);
-                    n[dim] = 0.5f * (n1[dim] + n2[dim]);
-                }
+                for (int dim = 0; dim < Dim; ++dim) { p[dim] = 0.5f * (p1[dim] + p2[dim]); }
             }
-            point_normals[i].normalize();
         }
 
         // 7. merge the resulting meshes from all voxels into a single mesh
@@ -646,14 +659,35 @@ namespace erl::gp_sdf {
         }
         faces.clear();
         faces.resize(n_faces);
+        face_normals.resize(n_faces);
 #pragma omp parallel for schedule(static) default(none) \
-    shared(start_indices, faces, near_surface_voxels, edge_map)
+    shared(start_indices, near_surface_voxels, edge_map, surface_points, faces, face_normals)
         for (std::size_t i = 0; i < near_surface_voxels.size(); ++i) {
             const Voxel &voxel = near_surface_voxels[i];
             std::size_t idx = start_indices[i];
             for (const Face &face: voxel.faces) {
+                auto &face_out = faces[idx];
+                auto &normal_out = face_normals[idx];
                 for (int dim = 0; dim < Dim; ++dim) {
-                    faces[idx][dim] = edge_map.at(voxel.unique_edges[face[dim]]);
+                    face_out[dim] = edge_map.at(voxel.unique_edges[face[dim]]);
+                }
+                if (Dim == 3) {
+                    // compute face normal
+                    const Position &v0 = surface_points[face_out[0]];
+                    const Position &v1 = surface_points[face_out[1]];
+                    const Position &v2 = surface_points[face_out[2]];
+                    Position v10 = v1 - v0;
+                    Position v20 = v2 - v0;
+                    normal_out[0] = v10[1] * v20[2] - v10[2] * v20[1];
+                    normal_out[1] = v10[2] * v20[0] - v10[0] * v20[2];
+                    normal_out[2] = v10[0] * v20[1] - v10[1] * v20[0];
+                    normal_out.normalize();
+                } else if (Dim == 2) {
+                    const Position &v0 = surface_points[face_out[0]];
+                    const Position &v1 = surface_points[face_out[1]];
+                    face_normals[idx][0] = v1[1] - v0[1];
+                    face_normals[idx][1] = v0[0] - v1[0];
+                    face_normals[idx].normalize();
                 }
                 ++idx;
             }

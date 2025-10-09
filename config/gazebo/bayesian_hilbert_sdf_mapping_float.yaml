@@ -1,4 +1,5 @@
 test_query:
+    default_invalid_sdf: -1
     max_test_valid_distance_var: 1
     search_area_half_size: 4  # should be around max sdf
     num_neighbor_gps: 4
@@ -15,7 +16,6 @@ sensor_noise: 0.01
 gp_sdf_area_scale: 5    # should be larger than 2x max sdf when use_smallest is false: 7
 max_valid_gradient_var: 0.1
 invalid_position_var: 0.25
-offset_distance: 0.0
 sdf_gp:
     sign_method: "kExternal"
     hybrid_sign_methods: [ "kNormalGp", "kExternal" ]
@@ -29,7 +29,6 @@ sdf_gp:
         kernel_setting_type: erl::covariance::ReducedRankCovariance<float>::Setting
         kernel:
             x_dim: 2
-            alpha: 1
             scale: 2
             scale_mix: 1
             weights: [ ]
@@ -44,10 +43,10 @@ sdf_gp:
         kernel_setting_type: erl::covariance::Covariance<float>::Setting
         kernel:
             x_dim: 2
-            alpha: 1
             scale: 0.3
             scale_mix: 1
             weights: [ ]
         log_lambda: 20
+        duplicate_epsilon: 0.0
         max_num_samples: 256   # max dataset size
         no_gradient_observation: true

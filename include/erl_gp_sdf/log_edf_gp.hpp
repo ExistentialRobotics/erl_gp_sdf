@@ -4,6 +4,8 @@
 
 #include "erl_gaussian_process/noisy_input_gp.hpp"
 
+#include <absl/container/flat_hash_set.h>
+
 #include <utility>
 
 namespace erl::gp_sdf {
@@ -16,9 +18,8 @@ namespace erl::gp_sdf {
         using MatrixX = Eigen::MatrixX<Dtype>;
 
         struct Setting : public common::Yamlable<Setting, typename Super::Setting> {
-            Dtype log_lambda = 40.0f;
-            bool softmin_mode = false;         // whether to use softmin instead of GP
-            Dtype softmin_temperature = 1.0f;  // temperature for softmin
+            Dtype log_lambda = 40.0f;         // log-edf parameter
+            Dtype duplicate_epsilon = 1e-5f;  // epsilon for duplicate detection
 
             struct YamlConvertImpl {
                 static YAML::Node
@@ -129,8 +130,19 @@ namespace erl::gp_sdf {
 
             long count = 0;
             typename Super::TrainSet &train_set = this->m_train_set_;
+
+            absl::flat_hash_set<Eigen::Vector<long, Dim>> unique_points;
+            unique_points.reserve(max_num_samples);
+            Eigen::Vector<long, Dim> point;
+            const auto &duplicate_epsilon = m_setting_->duplicate_epsilon;
+
             for (auto &[distance, surface_data_index]: surface_data_indices) {
                 auto &surf_data = surface_data_vec[surface_data_index];
+                if (duplicate_epsilon > 0) {
+                    point = (surf_data.position.array() / duplicate_epsilon).template cast<long>();
+                    if (!unique_points.insert(point).second) { continue; }  // skip duplicate points
+                }
+
                 if (offset_distance == 0.0f) {
                     train_set.x.col(count) = surf_data.position;
                 } else {

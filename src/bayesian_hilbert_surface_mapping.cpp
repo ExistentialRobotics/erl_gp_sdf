@@ -5,6 +5,8 @@
 #include "erl_geometry/bayesian_hilbert_map_torch.hpp"
 #include "erl_gp_sdf/surface_data_manager.hpp"
 
+#include <utility>
+
 namespace erl::gp_sdf {
     template<typename Dtype>
     YAML::Node
@@ -156,25 +158,19 @@ namespace erl::gp_sdf {
         const Matrix3 &sensor_rotation,
         const Eigen::Ref<const Matrix3X> &ray_end_points) {
         using namespace common;
-        const Dtype azimuth_min = m_setting_->azimuth_min;
-        const Dtype azimuth_max = m_setting_->azimuth_max;
-        const Dtype elevation_min = m_setting_->elevation_min;
-        const Dtype elevation_max = m_setting_->elevation_max;
 
         auto *ptr = m_ray_indices_.data();
         for (long i = 0; i < m_ray_indices_.size(); ++i) { ptr[i].clear(); }
 
         Eigen::Matrix2X<long> coords(2, ray_end_points.cols());
 #pragma omp parallel for default(none) \
-    shared(ray_end_points,             \
-               coords,                 \
-               sensor_rotation,        \
-               sensor_origin,          \
-               azimuth_min,            \
-               azimuth_max,            \
-               elevation_min,          \
-               elevation_max) schedule(static)
+    shared(ray_end_points, coords, sensor_rotation, sensor_origin) schedule(static)
         for (long i = 0; i < ray_end_points.cols(); ++i) {
+            const Dtype &azimuth_min = m_setting_->azimuth_min;
+            const Dtype &azimuth_max = m_setting_->azimuth_max;
+            const Dtype &elevation_min = m_setting_->elevation_min;
+            const Dtype &elevation_max = m_setting_->elevation_max;
+
             Vector3 p = sensor_rotation.transpose() * (ray_end_points.col(i) - sensor_origin);
             p = m_setting_->transform.template leftCols<3>() * p + m_setting_->transform.col(3);
             p.normalize();
@@ -212,10 +208,10 @@ namespace erl::gp_sdf {
         DirectionToAzimuthElevation<Dtype>(point, azimuth, elevation);
         const Dtype theta = std::atan2(radius, dist);
 
-        const Dtype azimuth_min = m_setting_->azimuth_min;
-        const Dtype azimuth_max = m_setting_->azimuth_max;
-        const Dtype elevation_min = m_setting_->elevation_min;
-        const Dtype elevation_max = m_setting_->elevation_max;
+        const Dtype &azimuth_min = m_setting_->azimuth_min;
+        const Dtype &azimuth_max = m_setting_->azimuth_max;
+        const Dtype &elevation_min = m_setting_->elevation_min;
+        const Dtype &elevation_max = m_setting_->elevation_max;
         constexpr auto kPi = static_cast<Dtype>(M_PI);
         constexpr auto kPi2 = static_cast<Dtype>(M_PI_2);
 
@@ -353,11 +349,15 @@ namespace erl::gp_sdf {
         node["update_map"] = update_map_node;
 
         ERL_YAML_SAVE_ATTR(node, setting, scaling);
-        ERL_YAML_SAVE_ATTR(node, setting, hinged_grid_size);
         ERL_YAML_SAVE_ATTR(node, setting, bhm_depth);
+        ERL_YAML_SAVE_ATTR(node, setting, weight_sync);
+        ERL_YAML_SAVE_ATTR(node, setting, sync_method);
+        ERL_YAML_SAVE_ATTR(node, setting, hinged_grid_size);
         ERL_YAML_SAVE_ATTR(node, setting, bhm_overlap);
+        ERL_YAML_SAVE_ATTR(node, setting, bhm_overlap_sync);
         ERL_YAML_SAVE_ATTR(node, setting, build_bhm_on_hit);
         ERL_YAML_SAVE_ATTR(node, setting, faster_prediction);
+        ERL_YAML_SAVE_ATTR(node, setting, surface_log_odds);
         ERL_YAML_SAVE_ATTR(node, setting, bhm_test_margin);
         ERL_YAML_SAVE_ATTR(node, setting, test_knn);
         ERL_YAML_SAVE_ATTR(node, setting, test_batch_size);
@@ -399,16 +399,32 @@ namespace erl::gp_sdf {
         ERL_YAML_LOAD_ATTR(update_map_node, um, update_batch_size);
 
         ERL_YAML_LOAD_ATTR(node, setting, scaling);
-        ERL_YAML_LOAD_ATTR(node, setting, hinged_grid_size);
         ERL_YAML_LOAD_ATTR(node, setting, bhm_depth);
+        ERL_YAML_LOAD_ATTR(node, setting, weight_sync);
+        ERL_YAML_LOAD_ATTR(node, setting, sync_method);
+        ERL_YAML_LOAD_ATTR(node, setting, hinged_grid_size);
         ERL_YAML_LOAD_ATTR(node, setting, bhm_overlap);
+        ERL_YAML_LOAD_ATTR(node, setting, bhm_overlap_sync);
         ERL_YAML_LOAD_ATTR(node, setting, build_bhm_on_hit);
         ERL_YAML_LOAD_ATTR(node, setting, faster_prediction);
+        ERL_YAML_LOAD_ATTR(node, setting, surface_log_odds);
         ERL_YAML_LOAD_ATTR(node, setting, bhm_test_margin);
         ERL_YAML_LOAD_ATTR(node, setting, test_knn);
         ERL_YAML_LOAD_ATTR(node, setting, test_batch_size);
 
         return true;
+    }
+
+    template<typename Dtype, int Dim>
+    bool
+    BayesianHilbertSurfaceMapping<Dtype, Dim>::Voxel::operator==(const Voxel &other) const {
+        return surf_config == other.surf_config && edges == other.edges && faces == other.faces;
+    }
+
+    template<typename Dtype, int Dim>
+    bool
+    BayesianHilbertSurfaceMapping<Dtype, Dim>::Voxel::operator!=(const Voxel &other) const {
+        return !(*this == other);
     }
 
     template<typename Dtype, int Dim>
@@ -419,7 +435,7 @@ namespace erl::gp_sdf {
         uint64_t seed,
         Aabb track_surface_boundary_)
         : setting(std::move(setting_)),
-          tracked_surface_boundary(track_surface_boundary_),
+          tracked_surface_boundary(std::move(track_surface_boundary_)),
           bhm(setting->bhm,
               Covariance::CreateCovariance(setting->kernel_type, setting->kernel),
               std::move(hinged_points),
@@ -544,6 +560,40 @@ namespace erl::gp_sdf {
                 },
             },
             {
+                "surf_voxels",
+                [](const LocalBayesianHilbertMap *self, std::ostream &stream) {
+                    const std::size_t n_voxels = self->surf_voxels.size();
+                    stream.write(reinterpret_cast<const char *>(&n_voxels), sizeof(n_voxels));
+                    for (const auto &[index, voxel]: self->surf_voxels) {
+                        stream.write(reinterpret_cast<const char *>(&index), sizeof(index));
+                        stream.write(
+                            reinterpret_cast<const char *>(&voxel.surf_config),
+                            sizeof(voxel.surf_config));
+                        // write edges
+                        const std::size_t n_edges = voxel.edges.size();
+                        stream.write(reinterpret_cast<const char *>(&n_edges), sizeof(n_edges));
+                        for (const auto &edge: voxel.edges) {
+                            for (long i = 0; i < edge.size(); ++i) {
+                                stream.write(
+                                    reinterpret_cast<const char *>(&edge[i]),
+                                    sizeof(edge[i]));
+                            }
+                        }
+                        // write faces
+                        const std::size_t n_faces = voxel.faces.size();
+                        stream.write(reinterpret_cast<const char *>(&n_faces), sizeof(n_faces));
+                        for (const auto &face: voxel.faces) {
+                            for (long i = 0; i < face.size(); ++i) {
+                                stream.write(
+                                    reinterpret_cast<const char *>(&face[i]),
+                                    sizeof(face[i]));
+                            }
+                        }
+                    }
+                    return stream.good();
+                },
+            },
+            {
                 "num_dataset_points",
                 [](const LocalBayesianHilbertMap *self, std::ostream &stream) {
                     stream.write(
@@ -612,6 +662,7 @@ namespace erl::gp_sdf {
                     return stream.good();
                 },
             },
+            // surf_data_cache is temporary.
         };
         return WriteTokens(s, this, token_function_pairs);
     }
@@ -645,6 +696,67 @@ namespace erl::gp_sdf {
                             ERL_WARN("Duplicate surface_indices index: {}.", index);
                             return false;
                         }
+                    }
+                    return stream.good();
+                },
+            },
+            {
+                "surf_voxels",
+                [](LocalBayesianHilbertMap *self, std::istream &stream) {
+                    std::size_t n_voxels;
+                    stream.read(reinterpret_cast<char *>(&n_voxels), sizeof(n_voxels));
+                    if (n_voxels == 0) {
+                        self->surf_voxels.clear();
+                        return stream.good();
+                    }
+                    self->surf_voxels.reserve(n_voxels);
+                    for (std::size_t i = 0; i < n_voxels; ++i) {
+                        GridIndex index;
+                        stream.read(reinterpret_cast<char *>(&index), sizeof(index));
+                        if (self->surf_voxels.contains(index)) {
+                            ERL_WARN("Duplicate surf_voxels index: {}.", index);
+                            return false;
+                        }
+                        Voxel voxel;
+                        stream.read(
+                            reinterpret_cast<char *>(&voxel.surf_config),
+                            sizeof(voxel.surf_config));
+                        // read edges
+                        std::size_t n_edges = 0;
+                        stream.read(reinterpret_cast<char *>(&n_edges), sizeof(n_edges));
+                        if (n_edges == 0) {
+                            voxel.edges.clear();
+                        } else {
+                            voxel.edges.reserve(n_edges);
+                            for (std::size_t j = 0; j < n_edges; ++j) {
+                                GridIndex edge;
+                                for (long i = 0; i < edge.size(); ++i) {
+                                    stream.read(
+                                        reinterpret_cast<char *>(&edge[i]),
+                                        sizeof(edge[i]));
+                                }
+                                voxel.edges.push_back(edge);
+                            }
+                        }
+                        // read faces
+                        std::size_t n_faces = 0;
+                        stream.read(reinterpret_cast<char *>(&n_faces), sizeof(n_faces));
+                        if (n_faces == 0) {
+                            voxel.faces.clear();
+                        } else {
+                            voxel.faces.reserve(n_faces);
+                            for (std::size_t j = 0; j < n_faces; ++j) {
+                                Face face;
+                                for (long i = 0; i < face.size(); ++i) {
+                                    stream.read(
+                                        reinterpret_cast<char *>(&face[i]),
+                                        sizeof(face[i]));
+                                }
+                                voxel.faces.push_back(face);
+                            }
+                        }
+                        // insert it
+                        self->surf_voxels[index] = std::move(voxel);
                     }
                     return stream.good();
                 },
@@ -735,23 +847,48 @@ namespace erl::gp_sdf {
     bool
     BayesianHilbertSurfaceMapping<Dtype, Dim>::LocalBayesianHilbertMap::operator==(
         const LocalBayesianHilbertMap &other) const {
-        if (setting == nullptr && other.setting != nullptr) { return false; }
-        if (setting != nullptr && (other.setting == nullptr || *setting != *other.setting)) {
+        if (setting == nullptr && other.setting != nullptr) {  //
             return false;
         }
-        if (tracked_surface_boundary != other.tracked_surface_boundary) { return false; }
-        if (bhm != other.bhm) { return false; }
-        // if (strides != other.strides) { return false; }
-        if (surface_indices != other.surface_indices) { return false; }
-        if (num_dataset_points != other.num_dataset_points) { return false; }
-
-        if (!common::SafeEigenMatrixEqual(dataset_points, other.dataset_points)) { return false; }
-        if (!common::SafeEigenMatrixEqual(dataset_labels, other.dataset_labels)) { return false; }
-
-        if (hit_indices != other.hit_indices) { return false; }
-        if (hit_buffer != other.hit_buffer) { return false; }
-        if (hit_buffer_head != other.hit_buffer_head) { return false; }
-        if (active != other.active) { return false; }
+        if (setting != nullptr && (other.setting == nullptr || *setting != *other.setting)) {  //
+            return false;
+        }
+        if (tracked_surface_boundary != other.tracked_surface_boundary) {  //
+            return false;
+        }
+        if (bhm != other.bhm) {  //
+            return false;
+        }
+        if (surface_indices != other.surface_indices) {  //
+            return false;
+        }
+        if (surf_voxels != other.surf_voxels) {  //
+            return false;
+        }
+        if (num_dataset_points != other.num_dataset_points) {  //
+            return false;
+        }
+        if (!common::SafeEigenMatrixEqual(dataset_points, other.dataset_points)) {  //
+            return false;
+        }
+        if (!common::SafeEigenMatrixEqual(dataset_labels, other.dataset_labels)) {  //
+            return false;
+        }
+        if (hit_indices != other.hit_indices) {  //
+            return false;
+        }
+        if (hit_buffer != other.hit_buffer) {  //
+            return false;
+        }
+        if (hit_buffer_head != other.hit_buffer_head) {  //
+            return false;
+        }
+        if (active != other.active) {  //
+            return false;
+        }
+        if (trained != other.trained) {  //
+            return false;
+        }
         return true;
     }
 
@@ -766,9 +903,12 @@ namespace erl::gp_sdf {
     BayesianHilbertSurfaceMapping<Dtype, Dim>::BayesianHilbertSurfaceMapping(
         std::shared_ptr<Setting> setting)
         : m_setting_(NotNull(std::move(setting), true, "setting is nullptr")),
+          m_tree_(std::make_shared<Tree>(m_setting_->tree)),
           m_ray_selector_(m_setting_->ray_selector) {
-        m_tree_ = std::make_shared<Tree>(m_setting_->tree);
+
+        InitConstants();
         GenerateHingedPoints();
+        GenerateWeightAddress();
 
         // do it on the main thread only
 #pragma omp parallel default(none)
@@ -900,33 +1040,13 @@ namespace erl::gp_sdf {
         KeyVector &bhm_keys = m_clusters_to_update_;
         bhm_keys.clear();
         bhm_keys.insert(bhm_keys.end(), m_changed_clusters_.begin(), m_changed_clusters_.end());
-        const Dtype half_surface_size = m_tree_->GetNodeSize(bhm_depth) * 0.5f;
-        const Dtype half_bhm_size = half_surface_size + m_setting_->bhm_overlap;
+
         {
             ERL_BLOCK_TIMER_MSG("bhm create");
-            for (const Key &key: bhm_keys) {
-                auto it = m_key_bhm_dict_.find(key);
-                if (it != m_key_bhm_dict_.end()) { continue; }  // already exist
-
-                Position map_center = m_tree_->KeyToCoord(key, bhm_depth);
-                Positions hinged_points = m_hinged_points_.colwise() + map_center;
-                m_key_bhm_positions_.emplace_back(key, map_center);
-                m_key_bhm_dict_.insert({
-                    key,
-                    std::make_shared<LocalBayesianHilbertMap>(
-                        m_setting_->local_bhm,
-                        hinged_points,
-                        Aabb(map_center, half_bhm_size) /*map_boundary*/,
-                        typename Key::KeyHash()(key) /*seed*/,
-                        Aabb(map_center, half_surface_size) /*track_surface_boundary*/),
-                });
-                // need to update the kdtree after adding new bhm
-                m_bhm_kdtree_needs_update_ = true;
-            }
+            for (const Key &key: bhm_keys) { CreateBhm(key); }
         }
 
         m_ray_selector_.UpdateRays(sensor_origin_s, sensor_rotation, points_s);
-        const Dtype radius = std::sqrt(static_cast<Dtype>(Dim) * half_bhm_size * half_bhm_size);
 
         // update the local Bayesian Hilbert maps
         (void) parallel;
@@ -946,7 +1066,7 @@ namespace erl::gp_sdf {
             ERL_BLOCK_TIMER_MSG("bhm update");
             // generate dataset
     #pragma omp parallel for if (parallel) default(none) \
-        shared(bhm_keys, points_s, sensor_origin_s, sensor_rotation, radius) schedule(static)
+        shared(bhm_keys, points_s, sensor_origin_s, sensor_rotation) schedule(static)
             for (std::size_t i = 0; i < bhm_keys.size(); ++i) {
                 auto &bhm_key = bhm_keys[i];
                 std::vector<long> &ray_indices = m_ray_indices_[omp_get_thread_num()];
@@ -957,7 +1077,7 @@ namespace erl::gp_sdf {
                     sensor_origin_s,
                     sensor_rotation,
                     local_bhm.bhm.GetMapBoundary().center,
-                    radius,
+                    m_ray_search_radius_,
                     ray_indices);
                 local_bhm.GenerateDataset(sensor_origin_s, points_s, ray_indices);
             }
@@ -1042,18 +1162,17 @@ namespace erl::gp_sdf {
         if (!use_cuda) {
             ERL_BLOCK_TIMER_MSG("bhm update");
 #pragma omp parallel for if (parallel) default(none) schedule(dynamic) \
-    shared(bhm_keys, points_s, sensor_origin_s, sensor_rotation, radius)
+    shared(bhm_keys, points_s, sensor_origin_s, sensor_rotation)
             for (std::size_t i = 0; i < bhm_keys.size(); ++i) {
                 auto &bhm_key = bhm_keys[i];
                 std::vector<long> &ray_indices = m_ray_indices_[omp_get_thread_num()];
-                // ray_indices.reserve(points_s.cols() / 10);
                 LocalBayesianHilbertMap &local_bhm = *m_key_bhm_dict_.at(bhm_key);
                 local_bhm.active = true;
                 m_ray_selector_.SelectRays(
                     sensor_origin_s,
                     sensor_rotation,
                     local_bhm.bhm.GetMapBoundary().center,
-                    radius,
+                    m_ray_search_radius_,
                     ray_indices);
                 m_updated_flags_[i] = local_bhm.Update(sensor_origin_s, points_s, ray_indices);
             }
@@ -1070,6 +1189,32 @@ namespace erl::gp_sdf {
                 }
                 local_bhm->surface_indices.clear();
             }
+        }
+
+        if (m_setting_->weight_sync) {
+            // compute keys of BHMs that need to sync weights
+            m_bhm_to_sync_vector_.clear();
+            m_bhm_to_sync_.clear();
+            m_bhm_to_sync_.insert(bhm_keys.begin(), bhm_keys.end());
+            for (const Key &key: bhm_keys) {
+                if (!m_key_bhm_dict_.at(key)->active) { continue; }
+                m_bhm_to_sync_vector_.push_back(key);
+                Key neighbor_key;
+                for (const auto &offset: m_key_offsets_) {
+                    for (int dim = 0; dim < Dim; ++dim) {
+                        neighbor_key[dim] = key[dim] + offset[dim];
+                    }
+                    auto it = m_key_bhm_dict_.find(neighbor_key);
+                    if (it == m_key_bhm_dict_.end() || !it->second->active) { continue; }
+                    if (m_bhm_to_sync_.insert(neighbor_key).second) {
+                        m_bhm_to_sync_vector_.push_back(neighbor_key);
+                    }
+                }
+            }
+
+            // sync weights
+#pragma omp parallel for default(none) schedule(static)
+            for (const Key &key: m_bhm_to_sync_vector_) { SyncBhmWeights(key); }
         }
 
         long min_dataset_size = std::numeric_limits<long>::max();
@@ -1204,15 +1349,12 @@ namespace erl::gp_sdf {
         key_to_point_indices.reserve(points.size());
         std::vector<Key> bhm_keys_set;
         bhm_keys_set.reserve(points.size());
-        const uint32_t bhm_depth = m_setting_->bhm_depth;
-        const Dtype half_size =
-            0.5f * m_tree_->GetNodeSize(bhm_depth) + m_setting_->bhm_test_margin;
         long bhm_index = -1;
         Dtype bhm_distance = 0;
         for (long i = 0; i < points.size(); ++i) {
             m_bhm_kdtree_->Nearest(points.col(i), bhm_index, bhm_distance);  // find the nearest bhm
             bhm_distance = std::sqrt(bhm_distance);                          // distance is squared
-            if (bhm_distance > half_size) { continue; }                      // too far from the bhm
+            if (bhm_distance > m_half_bhm_test_size_) { continue; }          // too far from the bhm
 
             const Key bhm_key = m_key_bhm_positions_[bhm_index].first;
             auto [it, inserted] = key_to_point_indices.insert({bhm_key, std::vector<long>()});
@@ -1350,27 +1492,19 @@ namespace erl::gp_sdf {
 
         vertices.clear();
         faces.clear();
-        absl::flat_hash_map<GridIndex, int> vertex_index_map;
         absl::flat_hash_map<GridIndex, int> edge_to_vertex_map;
-        vertex_index_map.reserve(m_key_bhm_dict_.size() * 64);
         edge_to_vertex_map.reserve(64);
-        const Dtype tol = 1e-6f;
         for (const auto &[key, bhm_ptr]: m_key_bhm_dict_) {
             if (bhm_ptr == nullptr) { continue; }
             const LocalBayesianHilbertMap &local_bhm = *bhm_ptr;
             if (!local_bhm.active) { continue; }  // skip inactive local BHM
-            GridIndex vertex_idx;
-            vertex_idx[Dim] = 0;
-            edge_to_vertex_map.clear();  // edge_idx is local, vertex_idx is global
+            edge_to_vertex_map.clear();           // edge_idx is local, vertex_idx is global
             for (const auto &[edge_idx, surf_idx]: local_bhm.surface_indices) {
-                const SurfData &surf_data = m_surf_data_manager_[surf_idx];
-                for (int dim = 0; dim < Dim; ++dim) {
-                    vertex_idx[dim] = static_cast<int>(std::round(surf_data.position[dim] / tol));
-                }
-                auto [it, inserted] =
-                    vertex_index_map.insert({vertex_idx, static_cast<int>(vertices.size())});
-                if (inserted) { vertices.push_back(surf_data.position); }
-                edge_to_vertex_map[edge_idx] = it->second;
+                Position position = GetUniqueVertex(key, edge_idx, surf_idx);
+                // scale back
+                for (int dim = 0; dim < Dim; ++dim) { position[dim] /= m_setting_->scaling; }
+                edge_to_vertex_map[edge_idx] = static_cast<int>(vertices.size());
+                vertices.push_back(position);
             }
             for (const auto &[voxel_idx, voxel]: local_bhm.surf_voxels) {
                 for (Face face: voxel.faces) {
@@ -1409,10 +1543,11 @@ namespace erl::gp_sdf {
             false /*compute_gradient*/,
             false /*gradient_with_sigmoid*/,
             true /*parallel*/,
-            in_free_space,
+            in_free_space /*logodd value*/,
             gradients);
-        for (long i = 0; i < in_free_space.size(); ++i) {
-            in_free_space[i] = (in_free_space[i] < 0.0f) ? 1.0f : -1.0f;  // convert to binary
+        const Dtype threshold = m_setting_->surface_log_odds;
+        for (long i = 0; i < in_free_space.size(); ++i) {  // convert to binary
+            in_free_space[i] = (in_free_space[i] < threshold) ? 1.0f : -1.0f;
         }
         return true;
     }
@@ -1445,6 +1580,10 @@ namespace erl::gp_sdf {
                 return false;
             }
         }
+        if (m_surf_data_manager_ != other_ptr->m_surf_data_manager_) { return false; }
+        if (m_changed_clusters_ != other_ptr->m_changed_clusters_) { return false; }
+        if (m_clusters_to_update_ != other_ptr->m_clusters_to_update_) { return false; }
+        if (m_updated_flags_ != other_ptr->m_updated_flags_) { return false; }
         return true;
     }
 
@@ -1474,26 +1613,14 @@ namespace erl::gp_sdf {
                            stream.good();
                 },
             },
-            {
-                "key_bhm_positions",
-                [](const BayesianHilbertSurfaceMapping *self, std::ostream &stream) {
-                    const std::size_t n = self->m_key_bhm_positions_.size();
-                    stream.write(reinterpret_cast<const char *>(&n), sizeof(std::size_t));
-                    for (const auto &[key, center]: self->m_key_bhm_positions_) {
-                        stream.write(reinterpret_cast<const char *>(&key), sizeof(Key));
-                        stream.write(
-                            reinterpret_cast<const char *>(center.data()),
-                            sizeof(Position));
-                    }
-                    return stream.good();
-                },
-            },
+            // key_bhm_positions_ is constructed when reading key_bhm_dict
             {
                 "key_bhm_dict",
                 [](const BayesianHilbertSurfaceMapping *self, std::ostream &stream) {
                     const std::size_t n = self->m_key_bhm_dict_.size();
                     stream.write(reinterpret_cast<const char *>(&n), sizeof(std::size_t));
-                    for (const auto &[key, bhm]: self->m_key_bhm_dict_) {
+                    for (const auto &[key, center]: self->m_key_bhm_positions_) {  // keep order
+                        auto bhm = self->m_key_bhm_dict_.at(key);
                         stream.write(reinterpret_cast<const char *>(&key), sizeof(Key));
                         const bool has_bhm = bhm != nullptr;
                         stream.write(reinterpret_cast<const char *>(&has_bhm), sizeof(bool));
@@ -1541,6 +1668,21 @@ namespace erl::gp_sdf {
                     return stream.good();
                 },
             },
+            {
+                "marching_queue_keys",
+                [](const BayesianHilbertSurfaceMapping *self, std::ostream &stream) {
+                    const std::size_t n = self->m_marching_queue_keys_.size();
+                    stream.write(reinterpret_cast<const char *>(&n), sizeof(std::size_t));
+                    for (const auto &[key, handle]: self->m_marching_queue_keys_) {
+                        stream.write(reinterpret_cast<const char *>(&key), sizeof(Key));
+                        stream.write(
+                            reinterpret_cast<const char *>(&(*handle).priority),
+                            sizeof(long));
+                    }
+                    return stream.good();
+                },
+            },
+            // m_marching_queue_ can be reconstructed from m_marching_queue_keys_.
         };
         return WriteTokens(s, this, pairs);
     }
@@ -1554,7 +1696,13 @@ namespace erl::gp_sdf {
             {
                 "setting",
                 [](BayesianHilbertSurfaceMapping *self, std::istream &stream) {
-                    return self->m_setting_->Read(stream) && stream.good();
+                    if (!self->m_setting_->Read(stream)) { return false; }
+                    self->m_tree_ = std::make_unique<Tree>(self->m_setting_->tree);
+                    self->m_ray_selector_ = RaySelector(self->m_setting_->ray_selector);
+                    self->InitConstants();
+                    self->GenerateHingedPoints();
+                    self->GenerateWeightAddress();
+                    return stream.good();
                 },
             },
             {
@@ -1571,23 +1719,7 @@ namespace erl::gp_sdf {
                            stream.good();
                 },
             },
-            {
-                "key_bhm_positions",
-                [](BayesianHilbertSurfaceMapping *self, std::istream &stream) {
-                    std::size_t n;
-                    stream.read(reinterpret_cast<char *>(&n), sizeof(std::size_t));
-                    self->m_key_bhm_positions_.clear();
-                    self->m_key_bhm_positions_.reserve(n);
-                    for (std::size_t i = 0; i < n; ++i) {
-                        Key key;
-                        Position center;
-                        stream.read(reinterpret_cast<char *>(&key), sizeof(Key));
-                        stream.read(reinterpret_cast<char *>(center.data()), sizeof(Position));
-                        self->m_key_bhm_positions_.emplace_back(key, center);
-                    }
-                    return stream.good();
-                },
-            },
+            // key_bhm_positions is constructed when reading key_bhm_dict
             {
                 "key_bhm_dict",
                 [](BayesianHilbertSurfaceMapping *self, std::istream &stream) {
@@ -1595,28 +1727,20 @@ namespace erl::gp_sdf {
                     stream.read(reinterpret_cast<char *>(&n), sizeof(std::size_t));
                     self->m_key_bhm_dict_.clear();
                     self->m_key_bhm_dict_.reserve(n);
-                    const uint32_t bhm_depth = self->m_setting_->bhm_depth;
-                    const Dtype half_surface_size = self->m_tree_->GetNodeSize(bhm_depth) * 0.5f;
-                    const Dtype half_bhm_size = half_surface_size + self->m_setting_->bhm_overlap;
                     for (std::size_t i = 0; i < n; ++i) {
                         Key key;
                         stream.read(reinterpret_cast<char *>(&key), sizeof(Key));
-                        auto [it, inserted] = self->m_key_bhm_dict_.try_emplace(key, nullptr);
+                        auto [it, inserted] = self->CreateBhm(key);
                         if (!inserted) {
                             ERL_WARN("Duplicate key {} in key_bhm_dict", std::string(key));
                             return false;
                         }
                         bool has_bhm;
                         stream.read(reinterpret_cast<char *>(&has_bhm), sizeof(bool));
-                        if (!has_bhm) { continue; }
-                        Position map_center = self->m_tree_->KeyToCoord(key, bhm_depth);
-                        Positions hinged_points = self->m_hinged_points_.colwise() + map_center;
-                        it->second = std::make_shared<LocalBayesianHilbertMap>(
-                            self->m_setting_->local_bhm,
-                            hinged_points,
-                            Aabb(map_center, half_bhm_size) /*map_boundary*/,
-                            typename Key::KeyHash()(key) /*seed*/,
-                            Aabb(map_center, half_surface_size) /*track_surface_boundary*/);
+                        if (!has_bhm) {
+                            it->second = nullptr;
+                            continue;
+                        }
                         if (!it->second->Read(stream)) {
                             ERL_WARN("Failed to read bhm for key {}", std::string(key));
                             return false;
@@ -1672,33 +1796,301 @@ namespace erl::gp_sdf {
                     self->m_updated_flags_.resize(n);
                     stream.read(
                         reinterpret_cast<char *>(self->m_updated_flags_.data()),
-                        sizeof(int) * n);
+                        static_cast<std::streamsize>(sizeof(int) * n));
                     return stream.good();
                 },
             },
-            // TODO: m_ray_selector_
-            // m_ray_indices_
+            // m_ray_selector_ is set when m_setting_ is loaded
+            // m_ray_indices_, m_hit_points are temporary
+            {
+                "marching_queue_keys",
+                [](BayesianHilbertSurfaceMapping *self, std::istream &stream) {
+                    std::size_t n;
+                    stream.read(reinterpret_cast<char *>(&n), sizeof(std::size_t));
+                    self->m_marching_queue_keys_.clear();
+                    self->m_marching_queue_keys_.reserve(n);
+                    self->m_marching_queue_.clear();
+                    self->m_marching_queue_.reserve(n);
+                    for (std::size_t i = 0; i < n; ++i) {
+                        Key key;
+                        stream.read(reinterpret_cast<char *>(&key), sizeof(Key));
+                        long priority;
+                        stream.read(reinterpret_cast<char *>(&priority), sizeof(long));
+                        auto [it, inserted] = self->m_marching_queue_keys_.try_emplace(
+                            key,
+                            self->m_marching_queue_.push({priority, key}));
+                        if (!inserted) {
+                            ERL_WARN("Duplicate BHM key: {}.", static_cast<std::string>(key));
+                            return false;
+                        }
+                    }
+                    return stream.good();
+                },
+            },
+            // m_marching_queue_ is recovered when reading marching_queue_keys
+            // m_core_indices_, m_managed_share_indices_, m_unmanaged_share_indices,
+            // m_key_offsets_, m_hinged_point_order_, m_hinged_point_order_reverse_ are set when
+            // m_setting_ is loaded.
+            // m_bhm_to_sync_ and m_bhm_to_sync_vector_ are temporary.
+            // m_block_size_, m_sync_method_ and other frequently used intermediate values are set
+            // when m_setting_ is loaded.
         };
         return ReadTokens(s, this, pairs);
     }
 
     template<typename Dtype, int Dim>
     void
+    BayesianHilbertSurfaceMapping<Dtype, Dim>::InitConstants() {
+        const int hinged_grid_size = m_setting_->hinged_grid_size;
+        m_block_size_ = hinged_grid_size - 2 * m_setting_->bhm_overlap_sync;
+        if (m_setting_->sync_method == "copy") {
+            m_sync_method_ = 0;
+        } else if (m_setting_->sync_method == "mean") {
+            m_sync_method_ = 1;
+        } else if (m_setting_->sync_method == "bayesian") {
+            m_sync_method_ = 2;
+        } else {
+            ERL_WARN("Unknown sync method '{}', defaulting to 'copy'", m_setting_->sync_method);
+            m_sync_method_ = 0;
+        }
+        m_bhm_node_size_ = m_tree_->GetNodeSize(m_setting_->bhm_depth);
+        m_half_bhm_node_size_ = m_bhm_node_size_ * 0.5f;
+        if (m_setting_->weight_sync) {
+            m_hinged_grid_res_ = m_bhm_node_size_ / static_cast<Dtype>(m_block_size_);
+            m_half_bhm_size_ = static_cast<Dtype>(hinged_grid_size) * 0.5f * m_hinged_grid_res_;
+        } else {
+            m_half_bhm_size_ = m_half_bhm_node_size_ + m_setting_->bhm_overlap;
+            m_hinged_grid_res_ = m_half_bhm_size_ * 2.0f / static_cast<Dtype>(hinged_grid_size);
+        }
+        const Dtype r = m_half_bhm_size_ * m_setting_->local_bhm->bhm->sampling_area_scale;
+        m_ray_search_radius_ = std::sqrt(Dim * r * r);
+        m_half_bhm_test_size_ = m_half_bhm_size_ + m_setting_->bhm_test_margin;
+        const long surface_grid_size = m_setting_->local_bhm->surface_grid_size;
+        m_surface_res_ = m_bhm_node_size_ / static_cast<Dtype>(surface_grid_size);
+        m_surf_point_capacity_ = 1;
+        for (int dim = 0; dim < Dim; ++dim) { m_surf_point_capacity_ *= surface_grid_size; }
+    }
+
+    template<typename Dtype, int Dim>
+    void
     BayesianHilbertSurfaceMapping<Dtype, Dim>::GenerateHingedPoints() {
-        const Dtype map_size = m_setting_->tree->resolution + 2 * m_setting_->bhm_overlap;
-        const Dtype half_map_size = map_size / 2;
-        const Eigen::Vector<int, Dim> grid_size =
+        const Eigen::Vector<int, Dim> grid_shape =
             Eigen::Vector<int, Dim>::Constant(m_setting_->hinged_grid_size);
         const Eigen::Vector<Dtype, Dim> grid_half_size =
-            Eigen::Vector<Dtype, Dim>::Constant(half_map_size);
-        common::GridMapInfo<Dtype, Dim> grid_map_info(grid_size, -grid_half_size, grid_half_size);
+            Eigen::Vector<Dtype, Dim>::Constant(m_half_bhm_size_);
+        common::GridMapInfo<Dtype, Dim> grid_map_info(grid_shape, -grid_half_size, grid_half_size);
         m_hinged_points_ = grid_map_info.GenerateMeterCoordinates(true);
     }
 
     template<typename Dtype, int Dim>
     void
+    BayesianHilbertSurfaceMapping<Dtype, Dim>::GenerateWeightAddress() {
+        if (!m_setting_->weight_sync) { return; }
+
+        const int hinged_grid_size = m_setting_->hinged_grid_size;
+        const int overlap_size = m_setting_->bhm_overlap_sync;
+        const int shared_size = 2 * overlap_size;
+        const int core_size = m_block_size_ - shared_size;  // not shared
+        const int key_offset = 1 << (m_setting_->tree->tree_depth - m_setting_->bhm_depth);
+        const int n_core = std::pow(core_size, Dim);
+        const int n_managed = std::pow(m_block_size_, Dim) - n_core;
+        const int n_unmanaged = std::pow(hinged_grid_size, Dim) - n_core - n_managed;
+        const Dtype grid_min = -m_hinged_grid_res_ * static_cast<Dtype>(overlap_size);
+
+        ERL_ASSERTM(core_size > 0, "Core size must be positive");
+
+        // | overlap-size    | overlap-size  | core | overlap-size  | overlap-size    |
+        // | unmanaged share | managed share | core | managed share | unmanaged share |
+
+        m_core_indices_.clear();
+        m_core_indices_.reserve(n_core);
+        m_managed_share_indices_.clear();
+        m_managed_share_indices_.reserve(n_managed);
+        m_unmanaged_share_indices_.clear();
+        m_unmanaged_share_indices_.reserve(n_unmanaged);
+
+        GridShape grid_shape;
+        for (int i = 0; i < Dim; ++i) { grid_shape[i] = hinged_grid_size; }
+        GridShape grid_stride = common::ComputeCStrides<long, Dim>(grid_shape, 1);
+        const int n_weights = grid_shape.prod();
+        enum class WeightType { Core = 0, ManagedShare = 1, UnmanagedShare = 2 };
+        absl::flat_hash_set<Eigen::Vector<int, Dim>> unique_offsets;
+        unique_offsets.reserve(std::pow(3, Dim) - 1);
+        m_key_offsets_.clear();
+        for (int i = 0; i < n_weights; ++i) {
+            WeightAddr addr;
+            auto grid_coord = common::IndexToCoordsWithStrides<long, Dim>(grid_stride, i, true);
+            WeightType weight_type = WeightType::Core;
+            for (int dim = 0; dim < Dim; ++dim) {
+                if (grid_coord[dim] < overlap_size ||
+                    grid_coord[dim] >= hinged_grid_size - overlap_size) {
+                    weight_type = WeightType::UnmanagedShare;
+                    break;
+                }
+                if (grid_coord[dim] < shared_size ||
+                    grid_coord[dim] >= hinged_grid_size - shared_size) {
+                    weight_type = WeightType::ManagedShare;
+                }
+            }
+            for (int dim = 0; dim < Dim; ++dim) {
+                if (grid_coord[dim] < overlap_size) {
+                    addr[dim] = -key_offset;
+                    Dtype p = common::GridToMeter(grid_coord[dim], grid_min, m_hinged_grid_res_);
+                    grid_coord[dim] =
+                        common::MeterToGrid(p, grid_min - m_bhm_node_size_, m_hinged_grid_res_);
+                } else if (grid_coord[dim] >= hinged_grid_size - overlap_size) {
+                    addr[dim] = key_offset;
+                    Dtype p = common::GridToMeter(grid_coord[dim], grid_min, m_hinged_grid_res_);
+                    grid_coord[dim] =
+                        common::MeterToGrid(p, grid_min + m_bhm_node_size_, m_hinged_grid_res_);
+                } else {
+                    addr[dim] = 0;
+                }
+            }
+            addr[Dim] = static_cast<int>(common::CoordsToIndex<long, Dim>(grid_stride, grid_coord));
+            addr[Dim + 1] = i;
+            switch (weight_type) {
+                case WeightType::Core: {
+                    m_core_indices_.push_back(addr);
+                    break;
+                }
+                case WeightType::ManagedShare: {
+                    m_managed_share_indices_.push_back(addr);
+                    break;
+                }
+                case WeightType::UnmanagedShare: {
+                    m_unmanaged_share_indices_.push_back(addr);
+                    break;
+                }
+            }
+            if (unique_offsets.insert(addr.template head<Dim>()).second) {
+                m_key_offsets_.push_back(addr.template head<Dim>());
+            }
+        }
+
+        // rearrange hinged points so that points of different weight types are grouped together.
+        // this is important to avoid false sharing when synchronizing weights in parallel.
+        // if using float, hinged_grid_size=5, overlap_size=1,
+        // for 2D, n_unmanaged=16, n_core=1, n_managed=8 (false sharing is resolved);
+        // for 3D, n_unmanaged=98, n_core=1, n_managed=26 (false sharing still exists).
+        // the size of cache line is 64 bytes (16 floats or 8 doubles).
+        m_hinged_point_order_.resize(n_weights);
+        m_hinged_point_order_reverse_.resize(n_weights);
+        long idx = 0;
+        for (const WeightAddr &addr: m_unmanaged_share_indices_) {
+            m_hinged_point_order_[idx] = addr[Dim + 1];
+            m_hinged_point_order_reverse_[addr[Dim + 1]] = idx;
+            ++idx;
+        }
+        for (const WeightAddr &addr: m_core_indices_) {
+            m_hinged_point_order_[idx] = addr[Dim + 1];
+            m_hinged_point_order_reverse_[addr[Dim + 1]] = idx;
+            ++idx;
+        }
+        for (const WeightAddr &addr: m_managed_share_indices_) {
+            m_hinged_point_order_[idx] = addr[Dim + 1];
+            m_hinged_point_order_reverse_[addr[Dim + 1]] = idx;
+            ++idx;
+        }
+        // update src & dst indices to the sorted indices
+        for (WeightAddr &addr: m_unmanaged_share_indices_) {
+            addr[Dim] = m_hinged_point_order_reverse_[addr[Dim]];
+            addr[Dim + 1] = m_hinged_point_order_reverse_[addr[Dim + 1]];
+        }
+        for (WeightAddr &addr: m_core_indices_) {
+            addr[Dim] = m_hinged_point_order_reverse_[addr[Dim]];
+            addr[Dim + 1] = m_hinged_point_order_reverse_[addr[Dim + 1]];
+        }
+        for (WeightAddr &addr: m_managed_share_indices_) {
+            addr[Dim] = m_hinged_point_order_reverse_[addr[Dim]];
+            addr[Dim + 1] = m_hinged_point_order_reverse_[addr[Dim + 1]];
+        }
+        // update m_hinged_points_
+        Positions ordered_hinged_points(Dim, m_hinged_points_.cols());
+        for (long i = 0; i < m_hinged_points_.cols(); ++i) {
+            ordered_hinged_points.col(i) = m_hinged_points_.col(m_hinged_point_order_[i]);
+        }
+        m_hinged_points_ = std::move(ordered_hinged_points);
+    }
+
+    template<typename Dtype, int Dim>
+    std::pair<
+        typename absl::flat_hash_map<
+            typename BayesianHilbertSurfaceMapping<Dtype, Dim>::Key,
+            std::shared_ptr<typename BayesianHilbertSurfaceMapping<Dtype, Dim>::
+                                LocalBayesianHilbertMap>>::iterator,
+        bool>
+    BayesianHilbertSurfaceMapping<Dtype, Dim>::CreateBhm(const Key &key) {
+        auto it0 = m_key_bhm_dict_.find(key);
+        if (it0 != m_key_bhm_dict_.end()) { return {it0, false}; }  // already exist
+
+        Position map_center = m_tree_->KeyToCoord(key, m_setting_->bhm_depth);
+        Positions hinged_points = m_hinged_points_.colwise() + map_center;
+        m_key_bhm_positions_.emplace_back(key, map_center);
+        m_bhm_kdtree_needs_update_ = true;  // need to update the kdtree after adding new bhm
+        return m_key_bhm_dict_.try_emplace(
+            key,
+            std::make_shared<LocalBayesianHilbertMap>(
+                m_setting_->local_bhm,
+                hinged_points,
+                Aabb(map_center, m_half_bhm_size_) /*map_boundary*/,
+                typename Key::KeyHash()(key) /*seed*/,
+                Aabb(map_center, m_half_bhm_node_size_) /*track_surface_boundary*/));
+    }
+
+    template<typename Dtype, int Dim>
+    void
+    BayesianHilbertSurfaceMapping<Dtype, Dim>::SyncBhmWeights(const Key &key) {
+        std::shared_ptr<LocalBayesianHilbertMap> local_bhm = m_key_bhm_dict_.at(key);
+        if (local_bhm == nullptr) { return; }
+        BayesianHilbertMap &bhm = local_bhm->bhm;
+        auto mu = bhm.GetWeights();
+        Key other_key;
+        if (m_sync_method_ == 0) {  // copy
+            for (const WeightAddr &addr: m_unmanaged_share_indices_) {
+                for (int dim = 0; dim < Dim; ++dim) { other_key[dim] = key[dim] + addr[dim]; }
+                auto it = m_key_bhm_dict_.find(other_key);
+                if (it == m_key_bhm_dict_.end() || !it->second->active) { continue; }
+                BayesianHilbertMap &other_bhm = it->second->bhm;
+                mu[addr[Dim + 1]] = other_bhm.GetWeights()[addr[Dim]];
+            }
+            bhm.SetWeights(mu);
+            return;
+        }
+        if (m_sync_method_ == 1) {  // mean
+            for (const WeightAddr &addr: m_unmanaged_share_indices_) {
+                for (int dim = 0; dim < Dim; ++dim) { other_key[dim] = key[dim] + addr[dim]; }
+                auto it = m_key_bhm_dict_.find(other_key);
+                if (it == m_key_bhm_dict_.end() || !it->second->active) { continue; }
+                BayesianHilbertMap &other_bhm = it->second->bhm;
+                mu[addr[Dim + 1]] = 0.5f * (mu[addr[Dim + 1]] + other_bhm.GetWeights()[addr[Dim]]);
+            }
+            bhm.SetWeights(mu);
+            return;
+        }
+        if (m_sync_method_ == 2) {  // bayesian
+            for (const WeightAddr &addr: m_unmanaged_share_indices_) {
+                for (int dim = 0; dim < Dim; ++dim) { other_key[dim] = key[dim] + addr[dim]; }
+                auto it = m_key_bhm_dict_.find(other_key);
+                if (it == m_key_bhm_dict_.end() || !it->second->active) { continue; }
+                BayesianHilbertMap &other_bhm = it->second->bhm;
+                Dtype &mu1 = mu[addr[Dim + 1]];
+                Dtype sigma1 = bhm.GetWeightVariance(addr[Dim + 1]);
+                Dtype mu2 = other_bhm.GetWeights()[addr[Dim]];
+                Dtype sigma2 = other_bhm.GetWeightVariance(addr[Dim]);
+                mu1 = (sigma1 * mu2 + sigma2 * mu1) / (sigma1 + sigma2 + 1e-8f);
+            }
+            bhm.SetWeights(mu);
+        }
+    }
+
+    template<typename Dtype, int Dim>
+    void
     BayesianHilbertSurfaceMapping<Dtype, Dim>::BuildBhmKdtree() const {
-        if (!m_bhm_kdtree_needs_update_ && m_bhm_kdtree_ != nullptr) { return; }
+        if (!m_bhm_kdtree_needs_update_ && m_bhm_kdtree_ != nullptr &&
+            m_key_bhm_positions_.empty()) {
+            return;
+        }
         Positions bhm_positions(Dim, m_key_bhm_positions_.size());
         long i = 0;
         for (const auto &[key, center]: m_key_bhm_positions_) { bhm_positions.col(i++) = center; }
@@ -1872,11 +2264,6 @@ namespace erl::gp_sdf {
         long cnt_new_points = 0;
         long cnt_existing_points = 0;
         const int max_num_points = m_setting_->update_map.max_num_points;
-        const long grid_size = m_setting_->local_bhm->surface_grid_size;
-        const Dtype bhm_size = m_tree_->GetNodeSize(m_setting_->bhm_depth);
-        const Dtype surf_res = bhm_size / static_cast<Dtype>(grid_size);
-        std::size_t max_capacity = 1;
-        for (int dim = 0; dim < Dim; ++dim) { max_capacity *= grid_size; }
 
         {
             ERL_BLOCK_TIMER_MSG("collect hit points from local BHMs");
@@ -1908,14 +2295,14 @@ namespace erl::gp_sdf {
 
                 /// add new hit points
                 std::vector<PointInfo> new_points;
-                if (local_bhm.surface_indices.size() >= max_capacity) {  // no new points
+                if (local_bhm.surface_indices.size() >= m_surf_point_capacity_) {  // no new points
                     m_hit_points_.emplace_back(
                         key,
                         std::move(new_points),
                         std::move(existing_points));
                     continue;
                 }
-                new_points.reserve(max_capacity - local_bhm.surface_indices.size());
+                new_points.reserve(m_surf_point_capacity_ - local_bhm.surface_indices.size());
                 GridIndex grid_coords;
                 grid_coords[Dim] = 0;  // edge coord, not used here
                 for (const long &hit_index: local_bhm.hit_indices) {
@@ -1952,7 +2339,7 @@ namespace erl::gp_sdf {
             // need dynamic scheduling here because the workload is not evenly distributed.
             // some local BHMs may have more points than others.
             // some points need to be removed so that the computation stops earlier.
-#pragma omp parallel for default(none) shared(surf_res) schedule(dynamic)
+#pragma omp parallel for default(none) schedule(dynamic)
             for (auto &[key, new_points, existing_points]: m_hit_points_) {
                 // abs(logodd) may be larger than the threshold, but for new points, we don't remove
                 // them immediately, we will check when we try to update the point again.
@@ -1974,7 +2361,7 @@ namespace erl::gp_sdf {
                         existing_point.new_grid_idx[dim] = common::MeterToGrid<Dtype>(
                             surf_data.position[dim],
                             map_min[dim],
-                            surf_res);
+                            m_surface_res_);
                     }
                     existing_point.new_grid_idx[Dim] = 0;  // edge coord, not used here
                     existing_point.to_move =
@@ -2217,7 +2604,7 @@ namespace erl::gp_sdf {
 
         // 3. collect local BHMs
         const int max_num_voxels = m_setting_->update_map.max_num_voxels;
-        std::vector<std::shared_ptr<LocalBayesianHilbertMap>> local_bhms;
+        std::vector<std::pair<Key, std::shared_ptr<LocalBayesianHilbertMap>>> local_bhms;
         local_bhms.reserve(m_marching_queue_.size());
         int cnt_voxels = 0;
         m_changed_clusters_.clear();
@@ -2226,17 +2613,18 @@ namespace erl::gp_sdf {
             m_marching_queue_.pop();
             m_marching_queue_keys_.erase(key);
             auto local_bhm = m_key_bhm_dict_.at(key);
-            if (!local_bhm->active) { continue; }  // skip inactive local BHM
-            local_bhms.emplace_back(local_bhm);    // collect local BHMs
-            m_changed_clusters_.insert(key);       // mark cluster as changed
+            if (!local_bhm->active) { continue; }     // skip inactive local BHM
+            local_bhms.emplace_back(key, local_bhm);  // collect local BHMs
+            m_changed_clusters_.insert(key);          // mark cluster as changed
             cnt_voxels += static_cast<int>(local_bhm->surf_voxels.size());
             if (max_num_voxels > 0 && cnt_voxels >= max_num_voxels) { break; }
         }
+        ERL_INFO("{} local BHMs in the marching queue.", m_marching_queue_.size());
 
         // 4. run marching squares/cubes for each surface voxel (edge)
         ERL_INFO("Marching {} local BHMs.", local_bhms.size());
 #pragma omp parallel for schedule(dynamic) default(none) shared(local_bhms, points)
-        for (auto &local_bhm_ptr: local_bhms) { MarchingBhm(*local_bhm_ptr); }
+        for (auto &[key, local_bhm_ptr]: local_bhms) { MarchingBhm(key, *local_bhm_ptr); }
 
         // 5. remove voxels that do not contain the surface
         UpdateSurfaceManager2(local_bhms);
@@ -2245,17 +2633,19 @@ namespace erl::gp_sdf {
     template<typename Dtype, int Dim>
     void
     BayesianHilbertSurfaceMapping<Dtype, Dim>::MarchingBhm(
+        const Key &key,
         LocalBayesianHilbertMap &local_bhm) const {
 
         const Dtype var_scale = m_setting_->update_map.var_scale;
         const Dtype var_max = m_setting_->update_map.var_max;
-        const long grid_size = m_setting_->local_bhm->surface_grid_size;
-        const Dtype bhm_size = m_tree_->GetNodeSize(m_setting_->bhm_depth);
-        const Dtype surf_res = bhm_size / static_cast<Dtype>(grid_size);
+        const Dtype surface_log_odds = m_setting_->surface_log_odds;
         const Position map_min = local_bhm.tracked_surface_boundary.min();
         constexpr int n_vertices = (1 << Dim);
+        const int key_offset = 1 << (m_tree_->GetTreeDepth() - m_setting_->bhm_depth);
+        const int surf_grid_size = m_setting_->local_bhm->surface_grid_size;
 
         auto &query_results = local_bhm.surf_data_cache;
+        query_results.clear();
         query_results.reserve(local_bhm.hit_indices.size() * 12);
         std::vector<GridIndex> bad_surf_voxels;
         for (auto &[voxel_coords, voxel]: local_bhm.surf_voxels) {
@@ -2266,8 +2656,14 @@ namespace erl::gp_sdf {
             for (int i = 0; i < n_vertices; ++i) {
                 const int *vertex_code = MC::GetVertexCode(i);
                 // compute vertex coordinates
+                bool on_max_boundary = false;
+                Key bhm_key = key;
                 for (int dim = 0; dim < Dim; ++dim) {
                     vertex_coords[dim] = voxel_coords[dim] + vertex_code[dim];
+                    if (vertex_coords[dim] == surf_grid_size) {
+                        bhm_key[dim] += key_offset;
+                        on_max_boundary = true;
+                    }
                 }
                 // check if the vertex is already queried
                 auto it = query_results.find(vertex_coords);
@@ -2281,10 +2677,18 @@ namespace erl::gp_sdf {
                     surf_data.position[dim] = common::VertexIndexToMeter<Dtype>(
                         vertex_coords[dim],
                         map_min[dim],
-                        surf_res);
+                        m_surface_res_);
+                }
+                // pick the correct BHM
+                BayesianHilbertMap *bhm = &local_bhm.bhm;
+                if (on_max_boundary) {
+                    auto it_bhm = m_key_bhm_dict_.find(bhm_key);
+                    if (it_bhm != m_key_bhm_dict_.end() && it_bhm->second->active) {
+                        bhm = &it_bhm->second->bhm;
+                    }
                 }
                 // query the BHM
-                local_bhm.bhm.Predict(
+                bhm->Predict(
                     surf_data.position,
                     true /* logodd */,
                     m_setting_->faster_prediction,
@@ -2297,7 +2701,8 @@ namespace erl::gp_sdf {
             }
 
             // 2. run marching squares/cubes
-            int new_surf_config = MC::CalculateVertexConfigIndex(vertex_values.data(), 0.0f);
+            int new_surf_config =
+                MC::CalculateVertexConfigIndex(vertex_values.data(), surface_log_odds);
             const int *unique_edge_indices = MC::GetUniqueEdgeIndices(new_surf_config);
             if (unique_edge_indices == nullptr) {  // not a surface voxel
                 bad_surf_voxels.emplace_back(voxel_coords);
@@ -2361,7 +2766,7 @@ namespace erl::gp_sdf {
                 constexpr Dtype kEpsilon = 1e-6f;
                 SurfData &surf_data = it->second;
                 if (std::abs(val_diff) >= kEpsilon) {
-                    const Dtype t = v1_data.var_position / val_diff;
+                    const Dtype t = (v1_data.var_position - surface_log_odds) / val_diff;
                     surf_data.position =
                         v1_data.position + t * (v2_data.position - v1_data.position);
                 } else {
@@ -2391,8 +2796,8 @@ namespace erl::gp_sdf {
     template<typename Dtype, int Dim>
     void
     BayesianHilbertSurfaceMapping<Dtype, Dim>::UpdateSurfaceManager2(
-        std::vector<std::shared_ptr<LocalBayesianHilbertMap>> &local_bhms) {
-        for (auto &local_bhm_ptr: local_bhms) {
+        std::vector<std::pair<Key, std::shared_ptr<LocalBayesianHilbertMap>>> &local_bhms) {
+        for (auto &[key, local_bhm_ptr]: local_bhms) {
             LocalBayesianHilbertMap &local_bhm = *local_bhm_ptr;
             auto &query_results = local_bhm.surf_data_cache;
             SurfaceIndexMap new_surface_indices;
@@ -2423,7 +2828,7 @@ namespace erl::gp_sdf {
     void
     BayesianHilbertSurfaceMapping<Dtype, Dim>::RunMarchingQueue(bool run_all) {
         // 1. collect local BHMs
-        std::vector<std::shared_ptr<LocalBayesianHilbertMap>> local_bhms;
+        std::vector<std::pair<Key, std::shared_ptr<LocalBayesianHilbertMap>>> local_bhms;
         local_bhms.reserve(m_marching_queue_.size());
         int cnt_voxels = 0;
         int max_num_voxels = m_setting_->update_map.max_num_voxels;
@@ -2434,17 +2839,48 @@ namespace erl::gp_sdf {
             m_marching_queue_keys_.erase(key);
             auto local_bhm = m_key_bhm_dict_.at(key);
             if (!local_bhm->active) { continue; }  // skip inactive local BHM
-            local_bhms.emplace_back(local_bhm);
+            local_bhms.emplace_back(key, local_bhm);
             cnt_voxels += static_cast<int>(local_bhm->surf_voxels.size());
             if (max_num_voxels > 0 && cnt_voxels >= max_num_voxels) { break; }
         }
 
         // 2. run marching squares/cubes for each surface voxel (edge)
 #pragma omp parallel for schedule(dynamic) default(none) shared(local_bhms)
-        for (auto &local_bhm_ptr: local_bhms) { MarchingBhm(*local_bhm_ptr); }
+        for (auto &[key, local_bhm_ptr]: local_bhms) { MarchingBhm(key, *local_bhm_ptr); }
 
         // 3. update surface manager buffer
         UpdateSurfaceManager2(local_bhms);
+    }
+
+    template<typename Dtype, int Dim>
+    typename AbstractSurfaceMapping<Dtype, Dim>::Position
+    BayesianHilbertSurfaceMapping<Dtype, Dim>::GetUniqueVertex(
+        Key key,
+        GridIndex edge_idx,
+        int buffer_idx) const {
+
+        // check if [key, edge_idx] has duplicates and the edge is on the max boundary.
+        // for duplicates, we pick the one on the min boundary if it exists.
+        bool has_duplicate = false;
+        const int surf_grid_size = m_setting_->local_bhm->surface_grid_size;
+        const uint32_t offset = 1 << (m_setting_->tree->tree_depth - m_setting_->bhm_depth);
+        for (int dim = 0; dim < Dim; ++dim) {
+            if (edge_idx[dim] == surf_grid_size) {
+                has_duplicate = true;
+                key[dim] += offset;
+                edge_idx[dim] = 0;
+            }
+        }
+        Position pos1 = m_surf_data_manager_[buffer_idx].position;
+        if (!has_duplicate) { return pos1; }
+        auto it = m_key_bhm_dict_.find(key);
+        if (it == m_key_bhm_dict_.end()) { return pos1; }
+        auto &neighbor_bhm = it->second;
+        if (!neighbor_bhm->active) { return pos1; }
+        auto surf_it = neighbor_bhm->surface_indices.find(edge_idx);
+        if (surf_it == neighbor_bhm->surface_indices.end()) { return pos1; }
+        Position pos2 = m_surf_data_manager_[surf_it->second].position;
+        return 0.5f * (pos1 + pos2);
     }
 
     template class RaySelector2D<float>;

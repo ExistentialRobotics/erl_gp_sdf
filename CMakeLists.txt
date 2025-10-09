@@ -33,7 +33,7 @@ if (ERL_USE_LIBTORCH)
     target_include_directories(${PROJECT_NAME} SYSTEM PUBLIC ${TORCH_INCLUDE_DIRS})
     target_link_libraries(${PROJECT_NAME} PUBLIC ${TORCH_LIBRARIES})
 endif ()
-
+erl_dump_compile_definitions(include/${PROJECT_NAME}/compile_definitions.hpp)
 include(src/demo/demo.cmake)
 
 # ######################################################################################################################

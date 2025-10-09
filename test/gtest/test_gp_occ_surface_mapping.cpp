@@ -1,5 +1,6 @@
 #include "utils.hpp"
 
+#include "erl_common/block_timer.hpp"
 #include "erl_common/csv.hpp"
 #include "erl_common/test_helper.hpp"
 #include "erl_geometry/cow_and_lady.hpp"
@@ -597,7 +598,7 @@ TestImpl2D() {
     } catch (std::exception &e) { std::cerr << e.what() << "\n"; }
     ASSERT_TRUE(options_parsed);
 
-    DataSetType dataset_type;
+    DataSetType dataset_type = DataSetType::GazeboRoom;
     if (options.dataset_name == "gazebo_room_2d") {
         dataset_type = DataSetType::GazeboRoom;
         ASSERT_TRUE(std::filesystem::exists(options.gazebo_train_file))
@@ -765,8 +766,8 @@ TestImpl2D() {
 
     // prepare the visualizer
     auto drawer_setting = std::make_shared<typename QuadtreeDrawer::Setting>();
-    drawer_setting->area_min = map_min;
-    drawer_setting->area_max = map_max;
+    drawer_setting->area_min = map_min.template cast<float>();
+    drawer_setting->area_max = map_max.template cast<float>();
     drawer_setting->resolution = map_resolution[0];
     drawer_setting->scaling = gp_setting->scaling;
     drawer_setting->padding = map_padding[0];
@@ -820,7 +821,8 @@ TestImpl2D() {
                 drawer.DrawTree(img);
             }
             for (auto it = gp.BeginSurfaceData(), end = gp.EndSurfaceData(); it != end; ++it) {
-                Eigen::Vector2i position_px = drawer.GetPixelCoordsForPositions(it->position, true);
+                Eigen::Vector2i position_px =
+                    drawer.template GetPixelCoordsForPositions<Dtype>(it->position, true);
                 cv::Point position_px_cv(position_px[0], position_px[1]);
                 cv::circle(
                     img,
@@ -828,8 +830,8 @@ TestImpl2D() {
                     2,
                     cv::Scalar(0, 0, 255, 255),
                     -1);  // draw surface point
-                Eigen::Vector2i normal_px =
-                    drawer.GetPixelCoordsForVectors(it->normal * options.surf_normal_scale);
+                Eigen::Vector2i normal_px = drawer.template GetPixelCoordsForVectors<Dtype>(
+                    it->normal * options.surf_normal_scale);
                 cv::Point arrow_end_px(
                     position_px[0] + normal_px[0],
                     position_px[1] + normal_px[1]);
@@ -848,7 +850,7 @@ TestImpl2D() {
             DrawTrajectoryInplace<Dtype>(
                 img,
                 cur_traj.block(0, 0, 2, i),
-                drawer.GetGridMapInfo(),
+                drawer.GetGridMapInfo()->template CastSharedPtr<Dtype>(),
                 trajectory_color,
                 2,
                 pixel_based);

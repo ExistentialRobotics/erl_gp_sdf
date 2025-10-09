@@ -40,7 +40,7 @@ struct YAML::convert<Options> {
         ERL_YAML_LOAD_ATTR(node, options, perturb_delta);
         ERL_YAML_LOAD_ATTR(node, options, test_num_x);
         ERL_YAML_LOAD_ATTR(node, options, test_num_y);
-        ERL_YAML_LOAD_ATTR(node, options, gp);
+        if (!ERL_YAML_LOAD_ATTR(node, options, gp)) { return false; }
         ERL_YAML_LOAD_ATTR(node, options, output_dir);
         return true;
     }

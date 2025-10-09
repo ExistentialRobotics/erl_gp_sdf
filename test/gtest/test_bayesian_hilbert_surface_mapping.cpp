@@ -223,11 +223,17 @@ TestImpl3D() {
     bool is_lidar = false;
     Vector3 map_min, map_max;
     long max_wp_idx = 0;
+    Matrix3X gt_surface_points;
     switch (dataset_type) {
         case DataSetType::CowAndLady: {
             cow_and_lady = std::make_shared<CowAndLady>(options.cow_and_lady_dir);
             max_wp_idx = cow_and_lady->Size();
-            geometries.push_back(cow_and_lady->GetGroundTruthPointCloud());
+            auto pcd = cow_and_lady->GetGroundTruthPointCloud();
+            geometries.push_back(pcd);
+            gt_surface_points.resize(3, pcd->points_.size());
+            for (size_t i = 0; i < pcd->points_.size(); ++i) {
+                gt_surface_points.col(i) = pcd->points_[i].cast<Dtype>();
+            }
             map_min = cow_and_lady->GetMapMin().cast<Dtype>();
             map_max = cow_and_lady->GetMapMax().cast<Dtype>();
             const auto depth_frame_setting = std::make_shared<typename DepthFrame3D::Setting>();
@@ -262,6 +268,10 @@ TestImpl3D() {
             map_min = mesh->GetMinBound().template cast<Dtype>();
             map_max = mesh->GetMaxBound().template cast<Dtype>();
             geometries.push_back(mesh);
+            gt_surface_points.resize(3, mesh->vertices_.size());
+            for (size_t i = 0; i < mesh->vertices_.size(); ++i) {
+                gt_surface_points.col(i) = mesh->vertices_[i].template cast<Dtype>();
+            }
 
             if (options.sensor_frame_type == type_name<LidarFrame3D>()) {
                 const auto lidar_frame_setting = std::make_shared<typename LidarFrame3D::Setting>();
@@ -314,6 +324,10 @@ TestImpl3D() {
             newer_college = std::make_shared<NewerCollege>(options.newer_college_dir);
             max_wp_idx = newer_college->Size();
             auto pcd = newer_college->GetGroundTruthPointCloud();
+            gt_surface_points.resize(3, pcd->points_.size());
+            for (size_t i = 0; i < pcd->points_.size(); ++i) {
+                gt_surface_points.col(i) = pcd->points_[i].cast<Dtype>();
+            }
             pcd = pcd->RandomDownSample(0.05);
             geometries.push_back(pcd);
             map_min = newer_college->GetMapMin().cast<Dtype>();
@@ -724,6 +738,19 @@ TestImpl3D() {
         visualizer.Show();
     }
 
+    VectorX log_odd_values;
+    Matrix3X gradients;
+    bhsm.Predict(gt_surface_points, true, true, false, false, true, log_odd_values, gradients);
+    Dtype mean = log_odd_values.mean();
+    Dtype squared_mean = log_odd_values.squaredNorm() / static_cast<Dtype>(log_odd_values.size());
+    Dtype std = std::sqrt(squared_mean - mean * mean);
+    ERL_INFO(
+        "Statistics of log-odd on ground truth surface points: mean={}, std={}, min={}, max={}",
+        mean,
+        std,
+        log_odd_values.minCoeff(),
+        log_odd_values.maxCoeff());
+
     if (options.test_io) { TestIo<Dtype, 3>(&bhsm); }  // test IO after mapping
 
     auto drawer_setting = std::make_shared<typename OctreeDrawer::Setting>();
@@ -732,9 +759,9 @@ TestImpl3D() {
     drawer_setting->area_max = map_max.template cast<double>();
     drawer_setting->occupied_only = true;
     OctreeDrawer octree_drawer(drawer_setting, bhsm.GetTree());
-    auto mesh = geometries[0];
+    auto gt_mesh = geometries[0];
     geometries = octree_drawer.GetBlankGeometries();
-    geometries.push_back(mesh);
+    geometries.push_back(gt_mesh);
     octree_drawer.DrawLeaves(geometries);
     visualizer.Reset();
     visualizer.AddGeometries(geometries);
@@ -1003,8 +1030,8 @@ TestImpl2D() {
 
     // prepare the visualizer
     auto drawer_setting = std::make_shared<typename QuadtreeDrawer::Setting>();
-    drawer_setting->area_min = map_min;
-    drawer_setting->area_max = map_max;
+    drawer_setting->area_min = map_min.template cast<float>();
+    drawer_setting->area_max = map_max.template cast<float>();
     drawer_setting->resolution = map_resolution[0];
     drawer_setting->padding = map_padding[0];
     drawer_setting->border_color = cv::Scalar(255, 0, 0, 255);
@@ -1058,7 +1085,7 @@ TestImpl2D() {
         }
     }
 
-    auto grid_map_info = drawer->GetGridMapInfo();
+    auto grid_map_info = drawer->GetGridMapInfo()->template CastSharedPtr<Dtype>();
     Matrix2X grid_points = grid_map_info->GenerateMeterCoordinates(false /*c_stride*/);
     VectorX logodd_values;
     VectorX prob_occupied;

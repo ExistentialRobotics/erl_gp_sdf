@@ -5,7 +5,7 @@ test_query:
     num_neighbor_gps: 8
     use_smallest: true
     compute_gradient: true # whether to compute gradient
-    compute_gradient_variance: true # whether to compute gradient variance
+    compute_gradient_variance: false # whether to compute gradient variance
     compute_covariance: false # whether to compute covariance
     use_gp_covariance: false
     retrain_outdated: true # whether to retrain the trained but outdated GPs
@@ -29,19 +29,20 @@ sdf_gp:
         kernel_setting_type: erl::covariance::Covariance<float>::Setting
         kernel:
             x_dim: 3
-            scale: 0.05
+            scale: 0.1
             scale_mix: 1
             weights: []
         max_num_samples: 48 # max dataset size
         no_gradient_observation: false
     edf_gp:
-        kernel_type: erl::covariance::Matern32<float, 3>
+        kernel_type: erl::covariance::RadialBiasFunction<float, 3>
         kernel_setting_type: erl::covariance::Covariance<float>::Setting
         kernel:
             x_dim: 3
             scale: 0.043 # sqrt(3) / log_lambda, will be overridden by log_lambda
             scale_mix: 1
             weights: []
-        log_lambda: 20
+        log_lambda: 40
+        duplicate_epsilon: 0.001
         max_num_samples: 128 # max dataset size
         no_gradient_observation: true

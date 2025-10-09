@@ -29,11 +29,13 @@ DrawSurfaceData(
     for (auto it = surface_mapping.BeginSurfaceData(), end = surface_mapping.EndSurfaceData();
          it != end;
          ++it) {
-        Eigen::Vector2i position_px = drawer.GetPixelCoordsForPositions(it->position, true);
+        Eigen::Vector2i position_px =
+            drawer.template GetPixelCoordsForPositions<Dtype>(it->position, true);
         cv::Point position_px_cv(position_px[0], position_px[1]);
         cv::circle(img, position_px_cv, 2, cv::Scalar(0, 0, 255, 255), -1);  // draw surface point
         if (!draw_normals) { continue; }
-        Eigen::Vector2i normal_px = drawer.GetPixelCoordsForVectors(it->normal * surf_normal_scale);
+        Eigen::Vector2i normal_px =
+            drawer.template GetPixelCoordsForVectors<Dtype>(it->normal * surf_normal_scale);
         const cv::Point arrow_end_px(position_px[0] + normal_px[0], position_px[1] + normal_px[1]);
         cv::arrowedLine(
             img,
@@ -79,7 +81,7 @@ DrawSdfGradient(
     const int x,
     const int y,
     const Eigen::Vector2<Dtype> &gradient) {
-    const Eigen::VectorXi grad_pixel = drawer->GetPixelCoordsForVectors(gradient);
+    const Eigen::VectorXi grad_pixel = drawer->template GetPixelCoordsForVectors<Dtype>(gradient);
     cv::arrowedLine(
         img,
         cv::Point(x, y),
@@ -103,7 +105,8 @@ DrawGp(
     if (gp == nullptr) { return; }
 
     if (draw_pos) {
-        Eigen::Vector2i gp_position_px = drawer.GetPixelCoordsForPositions(gp->position, true);
+        Eigen::Vector2i gp_position_px =
+            drawer.template GetPixelCoordsForPositions<Dtype>(gp->position, true);
         cv::drawMarker(
             img,
             cv::Point(gp_position_px[0], gp_position_px[1]),
@@ -116,8 +119,10 @@ DrawGp(
     if (draw_rect) {
         const Eigen::Vector2<Dtype> gp_area_min = gp->position.array() - gp->half_size;
         const Eigen::Vector2<Dtype> gp_area_max = gp->position.array() + gp->half_size;
-        Eigen::Vector2i gp_area_min_px = drawer.GetPixelCoordsForPositions(gp_area_min, true);
-        Eigen::Vector2i gp_area_max_px = drawer.GetPixelCoordsForPositions(gp_area_max, true);
+        Eigen::Vector2i gp_area_min_px =
+            drawer.template GetPixelCoordsForPositions<Dtype>(gp_area_min, true);
+        Eigen::Vector2i gp_area_max_px =
+            drawer.template GetPixelCoordsForPositions<Dtype>(gp_area_max, true);
         cv::rectangle(
             img,
             cv::Point(gp_area_min_px[0], gp_area_min_px[1]),
@@ -132,7 +137,7 @@ DrawGp(
         gp->edf_gp->GetTrainSet();
     Eigen::Matrix2X<Dtype> used_surface_points = train_set.x.block(0, 0, 2, train_set.num_samples);
     Eigen::Matrix2Xi used_surface_points_px =
-        drawer.GetPixelCoordsForPositions(used_surface_points, true);
+        drawer.template GetPixelCoordsForPositions<Dtype>(used_surface_points, true);
     for (long j = 0; j < used_surface_points.cols(); j++) {
         cv::circle(
             img,
@@ -161,7 +166,7 @@ OpenCvMouseCallback(const int event, const int x, const int y, int /*flags*/, vo
     if (event == cv::EVENT_LBUTTONDOWN) {
         auto *data = static_cast<OpenCvUserData<Dtype, Drawer> *>(userdata);
         Eigen::Vector2<Dtype> position =
-            data->drawer->GetMeterCoordsForPositions(Eigen::Vector2i(x, y), false);
+            data->drawer->template GetMeterCoordsForPositions<Dtype>(Eigen::Vector2i(x, y), false);
         ERL_INFO("Clicked at [{:f}, {:f}].", position.x(), position.y());
         Eigen::VectorX<Dtype> distance(1);
         Eigen::Matrix2X<Dtype> gradient(2, 1);
@@ -508,8 +513,8 @@ TestImpl2D() {
 
     // prepare the visualizer
     auto drawer_setting = std::make_shared<typename QuadtreeDrawer::Setting>();
-    drawer_setting->area_min = map_min;
-    drawer_setting->area_max = map_max;
+    drawer_setting->area_min = map_min.template cast<float>();
+    drawer_setting->area_max = map_max.template cast<float>();
     drawer_setting->resolution = map_resolution[0];
     drawer_setting->scaling = surface_mapping_setting->scaling;
     drawer_setting->padding = map_padding[0];
@@ -532,7 +537,7 @@ TestImpl2D() {
         cv::waitKey();  // wait for any key
     }
 
-    auto grid_map_info = drawer.GetGridMapInfo();
+    auto grid_map_info = drawer.GetGridMapInfo()->template CastSharedPtr<Dtype>();
     PlplotFig fig_sdf(1280, 480, true);
     PlplotFig fig_grad(1280, 480, true);
     PlplotFig::LegendOpt legend_opt_sdf(3, {"SDF", "EDF", "Variance"});
@@ -658,10 +663,15 @@ TestImpl2D() {
             EXPECT_TRUE(sdf_mapping.Test(position, distance, gradient, variances, covariances));
 
             // Visualize the results
-            cv::Point position_px =
-                EigenToOpenCV(drawer.GetGridMapInfo()->MeterToPixelForPoints(position));
-            DrawSdf(img, position_px.x, position_px.y, distance[0], drawer_setting->resolution);
-            DrawSdfVariance(
+            cv::Point position_px = EigenToOpenCV(
+                drawer.GetGridMapInfo()->MeterToPixelForPoints(position.template cast<float>()));
+            DrawSdf<Dtype>(
+                img,
+                position_px.x,
+                position_px.y,
+                distance[0],
+                drawer_setting->resolution);
+            DrawSdfVariance<Dtype>(
                 img,
                 position_px.x,
                 position_px.y,
@@ -700,7 +710,7 @@ TestImpl2D() {
             DrawTrajectoryInplace<Dtype>(
                 img,
                 cur_traj.block(0, 0, 2, i),
-                drawer.GetGridMapInfo(),
+                drawer.GetGridMapInfo()->template CastSharedPtr<Dtype>(),
                 trajectory_color,
                 2,
                 pixel_based);
@@ -881,11 +891,12 @@ TestImpl2D() {
                 img.copyTo(tmp(cv::Rect(0, 0, img.cols, img.rows)));
                 fig_sdf.ToCvMat().copyTo(
                     tmp(cv::Rect(img.cols, offset, fig_sdf.Width(), fig_sdf.Height())));
-                fig_grad.ToCvMat().copyTo(tmp(cv::Rect(
-                    img.cols,
-                    offset + fig_sdf.Height(),
-                    fig_grad.Width(),
-                    fig_grad.Height())));
+                fig_grad.ToCvMat().copyTo(
+                    tmp(cv::Rect(
+                        img.cols,
+                        offset + fig_sdf.Height(),
+                        fig_grad.Width(),
+                        fig_grad.Height())));
             } else {
                 const int offset = (frame.rows - img.rows) / 2;
                 img.copyTo(tmp(cv::Rect(0, offset, img.cols, img.rows)));
@@ -946,12 +957,14 @@ TestImpl2D() {
         t_per_point);
 
     EXPECT_TRUE(success) << "Failed to test SDF estimation at the end.";
-    ASSERT_TRUE(Serialization<typename SurfaceMapping::Tree>::Write(
-        test_output_dir / "tree.bt",
-        [&](std::ostream &s) -> bool { return surface_mapping->GetTree()->WriteBinary(s); }));
-    ASSERT_TRUE(Serialization<typename SurfaceMapping::Tree>::Write(
-        test_output_dir / "tree.ot",
-        surface_mapping->GetTree()));
+    ASSERT_TRUE(
+        Serialization<typename SurfaceMapping::Tree>::Write(
+            test_output_dir / "tree.bt",
+            [&](std::ostream &s) -> bool { return surface_mapping->GetTree()->WriteBinary(s); }));
+    ASSERT_TRUE(
+        Serialization<typename SurfaceMapping::Tree>::Write(
+            test_output_dir / "tree.ot",
+            surface_mapping->GetTree()));
 
     if (success && options.visualize) {
         Dtype min_distance = distances_out.minCoeff();

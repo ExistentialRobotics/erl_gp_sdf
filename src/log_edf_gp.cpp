@@ -10,6 +10,7 @@ namespace erl::gp_sdf {
     LogEdfGaussianProcess<Dtype>::Setting::YamlConvertImpl::encode(const Setting &setting) {
         YAML::Node node = YAML::convert<typename Super::Setting>::encode(setting);
         ERL_YAML_SAVE_ATTR(node, setting, log_lambda);
+        ERL_YAML_SAVE_ATTR(node, setting, duplicate_epsilon);
         return node;
     }
 
@@ -21,6 +22,7 @@ namespace erl::gp_sdf {
         if (!node.IsMap()) { return false; }
         YAML::convert<typename Super::Setting>::decode(node, setting);
         ERL_YAML_LOAD_ATTR(node, setting, log_lambda);
+        ERL_YAML_LOAD_ATTR(node, setting, duplicate_epsilon);
         return true;
     }
 
@@ -57,18 +59,34 @@ namespace erl::gp_sdf {
         const auto &mat_k_test = this->m_mat_k_test_;
         Dtype *f = vec_f_out.data();
         if (y_index == 0) {
-            const Dtype a = -1.0f / gp->m_setting_->log_lambda;
-#pragma omp parallel for if (parallel) default(none) shared(num_test, mat_k_test, f, a, alpha) \
-    schedule(static)
-            for (long index = 0; index < num_test; ++index) {
-                Dtype f_log_gpis = mat_k_test.col(index).dot(alpha);
-                f_log_gpis = std::min(std::abs(f_log_gpis), static_cast<Dtype>(1.0));
-                f[index] = a * std::log(f_log_gpis);
+            if (gp->m_kernel_->GetCovarianceName() == "Matern32") {
+                const Dtype a = -1.0f / gp->m_setting_->log_lambda;
+#pragma omp parallel for if (parallel) schedule(static) default(none) \
+    shared(num_test, mat_k_test, f, a, alpha)
+                for (long index = 0; index < num_test; ++index) {
+                    Dtype f_log_gpis = mat_k_test.col(index).dot(alpha);
+                    f_log_gpis = std::min(std::abs(f_log_gpis), static_cast<Dtype>(1.0));
+                    f[index] = a * std::log(f_log_gpis);
+                }
+                return;
             }
-            return;
+            if (gp->m_kernel_->GetCovarianceName() == "RadialBiasFunction") {
+                const Dtype a = -1.0f / gp->m_setting_->log_lambda;
+#pragma omp parallel for if (parallel) schedule(static) default(none) \
+    shared(num_test, mat_k_test, f, a, alpha)
+                for (long index = 0; index < num_test; ++index) {
+                    Dtype f_log_gpis = mat_k_test.col(index).dot(alpha);
+                    f_log_gpis = std::min(std::abs(f_log_gpis), static_cast<Dtype>(1.0));
+                    f[index] = std::sqrt(a * std::log(f_log_gpis));
+                }
+                return;
+            }
+            ERL_WARN(
+                "No log-edf reverse transformation implemented for kernel type {}",
+                gp->m_kernel_->GetCovarianceName());
         }
-#pragma omp parallel for if (parallel) default(none) shared(num_test, mat_k_test, f, alpha) \
-    schedule(static)
+#pragma omp parallel for if (parallel) schedule(static) default(none) \
+    shared(num_test, mat_k_test, f, alpha)
         for (long index = 0; index < num_test; ++index) {
             f[index] = mat_k_test.col(index).dot(alpha);
         }
@@ -86,8 +104,19 @@ namespace erl::gp_sdf {
         f = mat_k_test.col(index).dot(alpha);  // std::log(std::abs(f_log_gpis)) / -log_lambda
         // we only apply the log transformation to the first output dimension
         if (y_index == 0) {
-            f = std::min(std::abs(f), static_cast<Dtype>(1.0));
-            f = std::log(f) / -gp->m_setting_->log_lambda;
+            if (gp->m_kernel_->GetCovarianceName() == "Matern32") {
+                f = std::min(std::abs(f), static_cast<Dtype>(1.0));
+                f = std::log(f) / -gp->m_setting_->log_lambda;
+                return;
+            }
+            if (gp->m_kernel_->GetCovarianceName() == "RadialBiasFunction") {
+                f = std::min(std::abs(f), static_cast<Dtype>(1.0));
+                f = std::sqrt(std::log(f) / -gp->m_setting_->log_lambda);
+                return;
+            }
+            ERL_WARN(
+                "No log-edf reverse transformation implemented for kernel type {}",
+                gp->m_kernel_->GetCovarianceName());
         }
     }
 
@@ -192,7 +221,21 @@ namespace erl::gp_sdf {
               } else {
                   setting->kernel_type = type_name<covariance::Matern32<Dtype, Eigen::Dynamic>()>();
               }
-              setting->kernel->scale = std::sqrt(3.) / setting->log_lambda;
+              ERL_ASSERTM(setting->kernel != nullptr, "setting->kernel should not be nullptr.");
+              using Covariance = covariance::Covariance<Dtype>;
+              auto kernel = Covariance::CreateCovariance(setting->kernel_type, setting->kernel);
+              ERL_ASSERTM(
+                  kernel != nullptr,
+                  "Failed to create covariance of type {}.",
+                  setting->kernel_type);
+              if (kernel->GetCovarianceName() == "Matern32") {
+                  setting->kernel->scale = std::sqrt(3.0f) / setting->log_lambda;
+              } else if (kernel->GetCovarianceName() == "RadialBiasFunction") {
+                  setting->kernel->scale = std::sqrt(0.5f / setting->log_lambda);
+              } else {
+                  ERL_WARN("No auto scale adjustment for kernel type {}", setting->kernel_type);
+              }
+
               setting->no_gradient_observation = true;
               return setting;
           }()),
