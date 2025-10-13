@@ -1,6 +1,7 @@
 test_query:
-    max_test_valid_distance_var: 1
-    search_area_half_size: 4  # should be around max sdf
+    default_invalid_sdf: -1
+    max_test_valid_distance_var: 0.2
+    search_area_half_size: 2
     num_neighbor_gps: 4
     use_smallest: true  # use the smallest distance as the prediction
     compute_gradient: true  # whether to compute gradient
@@ -12,7 +13,7 @@ test_query:
 num_threads: 64
 update_hz: 60
 sensor_noise: 0.01
-gp_sdf_area_scale: 5    # should be larger than 2x max sdf when use_smallest is false: 7
+gp_sdf_area_scale: 2
 max_valid_gradient_var: 0.1
 invalid_position_var: 0.25
 sdf_gp:
@@ -48,5 +49,6 @@ sdf_gp:
             scale_mix: 1
             weights: [ ]
         log_lambda: 40
+        duplicate_epsilon: 0.0
         max_num_samples: 256   # max dataset size
         no_gradient_observation: true

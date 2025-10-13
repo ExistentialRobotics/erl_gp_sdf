@@ -1,4 +1,5 @@
 test_query:
+    default_invalid_sdf: -1
     max_test_valid_distance_var: 0.2
     search_area_half_size: 2
     num_neighbor_gps: 4
@@ -16,7 +17,7 @@ gp_sdf_area_scale: 2
 max_valid_gradient_var: 0.1
 invalid_position_var: 0.25
 sdf_gp:
-    sign_method: "kNormalGp"
+    sign_method: "kExternal"
     hybrid_sign_methods: [ "kNormalGp", "kExternal" ]
     hybrid_sign_threshold: 0.2
     normal_scale: 100.0
@@ -24,8 +25,8 @@ sdf_gp:
     sign_gp_offset_distance: 0.01
     edf_gp_offset_distance: 0.0
     sign_gp:
-        kernel_type: erl::covariance::ReducedRankMatern32<double, 2>
-        kernel_setting_type: erl::covariance::ReducedRankCovariance<double>::Setting
+        kernel_type: erl::covariance::ReducedRankMatern32<float, 2>
+        kernel_setting_type: erl::covariance::ReducedRankCovariance<float>::Setting
         kernel:
             x_dim: 2
             alpha: 1
@@ -39,14 +40,15 @@ sdf_gp:
         max_num_samples: 256   # max dataset size
         no_gradient_observation: false
     edf_gp:
-        kernel_type: erl::covariance::Matern32<double, 2>
-        kernel_setting_type: erl::covariance::Covariance<double>::Setting
+        kernel_type: erl::covariance::Matern32<float, 2>
+        kernel_setting_type: erl::covariance::Covariance<float>::Setting
         kernel:
             x_dim: 2
             alpha: 1
             scale: 0.3
             scale_mix: 1
             weights: [ ]
-        log_lambda: 40
+        log_lambda: 20
+        duplicate_epsilon: 0.0
         max_num_samples: 256   # max dataset size
         no_gradient_observation: true

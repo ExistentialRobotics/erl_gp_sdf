@@ -4,7 +4,6 @@ log_timing: true
 gp_sdf_area_scale: 3
 max_valid_gradient_var: 0.1
 invalid_position_var: 0.25
-offset_distance: 0.04
 use_occ_sign: true
 train_gp_immediately: false
 edf_gp:
