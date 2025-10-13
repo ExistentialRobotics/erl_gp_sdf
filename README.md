@@ -1,8 +1,10 @@
 # erl_gp_sdf
 
+[![Tags](https://img.shields.io/github/v/tag/ExistentialRobotics/erl_gp_sdf?label=version)](https://github.com/ExistentialRobotics/erl_gp_sdf/tags)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 [![ROS1](https://img.shields.io/badge/ROS1-noetic-blue)](http://wiki.ros.org/)
 [![ROS2](https://img.shields.io/badge/ROS2-humble-blue)](https://docs.ros.org/)
+[![ROS2](https://img.shields.io/badge/ROS2-jazzy-blue)](https://docs.ros.org/)
 
 ![](test/gtest/assets/test_gp_sdf_mapping_cow_and_lady.png)
 

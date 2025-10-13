@@ -3,6 +3,7 @@ local_bhm:
         diagonal_sigma: true
         min_distance: 0.1
         max_distance: 4
+        sampling_area_scale: 1.2
         free_points_per_meter: 1.5
         free_sampling_margin: 0.001
         init_mu: 0.0
@@ -64,11 +65,15 @@ update_map:
     cuda_device_id: 0
     update_batch_size: 512
 scaling: 1.0
-hinged_grid_size: 5
 bhm_depth: 15
+weight_sync: false
+sync_method: "bayesian"
+hinged_grid_size: 5
 bhm_overlap: 0.06 # 0.15 # 0.12
+bhm_overlap_sync: 1
 build_bhm_on_hit: true
 faster_prediction: true
+surface_log_odds: 0.0
 bhm_test_margin: 0.04 # 0.12 # 0.1
 test_knn: 1
 test_batch_size: 1000
