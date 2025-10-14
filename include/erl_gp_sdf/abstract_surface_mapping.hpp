@@ -137,6 +137,16 @@ namespace erl::gp_sdf {
         [[nodiscard]] virtual const std::vector<SurfData> &
         GetSurfaceDataBuffer() const = 0;
 
+        [[nodiscard]] virtual size_t 
+        GetSurfaceDataSize() const = 0;
+
+        virtual typename SurfDataManager::Iterator
+        BeginSurfaceData() = 0;
+
+        virtual typename SurfDataManager::Iterator
+        EndSurfaceData() = 0;
+
+
         /**
          * Collect surface data in the given axis-aligned bounding box.
          * @param aabb the axis-aligned bounding box to collect surface data.

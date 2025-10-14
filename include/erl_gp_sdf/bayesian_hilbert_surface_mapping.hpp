@@ -362,6 +362,11 @@ namespace erl::gp_sdf {
         typename SurfDataManager::Iterator
         EndSurfaceData();
 
+        size_t
+        GetSurfaceDataSize() const {
+            return m_surf_data_manager_.Size();
+        }
+
         /**
          *
          * @param points Matrix of points in the world frame. Each column is a point.

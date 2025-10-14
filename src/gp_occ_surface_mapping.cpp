@@ -297,13 +297,13 @@ namespace erl::gp_sdf {
 
     template<typename Dtype, int Dim>
     typename GpOccSurfaceMapping<Dtype, Dim>::SurfaceDataIterator
-    GpOccSurfaceMapping<Dtype, Dim>::BeginSurfaceData() {
+    GpOccSurfaceMapping<Dtype, Dim>::BeginSurfaceDataGpOcc() {
         return SurfaceDataIterator(this);
     }
 
     template<typename Dtype, int Dim>
     typename GpOccSurfaceMapping<Dtype, Dim>::SurfaceDataIterator
-    GpOccSurfaceMapping<Dtype, Dim>::EndSurfaceData() {
+    GpOccSurfaceMapping<Dtype, Dim>::EndSurfaceDataGpOcc() {
         return SurfaceDataIterator(nullptr);
     }
 

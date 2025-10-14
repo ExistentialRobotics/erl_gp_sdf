@@ -194,10 +194,25 @@ namespace erl::gp_sdf {
             const Eigen::Ref<const Ranges> &ranges);
 
         SurfaceDataIterator
-        BeginSurfaceData();
+        BeginSurfaceDataGpOcc();
 
         SurfaceDataIterator
-        EndSurfaceData();
+        EndSurfaceDataGpOcc();
+
+        typename SurfDataManager::Iterator
+        BeginSurfaceData(){
+        return this->m_surf_data_manager_.begin();
+    }
+
+        typename SurfDataManager::Iterator
+        EndSurfaceData(){
+        return this->m_surf_data_manager_.end();
+    }
+
+
+        size_t GetSurfaceDataSize() const {
+            return this->m_surf_data_manager_.Size();
+        }
 
         // implement the methods required by AbstractSurfaceMapping
 
