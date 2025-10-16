@@ -5,13 +5,20 @@ requires = ["setuptools", "wheel", "toml"]
 line-length = 120
 
 [erl]
-description = "Python bindings for erl_gp_sdf"
-python_pkg_name = "erl_gp_sdf"
-pybind_module_name = "pyerl_gp_sdf"
 erl_dependencies = ["erl_cmake_tools", "erl_common", "erl_covariance", "erl_gaussian_process", "erl_geometry"]
 build_type = "Release"
+
+[project]
+name = "erl_gp_sdf"
 version = "0.2.0"
-author = "Zhirui Dai"
-author_email = "zhdai@ucsd.edu"
-entry_points = { console_scripts = ["erl-sdf-mapping-demo=erl_gp_sdf.main_gp_sdf:main"] }
+description = "Python package for erl_gp_sdf"
+authors = [
+    { name = "Zhirui Dai", email = "zhdai@ucsd.edu" }
+]
+maintainers = [
+    { name = "Zhirui Dai", email = "zhdai@ucsd.edu" }
+]
+readme = "README.md"
 license = "MIT"
+requires-python = ">=3.8"
+dependencies = []
