@@ -290,13 +290,28 @@ struct ToMeshImpl {
         ASSERT_TRUE(sdf_mapping->Test(positions, distances, gradients, variances, covariances));
         ERL_INFO("SDF mapping prediction done, {} points.", positions.cols());
 
+        Eigen::VectorXb mask(positions.cols());
+        mask.setConstant(true);
+        auto bhsm = std::dynamic_pointer_cast<BayesianHilbertSurfaceMapping>(surface_mapping);
+        if (bhsm != nullptr) {
+            auto bhsm_setting = bhsm->GetSetting();
+            auto local_bhms = bhsm->GetLocalBhms();
+            auto tree = bhsm->GetTree();
+            for (long i = 0; i < positions.cols(); ++i) {
+                erl::geometry::OctreeKey key = tree->CoordToKey(positions.col(i));
+                key = tree->AdjustKeyToDepth(key, bhsm_setting->bhm_depth);
+                mask[i] = local_bhms.find(key) != local_bhms.end();
+            }
+        }
+
         auto extracted_mesh = std::make_shared<open3d::geometry::TriangleMesh>();
         constexpr bool parallel = true;
-        erl::geometry::MarchingCubes::Run(
+        erl::geometry::MarchingCubes::RunWithMask(
             grid_map_info.Min().template cast<double>(),
             grid_map_info.Resolution().template cast<double>(),
             grid_map_info.Shape(),
             distances.template cast<double>(),
+            mask,
             options.iso_value,
             row_major,
             parallel,

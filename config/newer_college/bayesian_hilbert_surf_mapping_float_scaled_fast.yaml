@@ -15,7 +15,7 @@ local_bhm:
     kernel_setting_type: erl::covariance::Covariance<float>::Setting
     kernel:
         x_dim: 3
-        scale: 0.016 # 0.16 # 0.25
+        scale: 0.02 # 0.16 # 0.25
         scale_mix: 1
         weights: [ ]
     min_dataset_size: 10
@@ -73,7 +73,7 @@ scaling: 0.1
 bhm_depth: 15 # 15 # 16
 weight_sync: true
 sync_method: "copy"  # copy, mean, or bayesian
-hinged_grid_size: 7 # 5 # 7
+hinged_grid_size: 5 # 5 # 7
 bhm_overlap: 0.05 # 0.04  # 0.05 # 0.08 # 0.4 # 0.8
 bhm_overlap_sync: 1
 build_bhm_on_hit: true

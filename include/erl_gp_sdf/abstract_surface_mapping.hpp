@@ -159,7 +159,7 @@ namespace erl::gp_sdf {
          * implemented.
          */
         [[nodiscard]] virtual bool
-        IsInFreeSpace(const Positions &positions, VectorX &in_free_space) const = 0;
+        IsInFreeSpace(const Positions &positions, Eigen::VectorXb &in_free_space) const = 0;
 
         // Comparison
         [[nodiscard]] virtual bool

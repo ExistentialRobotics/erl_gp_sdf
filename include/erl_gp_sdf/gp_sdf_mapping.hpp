@@ -116,8 +116,8 @@ namespace erl::gp_sdf {
         std::shared_ptr<KdTree> m_kdtree_candidate_gps_ = nullptr;  // to search candidate GPs
         Aabb m_map_boundary_ = {};  // for testing, boundary of the surface map
         std::vector<std::vector<std::pair<Dtype, KeyGpPair>>> m_query_to_gps_ = {};  // for testing
-        VectorX m_query_signs_ = {};      // sign of query positions
-        double m_train_gp_time_us_ = 10;  // time spent for training GPs
+        Eigen::VectorXb m_in_free_space_ = {};  // if query positions are in free space
+        double m_train_gp_time_us_ = 10;        // time spent for training GPs
         TestBuffer m_test_buffer_ = {};
         std::vector<std::array<std::shared_ptr<SdfGp>, (Dim - 1) * 2>> m_query_used_gps_ = {};
 

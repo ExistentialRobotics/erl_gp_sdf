@@ -64,8 +64,7 @@ namespace erl::gp_sdf {
     GpSdfMapping<Dtype, Dim>::GpSdfMapping(
         std::shared_ptr<Setting> setting,
         std::shared_ptr<SurfaceMapping> surface_mapping)
-        : m_setting_(std::move(setting)),
-          m_surface_mapping_(std::move(surface_mapping)) {
+        : m_setting_(std::move(setting)), m_surface_mapping_(std::move(surface_mapping)) {
         ERL_ASSERTM(m_setting_ != nullptr, "setting is nullptr.");
         ERL_ASSERTM(m_surface_mapping_ != nullptr, "surface_mapping is nullptr.");
         ERL_ASSERTM(m_setting_->gp_sdf_area_scale > 1, "GP area scale must be greater than 1.");
@@ -315,7 +314,7 @@ namespace erl::gp_sdf {
 #pragma region test_gps
         bool surface_mapping_sign = false;
         const SignMethod sign_method = m_setting_->sdf_gp->sign_method;
-        m_query_signs_.setConstant(num_queries, 1.0f);
+        m_in_free_space_.setConstant(num_queries, false);
         if (const auto &hybrid_sign_methods = m_setting_->sdf_gp->hybrid_sign_methods;
             sign_method == kExternal ||
             (sign_method == kHybrid &&
@@ -323,7 +322,8 @@ namespace erl::gp_sdf {
             // collect the sign from the surface mapping, which is not thread-safe
             // CRITICAL SECTION: access m_surface_mapping_
             auto surface_mapping_lock = m_surface_mapping_->GetLockGuard();
-            surface_mapping_sign = m_surface_mapping_->IsInFreeSpace(positions_in, m_query_signs_);
+            surface_mapping_sign =
+                m_surface_mapping_->IsInFreeSpace(positions_in, m_in_free_space_);
             ERL_WARN_COND(!surface_mapping_sign, "Failed to get sign from the surface mapping.");
         }
 
@@ -459,8 +459,7 @@ namespace erl::gp_sdf {
             std::vector<Face> faces;
 
             Voxel(const int idx, VoxelCoord coord_)
-                : idx(idx),
-                  coord(std::move(coord_)) {}
+                : idx(idx), coord(std::move(coord_)) {}
         };
 
         std::vector<Voxel> near_surface_voxels;
@@ -876,7 +875,8 @@ namespace erl::gp_sdf {
         }
         // when m_cluster_queue_keys_ is the same, m_cluster_queue_ is the same
         // m_clusters_to_train_, m_candidate_gps_, m_kdtree_candidate_gps_, m_map_boundary_,
-        // m_query_to_gps_, m_query_signs_, m_test_buffer and m_query_used_gps_ are temporary data.
+        // m_query_to_gps_, m_in_free_space_, m_test_buffer and m_query_used_gps_ are temporary
+        // data.
         if (m_train_gp_time_us_ != other.m_train_gp_time_us_) { return false; }
         return true;
     }
@@ -1231,7 +1231,7 @@ namespace erl::gp_sdf {
             tested_idx.clear();
             bool need_weighted_sum = false;
             long cnt = 0;
-            Dtype sign = m_query_signs_[i];  //, sign_sum = 0;
+            Dtype sign = m_in_free_space_[i] ? 1.0f : -1.0f;
             for (const std::size_t &j: gp_indices) {
                 // call selected GPs for inference
                 const auto &gp = gps[j].second.second;              // (distance, (key, gp))

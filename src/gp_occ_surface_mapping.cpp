@@ -470,7 +470,7 @@ namespace erl::gp_sdf {
     bool
     GpOccSurfaceMapping<Dtype, Dim>::IsInFreeSpace(
         const Positions &positions,
-        VectorX &in_free_space) const {
+        Eigen::VectorXb &in_free_space) const {
         if (!m_setting_->update_occupancy) {
             ERL_WARN("update_occupancy is false, cannot check if positions are in free space.");
             return false;
@@ -483,11 +483,7 @@ namespace erl::gp_sdf {
     schedule(static)
         for (long i = 0; i < num_positions; ++i) {
             const auto node = m_tree_->Search(positions.col(i) * s);
-            if (node == nullptr || m_tree_->IsNodeOccupied(node)) {
-                in_free_space[i] = -1.0f;
-            } else {
-                in_free_space[i] = 1.0f;
-            }
+            in_free_space[i] = (node != nullptr && !m_tree_->IsNodeOccupied(node));
         }
         return true;
     }

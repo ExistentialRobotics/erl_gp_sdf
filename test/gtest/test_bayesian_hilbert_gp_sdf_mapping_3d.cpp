@@ -497,9 +497,10 @@ struct TestImpl3D {
 
         ConvertToVoxelGrid(img_sdf, test_positions, voxel_grid_sdf);
 
-        VectorX in_free_space;
+        Eigen::VectorXb in_free_space;
         EXPECT_TRUE(surface_mapping->IsInFreeSpace(test_positions, in_free_space));
-        cv::Mat img_surf_mapping_sign = ConvertVectorToImage(xs, ys, in_free_space, false);
+        cv::Mat img_surf_mapping_sign =
+            ConvertVectorToImage<Dtype>(xs, ys, in_free_space.template cast<Dtype>(), false);
 
         Dtype resize_scale = options.image_resize_scale;
         resize_scale =

@@ -2,6 +2,7 @@
 
 #include "erl_common/block_timer.hpp"
 #include "erl_common/csv.hpp"
+#include "erl_common/plplot_fig.hpp"
 #include "erl_common/progress_bar.hpp"
 #include "erl_common/test_helper.hpp"
 #include "erl_geometry/cow_and_lady.hpp"
@@ -503,7 +504,8 @@ TestImpl3D() {
             bhsm.Update(rotation, translation, points, true /* parallel */);
         }
 
-        bhsm_update_dt = (bhsm_update_dt * cnt + dt) / (cnt + 1.0);
+        // bhsm_update_dt = (bhsm_update_dt * cnt + dt) / (cnt + 1.0);
+        bhsm_update_dt = bhsm_update_dt * 0.3 + dt * 0.7;
         cnt += 1.0;
         bhsm_update_fps = 1000.0 / bhsm_update_dt;
         ERL_INFO(
@@ -537,14 +539,16 @@ TestImpl3D() {
         {
             ERL_BLOCK_TIMER_MSG("bhsm.Predict");
             Matrix3X gradient;
+            Eigen::VectorXb in_free_space;
             bhsm.Predict(
                 test_positions,
                 false /*logodd*/,
-                true /*faster*/,
+                false /*compute_free_space*/,
                 false /*compute_gradient*/,
                 false /*gradient_with_sigmoid*/,
                 true /*parallel*/,
                 prob_occupied,
+                in_free_space,
                 gradient);
         }
         const cv::Mat prob_occupied_img = ConvertVectorToImage(
@@ -626,11 +630,11 @@ TestImpl3D() {
         /// update the surface point cloud and normals
         {
             ERL_BLOCK_TIMER_MSG("update visualization of surface points and normals");
-            using LocalBhm = typename BayesianHilbertSurfaceMapping::LocalBayesianHilbertMap;
+            using LocalBhm = typename BayesianHilbertSurfaceMapping::LocalBhm;
             std::vector<std::pair<std::shared_ptr<LocalBhm>, int>> local_bhms;
-            local_bhms.reserve(bhsm.GetLocalBayesianHilbertMaps().size());
+            local_bhms.reserve(bhsm.GetLocalBhms().size());
             int total_surf_pts = 0;
-            for (auto &[key, local_bhm]: bhsm.GetLocalBayesianHilbertMaps()) {
+            for (auto &[key, local_bhm]: bhsm.GetLocalBhms()) {
                 if (!local_bhm->active) { continue; }
                 local_bhms.emplace_back(local_bhm, total_surf_pts);
                 total_surf_pts += static_cast<int>(local_bhm->surface_indices.size());
@@ -677,8 +681,18 @@ TestImpl3D() {
                         rotation_sensor * position + translation_sensor;
                 }
             }
+            Eigen::VectorXb in_free_space;
             Matrix3X gradient;
-            bhsm.Predict(positions_test, false, true, false, false, true, prob_occupied, gradient);
+            bhsm.Predict(
+                positions_test,
+                false /*logodd*/,
+                false /*compute_free_space*/,
+                false /*compute_gradient*/,
+                false /*gradient_with_sigmoid*/,
+                true /*parallel*/,
+                prob_occupied,
+                in_free_space,
+                gradient);
         }
         cv::Mat prob_occupied_img;
         {
@@ -694,12 +708,16 @@ TestImpl3D() {
             (prob_occupied.array() > 0.5).template cast<Dtype>(),
             true);
 
-        VectorX sign;
+        Eigen::VectorXb sign;
         {
             ERL_BLOCK_TIMER_MSG("bhsm.IsInFreeSpace");
-            bhsm.IsInFreeSpace(positions_test, sign);
+            (void) bhsm.IsInFreeSpace(positions_test, sign);
         }
-        cv::Mat sign_img = ConvertVectorToImage(options.test_xs, options.test_ys, sign, false);
+        cv::Mat sign_img = ConvertVectorToImage(
+            options.test_xs,
+            options.test_ys,
+            Eigen::VectorX<Dtype>(sign.cast<Dtype>()),
+            false);
 
         if (prob_occupied_img.rows < 512 && prob_occupied_img.cols < 512) {
             double r = 512.0 / std::min(prob_occupied_img.rows, prob_occupied_img.cols);
@@ -739,17 +757,103 @@ TestImpl3D() {
     }
 
     VectorX log_odd_values;
+    Eigen::VectorXb in_free_space;
     Matrix3X gradients;
-    bhsm.Predict(gt_surface_points, true, true, false, false, true, log_odd_values, gradients);
+    bhsm.Predict(
+        gt_surface_points,
+        true /*logodd*/,
+        false /*compute_free_space*/,
+        false /*compute_gradient*/,
+        false /*gradient_with_sigmoid*/,
+        true /*parallel*/,
+        log_odd_values,
+        in_free_space,
+        gradients);
     Dtype mean = log_odd_values.mean();
     Dtype squared_mean = log_odd_values.squaredNorm() / static_cast<Dtype>(log_odd_values.size());
     Dtype std = std::sqrt(squared_mean - mean * mean);
+    Dtype min = log_odd_values.minCoeff();
+    Dtype max = log_odd_values.maxCoeff();
     ERL_INFO(
         "Statistics of log-odd on ground truth surface points: mean={}, std={}, min={}, max={}",
         mean,
         std,
-        log_odd_values.minCoeff(),
-        log_odd_values.maxCoeff());
+        min,
+        max);
+
+    PlplotFig fig(1200, 800, true);
+    Eigen::VectorXd log_odd_values_d = log_odd_values.template cast<double>();
+    fig.Clear()
+        .SetMargin(0.15, 0.85, 0.15, 0.85)
+        .SetCurrentColor(PlplotFig::Color0::Black)
+        .SetPenWidth(1)
+        .DrawHist(log_odd_values_d.data(), log_odd_values_d.size(), min, max, 50, {})
+        .SetAxisLabelX("log odd value")
+        .SetAxisLabelY("Frequency");
+    cv::Mat img = fig.ToCvMat();
+    cv::imwrite(test_output_dir / "gt_surface_points_logodd_hist.png", img);
+    cv::imshow("log_odd_value histogram (gt pcd)", img);
+    cv::waitKey(0);
+
+    // visualize the log-odd on the ground truth surface points
+    o3d_surf_points->points_.clear();
+    o3d_surf_points->colors_.clear();
+    o3d_surf_points->points_.reserve(gt_surface_points.cols());
+    o3d_surf_points->colors_.reserve(gt_surface_points.cols());
+    open3d::visualization::ColorMapJet color_map;
+    min = -30.0f;
+    max = 30.0f;
+    for (long i = 0; i < gt_surface_points.cols(); ++i) {
+        o3d_surf_points->points_.push_back(gt_surface_points.col(i).template cast<double>());
+        double v = std::min(std::max(log_odd_values[i], min), max);
+        o3d_surf_points->colors_.push_back(color_map.GetColor((v - min) / (max - min)));
+    }
+    open3d::io::WritePointCloud(test_output_dir / "gt_surface_points_logodd.ply", *o3d_surf_points);
+    visualizer.Reset();
+    visualizer.AddGeometries({o3d_surf_points});
+    visualizer.SetViewStatus(options.o3d_view_status_file);
+    visualizer.Show();
+
+    // check the surf_log_odds of local BHMs
+    o3d_surf_points->points_.clear();
+    o3d_surf_points->colors_.clear();
+    std::vector<double> log_odds;
+    auto &surf_data_buf = bhsm.GetSurfaceDataBuffer();
+    const Dtype scaling = 1.0 / bhsm_setting->scaling;
+    for (const auto &[key, local_bhm]: bhsm.GetLocalBhms()) {
+        if (!local_bhm->active) { continue; }
+        for (const auto &[grid_index, index]: local_bhm->surface_indices) {
+            Eigen::Vector3d point = surf_data_buf[index].position.template cast<double>() * scaling;
+            o3d_surf_points->points_.push_back(point);
+            log_odds.push_back(local_bhm->surface_log_odds);
+        }
+    }
+
+    min = *std::min_element(log_odds.begin(), log_odds.end());
+    max = *std::max_element(log_odds.begin(), log_odds.end());
+    ERL_INFO("log odd values of local bhm surface points: min={}, max={}", min, max);
+
+    fig.Clear()
+        .SetMargin(0.15, 0.85, 0.15, 0.85)
+        .SetCurrentColor(PlplotFig::Color0::Black)
+        .SetPenWidth(1)
+        .DrawHist(log_odds.data(), log_odds.size(), min, max, 50, {})
+        .SetAxisLabelX("log odd value")
+        .SetAxisLabelY("Frequency");
+    img = fig.ToCvMat();
+    cv::imwrite(test_output_dir / "local_bhm_surface_points_logodd_hist.png", img);
+    cv::imshow("log_odd_value histogram (local bhm)", img);
+    cv::waitKey(0);
+
+    o3d_surf_points->colors_.reserve(log_odds.size());
+    for (const auto &v: log_odds) {
+        o3d_surf_points->colors_.push_back(color_map.GetColor((v - min) / (max - min)));
+    }
+    open3d::io::WritePointCloud(test_output_dir / "local_bhm_surface_logodd.ply", *o3d_surf_points);
+    visualizer.Reset();
+    visualizer.AddGeometries({o3d_surf_points});
+    visualizer.SetViewStatus(options.o3d_view_status_file);
+    visualizer.Show();
 
     if (options.test_io) { TestIo<Dtype, 3>(&bhsm); }  // test IO after mapping
 
@@ -765,6 +869,7 @@ TestImpl3D() {
     octree_drawer.DrawLeaves(geometries);
     visualizer.Reset();
     visualizer.AddGeometries(geometries);
+    visualizer.SetViewStatus(options.o3d_view_status_file);
     visualizer.Show();
 
     ERL_INFO("Writing point clouds to {}", test_output_dir);
@@ -782,6 +887,34 @@ TestImpl3D() {
         for (const auto &f: faces) { mesh->triangles_.emplace_back(f.x(), f.y(), f.z()); }
         mesh->ComputeVertexNormals();
         open3d::io::WriteTriangleMesh(test_output_dir / "surface_mesh.ply", *mesh);
+
+        visualizer.Reset();
+        visualizer.AddGeometries({mesh});
+        visualizer.SetViewStatus(options.o3d_view_status_file);
+        visualizer.SetKeyboardCallback(
+            [&bhsm_setting, &bhsm, &mesh, &vertices, &faces, &test_output_dir](
+                const Open3dVisualizerWrapper *wrapper,
+                open3d::visualization::Visualizer *vis) -> bool {
+                auto iso_value = static_cast<Dtype>(wrapper->GetSetting()->x);
+                if (bhsm_setting->local_bhm->surface_log_odds == iso_value) { return false; }
+                ERL_INFO("Generating mesh with iso_value={}", iso_value);
+                bhsm_setting->local_bhm->surface_log_odds = iso_value;
+                bhsm.ResetMarchingResults();
+                bhsm.GetMesh(vertices, faces);
+                mesh->vertices_.clear();
+                mesh->triangles_.clear();
+                mesh->vertices_.reserve(vertices.size());
+                mesh->triangles_.reserve(faces.size());
+                for (const auto &v: vertices) { mesh->vertices_.emplace_back(v.x(), v.y(), v.z()); }
+                for (const auto &f: faces) { mesh->triangles_.emplace_back(f.x(), f.y(), f.z()); }
+                mesh->ComputeVertexNormals();
+                open3d::io::WriteTriangleMesh(test_output_dir / "surface_mesh.ply", *mesh);
+                vis->UpdateGeometry(mesh);
+                return true;
+            });
+        visualizer.GetSetting()->x = bhsm_setting->local_bhm->surface_log_odds;
+        ERL_INFO("Press left/right arrow keys to change the iso_value and regenerate the mesh.");
+        visualizer.Show();
     }
 }
 
@@ -1123,7 +1256,7 @@ TestImpl2D() {
         bhsm_update_fps = 1000.0 / bhsm_update_dt_ms;
 
         // save local bhms
-        auto local_bhms = bhsm.GetLocalBayesianHilbertMaps();
+        auto local_bhms = bhsm.GetLocalBhms();
         // save results
         const long size = local_bhms.begin()->second->bhm.GetHingedPoints().cols();
         MatrixX mu(size, static_cast<long>(local_bhms.size()));
@@ -1145,14 +1278,16 @@ TestImpl2D() {
         // predict the occupancy and gradient
         {
             ERL_BLOCK_TIMER_MSG_TIME("bhm_mapping.Predict", dt);
+            Eigen::VectorXb in_free_space;
             bhsm.Predict(  //
                 grid_points,
                 true /*logodd*/,
-                true /*faster*/,
-                true /*compute gradient*/,
-                false /*gradient with sigmoid*/,
+                false /*compute_free_space*/,
+                true /*compute_gradient*/,
+                false /*gradient_with_sigmoid*/,
                 true /*parallel*/,
                 logodd_values,
+                in_free_space,
                 gradients);
         }
         bhsm_predict_dt_ms =
@@ -1304,7 +1439,7 @@ TestImpl2D() {
         //// draw the surface normals
         const auto &surf_data_buffer = bhsm.GetSurfaceDataBuffer();
         for (auto &[key, local_bhm]: local_bhms) {
-            for (auto &[idx, surf_idx]: local_bhm->surface_indices) {
+            for (auto &[grid_idx, surf_idx]: local_bhm->surface_indices) {
                 const auto &surf = surf_data_buffer[surf_idx];
                 auto px1 = grid_map_info->MeterToPixelForPoints(surf.position);
                 auto px2 = grid_map_info->MeterToPixelForPoints(surf.position + surf.normal);

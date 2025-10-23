@@ -258,7 +258,7 @@ namespace erl::gp_sdf {
         GetMapBoundary() const override;
 
         [[nodiscard]] bool
-        IsInFreeSpace(const Positions &positions, VectorX &in_free_space) const override;
+        IsInFreeSpace(const Positions &positions, Eigen::VectorXb &in_free_space) const override;
 
         [[nodiscard]] bool
         operator==(const Super &other) const override;
