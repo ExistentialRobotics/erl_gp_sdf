@@ -486,7 +486,7 @@ namespace erl::gp_sdf {
     BayesianHilbertSurfaceMapping<Dtype, Dim>::Predict(
         const Eigen::Ref<const Positions> &points,
         const bool logodd,
-        bool compute_free_space,
+        const bool compute_free_space,
         const bool compute_gradient,
         const bool gradient_with_sigmoid,
         const bool parallel,

@@ -73,7 +73,7 @@ BindGpOccSurfaceMappingImpl(const py::module &m, const char *name) {
         .def(
             "is_in_free_space",
             [](T &self, const typename T::Positions &positions) {
-                typename T::VectorX in_free_space;
+                Eigen::VectorXb in_free_space;
                 bool success = self.IsInFreeSpace(positions, in_free_space);
                 return std::make_tuple(success, in_free_space);
             })

@@ -669,6 +669,8 @@ namespace erl::gp_sdf {
         if (hit_buffer != other.hit_buffer) { return false; }
         if (hit_buffer_head != other.hit_buffer_head) { return false; }
         if (active != other.active) { return false; }
+        if (surface_log_odds != other.surface_log_odds) { return false; }
+        if (log_odds_count != other.log_odds_count) { return false; }
         return true;
     }
 

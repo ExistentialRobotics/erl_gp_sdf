@@ -654,15 +654,17 @@ TestImpl2D() {
             img.setTo(cv::Scalar(128, 128, 128, 255));
             drawer.DrawLeaves(img);
             VectorX prob_occupied;
+            Eigen::VectorXb in_free_space;
             Matrix2X gradients;
             surface_mapping->Predict(  //
                 grid_points,
                 false /*logodd*/,
-                true /*faster*/,
+                false /*compute free space*/,
                 false /*compute gradient*/,
                 false /*gradient with sigmoid*/,
                 true /*parallel*/,
                 prob_occupied,
+                in_free_space,
                 gradients);
             cv::Mat prob_occupied_img(
                 grid_map_info->Shape(0),

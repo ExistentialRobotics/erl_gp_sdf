@@ -18,7 +18,7 @@ max_valid_gradient_var: 0.1
 invalid_position_var: 2.0
 sdf_gp:
     sign_method: "kExternal" # "kSignGp", "kNormalGp", "kExternal", "kHybrid", "kNone"
-    hybrid_sign_methods: ["kSignGp", "kExternal"]
+    hybrid_sign_methods: [ "kSignGp", "kExternal" ]
     hybrid_sign_threshold: 0.18 # > sqrt(3) * tree_resolution
     normal_scale: 1000.0
     softmin_temperature: 10.0
@@ -31,7 +31,7 @@ sdf_gp:
             x_dim: 3
             scale: 0.1
             scale_mix: 1
-            weights: []
+            weights: [ ]
         max_num_samples: 48 # max dataset size
         no_gradient_observation: false
     edf_gp:
@@ -41,8 +41,8 @@ sdf_gp:
             x_dim: 3
             scale: 0.043 # sqrt(3) / log_lambda, will be overridden by log_lambda
             scale_mix: 1
-            weights: []
-        log_lambda: 40
+            weights: [ ]
+        log_lambda: 25
         duplicate_epsilon: 0.001
         max_num_samples: 128 # max dataset size
         no_gradient_observation: true

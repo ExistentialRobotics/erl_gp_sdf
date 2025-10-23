@@ -9,6 +9,7 @@
 #include "erl_geometry/lidar_3d.hpp"
 #include "erl_geometry/lidar_frame_3d.hpp"
 #include "erl_geometry/newer_college.hpp"
+#include "erl_geometry/open3d_helper.hpp"
 #include "erl_geometry/open3d_visualizer_wrapper.hpp"
 #include "erl_geometry/trajectory.hpp"
 #include "erl_gp_sdf/bayesian_hilbert_surface_mapping.hpp"
@@ -136,6 +137,8 @@ struct TestImpl3D {
 
     Eigen::MatrixX<Vector3> positions_test_org;
     Matrix3X positions_test;
+    Matrix3 grid_rotation = Matrix3::Identity();
+    Vector3 grid_translation = Vector3::Zero();
     VectorX sdf_pred;
     std::filesystem::path test_output_dir;
     std::filesystem::path img_dir;
@@ -151,8 +154,8 @@ struct TestImpl3D {
         GTEST_PREPARE_OUTPUT_DIR();
         this->test_output_dir = test_output_dir;
         this->img_dir = test_output_dir / "images";
-        std::filesystem::create_directory(img_dir);
-        vis_setting->window_name = test_info->name();
+        std::filesystem::create_directory(this->img_dir);
+        this->vis_setting->window_name = test_info->name();
 
         ParseOptions();
         LoadSetting();
@@ -391,8 +394,27 @@ struct TestImpl3D {
                 auto pcd = newer_college->GetGroundTruthPointCloud();
                 pcd = pcd->RandomDownSample(0.05);
                 geometries.push_back(pcd);
-                map_min = newer_college->GetMapMin().cast<Dtype>();
-                map_max = newer_college->GetMapMax().cast<Dtype>();
+
+                Eigen::Matrix3d box_rotation;
+                Eigen::Vector3d box_translation;
+                Eigen::Vector3d box_size;
+                erl::geometry::GetMinimalOrientedBoundingBox(
+                    *newer_college->GetGroundTruthMesh(),
+                    true,
+                    box_translation,
+                    box_rotation,
+                    box_size);
+                grid_rotation = box_rotation.cast<Dtype>();
+                grid_translation = box_translation.cast<Dtype>();
+
+                options.test_x_min = -box_size[0] / 2;
+                options.test_x_max = box_size[0] / 2;
+                options.test_y_min = -box_size[1] / 2;
+                options.test_y_max = box_size[1] / 2;
+
+                map_max = box_size.cast<Dtype>() / 2;
+                map_min = -map_max;
+
                 is_lidar = true;
                 ERL_ASSERTM(
                     options.start_wp_idx < newer_college->Size(),
@@ -449,7 +471,7 @@ struct TestImpl3D {
 
         mesh_sensor->PaintUniformColor({1.0, 0.5, 0.0});
         voxel_grid_sdf->origin_.setZero();
-        voxel_grid_sdf->voxel_size_ = options.test_res;
+        voxel_grid_sdf->voxel_size_ = options.test_res * 1.42f;
 
         geometries.push_back(mesh_sensor);
         geometries.push_back(mesh_sensor_xyz);
@@ -478,6 +500,7 @@ struct TestImpl3D {
         Matrix3X test_positions(3, grid_map_info.Size());
         test_positions.topRows(2) =
             grid_map_info.GenerateMeterCoordinates(false).template cast<Dtype>();
+        test_positions = (grid_rotation * test_positions).colwise() + grid_translation;
         test_positions.row(2).setConstant(options.test_z);
         VectorX distances;
         {
@@ -491,6 +514,7 @@ struct TestImpl3D {
 
         const int xs = grid_map_info.Shape(0);
         const int ys = grid_map_info.Shape(1);
+        ERL_INFO("sdf min: {}, max: {}", distances.minCoeff(), distances.maxCoeff());
         cv::Mat img_sdf = ConvertVectorToImage(xs, ys, distances, true);
         VectorX signs = (distances.array() >= 0.0f).template cast<Dtype>();
         cv::Mat img_sdf_sign = ConvertVectorToImage(xs, ys, signs, false);

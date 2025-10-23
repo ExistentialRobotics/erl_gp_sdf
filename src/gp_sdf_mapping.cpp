@@ -1286,7 +1286,7 @@ namespace erl::gp_sdf {
 
             // store the result
             if (need_weighted_sum) {
-                if (variances(0, tested_idx[0].first) < max_test_valid_distance_var) {
+                if (variances(0, tested_idx[0].first) <= max_test_valid_distance_var) {
                     // the first result is good enough
                     auto j = tested_idx[0].first;  // column j is the result
                     distance_out = fs(0, j);
@@ -1299,23 +1299,9 @@ namespace erl::gp_sdf {
                         m_test_buffer_.covariances->col(i) = covariances.col(j);
                     }
                     used_gps[0] = gps[tested_idx[0].second].second.second;
-
-                    ERL_DEBUG_ASSERT(
-                        std::isfinite(gradient_out.norm()),
-                        "gradient norm is not finite: {} at index {}. Var: {}.",
-                        gradient_out.norm(),
-                        i,
-                        variance_out[0]);
                 } else {
                     // compute a weighted sum
                     ComputeWeightedSum<Dim>(i, tested_idx, fs, variances, covariances);
-
-                    ERL_DEBUG_ASSERT(
-                        std::isfinite(gradient_out.norm()),
-                        "gradient norm is not finite: {} at index {}. Var: {}.",
-                        gradient_out.norm(),
-                        i,
-                        variance_out[0]);
                 }
             } else {
                 // the first column is the result
@@ -1327,13 +1313,6 @@ namespace erl::gp_sdf {
                 variance_out << variances.col(0);
                 if (compute_covariance) { m_test_buffer_.covariances->col(i) = covariances.col(0); }
                 used_gps[0] = gps[tested_idx[0].second].second.second;
-
-                ERL_DEBUG_ASSERT(
-                    std::isfinite(gradient_out.norm()),
-                    "gradient norm is not finite: {} at index {}. Var: {}.",
-                    gradient_out.norm(),
-                    i,
-                    variance_out[0]);
             }
         }
     }
@@ -1364,7 +1343,8 @@ namespace erl::gp_sdf {
         Eigen::Vector<Dtype, 6> covariance_f = Eigen::Vector<Dtype, 6>::Zero();
         for (std::size_t k = 0; k < m; ++k) {
             const long jk = tested_idx[k].first;
-            const Dtype w = 1.0f / (variances(0, jk) - max_test_valid_distance_var);
+            Dtype w = std::abs(variances(0, jk) - max_test_valid_distance_var) + 1.e-5f;
+            w = 1.0f / w;
             w_sum += w;
             f += fs.col(jk).template head<4>() * w;
             variance_f += variances.col(jk) * w;
