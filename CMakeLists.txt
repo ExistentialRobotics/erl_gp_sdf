@@ -1,8 +1,8 @@
 cmake_minimum_required(VERSION 3.16)
 
-project(erl_gp_sdf #
-        LANGUAGES CXX C #
-        VERSION 0.2.0 #
+project(erl_gp_sdf
+        LANGUAGES CXX C
+        VERSION 0.3.0
         DESCRIPTION "erl_gp_sdf is a C++ library for SDF estimation.")
 message(STATUS "Configuring ${PROJECT_NAME} ${PROJECT_VERSION}")
 
@@ -15,13 +15,13 @@ include(cmake/erl_gp_sdf_dependencies.cmake)
 erl_setup_ros(LIBRARIES ${PROJECT_NAME} #
               CFG_EXTRAS erl_gp_sdf_dependencies.cmake)
 
-# ######################################################################################################################
-# BUILD
-# ######################################################################################################################
+# #######
+# BUILD #
+# #######
 
-# ######################################################################################################################
+# ######################
 # define the libraries #
-# ######################################################################################################################
+# ######################
 file(GLOB SRC_FILES src/*.cpp)
 add_library(${PROJECT_NAME} SHARED ${SRC_FILES})
 add_library(${PROJECT_NAME}::${PROJECT_NAME} ALIAS ${PROJECT_NAME})
@@ -36,29 +36,29 @@ endif ()
 erl_dump_compile_definitions(include/${PROJECT_NAME}/compile_definitions.hpp)
 include(src/demo/demo.cmake)
 
-# ######################################################################################################################
+# #################
 # Python bindings #
-# ######################################################################################################################
+# #################
 erl_add_pybind_module(
-    PYBIND_MODULE_NAME py${PROJECT_NAME} #
-    PYBIND_SRC_DIR ${${PROJECT_NAME}_PYTHON_BINDING_DIR} #
+    PYBIND_MODULE_NAME py${PROJECT_NAME}
+    PYBIND_SRC_DIR ${${PROJECT_NAME}_PYTHON_BINDING_DIR}
     LIBRARIES ${PROJECT_NAME})
 erl_add_python_package()
 
-# ######################################################################################################################
-# INSTALL
-# ######################################################################################################################
+# #########
+# INSTALL #
+# #########
 erl_install(
-    EXECUTABLES ${${PROJECT_NAME}_COLLECTED_EXECUTABLES} #
-    LIBRARIES ${${PROJECT_NAME}_COLLECTED_LIBRARIES} #
+    EXECUTABLES ${${PROJECT_NAME}_COLLECTED_EXECUTABLES}
+    LIBRARIES ${${PROJECT_NAME}_COLLECTED_LIBRARIES}
     PYBIND_MODULES py${PROJECT_NAME})
 
-# ######################################################################################################################
-# TEST
-# ######################################################################################################################
+# ######
+# TEST #
+# ######
 erl_add_tests(LIBRARIES ${PROJECT_NAME})
 
-# ######################################################################################################################
-# export variables
-# ######################################################################################################################
+# ##################
+# export variables #
+# ##################
 erl_mark_project_found()
