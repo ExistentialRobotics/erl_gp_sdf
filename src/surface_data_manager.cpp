@@ -17,25 +17,26 @@ namespace erl::gp_sdf {
 
     template<typename Dtype, int Dim>
     bool
-    SurfaceData<Dtype, Dim>::Write(std::ostream &s) const {
+    SurfaceData<Dtype, Dim>::Write(std::ostream &stream) const {
         using namespace common;
+        using namespace common::serialization;
         static const TokenWriteFunctionPairs<SurfaceData> token_function_pairs = {
             {
                 "position",
-                [](const SurfaceData *data, std::ostream &stream) {
-                    return SaveEigenMatrixToBinaryStream(stream, data->position) && stream.good();
+                [](const SurfaceData *data, std::ostream &s) {
+                    return SaveEigenMatrixToBinaryStream(s, data->position) && s.good();
                 },
             },
             {
                 "normal",
-                [](const SurfaceData *data, std::ostream &stream) {
-                    return SaveEigenMatrixToBinaryStream(stream, data->normal) && stream.good();
+                [](const SurfaceData *data, std::ostream &s) {
+                    return SaveEigenMatrixToBinaryStream(s, data->normal) && s.good();
                 },
             },
             {
                 "var_position",
-                [](const SurfaceData *data, std::ostream &stream) {
-                    stream.write(
+                [](const SurfaceData *data, std::ostream &s) {
+                    s.write(
                         reinterpret_cast<const char *>(&data->var_position),
                         sizeof(data->var_position));
                     return true;
@@ -43,41 +44,42 @@ namespace erl::gp_sdf {
             },
             {
                 "var_normal",
-                [](const SurfaceData *data, std::ostream &stream) {
-                    stream.write(
+                [](const SurfaceData *data, std::ostream &s) {
+                    s.write(
                         reinterpret_cast<const char *>(&data->var_normal),
                         sizeof(data->var_normal));
                     return true;
                 },
             },
         };
-        return WriteTokens(s, this, token_function_pairs);
+        return WriteTokens(stream, this, token_function_pairs);
     }
 
     template<typename Dtype, int Dim>
     bool
-    SurfaceData<Dtype, Dim>::Read(std::istream &s) {
+    SurfaceData<Dtype, Dim>::Read(std::istream &stream) {
         using namespace common;
+        using namespace common::serialization;
         static const TokenReadFunctionPairs<SurfaceData> token_function_pairs = {
             {
                 "position",
-                [](SurfaceData *data, std::istream &stream) {
-                    return LoadEigenMatrixFromBinaryStream(stream, data->position) && stream.good();
+                [](SurfaceData *data, std::istream &s) {
+                    return LoadEigenMatrixFromBinaryStream(s, data->position) && s.good();
                 },
             },
             {
                 "normal",
-                [](SurfaceData *data, std::istream &stream) {
-                    return LoadEigenMatrixFromBinaryStream(stream, data->normal) && stream.good();
+                [](SurfaceData *data, std::istream &s) {
+                    return LoadEigenMatrixFromBinaryStream(s, data->normal) && s.good();
                 },
             },
             {
                 "var_position",
-                [](SurfaceData *data, std::istream &stream) {
-                    stream.read(
+                [](SurfaceData *data, std::istream &s) {
+                    s.read(
                         reinterpret_cast<char *>(&data->var_position),
                         sizeof(data->var_position));
-                    if (!stream.good()) {
+                    if (!s.good()) {
                         ERL_WARN("Failed to read var_position.");
                         return false;
                     }
@@ -86,11 +88,9 @@ namespace erl::gp_sdf {
             },
             {
                 "var_normal",
-                [](SurfaceData *data, std::istream &stream) {
-                    stream.read(
-                        reinterpret_cast<char *>(&data->var_normal),
-                        sizeof(data->var_normal));
-                    if (!stream.good()) {
+                [](SurfaceData *data, std::istream &s) {
+                    s.read(reinterpret_cast<char *>(&data->var_normal), sizeof(data->var_normal));
+                    if (!s.good()) {
                         ERL_WARN("Failed to read var_normal.");
                         return false;
                     }
@@ -98,7 +98,7 @@ namespace erl::gp_sdf {
                 },
             },
         };
-        return ReadTokens(s, this, token_function_pairs);
+        return ReadTokens(stream, this, token_function_pairs);
     }
 
     template class SurfaceData<double, 2>;

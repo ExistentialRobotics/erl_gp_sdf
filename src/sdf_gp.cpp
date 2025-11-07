@@ -1,96 +1,15 @@
 #include "erl_gp_sdf/sdf_gp.hpp"
 
-template<>
-struct YAML::convert<erl::gp_sdf::SignMethod> {
-    static Node
-    encode(const erl::gp_sdf::SignMethod &method) {
-        Node node;
-        switch (method) {
-            case erl::gp_sdf::kNone:
-                node = "kNone";
-                break;
-            case erl::gp_sdf::kSignGp:
-                node = "kSignGp";
-                break;
-            case erl::gp_sdf::kNormalGp:
-                node = "kNormalGp";
-                break;
-            case erl::gp_sdf::kExternal:
-                node = "kExternal";
-                break;
-            case erl::gp_sdf::kHybrid:
-                node = "kHybrid";
-                break;
-            default:
-                ERL_FATAL("Unknown SignMethod: {}", static_cast<int>(method));
-        }
-        return node;
-    }
-
-    static bool
-    decode(const Node &node, erl::gp_sdf::SignMethod &method) {
-        if (const auto method_str = node.as<std::string>();  //
-            method_str == "kNone") {
-            method = erl::gp_sdf::kNone;
-        } else if (method_str == "kSignGp") {
-            method = erl::gp_sdf::kSignGp;
-        } else if (method_str == "kNormalGp") {
-            method = erl::gp_sdf::kNormalGp;
-        } else if (method_str == "kExternal") {
-            method = erl::gp_sdf::kExternal;
-        } else if (method_str == "kHybrid") {
-            method = erl::gp_sdf::kHybrid;
-        } else {
-            ERL_FATAL("Unknown SignMethod: {}", method_str);
-        }
-        return true;
-    }
-};
-
 namespace erl::gp_sdf {
-
-    template<typename Dtype>
-    YAML::Node
-    SdfGaussianProcessSetting<Dtype>::YamlConvertImpl::encode(
-        const SdfGaussianProcessSetting &setting) {
-        YAML::Node node;
-        ERL_YAML_SAVE_ATTR(node, setting, sign_method);
-        ERL_YAML_SAVE_ATTR(node, setting, hybrid_sign_methods);
-        ERL_YAML_SAVE_ATTR(node, setting, hybrid_sign_threshold);
-        ERL_YAML_SAVE_ATTR(node, setting, normal_scale);
-        ERL_YAML_SAVE_ATTR(node, setting, softmin_temperature);
-        ERL_YAML_SAVE_ATTR(node, setting, sign_gp_offset_distance);
-        ERL_YAML_SAVE_ATTR(node, setting, edf_gp_offset_distance);
-        ERL_YAML_SAVE_ATTR(node, setting, sign_gp);
-        ERL_YAML_SAVE_ATTR(node, setting, edf_gp);
-        return node;
-    }
-
-    template<typename Dtype>
-    bool
-    SdfGaussianProcessSetting<Dtype>::YamlConvertImpl::decode(
-        const YAML::Node &node,
-        SdfGaussianProcessSetting &setting) {
-        if (!node.IsMap()) { return false; }
-        ERL_YAML_LOAD_ATTR(node, setting, sign_method);
-        ERL_YAML_LOAD_ATTR(node, setting, hybrid_sign_methods);
-        ERL_YAML_LOAD_ATTR(node, setting, hybrid_sign_threshold);
-        ERL_YAML_LOAD_ATTR(node, setting, normal_scale);
-        ERL_YAML_LOAD_ATTR(node, setting, softmin_temperature);
-        ERL_YAML_LOAD_ATTR(node, setting, sign_gp_offset_distance);
-        ERL_YAML_LOAD_ATTR(node, setting, edf_gp_offset_distance);
-        if (!ERL_YAML_LOAD_ATTR(node, setting, sign_gp)) { return false; }
-        return ERL_YAML_LOAD_ATTR(node, setting, edf_gp);
-    }
 
     template<typename Dtype, int Dim>
     SdfGaussianProcess<Dtype, Dim>::SdfGaussianProcess(std::shared_ptr<Setting> setting_)
         : setting(std::move(setting_)) {
         ERL_ASSERTM(setting != nullptr, "Setting is null.");
-        use_normal_gp =
-            setting->sign_method == kNormalGp ||
-            (setting->sign_method == kHybrid && (setting->hybrid_sign_methods.first == kNormalGp ||
-                                                 setting->hybrid_sign_methods.second == kNormalGp));
+        use_normal_gp = setting->sign_method == SignMethod::kNormalGp ||
+                        (setting->sign_method == SignMethod::kHybrid &&
+                         (setting->hybrid_sign_methods.first == SignMethod::kNormalGp ||
+                          setting->hybrid_sign_methods.second == SignMethod::kNormalGp));
     }
 
     template<typename Dtype, int Dim>
@@ -161,10 +80,11 @@ namespace erl::gp_sdf {
     template<typename Dtype, int Dim>
     void
     SdfGaussianProcess<Dtype, Dim>::Activate() {
-        if (sign_gp == nullptr && (setting->sign_method == kSignGp ||
-                                   (setting->sign_method == kHybrid &&
-                                    (setting->hybrid_sign_methods.first == kSignGp ||
-                                     setting->hybrid_sign_methods.second == kSignGp)))) {
+        if (sign_gp == nullptr &&
+            (setting->sign_method == SignMethod::kSignGp ||
+             (setting->sign_method == SignMethod::kHybrid &&
+              (setting->hybrid_sign_methods.first == SignMethod::kSignGp ||
+               setting->hybrid_sign_methods.second == SignMethod::kSignGp)))) {
             sign_gp = std::make_shared<SignGp>(setting->sign_gp);
         }
         if (edf_gp == nullptr) { edf_gp = std::make_shared<EdfGp>(setting->edf_gp); }
@@ -265,6 +185,7 @@ namespace erl::gp_sdf {
         if (sign_gp != nullptr) { sign_gp->Train(); }
         if (edf_gp != nullptr) { edf_gp->Train(); }
         outdated = false;  // mark as not outdated after training
+        time_stamp = std::chrono::high_resolution_clock::now().time_since_epoch().count();
     }
 
     template<typename Dtype, int Dim>
@@ -303,7 +224,7 @@ namespace erl::gp_sdf {
 
         // compute sign
         SignMethod sign_method = setting->sign_method;
-        if (sign_method == kHybrid) {
+        if (sign_method == SignMethod::kHybrid) {
             if (setting->hybrid_sign_threshold > edf) {
                 sign_method = setting->hybrid_sign_methods.first;
             } else {
@@ -315,14 +236,14 @@ namespace erl::gp_sdf {
         bool sdf_gradient_computed = false;
         auto sdf_gradient = f.template segment<Dim>(1);
         switch (sign_method) {
-            case kSignGp: {
+            case SignMethod::kSignGp: {
                 ERL_DEBUG_ASSERT(sign_gp != nullptr, "sign_gp is not initialized.");
                 (*std::reinterpret_pointer_cast<typename SignGp::TestResult>(
                      sign_gp->Test(test_position, false)))
                     .GetMean(0, 0, sign);
                 break;
             }
-            case kNormalGp: {
+            case SignMethod::kNormalGp: {
                 auto normal = f.template tail<Dim>();
                 if (!edf_result.template GetGradientD<Dim>(0, 0, sdf_gradient.data())) {
                     var[0] = 1e6f;
@@ -333,15 +254,15 @@ namespace erl::gp_sdf {
                 sdf_gradient_computed = true;
                 break;
             }
-            case kExternal: {
+            case SignMethod::kExternal: {
                 sign = external_sign;
                 break;
             }
-            case kNone: {
+            case SignMethod::kNone: {
                 sign = sdf < 0 ? -1.0f : 1.0f;  // default sign based on sdf value
                 break;
             }
-            case kHybrid:
+            case SignMethod::kHybrid:
                 break;
         }
         if (std::signbit(sdf) != std::signbit(sign)) { sdf = std::copysign(sdf, sign); }
@@ -386,6 +307,7 @@ namespace erl::gp_sdf {
             return false;
         }
         if (active != other.active) { return false; }
+        if (time_stamp != other.time_stamp) { return false; }
         if (outdated != other.outdated) { return false; }
         if (use_normal_gp != other.use_normal_gp) { return false; }
         if (locked_for_test.load() != other.locked_for_test.load()) { return false; }
@@ -410,156 +332,171 @@ namespace erl::gp_sdf {
 
     template<typename Dtype, int Dim>
     bool
-    SdfGaussianProcess<Dtype, Dim>::Write(std::ostream &s) const {
+    SdfGaussianProcess<Dtype, Dim>::Write(std::ostream &stream) const {
         // no need to write the setting, as it will be written externally.
         using namespace common;
+        using namespace common::serialization;
         static const TokenWriteFunctionPairs<SdfGaussianProcess> token_function_pairs = {
             {
                 "active",
-                [](const SdfGaussianProcess *gp, std::ostream &stream) -> bool {
-                    stream << gp->active;
-                    return stream.good();
+                [](const SdfGaussianProcess *gp, std::ostream &s) -> bool {
+                    s << gp->active;
+                    return s.good();
+                },
+            },
+            {
+                "time_stamp",
+                [](const SdfGaussianProcess *gp, std::ostream &s) -> bool {
+                    s.write(
+                        reinterpret_cast<const char *>(&gp->time_stamp),
+                        sizeof(gp->time_stamp));
+                    return s.good();
                 },
             },
             {
                 "outdated",
-                [](const SdfGaussianProcess *gp, std::ostream &stream) -> bool {
-                    stream << gp->outdated;
-                    return stream.good();
+                [](const SdfGaussianProcess *gp, std::ostream &s) -> bool {
+                    s << gp->outdated;
+                    return s.good();
                 },
             },
             {
                 "use_normal_gp",
-                [](const SdfGaussianProcess *gp, std::ostream &stream) -> bool {
-                    stream << gp->use_normal_gp;
-                    return stream.good();
+                [](const SdfGaussianProcess *gp, std::ostream &s) -> bool {
+                    s << gp->use_normal_gp;
+                    return s.good();
                 },
             },
             {
                 "locked_for_test",
-                [](const SdfGaussianProcess *gp, std::ostream &stream) -> bool {
-                    stream << gp->locked_for_test.load();
-                    return stream.good();
+                [](const SdfGaussianProcess *gp, std::ostream &s) -> bool {
+                    s << gp->locked_for_test.load();
+                    return s.good();
                 },
             },
             {
                 "position",
-                [](const SdfGaussianProcess *gp, std::ostream &stream) -> bool {
-                    return SaveEigenMatrixToBinaryStream(stream, gp->position) && stream.good();
+                [](const SdfGaussianProcess *gp, std::ostream &s) -> bool {
+                    return SaveEigenMatrixToBinaryStream(s, gp->position) && s.good();
                 },
             },
             {
                 "half_size",
-                [](const SdfGaussianProcess *gp, std::ostream &stream) -> bool {
-                    stream.write(
-                        reinterpret_cast<const char *>(&gp->half_size),
-                        sizeof(gp->half_size));
-                    return stream.good();
+                [](const SdfGaussianProcess *gp, std::ostream &s) -> bool {
+                    s.write(reinterpret_cast<const char *>(&gp->half_size), sizeof(gp->half_size));
+                    return s.good();
                 },
             },
             {
                 "sign_gp",
-                [](const SdfGaussianProcess *gp, std::ostream &stream) -> bool {
-                    stream << (gp->sign_gp != nullptr) << '\n';
-                    if (gp->sign_gp != nullptr && !gp->sign_gp->Write(stream)) { return false; }
-                    return stream.good();
+                [](const SdfGaussianProcess *gp, std::ostream &s) -> bool {
+                    s << (gp->sign_gp != nullptr) << '\n';
+                    if (gp->sign_gp != nullptr && !gp->sign_gp->Write(s)) { return false; }
+                    return s.good();
                 },
             },
             {
                 "edf_gp",
-                [](const SdfGaussianProcess *gp, std::ostream &stream) -> bool {
-                    stream << (gp->edf_gp != nullptr) << '\n';
-                    if (gp->edf_gp != nullptr && !gp->edf_gp->Write(stream)) { return false; }
-                    return stream.good();
+                [](const SdfGaussianProcess *gp, std::ostream &s) -> bool {
+                    s << (gp->edf_gp != nullptr) << '\n';
+                    if (gp->edf_gp != nullptr && !gp->edf_gp->Write(s)) { return false; }
+                    return s.good();
                 },
             },
         };
-        return WriteTokens(s, this, token_function_pairs);
+        return WriteTokens(stream, this, token_function_pairs);
     }
 
     template<typename Dtype, int Dim>
     bool
-    SdfGaussianProcess<Dtype, Dim>::Read(std::istream &s) {
+    SdfGaussianProcess<Dtype, Dim>::Read(std::istream &stream) {
         using namespace common;
+        using namespace common::serialization;
         static const TokenReadFunctionPairs<SdfGaussianProcess> token_function_pairs = {
             {
                 "active",
-                [](SdfGaussianProcess *gp, std::istream &stream) -> bool {
-                    stream >> gp->active;
-                    return stream.good();
+                [](SdfGaussianProcess *gp, std::istream &s) -> bool {
+                    s >> gp->active;
+                    return s.good();
+                },
+            },
+            {
+                "time_stamp",
+                [](SdfGaussianProcess *gp, std::istream &s) -> bool {
+                    s.read(reinterpret_cast<char *>(&gp->time_stamp), sizeof(gp->time_stamp));
+                    return s.good();
                 },
             },
             {
                 "outdated",
-                [](SdfGaussianProcess *gp, std::istream &stream) -> bool {
-                    stream >> gp->outdated;
-                    return stream.good();
+                [](SdfGaussianProcess *gp, std::istream &s) -> bool {
+                    s >> gp->outdated;
+                    return s.good();
                 },
             },
             {
                 "use_normal_gp",
-                [](SdfGaussianProcess *gp, std::istream &stream) -> bool {
-                    stream >> gp->use_normal_gp;
-                    return stream.good();
+                [](SdfGaussianProcess *gp, std::istream &s) -> bool {
+                    s >> gp->use_normal_gp;
+                    return s.good();
                 },
             },
             {
                 "locked_for_test",
-                [](SdfGaussianProcess *gp, std::istream &stream) -> bool {
+                [](SdfGaussianProcess *gp, std::istream &s) -> bool {
                     bool locked;
-                    stream >> locked;
+                    s >> locked;
                     gp->locked_for_test.store(locked);
-                    return stream.good();
+                    return s.good();
                 },
             },
             {
                 "position",
-                [](SdfGaussianProcess *gp, std::istream &stream) -> bool {
-                    return common::LoadEigenMatrixFromBinaryStream(stream, gp->position) &&
-                           stream.good();
+                [](SdfGaussianProcess *gp, std::istream &s) -> bool {
+                    return LoadEigenMatrixFromBinaryStream(s, gp->position) && s.good();
                 },
             },
             {
                 "half_size",
-                [](SdfGaussianProcess *gp, std::istream &stream) -> bool {
-                    stream.read(reinterpret_cast<char *>(&gp->half_size), sizeof(gp->half_size));
-                    return stream.good();
+                [](SdfGaussianProcess *gp, std::istream &s) -> bool {
+                    s.read(reinterpret_cast<char *>(&gp->half_size), sizeof(gp->half_size));
+                    return s.good();
                 },
             },
             {
                 "sign_gp",
-                [](SdfGaussianProcess *gp, std::istream &stream) -> bool {
+                [](SdfGaussianProcess *gp, std::istream &s) -> bool {
                     bool has_gp;
-                    stream >> has_gp;
-                    SkipLine(stream);
+                    s >> has_gp;
+                    SkipLine(s);
                     if (!has_gp) {  // no sign GP, skip
                         gp->sign_gp = nullptr;
-                        return stream.good();
+                        return s.good();
                     }
                     if (gp->sign_gp == nullptr) {
                         gp->sign_gp = std::make_shared<SignGp>(gp->setting->sign_gp);
                     }
-                    return gp->sign_gp->Read(stream) && stream.good();
+                    return gp->sign_gp->Read(s) && s.good();
                 },
             },
             {
                 "edf_gp",
-                [](SdfGaussianProcess *gp, std::istream &stream) -> bool {
+                [](SdfGaussianProcess *gp, std::istream &s) -> bool {
                     bool has_gp;
-                    stream >> has_gp;
-                    SkipLine(stream);
+                    s >> has_gp;
+                    SkipLine(s);
                     if (!has_gp) {  // no EDF GP, skip
                         gp->edf_gp = nullptr;
-                        return stream.good();
+                        return s.good();
                     }
                     if (gp->edf_gp == nullptr) {
                         gp->edf_gp = std::make_shared<EdfGp>(gp->setting->edf_gp);
                     }
-                    return gp->edf_gp->Read(stream) && stream.good();
+                    return gp->edf_gp->Read(s) && s.good();
                 },
             },
         };
-        return ReadTokens(s, this, token_function_pairs);
+        return ReadTokens(stream, this, token_function_pairs);
     }
 
     template<typename Dtype, int Dim>
@@ -645,10 +582,10 @@ namespace erl::gp_sdf {
         }
     }
 
-    template class SdfGaussianProcessSetting<double>;
-    template class SdfGaussianProcessSetting<float>;
-    template class SdfGaussianProcess<double, 3>;
-    template class SdfGaussianProcess<float, 3>;
-    template class SdfGaussianProcess<double, 2>;
-    template class SdfGaussianProcess<float, 2>;
+    template struct SdfGaussianProcessSetting<double>;
+    template struct SdfGaussianProcessSetting<float>;
+    template struct SdfGaussianProcess<double, 3>;
+    template struct SdfGaussianProcess<float, 3>;
+    template struct SdfGaussianProcess<double, 2>;
+    template struct SdfGaussianProcess<float, 2>;
 }  // namespace erl::gp_sdf

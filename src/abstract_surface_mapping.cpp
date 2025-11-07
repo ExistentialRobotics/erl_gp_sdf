@@ -16,7 +16,7 @@ namespace erl::gp_sdf {
     template<typename Dtype, int Dim>
     void
     AbstractSurfaceMapping<Dtype, Dim>::GetMesh(
-        std::vector<Position> & /*vertices*/,
+        std::vector<VectorD> & /*vertices*/,
         std::vector<Face> & /*faces*/) const {
         throw NotImplemented(__PRETTY_FUNCTION__);
     }

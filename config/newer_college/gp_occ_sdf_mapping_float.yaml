@@ -17,8 +17,8 @@ gp_sdf_area_scale: 3
 max_valid_gradient_var: 0.2
 invalid_position_var: 2.0
 sdf_gp:
-    sign_method: "kNone"  # "kSignGp", "kNormalGp", "kExternal", "kHybrid", "kNone"
-    hybrid_sign_methods: [ "kSignGp", "kExternal" ]
+    sign_method: "none"  # "kSignGp", "normal_gp", "external", "hybrid", "none"
+    hybrid_sign_methods: [ "sign_gp", "external" ]
     hybrid_sign_threshold: 0.18  # > sqrt(3) * tree_resolution
     normal_scale: 1.0
     softmin_temperature: 10.0

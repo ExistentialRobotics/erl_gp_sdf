@@ -2,6 +2,7 @@
 
 #include "surface_data_manager.hpp"
 
+#include "erl_common/ring_buffer.hpp"
 #include "erl_common/yaml.hpp"
 #include "erl_covariance/covariance.hpp"
 #include "erl_geometry/bayesian_hilbert_map.hpp"
@@ -20,25 +21,39 @@ namespace erl::gp_sdf {
         std::string kernel_type = type_name<Covariance>();
         std::string kernel_setting_type = type_name<KernelSetting>();
         std::shared_ptr<KernelSetting> kernel = std::make_shared<KernelSetting>();
-        long min_dataset_size = 0;            // minimum size of the dataset required to update
-        long max_dataset_size = -1;           // maximum size of the dataset to store
-        long hit_buffer_size = -1;            // -1 means no limit, 0 means no hit buffer
-        long surface_grid_size = 5;           // size of the surface grid
-        Dtype surface_log_odds = 0.0f;        // log-odds value for the surface points
-        Dtype surface_log_odds_min = -20.0f;  // minimum log-odds value for the surface points
-        Dtype surface_log_odds_max = 20.0f;   // maximum log-odds value for the surface points
-        Dtype surface_log_odds_lr = 0.1f;     // learning rate for updating the surface log-odds
+        long min_dataset_size = 0;             // minimum size of the dataset required to update
+        long min_dataset_hit_size = 1;         // minimum number of hit points in the dataset
+        long max_dataset_size = -1;            // maximum size of the dataset to store
+        long hit_point_buffer_size = -1;       // <=0 means no limit
+        long ray_buffer_size = -1;             // <=0 means no limit
+        long surface_grid_size = 5;            // size of the surface grid
+        Dtype surface_log_odds = 0.0f;         // log-odds value for the surface points
+        long surface_log_odds_init_count = 1;  // initial number of log-odds sample count
+        Dtype surface_log_odds_min = -20.0f;   // minimum log-odds value for the surface points
+        Dtype surface_log_odds_max = 20.0f;    // maximum log-odds value for the surface points
+        bool auto_surface_log_odds = true;     // automatically learn the surface log-odds
+        bool include_neighbor_voxels = true;   // include neighbor voxels when updating the surface
         // if true, pass faster=true to the Bayesian Hilbert map predict methods, which assumes
         // that the weight covariance is very small.
         bool faster_prediction = false;
 
-        struct YamlConvertImpl {
-            static YAML::Node
-            encode(const LocalBayesianHilbertMapSetting &setting);
-
-            static bool
-            decode(const YAML::Node &node, LocalBayesianHilbertMapSetting &setting);
-        };
+        ERL_REFLECT_SCHEMA(
+            LocalBayesianHilbertMapSetting,
+            ERL_REFLECT_MEMBER(LocalBayesianHilbertMapSetting, bhm),
+            ERL_REFLECT_MEMBER(LocalBayesianHilbertMapSetting, kernel_type),
+            ERL_REFLECT_MEMBER(LocalBayesianHilbertMapSetting, kernel_setting_type),
+            ERL_REFLECT_MEMBER_POLY(LocalBayesianHilbertMapSetting, kernel, kernel_setting_type),
+            ERL_REFLECT_MEMBER(LocalBayesianHilbertMapSetting, min_dataset_size),
+            ERL_REFLECT_MEMBER(LocalBayesianHilbertMapSetting, max_dataset_size),
+            ERL_REFLECT_MEMBER(LocalBayesianHilbertMapSetting, hit_point_buffer_size),
+            ERL_REFLECT_MEMBER(LocalBayesianHilbertMapSetting, ray_buffer_size),
+            ERL_REFLECT_MEMBER(LocalBayesianHilbertMapSetting, surface_grid_size),
+            ERL_REFLECT_MEMBER(LocalBayesianHilbertMapSetting, surface_log_odds),
+            ERL_REFLECT_MEMBER(LocalBayesianHilbertMapSetting, surface_log_odds_min),
+            ERL_REFLECT_MEMBER(LocalBayesianHilbertMapSetting, surface_log_odds_max),
+            ERL_REFLECT_MEMBER(LocalBayesianHilbertMapSetting, auto_surface_log_odds),
+            ERL_REFLECT_MEMBER(LocalBayesianHilbertMapSetting, include_neighbor_voxels),
+            ERL_REFLECT_MEMBER(LocalBayesianHilbertMapSetting, faster_prediction));
     };
 
     template<typename Dtype, int Dim>
@@ -48,10 +63,8 @@ namespace erl::gp_sdf {
         using Covariance = covariance::Covariance<Dtype>;
 
         using Aabb = geometry::Aabb<Dtype, Dim>;
-        using Position = Eigen::Vector<Dtype, Dim>;
-        using Positions = Eigen::Matrix<Dtype, Dim, Eigen::Dynamic>;
-        using Gradient = Position;
-        using Gradients = Positions;
+        using VectorD = Eigen::Vector<Dtype, Dim>;
+        using MatrixDX = Eigen::Matrix<Dtype, Dim, Eigen::Dynamic>;
         using VectorX = Eigen::VectorX<Dtype>;
         using Face = Eigen::Vector<int, Dim>;
         using SurfData = SurfaceData<Dtype, Dim>;
@@ -60,6 +73,7 @@ namespace erl::gp_sdf {
         using SurfaceIndexMap = absl::flat_hash_map<GridIndex, std::size_t>;
         using SurfaceDataMap = absl::flat_hash_map<GridIndex, SurfData>;
         using BayesianHilbertMap = geometry::BayesianHilbertMap<Dtype, Dim>;
+        using RayInfo = typename geometry::OccupancyMap<Dtype, Dim>::RayInfo;
 
         struct Voxel {
             bool good = false;
@@ -77,57 +91,63 @@ namespace erl::gp_sdf {
         using SurfaceVoxelMap = absl::flat_hash_map<GridIndex, Voxel>;
 
         std::shared_ptr<Setting> setting = nullptr;  // settings for the local map
-        Aabb tracked_surface_boundary{};             // boundary of the surface to track
-        Position tracked_surface_resolution{};       // resolution of the tracked surface
+        Aabb tracked_surface_boundary;               // boundary of the surface to track
+        VectorD tracked_surface_resolution;          // resolution of the tracked surface
         BayesianHilbertMap bhm;                      // local Bayesian Hilbert map
         SurfaceIndexMap surface_indices;             // grid/edge index -> buffer index
         SurfaceVoxelMap surf_voxels;                 // surface voxels
+        long dataset_hit_size = 0;                   // number of hit points in the dataset
         long dataset_size = 0;                       // number of dataset points
-        Positions dataset_points{};                  // [Dim, N] dataset points
-        VectorX dataset_labels{};                    // [N, 1] dataset labels
-        std::vector<long> hit_indices{};             // indices of the hit points in the dataset
-        std::vector<Position> hit_buffer{};          // hit point buffer of M points
-        long hit_buffer_head = 0;                    // head of the hit point buffer
-        bool active = false;                         // whether the local BHM is active
-        SurfaceDataMap surf_data_cache;              // temporary cache
-        Dtype surface_log_odds = 0.0f;               // log-odds value for surface points
-        uint64_t log_odds_count = 1;                 // number of log-odds samples
+        MatrixDX dataset_points;                     // [Dim, N] dataset points
+        VectorX dataset_labels;                      // [N, 1] dataset labels
+        std::vector<long> hit_indices;               // indices of the hit points in the dataset
+        std::vector<VectorD> hit_point_buffer;       // hit point buffer of M points
+        std::vector<RayInfo> ray_info_buffer;        // ray info buffer
+        common::RingBuffer<VectorD> hit_point_ring_buffer{1};  // hit point ring buffer
+        common::RingBuffer<RayInfo> ray_info_ring_buffer{1};   // ray info ring buffer
+        long unused_ray_count = 0;       // number of unused rays in the ray buffer
+        bool active = false;             // whether the local BHM is active
+        SurfaceDataMap surf_data_cache;  // temporary cache
+        Dtype surface_log_odds = 0.0f;   // log-odds value for surface points
+        uint64_t log_odds_count = 1;     // number of log-odds samples
 
         LocalBayesianHilbertMap(
             std::shared_ptr<Setting> setting_,
-            Positions hinged_points,
+            MatrixDX hinged_points,
             Aabb map_boundary,
             uint64_t seed,
             Aabb track_surface_boundary_);
 
-        void
-        Reset();
+        [[nodiscard]] bool
+        HasRaysUnused() const {
+            return unused_ray_count > 0;
+        }
 
-        bool
+        void
         GenerateDataset(
-            const Eigen::Ref<const Position> &sensor_origin,
-            const Eigen::Ref<const Positions> &points,
+            const Eigen::Ref<const VectorD> &sensor_position,
+            const Eigen::Ref<const MatrixDX> &points,
             const std::vector<long> &point_indices);
 
         bool
-        Update(
-            const Eigen::Ref<const Position> &sensor_origin,
-            const Eigen::Ref<const Positions> &points,
-            const std::vector<long> &point_indices,
-            bool update_surface_log_odds);
+        UpdateSurface(const Eigen::Ref<const MatrixDX> &points, bool update_surface_voxels);
 
-        void
-        UpdateHitBuffer(const Eigen::Ref<const Positions> &points);
+        bool
+        Update(
+            const Eigen::Ref<const VectorD> &sensor_origin,
+            const Eigen::Ref<const MatrixDX> &points,
+            const std::vector<long> &point_indices,
+            bool update_surface_voxels);
 
         [[nodiscard]] bool
         GetGridCoords(
-            const Eigen::Ref<const Position> &point,
+            const Eigen::Ref<const VectorD> &point,
             bool check_bounds,
             GridIndex &grid_coords) const;
 
         void
         Predict(
-            const Eigen::Ref<const Positions> &points,
+            const Eigen::Ref<const MatrixDX> &points,
             bool logodd,
             bool compute_free_space,
             bool compute_gradient,
@@ -135,31 +155,31 @@ namespace erl::gp_sdf {
             bool parallel,
             VectorX &prob_occupied,
             Eigen::VectorXb &in_free_space,
-            Gradients &gradient) const;
+            MatrixDX &gradient) const;
 
         void
         PredictAt(
-            const Position &point,
+            const VectorD &point,
             bool logodd,
             bool compute_free_space,
             bool compute_gradient,
             bool gradient_with_sigmoid,
             Dtype &prob_occupied,
             bool &in_free_space,
-            Gradient &gradient) const;
+            VectorD &gradient) const;
 
         void
         PredictGradient(
-            const Eigen::Ref<const Positions> &points,
+            const Eigen::Ref<const MatrixDX> &points,
             bool with_sigmoid,
             bool parallel,
-            Gradients &gradient) const;
+            MatrixDX &gradient) const;
 
         [[nodiscard]] bool
-        Write(std::ostream &s) const;
+        Write(std::ostream &stream) const;
 
         [[nodiscard]] bool
-        Read(std::istream &s);
+        Read(std::istream &stream);
 
         [[nodiscard]] bool
         operator==(const LocalBayesianHilbertMap &other) const;
@@ -178,11 +198,3 @@ namespace erl::gp_sdf {
     using LocalBayesianHilbertMapSettingF = LocalBayesianHilbertMapSetting<float>;
     using LocalBayesianHilbertMapSettingD = LocalBayesianHilbertMapSetting<double>;
 }  // namespace erl::gp_sdf
-
-template<>
-struct YAML::convert<erl::gp_sdf::LocalBayesianHilbertMapSettingF>
-    : erl::gp_sdf::LocalBayesianHilbertMapSettingF::YamlConvertImpl {};
-
-template<>
-struct YAML::convert<erl::gp_sdf::LocalBayesianHilbertMapSettingD>
-    : erl::gp_sdf::LocalBayesianHilbertMapSettingD::YamlConvertImpl {};

@@ -111,5 +111,3 @@ namespace erl::gp_sdf {
     extern template class SignGaussianProcess<double>;
     extern template class SignGaussianProcess<float>;
 }  // namespace erl::gp_sdf
-
-// #include "sign_gp.tpp"

@@ -416,8 +416,9 @@ TestImpl3D() {
         ERL_BLOCK_TIMER_MSG("IO");
         std::string bin_file = fmt::format("gp_sdf_mapping_3d_{}.bin", type_name<Dtype>());
         bin_file = test_output_dir / bin_file;
+        using namespace erl::common::serialization;
         ERL_ASSERTM(
-            erl::common::Serialization<SdfMapping>::Write(bin_file, &sdf_mapping),
+            Serialization<SdfMapping>::Write(bin_file, &sdf_mapping),
             "Failed to write to file: {}",
             bin_file);
         auto surface_mapping_read =
@@ -426,7 +427,7 @@ TestImpl3D() {
             std::make_shared<typename SdfMapping::Setting>(),
             surface_mapping_read);
         ERL_ASSERTM(
-            erl::common::Serialization<SdfMapping>::Read(bin_file, &sdf_mapping_read),
+            Serialization<SdfMapping>::Read(bin_file, &sdf_mapping_read),
             "Failed to read from file: {}",
             bin_file);
         ERL_ASSERTM(sdf_mapping == sdf_mapping_read, "gp != gp_load");

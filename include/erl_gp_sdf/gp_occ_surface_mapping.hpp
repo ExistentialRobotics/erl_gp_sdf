@@ -20,14 +20,14 @@ namespace erl::gp_sdf {
         using typename Super::Key;
         using typename Super::KeySet;
         using typename Super::KeyVector;
+        using typename Super::MatrixDX;
         using typename Super::MatrixX;
-        using typename Super::Position;
-        using typename Super::Positions;
         using typename Super::Ranges;
         using typename Super::Rotation;
         using typename Super::SurfData;
         using typename Super::SurfDataManager;
         using typename Super::Translation;
+        using typename Super::VectorD;
         using typename Super::VectorX;
 
         using Tree = std::conditional_t<
@@ -51,10 +51,9 @@ namespace erl::gp_sdf {
 
         // eigen types
         using Scalar = Eigen::Matrix<Dtype, 1, 1>;
-        using Gradient = Position;
 
         struct Setting : public common::Yamlable<Setting> {
-            struct ComputeVariance {
+            struct ComputeVariance : common::Yamlable<ComputeVariance> {
                 // position variance to set when the estimated gradient is almost zero.
                 Dtype zero_gradient_position_var = 1.;
                 // gradient variance to set when the estimated gradient is almost zero.
@@ -65,16 +64,34 @@ namespace erl::gp_sdf {
                 Dtype max_distance_var = 100.0f;    // allowed maximum distance variance.
                 Dtype min_gradient_var = 0.01f;     // allowed minimum gradient variance.
                 Dtype max_gradient_var = 1.0f;      // allowed maximum gradient variance.
+
+                ERL_REFLECT_SCHEMA(
+                    ComputeVariance,
+                    ERL_REFLECT_MEMBER(ComputeVariance, zero_gradient_position_var),
+                    ERL_REFLECT_MEMBER(ComputeVariance, zero_gradient_gradient_var),
+                    ERL_REFLECT_MEMBER(ComputeVariance, position_var_alpha),
+                    ERL_REFLECT_MEMBER(ComputeVariance, direction_var_alpha),
+                    ERL_REFLECT_MEMBER(ComputeVariance, min_distance_var),
+                    ERL_REFLECT_MEMBER(ComputeVariance, max_distance_var),
+                    ERL_REFLECT_MEMBER(ComputeVariance, min_gradient_var),
+                    ERL_REFLECT_MEMBER(ComputeVariance, max_gradient_var));
             };
 
-            struct UpdateTree {
+            struct UpdateTree : common::Yamlable<UpdateTree> {
                 bool with_count = false;
                 bool parallel = true;
                 bool lazy_eval = true;
                 bool discrete = true;
+
+                ERL_REFLECT_SCHEMA(
+                    UpdateTree,
+                    ERL_REFLECT_MEMBER(UpdateTree, with_count),
+                    ERL_REFLECT_MEMBER(UpdateTree, parallel),
+                    ERL_REFLECT_MEMBER(UpdateTree, lazy_eval),
+                    ERL_REFLECT_MEMBER(UpdateTree, discrete));
             };
 
-            struct UpdateMapPoints {
+            struct UpdateMapPoints : common::Yamlable<UpdateMapPoints> {
                 int max_adjust_tries = 10;
                 // points of OCC smaller than this value are considered unobservable.
                 // i.e., inside the object.
@@ -92,6 +109,18 @@ namespace erl::gp_sdf {
                 Dtype max_bayes_gradient_var = 0.6f;
                 // maximum number of points to update in one map update.
                 long max_num_points = 100000;
+
+                ERL_REFLECT_SCHEMA(
+                    UpdateMapPoints,
+                    ERL_REFLECT_MEMBER(UpdateMapPoints, max_adjust_tries),
+                    ERL_REFLECT_MEMBER(UpdateMapPoints, min_observable_occ),
+                    ERL_REFLECT_MEMBER(UpdateMapPoints, min_position_var),
+                    ERL_REFLECT_MEMBER(UpdateMapPoints, min_gradient_var),
+                    ERL_REFLECT_MEMBER(UpdateMapPoints, max_surface_abs_occ),
+                    ERL_REFLECT_MEMBER(UpdateMapPoints, max_valid_gradient_var),
+                    ERL_REFLECT_MEMBER(UpdateMapPoints, max_bayes_position_var),
+                    ERL_REFLECT_MEMBER(UpdateMapPoints, max_bayes_gradient_var),
+                    ERL_REFLECT_MEMBER(UpdateMapPoints, max_num_points));
             };
 
             ComputeVariance compute_variance;
@@ -110,13 +139,19 @@ namespace erl::gp_sdf {
             bool update_occupancy = true;  // whether to update the occupancy of the occupancy tree.
             uint32_t cluster_depth = 14;
 
-            struct YamlConvertImpl {
-                static YAML::Node
-                encode(const Setting &setting);
-
-                static bool
-                decode(const YAML::Node &node, Setting &setting);
-            };
+            ERL_REFLECT_SCHEMA(
+                Setting,
+                ERL_REFLECT_MEMBER(Setting, compute_variance),
+                ERL_REFLECT_MEMBER(Setting, update_tree),
+                ERL_REFLECT_MEMBER(Setting, update_map_points),
+                ERL_REFLECT_MEMBER(Setting, sensor_gp),
+                ERL_REFLECT_MEMBER(Setting, tree),
+                ERL_REFLECT_MEMBER(Setting, surface_resolution),
+                ERL_REFLECT_MEMBER(Setting, scaling),
+                ERL_REFLECT_MEMBER(Setting, perturb_delta),
+                ERL_REFLECT_MEMBER(Setting, zero_gradient_threshold),
+                ERL_REFLECT_MEMBER(Setting, update_occupancy),
+                ERL_REFLECT_MEMBER(Setting, cluster_depth));
         };
 
         class SurfaceDataIterator {
@@ -230,17 +265,17 @@ namespace erl::gp_sdf {
         [[nodiscard]] Dtype
         GetClusterSize() const override;
 
-        [[nodiscard]] Position
+        [[nodiscard]] VectorD
         GetClusterCenter(const Key &key) const override;
 
         [[nodiscard]] const KeySet &
         GetChangedClusters() const override;
 
         [[nodiscard]] KeySet
-        GetAllClusters() const;
+        GetAllClusters() const override;
 
         [[nodiscard]] Key
-        GetClusterKey(const Eigen::Ref<const Position> &pos) const;
+        GetClusterKey(const Eigen::Ref<const VectorD> &pos) const override;
 
         void
         IterateClustersInAabb(const Aabb &aabb, std::function<void(const Key &)> callback)
@@ -258,16 +293,16 @@ namespace erl::gp_sdf {
         GetMapBoundary() const override;
 
         [[nodiscard]] bool
-        IsInFreeSpace(const Positions &positions, Eigen::VectorXb &in_free_space) const override;
+        IsInFreeSpace(const MatrixDX &positions, Eigen::VectorXb &in_free_space) const override;
 
         [[nodiscard]] bool
         operator==(const Super &other) const override;
 
         [[nodiscard]] bool
-        Write(std::ostream &s) const override;
+        Write(std::ostream &stream) const override;
 
         [[nodiscard]] bool
-        Read(std::istream &s) override;
+        Read(std::istream &stream) override;
 
     private:
         static std::pair<Dtype, Dtype>
@@ -283,15 +318,15 @@ namespace erl::gp_sdf {
         UpdateMapPoint(SurfData &surface_data, bool &updated, bool &to_remove);
 
         [[nodiscard]] std::pair<Key, int>
-        ComputeSurfaceIndex1(const Position &pos_global) const;
+        ComputeSurfaceIndex1(const VectorD &pos_global) const;
 
         template<int D = Dim>
         std::enable_if_t<D == 2>
-        UpdateGradient(Dtype var_new, Dtype var_sum, const Gradient &grad_old, Gradient &grad_new);
+        UpdateGradient(Dtype var_new, Dtype var_sum, const VectorD &grad_old, VectorD &grad_new);
 
         template<int D = Dim>
         std::enable_if_t<D == 3>
-        UpdateGradient(Dtype var_new, Dtype var_sum, const Gradient &grad_old, Gradient &grad_new);
+        UpdateGradient(Dtype var_new, Dtype var_sum, const VectorD &grad_old, VectorD &grad_new);
 
         void
         UpdateOccupancy();
@@ -307,21 +342,21 @@ namespace erl::gp_sdf {
 
         bool
         ComputeGradient1(
-            const Position &pos_local,
-            Gradient &gradient,
+            const VectorD &pos_local,
+            VectorD &gradient,
             Dtype &occ_mean,
             Dtype &distance_var);
 
         bool
         ComputeGradient2(
-            const Eigen::Ref<const Position> &pos_local,
-            Gradient &gradient,
+            const Eigen::Ref<const VectorD> &pos_local,
+            VectorD &gradient,
             Dtype &occ_mean);
 
         void
         ComputeVariance(
-            const Eigen::Ref<const Position> &pos_local,
-            const Gradient &grad_local,
+            const Eigen::Ref<const VectorD> &pos_local,
+            const VectorD &grad_local,
             const Dtype &distance,
             const Dtype &distance_var,
             const Dtype &occ_mean_abs,
@@ -342,21 +377,3 @@ namespace erl::gp_sdf {
     extern template class GpOccSurfaceMapping<float, 2>;
 
 }  // namespace erl::gp_sdf
-
-// #include "gp_occ_surface_mapping.tpp"
-
-template<>
-struct YAML::convert<erl::gp_sdf::GpOccSurfaceMapping3Dd::Setting>
-    : erl::gp_sdf::GpOccSurfaceMapping3Dd::Setting::YamlConvertImpl {};
-
-template<>
-struct YAML::convert<erl::gp_sdf::GpOccSurfaceMapping3Df::Setting>
-    : erl::gp_sdf::GpOccSurfaceMapping3Df::Setting::YamlConvertImpl {};
-
-template<>
-struct YAML::convert<erl::gp_sdf::GpOccSurfaceMapping2Dd::Setting>
-    : erl::gp_sdf::GpOccSurfaceMapping2Dd::Setting::YamlConvertImpl {};
-
-template<>
-struct YAML::convert<erl::gp_sdf::GpOccSurfaceMapping2Df::Setting>
-    : erl::gp_sdf::GpOccSurfaceMapping2Df::Setting::YamlConvertImpl {};

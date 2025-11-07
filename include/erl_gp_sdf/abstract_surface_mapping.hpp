@@ -33,8 +33,8 @@ namespace erl::gp_sdf {
         using Rotation = Eigen::Matrix<Dtype, Dim, Dim>;
         using Translation = Eigen::Vector<Dtype, Dim>;
         using Ranges = MatrixX;
-        using Position = Eigen::Vector<Dtype, Dim>;
-        using Positions = Eigen::Matrix<Dtype, Dim, Eigen::Dynamic>;
+        using VectorD = Eigen::Vector<Dtype, Dim>;
+        using MatrixDX = Eigen::Matrix<Dtype, Dim, Eigen::Dynamic>;
         using Face = Eigen::Vector<int, Dim>;
 
     protected:
@@ -94,7 +94,7 @@ namespace erl::gp_sdf {
          * @param key the key of the cluster.
          * @return the center of the cluster.
          */
-        [[nodiscard]] virtual Position
+        [[nodiscard]] virtual VectorD
         GetClusterCenter(const Key &key) const = 0;
 
         /**
@@ -112,7 +112,7 @@ namespace erl::gp_sdf {
         GetAllClusters() const = 0;
 
         [[nodiscard]] virtual Key
-        GetClusterKey(const Eigen::Ref<const Position> &pos) const = 0;
+        GetClusterKey(const Eigen::Ref<const VectorD> &pos) const = 0;
 
         /**
          * Iterate over the clusters in the given axis-aligned bounding box.
@@ -141,7 +141,7 @@ namespace erl::gp_sdf {
             std::vector<std::pair<Dtype, std::size_t>> &surface_data_indices) const = 0;
 
         virtual void
-        GetMesh(std::vector<Position> &vertices, std::vector<Face> &faces) const;
+        GetMesh(std::vector<VectorD> &vertices, std::vector<Face> &faces) const;
 
         /**
          * Get the boundary of the map.
@@ -159,7 +159,7 @@ namespace erl::gp_sdf {
          * implemented.
          */
         [[nodiscard]] virtual bool
-        IsInFreeSpace(const Positions &positions, Eigen::VectorXb &in_free_space) const = 0;
+        IsInFreeSpace(const MatrixDX &positions, Eigen::VectorXb &in_free_space) const = 0;
 
         // Comparison
         [[nodiscard]] virtual bool

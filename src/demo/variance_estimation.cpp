@@ -25,57 +25,28 @@ struct Options : Yamlable<Options> {
     int num_var_x = 10;
     double var_y = 0.01;
     std::shared_ptr<Gp::Setting> gp = std::make_shared<Gp::Setting>();
-    std::filesystem::path output_dir = "variance_estimation";
+    std::string output_dir = "variance_estimation";
     bool show_images = true;
-};
 
-template<>
-struct YAML::convert<Options> {
-    static Node
-    encode(const Options &options) {
-        Node node;
-        ERL_YAML_SAVE_ATTR(node, options, max_x);
-        ERL_YAML_SAVE_ATTR(node, options, max_y);
-        ERL_YAML_SAVE_ATTR(node, options, min_x);
-        ERL_YAML_SAVE_ATTR(node, options, min_y);
-        ERL_YAML_SAVE_ATTR(node, options, num_x);
-        ERL_YAML_SAVE_ATTR(node, options, num_y);
-        ERL_YAML_SAVE_ATTR(node, options, radius);
-        ERL_YAML_SAVE_ATTR(node, options, num_surf_samples);
-        ERL_YAML_SAVE_ATTR(node, options, test_position);
-        ERL_YAML_SAVE_ATTR(node, options, softmin_temperature);
-        ERL_YAML_SAVE_ATTR(node, options, var_x_min);
-        ERL_YAML_SAVE_ATTR(node, options, var_x_max);
-        ERL_YAML_SAVE_ATTR(node, options, num_var_x);
-        ERL_YAML_SAVE_ATTR(node, options, var_y);
-        ERL_YAML_SAVE_ATTR(node, options, gp);
-        ERL_YAML_SAVE_ATTR(node, options, output_dir);
-        ERL_YAML_SAVE_ATTR(node, options, show_images);
-        return node;
-    }
-
-    static bool
-    decode(const Node &node, Options &options) {
-        if (!node.IsMap()) { return false; }
-        ERL_YAML_LOAD_ATTR(node, options, max_x);
-        ERL_YAML_LOAD_ATTR(node, options, max_y);
-        ERL_YAML_LOAD_ATTR(node, options, min_x);
-        ERL_YAML_LOAD_ATTR(node, options, min_y);
-        ERL_YAML_LOAD_ATTR(node, options, num_x);
-        ERL_YAML_LOAD_ATTR(node, options, num_y);
-        ERL_YAML_LOAD_ATTR(node, options, radius);
-        ERL_YAML_LOAD_ATTR(node, options, num_surf_samples);
-        ERL_YAML_LOAD_ATTR(node, options, test_position);
-        ERL_YAML_LOAD_ATTR(node, options, softmin_temperature);
-        ERL_YAML_LOAD_ATTR(node, options, var_x_min);
-        ERL_YAML_LOAD_ATTR(node, options, var_x_max);
-        ERL_YAML_LOAD_ATTR(node, options, num_var_x);
-        ERL_YAML_LOAD_ATTR(node, options, var_y);
-        if (!ERL_YAML_LOAD_ATTR(node, options, gp)) { return false; }
-        ERL_YAML_LOAD_ATTR(node, options, output_dir);
-        ERL_YAML_LOAD_ATTR(node, options, show_images);
-        return true;
-    }
+    ERL_REFLECT_SCHEMA(
+        Options,
+        ERL_REFLECT_MEMBER(Options, max_x),
+        ERL_REFLECT_MEMBER(Options, max_y),
+        ERL_REFLECT_MEMBER(Options, min_x),
+        ERL_REFLECT_MEMBER(Options, min_y),
+        ERL_REFLECT_MEMBER(Options, num_x),
+        ERL_REFLECT_MEMBER(Options, num_y),
+        ERL_REFLECT_MEMBER(Options, radius),
+        ERL_REFLECT_MEMBER(Options, num_surf_samples),
+        ERL_REFLECT_MEMBER(Options, test_position),
+        ERL_REFLECT_MEMBER(Options, softmin_temperature),
+        ERL_REFLECT_MEMBER(Options, var_x_min),
+        ERL_REFLECT_MEMBER(Options, var_x_max),
+        ERL_REFLECT_MEMBER(Options, num_var_x),
+        ERL_REFLECT_MEMBER(Options, var_y),
+        ERL_REFLECT_MEMBER(Options, gp),
+        ERL_REFLECT_MEMBER(Options, output_dir),
+        ERL_REFLECT_MEMBER(Options, show_images));
 };
 
 struct App {
@@ -234,8 +205,8 @@ struct App {
     void
     Run() const {
         std::filesystem::create_directories(options.output_dir);
-        auto img_dir0 = options.output_dir / "variances_estimation";
-        auto img_dir1 = options.output_dir / "variance_estimation";
+        auto img_dir0 = std::filesystem::path(options.output_dir) / "variances_estimation";
+        auto img_dir1 = std::filesystem::path(options.output_dir) / "variance_estimation";
         std::filesystem::create_directories(img_dir0);
         std::filesystem::create_directories(img_dir1);
 

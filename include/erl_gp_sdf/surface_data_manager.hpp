@@ -6,7 +6,8 @@
 namespace erl::gp_sdf {
 
     template<typename Dtype, int Dim>
-    struct SurfaceData {
+    class SurfaceData {
+    public:
         using VectorD = Eigen::Vector<Dtype, Dim>;
 
         VectorD position = VectorD::Zero();
@@ -40,10 +41,10 @@ namespace erl::gp_sdf {
         operator!=(const SurfaceData &other) const;
 
         [[nodiscard]] bool
-        Write(std::ostream &s) const;
+        Write(std::ostream &stream) const;
 
         [[nodiscard]] bool
-        Read(std::istream &s);
+        Read(std::istream &stream);
     };
 
     template<typename Dtype, int Dim>

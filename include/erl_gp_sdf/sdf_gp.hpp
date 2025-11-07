@@ -4,12 +4,14 @@
 #include "sign_gp.hpp"
 #include "surface_data_manager.hpp"
 
+#include "erl_common/enum_parse.hpp"
+
 #include <atomic>
 #include <memory>
 
 namespace erl::gp_sdf {
 
-    enum SignMethod {
+    enum class SignMethod {
         kNone = 0,      // No sign prediction.
         kSignGp = 1,    // Use sign gp.
         kNormalGp = 2,  // Use normal gp.
@@ -22,8 +24,10 @@ namespace erl::gp_sdf {
         using SignGpSetting = typename SignGaussianProcess<Dtype>::Setting;
         using EdfGpSetting = typename LogEdfGaussianProcess<Dtype>::Setting;
 
-        SignMethod sign_method = kNormalGp;
-        std::pair<SignMethod, SignMethod> hybrid_sign_methods = {kNormalGp, kExternal};
+        SignMethod sign_method = SignMethod::kNormalGp;
+        std::pair<SignMethod, SignMethod> hybrid_sign_methods = {
+            SignMethod::kNormalGp,
+            SignMethod::kExternal};
         Dtype hybrid_sign_threshold = 0.2f;
         Dtype normal_scale = 1.0f;              // scale for normal gp
         Dtype softmin_temperature = 1.0f;       // temperature for softmin
@@ -32,13 +36,17 @@ namespace erl::gp_sdf {
         std::shared_ptr<SignGpSetting> sign_gp = std::make_shared<SignGpSetting>();
         std::shared_ptr<EdfGpSetting> edf_gp = std::make_shared<EdfGpSetting>();
 
-        struct YamlConvertImpl {
-            static YAML::Node
-            encode(const SdfGaussianProcessSetting& setting);
-
-            static bool
-            decode(const YAML::Node& node, SdfGaussianProcessSetting& setting);
-        };
+        ERL_REFLECT_SCHEMA(
+            SdfGaussianProcessSetting,
+            ERL_REFLECT_MEMBER(SdfGaussianProcessSetting, sign_method),
+            ERL_REFLECT_MEMBER(SdfGaussianProcessSetting, hybrid_sign_methods),
+            ERL_REFLECT_MEMBER(SdfGaussianProcessSetting, hybrid_sign_threshold),
+            ERL_REFLECT_MEMBER(SdfGaussianProcessSetting, normal_scale),
+            ERL_REFLECT_MEMBER(SdfGaussianProcessSetting, softmin_temperature),
+            ERL_REFLECT_MEMBER(SdfGaussianProcessSetting, sign_gp_offset_distance),
+            ERL_REFLECT_MEMBER(SdfGaussianProcessSetting, edf_gp_offset_distance),
+            ERL_REFLECT_MEMBER(SdfGaussianProcessSetting, sign_gp),
+            ERL_REFLECT_MEMBER(SdfGaussianProcessSetting, edf_gp));
     };
 
     template<typename Dtype, int Dim>
@@ -53,6 +61,7 @@ namespace erl::gp_sdf {
 
         std::shared_ptr<Setting> setting = nullptr;
         bool active = false;
+        long time_stamp = 0;   // last update timestamp
         bool outdated = true;  // whether the GP is outdated and needs to be retrained
         bool use_normal_gp = false;
         std::atomic_bool locked_for_test = false;
@@ -63,15 +72,15 @@ namespace erl::gp_sdf {
 
         explicit SdfGaussianProcess(std::shared_ptr<Setting> setting_);
 
-        SdfGaussianProcess(const SdfGaussianProcess& other);
+        SdfGaussianProcess(const SdfGaussianProcess &other);
 
-        SdfGaussianProcess(SdfGaussianProcess&& other) noexcept;
+        SdfGaussianProcess(SdfGaussianProcess &&other) noexcept;
 
-        SdfGaussianProcess&
-        operator=(const SdfGaussianProcess& other);
+        SdfGaussianProcess &
+        operator=(const SdfGaussianProcess &other);
 
-        SdfGaussianProcess&
-        operator=(SdfGaussianProcess&& other) noexcept;
+        SdfGaussianProcess &
+        operator=(SdfGaussianProcess &&other) noexcept;
 
         void
         Activate();
@@ -86,15 +95,15 @@ namespace erl::gp_sdf {
         GetMemoryUsage() const;
 
         [[nodiscard]] bool
-        Intersects(const VectorD& other_position, Dtype other_half_size) const;
+        Intersects(const VectorD &other_position, Dtype other_half_size) const;
 
         [[nodiscard]] bool
-        Intersects(const VectorD& other_position, const VectorD& other_half_sizes) const;
+        Intersects(const VectorD &other_position, const VectorD &other_half_sizes) const;
 
         void
         LoadSurfaceData(
-            std::vector<std::pair<Dtype, std::size_t>>& surface_data_indices,
-            const std::vector<SurfaceData<Dtype, Dim>>& surface_data_vec,
+            std::vector<std::pair<Dtype, std::size_t>> &surface_data_indices,
+            const std::vector<SurfaceData<Dtype, Dim>> &surface_data_vec,
             Dtype sensor_noise,
             Dtype max_valid_gradient_var,
             Dtype invalid_position_var);
@@ -107,37 +116,37 @@ namespace erl::gp_sdf {
 
         [[nodiscard]] bool
         Test(
-            const VectorD& test_position,
+            const VectorD &test_position,
             Eigen::Ref<Eigen::Vector<Dtype, 2 * Dim + 1>> f,
             Eigen::Ref<Eigen::Vector<Dtype, Dim + 1>> var,
-            Eigen::Ref<Eigen::Vector<Dtype, Dim*(Dim + 1) / 2>> covariance,
-            Dtype& sign,
+            Eigen::Ref<Eigen::Vector<Dtype, Dim *(Dim + 1) / 2>> covariance,
+            Dtype &sign,
             bool compute_gradient,
             bool compute_gradient_variance,
             bool compute_covariance,
             bool use_gp_covariance) const;
 
         [[nodiscard]] bool
-        operator==(const SdfGaussianProcess& other) const;
+        operator==(const SdfGaussianProcess &other) const;
 
         [[nodiscard]] bool
-        operator!=(const SdfGaussianProcess& other) const;
+        operator!=(const SdfGaussianProcess &other) const;
 
         [[nodiscard]] bool
-        Write(std::ostream& s) const;
+        Write(std::ostream &stream) const;
 
         [[nodiscard]] bool
-        Read(std::istream& s);
+        Read(std::istream &stream);
 
     private:
         void
         EstimateVariance(
-            const VectorD& test_position,
+            const VectorD &test_position,
             Dtype edf_pred,
             bool compute_gradient_variance,
             bool compute_covariance,
-            Dtype* var,
-            Dtype* covariance) const;
+            Dtype *var,
+            Dtype *covariance) const;
     };
 
     using SdfGaussianProcessSettingD = SdfGaussianProcessSetting<double>;
@@ -147,21 +156,22 @@ namespace erl::gp_sdf {
     using SdfGp2Dd = SdfGaussianProcess<double, 2>;
     using SdfGp2Df = SdfGaussianProcess<float, 2>;
 
-    extern template class SdfGaussianProcessSetting<double>;
-    extern template class SdfGaussianProcessSetting<float>;
-    extern template class SdfGaussianProcess<double, 3>;
-    extern template class SdfGaussianProcess<float, 3>;
-    extern template class SdfGaussianProcess<double, 2>;
-    extern template class SdfGaussianProcess<float, 2>;
+    extern template struct SdfGaussianProcessSetting<double>;
+    extern template struct SdfGaussianProcessSetting<float>;
+    extern template struct SdfGaussianProcess<double, 3>;
+    extern template struct SdfGaussianProcess<float, 3>;
+    extern template struct SdfGaussianProcess<double, 2>;
+    extern template struct SdfGaussianProcess<float, 2>;
 
 }  // namespace erl::gp_sdf
 
-// #include "sdf_gp.tpp"
+ERL_REFLECT_ENUM_SCHEMA(
+    erl::gp_sdf::SignMethod,
+    5,
+    ERL_REFLECT_ENUM_MEMBER("none", erl::gp_sdf::SignMethod::kNone),
+    ERL_REFLECT_ENUM_MEMBER("sign_gp", erl::gp_sdf::SignMethod::kSignGp),
+    ERL_REFLECT_ENUM_MEMBER("normal_gp", erl::gp_sdf::SignMethod::kNormalGp),
+    ERL_REFLECT_ENUM_MEMBER("external", erl::gp_sdf::SignMethod::kExternal),
+    ERL_REFLECT_ENUM_MEMBER("hybrid", erl::gp_sdf::SignMethod::kHybrid));
 
-template<>
-struct YAML::convert<erl::gp_sdf::SdfGaussianProcessSettingD>
-    : erl::gp_sdf::SdfGaussianProcessSettingD::YamlConvertImpl {};
-
-template<>
-struct YAML::convert<erl::gp_sdf::SdfGaussianProcessSettingF>
-    : erl::gp_sdf::SdfGaussianProcessSettingF::YamlConvertImpl {};
+ERL_PARSE_ENUM(erl::gp_sdf::SignMethod, 5);

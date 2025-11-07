@@ -15,49 +15,23 @@ struct Options : Yamlable<Options> {
     int test_num_y = 201;
     std::shared_ptr<Gp::Setting> gp = std::make_shared<Gp::Setting>();
     std::string output_dir = "gp_occ_regression";
-};
 
-template<>
-struct YAML::convert<Options> {
-    static Node
-    encode(const Options &options) {
-        Node node;
-        ERL_YAML_SAVE_ATTR(node, options, frame_idx);
-        ERL_YAML_SAVE_ATTR(node, options, margin);
-        ERL_YAML_SAVE_ATTR(node, options, perturb_delta);
-        ERL_YAML_SAVE_ATTR(node, options, test_num_x);
-        ERL_YAML_SAVE_ATTR(node, options, test_num_y);
-        ERL_YAML_SAVE_ATTR(node, options, gp);
-        ERL_YAML_SAVE_ATTR(node, options, output_dir);
-        return node;
-    }
-
-    static bool
-    decode(const Node &node, Options &options) {
-        if (!node.IsMap()) { return false; }
-        ERL_YAML_LOAD_ATTR(node, options, frame_idx);
-        ERL_YAML_LOAD_ATTR(node, options, margin);
-        ERL_YAML_LOAD_ATTR(node, options, perturb_delta);
-        ERL_YAML_LOAD_ATTR(node, options, test_num_x);
-        ERL_YAML_LOAD_ATTR(node, options, test_num_y);
-        if (!ERL_YAML_LOAD_ATTR(node, options, gp)) { return false; }
-        ERL_YAML_LOAD_ATTR(node, options, output_dir);
-        return true;
-    }
+    ERL_REFLECT_SCHEMA(
+        Options,
+        ERL_REFLECT_MEMBER(Options, frame_idx),
+        ERL_REFLECT_MEMBER(Options, margin),
+        ERL_REFLECT_MEMBER(Options, perturb_delta),
+        ERL_REFLECT_MEMBER(Options, test_num_x),
+        ERL_REFLECT_MEMBER(Options, test_num_y),
+        ERL_REFLECT_MEMBER(Options, gp),
+        ERL_REFLECT_MEMBER(Options, output_dir));
 };
 
 struct App {
     Options options;
 
-    explicit App(const std::string &option_file) {
-        if (!std::filesystem::exists(option_file)) { options.AsYamlFile(option_file); }
-        if (!option_file.empty()) {
-            ERL_ASSERTM(
-                options.FromYamlFile(option_file),
-                "Failed to load options from file: {}",
-                option_file);
-        }
-    }
+    explicit App(Options opt)
+        : options(std::move(opt)) {}
 
     void
     Run() {
@@ -160,7 +134,7 @@ struct App {
         }
 
         PlplotFig fig(640, 640, true);
-        auto clear_fig = [&fig, &grid_info, this]() {
+        auto clear_fig = [&fig, &grid_info]() {
             fig.Clear(1.0, 1.0, 1.0)
                 .SetFontSize(0.0, 1.1)
                 .SetMargin(0.12, 0.82, 0.15, 0.85)
@@ -230,15 +204,10 @@ struct App {
 
 int
 main(int argc, char **argv) {
-    if (argc > 2) {
-        std::cerr << "Usage: " << argv[0] << " <options_file>" << std::endl;
-        return EXIT_FAILURE;
-    }
     try {
-        const std::string options_file =
-            (argc == 2) ? argv[1]
-                        : (ERL_GP_SDF_ROOT_DIR "/config/demo/demo_gp_occ_regression.yaml");
-        App app(options_file);
+        Options options;
+        if (!options.FromCommandLine(argc, argv)) { return EXIT_FAILURE; }
+        App app(options);
         app.Run();
     } catch (const std::exception &e) {
         std::cerr << "Error: " << e.what() << std::endl;

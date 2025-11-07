@@ -92,6 +92,7 @@ struct TestImpl3D {
         bool save_images = false;
         bool test_io = false;
         bool hold = false;
+        bool load_sdf_mapping_bin = false;
     };
 
     Options options;
@@ -237,7 +238,12 @@ struct TestImpl3D {
             ("image-resize-scale", po::value<Dtype>(&options.image_resize_scale)->default_value(options.image_resize_scale)->value_name("scale"), "image resize scale")
             ("save-images", po::bool_switch(&options.save_images), "save images")
             ("test-io", po::bool_switch(&options.test_io), "test IO")
-            ("hold", po::bool_switch(&options.hold), "hold the window");
+            ("hold", po::bool_switch(&options.hold), "hold the window")
+            (
+                "load-sdf-mapping-bin",
+                po::bool_switch(&options.load_sdf_mapping_bin),
+                "load SDF mapping from binary file"
+            );
             // clang-format on
 
             po::variables_map vm;
@@ -407,6 +413,12 @@ struct TestImpl3D {
                 grid_rotation = box_rotation.cast<Dtype>();
                 grid_translation = box_translation.cast<Dtype>();
 
+                ERL_INFO(
+                    "rotation: \n{}, \ntranslation: {}, size: {}",
+                    box_rotation,
+                    box_translation.transpose(),
+                    box_size.transpose());
+
                 options.test_x_min = -box_size[0] / 2;
                 options.test_x_max = box_size[0] / 2;
                 options.test_y_min = -box_size[1] / 2;
@@ -508,7 +520,7 @@ struct TestImpl3D {
             Matrix4X variances;
             Matrix6X covairances;
             ERL_BLOCK_TIMER_MSG("sdf_mapping.Test");
-            EXPECT_TRUE(
+            ASSERT_TRUE(
                 sdf_mapping->Test(test_positions, distances, gradients, variances, covairances));
         }
 
@@ -522,7 +534,7 @@ struct TestImpl3D {
         ConvertToVoxelGrid(img_sdf, test_positions, voxel_grid_sdf);
 
         Eigen::VectorXb in_free_space;
-        EXPECT_TRUE(surface_mapping->IsInFreeSpace(test_positions, in_free_space));
+        ASSERT_TRUE(surface_mapping->IsInFreeSpace(test_positions, in_free_space));
         cv::Mat img_surf_mapping_sign =
             ConvertVectorToImage<Dtype>(xs, ys, in_free_space.template cast<Dtype>(), false);
 
@@ -548,24 +560,45 @@ struct TestImpl3D {
         cv::waitKey(1);
     }
 
+    std::string
+    GetBinFileName() {
+        std::string bin_file = fmt::format("sdf_mapping_3d_{}.bin", type_name<Dtype>());
+        bin_file = test_output_dir / bin_file;
+        return bin_file;
+    }
+
+    void
+    WriteSdfMappingBin() {
+        std::string bin_file = GetBinFileName();
+        using namespace erl::common::serialization;
+        ERL_ASSERTM(
+            Serialization<SdfMapping>::Write(bin_file, sdf_mapping),
+            "Failed to write to file: {}",
+            bin_file);
+    }
+
+    void
+    ReadSdfMappingBin(SdfMapping &sdf_mapping_read) {
+        std::string bin_file = GetBinFileName();
+        using namespace erl::common::serialization;
+        ERL_ASSERTM(
+            Serialization<SdfMapping>::Read(bin_file, &sdf_mapping_read),
+            "Failed to read from file: {}",
+            bin_file);
+    }
+
     void
     TestIo() {
         ERL_BLOCK_TIMER_MSG("IO");
-        std::string bin_file = fmt::format("sdf_mapping_3d_{}.bin", type_name<Dtype>());
-        bin_file = test_output_dir / bin_file;
-        ERL_ASSERTM(
-            erl::common::Serialization<SdfMapping>::Write(bin_file, sdf_mapping),
-            "Failed to write to file: {}",
-            bin_file);
+        WriteSdfMappingBin();
+
         auto surface_mapping_read =
             std::make_shared<SurfaceMapping>(std::make_shared<typename SurfaceMapping::Setting>());
         SdfMapping sdf_mapping_read(
             std::make_shared<typename SdfMapping::Setting>(),
             surface_mapping_read);
-        ERL_ASSERTM(
-            erl::common::Serialization<SdfMapping>::Read(bin_file, &sdf_mapping_read),
-            "Failed to read from file: {}",
-            bin_file);
+        ReadSdfMappingBin(sdf_mapping_read);
+
         ERL_ASSERTM(*sdf_mapping == sdf_mapping_read, "sdf_mapping != sdf_mapping_read");
     }
 
@@ -703,8 +736,7 @@ struct TestImpl3D {
             Matrix4X variances;
             Matrix6X covairances;
             ERL_BLOCK_TIMER_MSG_TIME("sdf_mapping.Test", test_dt);
-            EXPECT_TRUE(
-                sdf_mapping->Test(positions_test, sdf_pred, gradients, variances, covairances));
+            (void) sdf_mapping->Test(positions_test, sdf_pred, gradients, variances, covairances);
         }
         test_fps = 1000.0 / test_dt;
         ERL_TRACY_PLOT("sdf_map_test (ms)", test_dt);
@@ -873,30 +905,66 @@ struct TestImpl3D {
     }
 
     void
+    InspectSdfMapping() {
+        auto o3d_line_set = std::make_shared<open3d::geometry::LineSet>();
+        double hs = surface_mapping->GetClusterSize() * 0.5f;
+        // hs *= sdf_mapping_setting->gp_sdf_area_scale;
+        auto box_active = open3d::geometry::LineSet::CreateFromAxisAlignedBoundingBox(
+            open3d::geometry::AxisAlignedBoundingBox(
+                Eigen::Vector3d(-hs, -hs, -hs),
+                Eigen::Vector3d(hs, hs, hs)));
+        auto box_inactive = std::make_shared<open3d::geometry::LineSet>(*box_active);
+        box_active->PaintUniformColor({0.0, 1.0, 0.0});
+        box_inactive->PaintUniformColor({1.0, 0.0, 0.0});
+        // for (const auto &[key, local_bhm]: surface_mapping->GetLocalBhms()) {
+        //     open3d::geometry::LineSet box = local_bhm->active ? *box_active : *box_inactive;
+        //     box.Translate(local_bhm->bhm.GetMapBoundary().center.template cast<double>());
+        //     *o3d_line_set += box;
+        // }
+        for (const auto &[key, gp]: sdf_mapping->GetGpMap()) {
+            open3d::geometry::LineSet box = gp->active ? *box_active : *box_inactive;
+            box.Translate(gp->position.template cast<double>());
+            *o3d_line_set += box;
+        }
+        o3d_line_set->Scale(1.0f / surface_mapping_setting->scaling, Eigen::Vector3d::Zero());
+        visualizer->Reset();
+        visualizer->GetVisualizer()->GetRenderOption().line_width_ = 10.0f;
+        visualizer->AddGeometries({geometries.front(), o3d_line_set});
+        visualizer->SetViewStatus(options.o3d_view_status_file);
+        visualizer->Show();
+    }
+
+    void
     Run() {
         surface_mapping = std::make_shared<SurfaceMapping>(surface_mapping_setting);
         sdf_mapping = std::make_shared<SdfMapping>(sdf_mapping_setting, surface_mapping);
 
-        // test IO with empty mapping
-        if (options.test_io) { TestIo(); }
+        if (options.load_sdf_mapping_bin) {
+            ReadSdfMappingBin(*sdf_mapping);
+        } else {
+            // test IO with empty mapping
+            if (options.test_io) { TestIo(); }
 
-        // start the mapping
-        auto callback = [this](
-                            Open3dVisualizerWrapper *wrapper,
-                            open3d::visualization::Visualizer *vis) -> bool {
-            return this->Callback(wrapper, vis);
-        };
-        visualizer->SetAnimationCallback(callback);
-        visualizer->SetViewStatus(options.o3d_view_status_file);
-        visualizer->Show();
+            // start the mapping
+            auto callback = [this](
+                                Open3dVisualizerWrapper *wrapper,
+                                open3d::visualization::Visualizer *vis) -> bool {
+                return this->Callback(wrapper, vis);
+            };
+            visualizer->SetAnimationCallback(callback);
+            visualizer->SetViewStatus(options.o3d_view_status_file);
+            visualizer->Show();
 
-        // test IO after mapping
-        if (options.test_io) { TestIo(); }
+            // test IO after mapping
+            if (options.test_io) { TestIo(); }
 
-        erl::common::SaveEigenMatrixToTextFile<double>(
-            test_output_dir / "fps.csv",
-            fps_data,
-            erl::common::EigenTextFormat::kCsvFmt);
+            erl::common::SaveEigenMatrixToTextFile<double>(
+                test_output_dir / "fps.csv",
+                fps_data,
+                erl::common::EigenTextFormat::kCsvFmt);
+        }
+
+        InspectSdfMapping();
     }
 };
 

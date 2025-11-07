@@ -6,24 +6,9 @@
 namespace erl::gp_sdf {
 
     template<typename Dtype>
-    YAML::Node
-    LogEdfGaussianProcess<Dtype>::Setting::YamlConvertImpl::encode(const Setting &setting) {
-        YAML::Node node = YAML::convert<typename Super::Setting>::encode(setting);
-        ERL_YAML_SAVE_ATTR(node, setting, log_lambda);
-        ERL_YAML_SAVE_ATTR(node, setting, duplicate_epsilon);
-        return node;
-    }
-
-    template<typename Dtype>
-    bool
-    LogEdfGaussianProcess<Dtype>::Setting::YamlConvertImpl::decode(
-        const YAML::Node &node,
-        Setting &setting) {
-        if (!node.IsMap()) { return false; }
-        YAML::convert<typename Super::Setting>::decode(node, setting);
-        ERL_YAML_LOAD_ATTR(node, setting, log_lambda);
-        ERL_YAML_LOAD_ATTR(node, setting, duplicate_epsilon);
-        return true;
+    static Dtype
+    ClipLogEdf(Dtype f_log_gpis) {
+        return std::min(std::abs(f_log_gpis), static_cast<Dtype>(1.0));
     }
 
     template<typename Dtype>
@@ -65,7 +50,7 @@ namespace erl::gp_sdf {
     shared(num_test, mat_k_test, f, a, alpha)
                 for (long index = 0; index < num_test; ++index) {
                     Dtype f_log_gpis = mat_k_test.col(index).dot(alpha);
-                    f_log_gpis = std::min(std::abs(f_log_gpis), static_cast<Dtype>(1.0));
+                    f_log_gpis = ClipLogEdf(f_log_gpis);
                     f[index] = a * std::log(f_log_gpis);
                 }
                 return;
@@ -76,7 +61,7 @@ namespace erl::gp_sdf {
     shared(num_test, mat_k_test, f, a, alpha)
                 for (long index = 0; index < num_test; ++index) {
                     Dtype f_log_gpis = mat_k_test.col(index).dot(alpha);
-                    f_log_gpis = std::min(std::abs(f_log_gpis), static_cast<Dtype>(1.0));
+                    f_log_gpis = ClipLogEdf(f_log_gpis);
                     f[index] = std::sqrt(a * std::log(f_log_gpis));
                 }
                 return;
@@ -105,12 +90,12 @@ namespace erl::gp_sdf {
         // we only apply the log transformation to the first output dimension
         if (y_index == 0) {
             if (gp->m_kernel_->GetCovarianceName() == "Matern32") {
-                f = std::min(std::abs(f), static_cast<Dtype>(1.0));
+                f = ClipLogEdf(f);
                 f = std::log(f) / -gp->m_setting_->log_lambda;
                 return;
             }
             if (gp->m_kernel_->GetCovarianceName() == "RadialBiasFunction") {
-                f = std::min(std::abs(f), static_cast<Dtype>(1.0));
+                f = ClipLogEdf(f);
                 f = std::sqrt(std::log(f) / -gp->m_setting_->log_lambda);
                 return;
             }

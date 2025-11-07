@@ -5,7 +5,6 @@
 #include "erl_geometry/house_expo_map.hpp"
 #include "erl_geometry/lidar_2d.hpp"
 #include "erl_geometry/occupancy_quadtree_drawer.hpp"
-#include "erl_geometry/trajectory.hpp"
 #include "erl_geometry/ucsd_fah_2d.hpp"
 #include "erl_gp_sdf/gp_occ_surface_mapping.hpp"
 #include "erl_gp_sdf/gp_sdf_mapping.hpp"
@@ -240,6 +239,7 @@ void
 TestImpl2D() {
     GTEST_PREPARE_OUTPUT_DIR();
     using namespace erl::common;
+    using namespace erl::common::serialization;
 
     using SurfaceMapping = erl::gp_sdf::GpOccSurfaceMapping<Dtype, 2>;
     using SdfMapping = erl::gp_sdf::GpSdfMapping<Dtype, 2>;

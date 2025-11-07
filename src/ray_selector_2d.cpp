@@ -3,29 +3,6 @@
 #include "erl_common/angle_utils.hpp"
 
 namespace erl::gp_sdf {
-    template<typename Dtype>
-    YAML::Node
-    RaySelector2D<Dtype>::Setting::YamlConvertImpl::encode(const Setting &setting) {
-        YAML::Node node;
-        ERL_YAML_SAVE_ATTR(node, setting, angle_min);
-        ERL_YAML_SAVE_ATTR(node, setting, angle_max);
-        ERL_YAML_SAVE_ATTR(node, setting, num_angles);
-        ERL_YAML_SAVE_ATTR(node, setting, transform);
-        return node;
-    }
-
-    template<typename Dtype>
-    bool
-    RaySelector2D<Dtype>::Setting::YamlConvertImpl::decode(
-        const YAML::Node &node,
-        Setting &setting) {
-        if (!node.IsMap()) { return false; }
-        ERL_YAML_LOAD_ATTR(node, setting, angle_min);
-        ERL_YAML_LOAD_ATTR(node, setting, angle_max);
-        ERL_YAML_LOAD_ATTR(node, setting, num_angles);
-        ERL_YAML_LOAD_ATTR(node, setting, transform);
-        return true;
-    }
 
     template<typename Dtype>
     RaySelector2D<Dtype>::RaySelector2D(std::shared_ptr<Setting> setting)

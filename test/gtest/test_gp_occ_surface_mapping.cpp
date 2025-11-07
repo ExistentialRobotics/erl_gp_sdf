@@ -51,6 +51,7 @@ TestImpl3D() {
     GTEST_PREPARE_OUTPUT_DIR();
 
     using namespace erl::common;
+    using namespace erl::common::serialization;
     using namespace erl::geometry;
     using namespace erl::gp_sdf;
 
@@ -317,7 +318,7 @@ TestImpl3D() {
                     filename);
                 SurfaceMapping gp_load(std::make_shared<typename SurfaceMapping::Setting>());
                 ERL_ASSERTM(
-                    erl::common::Serialization<SurfaceMapping>::Read(filename.string(), &gp_load),
+                    Serialization<SurfaceMapping>::Read(filename.string(), &gp_load),
                     "Failed to read from file: {}",
                     filename);
                 ERL_ASSERTM(gp == gp_load, "gp != gp_load");
@@ -513,6 +514,7 @@ void
 TestImpl2D() {
     GTEST_PREPARE_OUTPUT_DIR();
     using namespace erl::common;
+    using namespace erl::common::serialization;
     using namespace erl::geometry;
     using namespace erl::gp_sdf;
 

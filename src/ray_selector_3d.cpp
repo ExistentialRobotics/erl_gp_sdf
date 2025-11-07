@@ -5,36 +5,6 @@
 namespace erl::gp_sdf {
 
     template<typename Dtype>
-    YAML::Node
-    RaySelector3D<Dtype>::Setting::YamlConvertImpl::encode(const Setting &setting) {
-        YAML::Node node;
-        ERL_YAML_SAVE_ATTR(node, setting, azimuth_min);
-        ERL_YAML_SAVE_ATTR(node, setting, azimuth_max);
-        ERL_YAML_SAVE_ATTR(node, setting, elevation_min);
-        ERL_YAML_SAVE_ATTR(node, setting, elevation_max);
-        ERL_YAML_SAVE_ATTR(node, setting, num_azimuth_angles);
-        ERL_YAML_SAVE_ATTR(node, setting, num_elevation_angles);
-        ERL_YAML_SAVE_ATTR(node, setting, transform);
-        return node;
-    }
-
-    template<typename Dtype>
-    bool
-    RaySelector3D<Dtype>::Setting::YamlConvertImpl::decode(
-        const YAML::Node &node,
-        Setting &setting) {
-        if (!node.IsMap()) { return false; }
-        ERL_YAML_LOAD_ATTR(node, setting, azimuth_min);
-        ERL_YAML_LOAD_ATTR(node, setting, azimuth_max);
-        ERL_YAML_LOAD_ATTR(node, setting, elevation_min);
-        ERL_YAML_LOAD_ATTR(node, setting, elevation_max);
-        ERL_YAML_LOAD_ATTR(node, setting, num_azimuth_angles);
-        ERL_YAML_LOAD_ATTR(node, setting, num_elevation_angles);
-        ERL_YAML_LOAD_ATTR(node, setting, transform);
-        return true;
-    }
-
-    template<typename Dtype>
     RaySelector3D<Dtype>::RaySelector3D(std::shared_ptr<Setting> setting)
         : m_setting_(std::move(setting)) {
         ERL_ASSERTM(m_setting_ != nullptr, "RaySelector3D setting is nullptr");

@@ -20,13 +20,12 @@ namespace erl::gp_sdf {
             // transform
             Eigen::Matrix<Dtype, 2, 3> transform = Eigen::Matrix<Dtype, 2, 3>::Identity();
 
-            struct YamlConvertImpl {
-                static YAML::Node
-                encode(const Setting &setting);
-
-                static bool
-                decode(const YAML::Node &node, Setting &setting);
-            };
+            ERL_REFLECT_SCHEMA(
+                Setting,
+                ERL_REFLECT_MEMBER(Setting, angle_min),
+                ERL_REFLECT_MEMBER(Setting, angle_max),
+                ERL_REFLECT_MEMBER(Setting, num_angles),
+                ERL_REFLECT_MEMBER(Setting, transform));
         };
 
         using Vector2 = Eigen::Vector2<Dtype>;
@@ -62,11 +61,3 @@ namespace erl::gp_sdf {
     using RaySelector2Df = RaySelector2D<float>;
     using RaySelector2Dd = RaySelector2D<double>;
 }  // namespace erl::gp_sdf
-
-template<>
-struct YAML::convert<erl::gp_sdf::RaySelector2Df::Setting>
-    : erl::gp_sdf::RaySelector2Df::Setting::YamlConvertImpl {};
-
-template<>
-struct YAML::convert<erl::gp_sdf::RaySelector2Dd::Setting>
-    : erl::gp_sdf::RaySelector2Dd::Setting::YamlConvertImpl {};

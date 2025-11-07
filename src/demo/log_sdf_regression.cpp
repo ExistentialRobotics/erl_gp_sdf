@@ -30,75 +30,36 @@ struct Options : Yamlable<Options> {
     std::string output_dir = "log_sdf_regression";
     bool visualize = true;
     bool hold = true;
-};
 
-template<>
-struct YAML::convert<Options> {
-    static Node
-    encode(const Options &options) {
-        Node node;
-        ERL_YAML_SAVE_ATTR(node, options, max_x);
-        ERL_YAML_SAVE_ATTR(node, options, max_y);
-        ERL_YAML_SAVE_ATTR(node, options, min_x);
-        ERL_YAML_SAVE_ATTR(node, options, min_y);
-        ERL_YAML_SAVE_ATTR(node, options, radius);
-        ERL_YAML_SAVE_ATTR(node, options, num_surf_samples);
-        ERL_YAML_SAVE_ATTR(node, options, add_off_surf_points);
-        ERL_YAML_SAVE_ATTR(node, options, off_surf_grid_size);
-        ERL_YAML_SAVE_ATTR(node, options, test_num_x);
-        ERL_YAML_SAVE_ATTR(node, options, test_num_y);
-        ERL_YAML_SAVE_ATTR(node, options, add_noise_to_surf_points);
-        ERL_YAML_SAVE_ATTR(node, options, add_noise_along_radius);
-        ERL_YAML_SAVE_ATTR(node, options, var_x);
-        ERL_YAML_SAVE_ATTR(node, options, var_y);
-        ERL_YAML_SAVE_ATTR(node, options, softmin_alpha);
-        ERL_YAML_SAVE_ATTR(node, options, softmin_knn);
-        ERL_YAML_SAVE_ATTR(node, options, gp);
-        ERL_YAML_SAVE_ATTR(node, options, output_dir);
-        ERL_YAML_SAVE_ATTR(node, options, visualize);
-        ERL_YAML_SAVE_ATTR(node, options, hold);
-        return node;
-    }
-
-    static bool
-    decode(const Node &node, Options &options) {
-        if (!node.IsMap()) { return false; }
-        ERL_YAML_LOAD_ATTR(node, options, max_x);
-        ERL_YAML_LOAD_ATTR(node, options, max_y);
-        ERL_YAML_LOAD_ATTR(node, options, min_x);
-        ERL_YAML_LOAD_ATTR(node, options, min_y);
-        ERL_YAML_LOAD_ATTR(node, options, radius);
-        ERL_YAML_LOAD_ATTR(node, options, num_surf_samples);
-        ERL_YAML_LOAD_ATTR(node, options, add_off_surf_points);
-        ERL_YAML_LOAD_ATTR(node, options, off_surf_grid_size);
-        ERL_YAML_LOAD_ATTR(node, options, test_num_x);
-        ERL_YAML_LOAD_ATTR(node, options, test_num_y);
-        ERL_YAML_LOAD_ATTR(node, options, add_noise_to_surf_points);
-        ERL_YAML_LOAD_ATTR(node, options, add_noise_along_radius);
-        ERL_YAML_LOAD_ATTR(node, options, var_x);
-        ERL_YAML_LOAD_ATTR(node, options, var_y);
-        ERL_YAML_LOAD_ATTR(node, options, softmin_alpha);
-        ERL_YAML_LOAD_ATTR(node, options, softmin_knn);
-        if (!ERL_YAML_LOAD_ATTR(node, options, gp)) { return false; }
-        ERL_YAML_LOAD_ATTR(node, options, output_dir);
-        ERL_YAML_LOAD_ATTR(node, options, visualize);
-        ERL_YAML_LOAD_ATTR(node, options, hold);
-        return true;
-    }
+    ERL_REFLECT_SCHEMA(
+        Options,
+        ERL_REFLECT_MEMBER(Options, max_x),
+        ERL_REFLECT_MEMBER(Options, max_y),
+        ERL_REFLECT_MEMBER(Options, min_x),
+        ERL_REFLECT_MEMBER(Options, min_y),
+        ERL_REFLECT_MEMBER(Options, radius),
+        ERL_REFLECT_MEMBER(Options, num_surf_samples),
+        ERL_REFLECT_MEMBER(Options, add_off_surf_points),
+        ERL_REFLECT_MEMBER(Options, off_surf_grid_size),
+        ERL_REFLECT_MEMBER(Options, test_num_x),
+        ERL_REFLECT_MEMBER(Options, test_num_y),
+        ERL_REFLECT_MEMBER(Options, add_noise_to_surf_points),
+        ERL_REFLECT_MEMBER(Options, add_noise_along_radius),
+        ERL_REFLECT_MEMBER(Options, var_x),
+        ERL_REFLECT_MEMBER(Options, var_y),
+        ERL_REFLECT_MEMBER(Options, softmin_alpha),
+        ERL_REFLECT_MEMBER(Options, softmin_knn),
+        ERL_REFLECT_MEMBER(Options, gp),
+        ERL_REFLECT_MEMBER(Options, output_dir),
+        ERL_REFLECT_MEMBER(Options, visualize),
+        ERL_REFLECT_MEMBER(Options, hold));
 };
 
 struct App {
     Options options;
 
-    explicit App(const std::string &option_file) {
-        if (!std::filesystem::exists(option_file)) { options.AsYamlFile(option_file); }
-        if (!option_file.empty()) {
-            ERL_ASSERTM(
-                options.FromYamlFile(option_file),
-                "Failed to load options from file: {}",
-                option_file);
-        }
-    }
+    explicit App(Options opt)
+        : options(std::move(opt)) {}
 
     [[nodiscard]] Eigen::Matrix2Xd
     GenerateDataset() const {
@@ -587,15 +548,10 @@ struct App {
 
 int
 main(const int argc, char **argv) {
-    if (argc > 2) {
-        std::cerr << "Usage: " << argv[0] << " <options_file>" << std::endl;
-        return EXIT_FAILURE;
-    }
     try {
-        const std::string options_file =
-            (argc == 2) ? argv[1]
-                        : (ERL_GP_SDF_ROOT_DIR "/config/demo/demo_log_sdf_regression.yaml");
-        App app(options_file);
+        Options options;
+        if (!options.FromCommandLine(argc, argv)) { return EXIT_FAILURE; }
+        App app(options);
         app.Run();
     } catch (const std::exception &e) {
         std::cerr << "Error: " << e.what() << std::endl;

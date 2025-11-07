@@ -12,9 +12,9 @@ namespace erl::gp_sdf {
     template<typename Dtype, int Dim>
     bool
     GpSdfMapping<Dtype, Dim>::TestBuffer::ConnectBuffers(
-        const Eigen::Ref<const Positions> &positions_in,
-        Distances &distances_out,
-        Gradients &gradients_out,
+        const Eigen::Ref<const MatrixDX> &positions_in,
+        VectorX &distances_out,
+        MatrixDX &gradients_out,
         Variances &variances_out,
         Covariances &covariances_out,
         const bool compute_covariance) {
@@ -27,12 +27,12 @@ namespace erl::gp_sdf {
         if (n == 0) return false;
 
         distances_out.resize(n);
-        gradients_out.resize(Gradients::RowsAtCompileTime, n);
+        gradients_out.resize(MatrixDX::RowsAtCompileTime, n);
         variances_out.resize(Variances::RowsAtCompileTime, n);
         if (compute_covariance) { covariances_out.resize(Covariances::RowsAtCompileTime, n); }
-        this->positions = std::make_unique<Eigen::Ref<const Positions>>(positions_in);
-        this->distances = std::make_unique<Eigen::Ref<Distances>>(distances_out);
-        this->gradients = std::make_unique<Eigen::Ref<Gradients>>(gradients_out);
+        this->positions = std::make_unique<Eigen::Ref<const MatrixDX>>(positions_in);
+        this->distances = std::make_unique<Eigen::Ref<VectorX>>(distances_out);
+        this->gradients = std::make_unique<Eigen::Ref<MatrixDX>>(gradients_out);
         this->variances = std::make_unique<Eigen::Ref<Variances>>(variances_out);
         this->covariances = std::make_unique<Eigen::Ref<Covariances>>(covariances_out);
         return true;
@@ -148,11 +148,28 @@ namespace erl::gp_sdf {
     }
 
     template<typename Dtype, int Dim>
+    void
+    GpSdfMapping<Dtype, Dim>::TrainAllGps() {
+        auto lock = GetLockGuard();
+        if (m_cluster_queue_.empty()) { return; }
+        m_clusters_to_train_.clear();
+        while (!m_cluster_queue_.empty()) {
+            Key cluster_key = m_cluster_queue_.top().key;
+            m_cluster_queue_.pop();
+            m_cluster_queue_keys_.erase(cluster_key);
+            auto gp = m_gp_map_.at(cluster_key);
+            if (!gp->active) { continue; }  // skip inactive GP
+            m_clusters_to_train_.emplace_back(cluster_key, gp);
+        }
+        TrainGps();  // m_surface_mapping_ is locked in TrainGps
+    }
+
+    template<typename Dtype, int Dim>
     [[nodiscard]] bool
     GpSdfMapping<Dtype, Dim>::Test(
-        const Eigen::Ref<const Positions> &positions_in,
-        Distances &distances_out,
-        Gradients &gradients_out,
+        const Eigen::Ref<const MatrixDX> &positions_in,
+        VectorX &distances_out,
+        MatrixDX &gradients_out,
         Variances &variances_out,
         Covariances &covariances_out) {
         {
@@ -168,7 +185,7 @@ namespace erl::gp_sdf {
             return false;
         }
         const Dtype scaling = m_surface_mapping_->GetScaling();
-        const Positions positions_scaled =
+        const MatrixDX positions_scaled =
             scaling == 1 ? positions_in : positions_in.array() * scaling;
         if (!m_test_buffer_.ConnectBuffers(  // allocate memory for test results
                 positions_scaled,
@@ -216,6 +233,7 @@ namespace erl::gp_sdf {
         // Train any updated GPs
         // we need to train call candidate GPs before we select them for testing.
         if (!m_cluster_queue_.empty()) {
+            std::size_t n_must_train = 0;
             auto lock = GetLockGuard();  // CRITICAL SECTION: access m_clusters_to_train_
             const bool retrain_outdated = m_setting_->test_query.retrain_outdated;
             m_clusters_to_train_.clear();
@@ -227,7 +245,22 @@ namespace erl::gp_sdf {
                     key_and_gp.second->IsTrained()) {
                     continue;
                 }
+                if (!key_and_gp.second->IsTrained()) { ++n_must_train; }
                 m_clusters_to_train_.push_back(key_and_gp);
+            }
+            const std::size_t max_num_retrain_gps = m_setting_->test_query.max_num_retrain_gps;
+            if (max_num_retrain_gps > 0 && m_clusters_to_train_.size() > max_num_retrain_gps) {
+                std::sort(
+                    m_clusters_to_train_.begin(),
+                    m_clusters_to_train_.end(),
+                    [](const KeyGpPair &a, const KeyGpPair &b) {
+                        return a.second->time_stamp < b.second->time_stamp;
+                    });
+                if (n_must_train > max_num_retrain_gps) {
+                    m_clusters_to_train_.resize(n_must_train);
+                } else {
+                    m_clusters_to_train_.resize(max_num_retrain_gps);
+                }
             }
             TrainGps();  // m_surface_mapping_ is locked in TrainGps
         }
@@ -238,7 +271,7 @@ namespace erl::gp_sdf {
         if (!m_candidate_gps_.empty()) {
             // build kdtree of candidate GPs to allow fast search.
             // remove inactive GPs and collect GP positions
-            Positions gp_positions(Dim, m_candidate_gps_.size());
+            MatrixDX gp_positions(Dim, m_candidate_gps_.size());
             std::vector<KeyGpPair> new_candidate_gps;
             new_candidate_gps.reserve(m_candidate_gps_.size());
             for (auto &[key, gp]: m_candidate_gps_) {
@@ -316,9 +349,10 @@ namespace erl::gp_sdf {
         const SignMethod sign_method = m_setting_->sdf_gp->sign_method;
         m_in_free_space_.setConstant(num_queries, false);
         if (const auto &hybrid_sign_methods = m_setting_->sdf_gp->hybrid_sign_methods;
-            sign_method == kExternal ||
-            (sign_method == kHybrid &&
-             (hybrid_sign_methods.first == kExternal || hybrid_sign_methods.second == kExternal))) {
+            sign_method == SignMethod::kExternal ||
+            (sign_method == SignMethod::kHybrid &&
+             (hybrid_sign_methods.first == SignMethod::kExternal ||
+              hybrid_sign_methods.second == SignMethod::kExternal))) {
             // collect the sign from the surface mapping, which is not thread-safe
             // CRITICAL SECTION: access m_surface_mapping_
             auto surface_mapping_lock = m_surface_mapping_->GetLockGuard();
@@ -379,14 +413,14 @@ namespace erl::gp_sdf {
     template<typename Dtype, int Dim>
     void
     GpSdfMapping<Dtype, Dim>::GetMesh(
-        const Position &boundary_size,
+        const VectorD &boundary_size,
         const Rotation &boundary_rotation,
-        const Position &boundary_center,
+        const VectorD &boundary_center,
         const Dtype resolution,
         const Dtype iso_value,
-        std::vector<Position> &surface_points,
+        std::vector<VectorD> &surface_points,
         std::vector<Face> &faces,
-        std::vector<Gradient> &face_normals) const {
+        std::vector<VectorD> &face_normals) const {
 
         using GridShape = Eigen::Vector<long, Dim>;
         using VoxelCoord = Eigen::Vector<long, Dim>;
@@ -397,13 +431,13 @@ namespace erl::gp_sdf {
         // 1. create grid
         ERL_INFO("Creating grid for mesh extraction");
         GridShape grid_shape;
-        Position grid_resolution;
+        VectorD grid_resolution;
         for (int i = 0; i < Dim; ++i) {
             grid_shape[i] = static_cast<int>(std::ceil(boundary_size[i] / resolution));
             grid_resolution[i] = boundary_size[i] / static_cast<Dtype>(grid_shape[i]);
         }
         const GridShape grid_strides = ComputeCStrides<long, Dim>(grid_shape, 1);
-        const Position bound_min = boundary_size.array() * -0.5f;
+        const VectorD bound_min = boundary_size.array() * -0.5f;
         auto old_test_query = m_setting_->test_query;  // backup
         m_setting_->test_query.compute_gradient = false;
         m_setting_->test_query.compute_gradient_variance = false;
@@ -412,7 +446,7 @@ namespace erl::gp_sdf {
         // 2. find voxels that are near the surface, i.e. in any cluster
         ERL_INFO("Finding voxels near the surface");
         const KeySet clusters = m_surface_mapping_->GetAllClusters();
-        Positions cluster_centers(Dim, clusters.size());
+        MatrixDX cluster_centers(Dim, clusters.size());
         {
             long idx = 0;
             for (const auto &key: clusters) {
@@ -421,7 +455,7 @@ namespace erl::gp_sdf {
         }
         const Dtype scaling = 1.0f / m_surface_mapping_->GetScaling();
         cluster_centers *= scaling;
-        Dtype radius = m_surface_mapping_->GetClusterSize() * scaling + resolution;
+        Dtype radius = m_surface_mapping_->GetClusterSize() * scaling * std::sqrt(Dim) * 0.5f;
         radius *= std::sqrt(static_cast<Dtype>(Dim));
         KdTree kdtree_clusters(cluster_centers);
         const long n_voxels = grid_shape.prod();
@@ -439,7 +473,7 @@ namespace erl::gp_sdf {
                radius)
         for (long voxel_idx = 0; voxel_idx < n_voxels; ++voxel_idx) {
             VoxelCoord voxel_coord = IndexToCoordsWithStrides(grid_strides, voxel_idx, true);
-            Position voxel_center;
+            VectorD voxel_center;
             for (int i = 0; i < Dim; ++i) {
                 voxel_center[i] = GridToMeter(voxel_coord[i], bound_min[i], grid_resolution[i]);
             }
@@ -477,7 +511,7 @@ namespace erl::gp_sdf {
         constexpr int n_vertices = 1 << Dim;
         const std::size_t num_threads = std::thread::hardware_concurrency();
         const std::size_t batch_size = near_surface_voxels.size() / num_threads;
-        std::vector<std::vector<std::pair<VoxelCoord, Position>>> vertices_batches(num_threads);
+        std::vector<std::vector<std::pair<VoxelCoord, VectorD>>> vertices_batches(num_threads);
         std::vector<absl::flat_hash_set<VoxelCoord>> vertex_sets(num_threads);
 #pragma omp parallel for default(none) \
     shared(num_threads,                \
@@ -491,7 +525,7 @@ namespace erl::gp_sdf {
             std::size_t start_idx = tidx * batch_size;
             std::size_t end_idx =
                 (tidx == num_threads - 1) ? near_surface_voxels.size() : start_idx + batch_size;
-            std::vector<std::pair<VoxelCoord, Position>> &vertices = vertices_batches[tidx];
+            std::vector<std::pair<VoxelCoord, VectorD>> &vertices = vertices_batches[tidx];
             absl::flat_hash_set<VoxelCoord> &vertex_set = vertex_sets[tidx];
             vertices.reserve((end_idx - start_idx) * n_vertices);
             vertex_set.reserve((end_idx - start_idx) * n_vertices / 2);
@@ -507,7 +541,7 @@ namespace erl::gp_sdf {
                     // check if the vertex exists
                     auto [it, inserted] = vertex_set.insert(vertex_coord);
                     if (!inserted) { continue; }
-                    Position vertex_pos;
+                    VectorD vertex_pos;
                     for (int dim = 0; dim < Dim; ++dim) {
                         vertex_pos[dim] = VertexIndexToMeter<Dtype>(
                             vertex_coord[dim],
@@ -523,10 +557,10 @@ namespace erl::gp_sdf {
             vertices_batches.begin(),
             vertices_batches.end(),
             0,
-            [](std::size_t sum, const std::vector<std::pair<VoxelCoord, Position>> &batch) {
+            [](std::size_t sum, const std::vector<std::pair<VoxelCoord, VectorD>> &batch) {
                 return sum + batch.size();
             });
-        Positions vertices(Dim, n_unique_vertices);
+        MatrixDX vertices(Dim, n_unique_vertices);
         absl::flat_hash_map<VoxelCoord, long> vertex_map;
         vertex_map.reserve(n_unique_vertices);
         for (const auto &vertices_batch: vertices_batches) {
@@ -544,7 +578,7 @@ namespace erl::gp_sdf {
 
         // 4. query SDF at voxels' vertices
         VectorX sdf_values = VectorX::Zero(vertices.cols());
-        Gradients gradients(Dim, vertices.cols());
+        MatrixDX gradients(Dim, vertices.cols());
         Variances variances = Variances::Zero(Dim + 1, vertices.cols());
         Covariances covariances;
         ERL_INFO("Querying SDF at {} vertices", vertices.cols());
@@ -672,18 +706,18 @@ namespace erl::gp_sdf {
                 }
                 if (Dim == 3) {
                     // compute face normal
-                    const Position &v0 = surface_points[face_out[0]];
-                    const Position &v1 = surface_points[face_out[1]];
-                    const Position &v2 = surface_points[face_out[2]];
-                    Position v10 = v1 - v0;
-                    Position v20 = v2 - v0;
+                    const VectorD &v0 = surface_points[face_out[0]];
+                    const VectorD &v1 = surface_points[face_out[1]];
+                    const VectorD &v2 = surface_points[face_out[2]];
+                    VectorD v10 = v1 - v0;
+                    VectorD v20 = v2 - v0;
                     normal_out[0] = v10[1] * v20[2] - v10[2] * v20[1];
                     normal_out[1] = v10[2] * v20[0] - v10[0] * v20[2];
                     normal_out[2] = v10[0] * v20[1] - v10[1] * v20[0];
                     normal_out.normalize();
                 } else if (Dim == 2) {
-                    const Position &v0 = surface_points[face_out[0]];
-                    const Position &v1 = surface_points[face_out[1]];
+                    const VectorD &v0 = surface_points[face_out[0]];
+                    const VectorD &v1 = surface_points[face_out[1]];
                     face_normals[idx][0] = v1[1] - v0[1];
                     face_normals[idx][1] = v0[0] - v1[0];
                     face_normals[idx].normalize();
@@ -699,102 +733,107 @@ namespace erl::gp_sdf {
 
     template<typename Dtype, int Dim>
     bool
-    GpSdfMapping<Dtype, Dim>::Write(std::ostream &s) const {
+    GpSdfMapping<Dtype, Dim>::Write(std::ostream &stream) const {
         using namespace common;
+        using namespace common::serialization;
+
+        const_cast<GpSdfMapping *>(this)->TrainAllGps();
+
         static const TokenWriteFunctionPairs<GpSdfMapping> token_function_pairs = {
             {
                 "setting",
-                [](const GpSdfMapping *self, std::ostream &stream) {
-                    return self->m_setting_->Write(stream) && stream.good();
+                [](const GpSdfMapping *self, std::ostream &s) {
+                    return self->m_setting_->Write(s) && s.good();
                 },
             },
             {
                 "surface_mapping",
-                [](const GpSdfMapping *self, std::ostream &stream) {
-                    return self->m_surface_mapping_->Write(stream) && stream.good();
+                [](const GpSdfMapping *self, std::ostream &s) {
+                    return self->m_surface_mapping_->Write(s) && s.good();
                 },
             },
             {
                 "gp_map",
-                [](const GpSdfMapping *self, std::ostream &stream) {
+                [](const GpSdfMapping *self, std::ostream &s) {
                     const std::size_t n = self->m_gp_map_.size();
-                    stream.write(reinterpret_cast<const char *>(&n), sizeof(std::size_t));
+                    s.write(reinterpret_cast<const char *>(&n), sizeof(std::size_t));
                     for (auto &[key, gp]: self->m_gp_map_) {
-                        stream.write(reinterpret_cast<const char *>(&key), sizeof(Key));
+                        s.write(reinterpret_cast<const char *>(&key), sizeof(Key));
                         bool has_gp = gp != nullptr;
-                        stream.write(reinterpret_cast<const char *>(&has_gp), sizeof(bool));
-                        if (has_gp && !gp->Write(stream)) { return false; }
+                        s.write(reinterpret_cast<const char *>(&has_gp), sizeof(bool));
+                        if (has_gp && !gp->Write(s)) { return false; }
                     }
-                    return stream.good();
+                    return s.good();
                 },
             },
             // m_affected_clusters_ is temporary data.
             {
                 "cluster_queue_keys",
-                [](const GpSdfMapping *self, std::ostream &stream) {
+                [](const GpSdfMapping *self, std::ostream &s) {
                     const std::size_t n = self->m_cluster_queue_keys_.size();
-                    stream.write(reinterpret_cast<const char *>(&n), sizeof(std::size_t));
+                    s.write(reinterpret_cast<const char *>(&n), sizeof(std::size_t));
                     for (const auto &[key, handle]: self->m_cluster_queue_keys_) {
-                        stream.write(reinterpret_cast<const char *>(&key), sizeof(Key));
-                        stream.write(
+                        s.write(reinterpret_cast<const char *>(&key), sizeof(Key));
+                        s.write(
                             reinterpret_cast<const char *>(&(*handle).time_stamp),
                             sizeof(long));
                     }
-                    return stream.good();
+                    return s.good();
                 },
             },
             // m_cluster_queue_ can be reconstructed from m_cluster_queue_keys_.
             // m_clusters_to_train_ is temporary data.
             {
                 "train_gp_time_us",
-                [](const GpSdfMapping *self, std::ostream &stream) {
-                    return stream.write(
+                [](const GpSdfMapping *self, std::ostream &s) {
+                    return s.write(
                                reinterpret_cast<const char *>(&self->m_train_gp_time_us_),
                                sizeof(double)) &&
-                           stream.good();
+                           s.good();
                 },
             },
         };
-        return WriteTokens(s, this, token_function_pairs);
+        return WriteTokens(stream, this, token_function_pairs);
     }
 
     template<typename Dtype, int Dim>
     bool
-    GpSdfMapping<Dtype, Dim>::Read(std::istream &s) {
+    GpSdfMapping<Dtype, Dim>::Read(std::istream &stream) {
         using namespace common;
+        using namespace common::serialization;
         static const TokenReadFunctionPairs<GpSdfMapping> token_function_pairs = {
             {
                 "setting",
-                [](GpSdfMapping *self, std::istream &stream) {
-                    return self->m_setting_->Read(stream) && stream.good();
+                [](GpSdfMapping *self, std::istream &s) {
+                    return self->m_setting_->Read(s) && s.good();
                 },
             },
             {
                 "surface_mapping",
-                [](GpSdfMapping *self, std::istream &stream) {
-                    return self->m_surface_mapping_->Read(stream) && stream.good();
+                [](GpSdfMapping *self, std::istream &s) {
+                    return self->m_surface_mapping_->Read(s) && s.good();
                 },
             },
             {
                 "gp_map",
-                [](GpSdfMapping *self, std::istream &stream) {
+                [](GpSdfMapping *self, std::istream &s) {
                     std::size_t n;
-                    stream.read(reinterpret_cast<char *>(&n), sizeof(std::size_t));
+                    s.read(reinterpret_cast<char *>(&n), sizeof(std::size_t));
                     self->m_gp_map_.clear();
                     self->m_gp_map_.reserve(n);
                     for (std::size_t i = 0; i < n; ++i) {
                         Key key;
-                        stream.read(reinterpret_cast<char *>(&key), sizeof(Key));
+                        s.read(reinterpret_cast<char *>(&key), sizeof(Key));
                         auto [it, inserted] = self->m_gp_map_.try_emplace(key, nullptr);
                         if (!inserted) {
                             ERL_WARN("Duplicate GP key: {}.", static_cast<std::string>(key));
                             return false;
                         }
                         bool has_gp;
-                        stream.read(reinterpret_cast<char *>(&has_gp), sizeof(bool));
+                        s.read(reinterpret_cast<char *>(&has_gp), sizeof(bool));
                         if (has_gp) {
                             it->second = std::make_shared<SdfGp>(self->m_setting_->sdf_gp);
-                            if (!it->second->Read(stream)) {
+                            if (!it->second->Read(s)) {
                                 ERL_WARN(
                                     "Failed to read GP of key {}.",
                                     static_cast<std::string>(key));
@@ -802,23 +841,23 @@ namespace erl::gp_sdf {
                             }
                         }
                     }
-                    return stream.good();
+                    return s.good();
                 },
             },
             {
                 "cluster_queue_keys",
-                [](GpSdfMapping *self, std::istream &stream) {
+                [](GpSdfMapping *self, std::istream &s) {
                     std::size_t n;
-                    stream.read(reinterpret_cast<char *>(&n), sizeof(std::size_t));
+                    s.read(reinterpret_cast<char *>(&n), sizeof(std::size_t));
                     self->m_cluster_queue_keys_.clear();
                     self->m_cluster_queue_keys_.reserve(n);
                     self->m_cluster_queue_.clear();
                     self->m_cluster_queue_.reserve(n);
                     for (std::size_t i = 0; i < n; ++i) {
                         Key key;
-                        stream.read(reinterpret_cast<char *>(&key), sizeof(Key));
+                        s.read(reinterpret_cast<char *>(&key), sizeof(Key));
                         long time_stamp;
-                        stream.read(reinterpret_cast<char *>(&time_stamp), sizeof(long));
+                        s.read(reinterpret_cast<char *>(&time_stamp), sizeof(long));
                         auto [it, inserted] = self->m_cluster_queue_keys_.try_emplace(
                             key,
                             self->m_cluster_queue_.push({time_stamp, key}));
@@ -827,20 +866,18 @@ namespace erl::gp_sdf {
                             return false;
                         }
                     }
-                    return stream.good();
+                    return s.good();
                 },
             },
             {
                 "train_gp_time_us",
-                [](GpSdfMapping *self, std::istream &stream) {
-                    stream.read(
-                        reinterpret_cast<char *>(&self->m_train_gp_time_us_),
-                        sizeof(double));
-                    return stream.good();
+                [](GpSdfMapping *self, std::istream &s) {
+                    s.read(reinterpret_cast<char *>(&self->m_train_gp_time_us_), sizeof(double));
+                    return s.good();
                 },
             },
         };
-        return ReadTokens(s, this, token_function_pairs);
+        return ReadTokens(stream, this, token_function_pairs);
     }
 
     template<typename Dtype, int Dim>
@@ -908,7 +945,6 @@ namespace erl::gp_sdf {
         const Dtype area_half_size = cluster_size * m_setting_->gp_sdf_area_scale * 0.5f;
 
         auto lock = GetLockGuard();  // CRITICAL SECTION: access m_gp_map_
-        long cnt_new_gps = 0;
         for (const auto &cluster_key: m_affected_clusters_) {
             if (auto [it, inserted] = m_gp_map_.try_emplace(cluster_key, nullptr);
                 inserted || it->second->locked_for_test) {
@@ -916,7 +952,6 @@ namespace erl::gp_sdf {
                 it->second->Activate();
                 it->second->position = m_surface_mapping_->GetClusterCenter(cluster_key);
                 it->second->half_size = area_half_size;
-                ++cnt_new_gps;
             } else {
                 it->second->Activate();
                 it->second->MarkOutdated();
@@ -1011,11 +1046,11 @@ namespace erl::gp_sdf {
 
     template<typename Dtype, int Dim>
     void
-    GpSdfMapping<Dtype, Dim>::SearchCandidateGps(const Eigen::Ref<const Positions> &positions_in) {
+    GpSdfMapping<Dtype, Dim>::SearchCandidateGps(const Eigen::Ref<const MatrixDX> &positions_in) {
         m_candidate_gps_.clear();
 
-        Position query_area_min = positions_in.col(0);
-        Position query_area_max = positions_in.col(0);
+        VectorD query_area_min = positions_in.col(0);
+        VectorD query_area_max = positions_in.col(0);
         for (long i = 1; i < positions_in.cols(); ++i) {
             query_area_min = query_area_min.cwiseMin(positions_in.col(i));
             query_area_max = query_area_max.cwiseMax(positions_in.col(i));
@@ -1070,10 +1105,10 @@ namespace erl::gp_sdf {
         constexpr int kMaxNumGps = 16;
         constexpr long kMaxNumNeighbors = 32;  // use kdtree to search for 32 nearest GPs
         Eigen::VectorXl indices = Eigen::VectorXl::Constant(kMaxNumNeighbors, -1);
-        Distances squared_distances(kMaxNumNeighbors);
+        VectorX squared_distances(kMaxNumNeighbors);
 
         for (std::size_t i = start_idx; i < end_idx; ++i) {
-            const Position test_position = m_test_buffer_.positions->col(i);
+            const VectorD test_position = m_test_buffer_.positions->col(i);
             std::vector<std::pair<Dtype, KeyGpPair>> &gps = m_query_to_gps_[i];
 
             Dtype search_area_half_size = m_setting_->test_query.search_area_half_size;
@@ -1118,7 +1153,7 @@ namespace erl::gp_sdf {
             // failed to find GPs in the kd-tree, fall back to search clusters in the area
             // double search area size
             Dtype search_area_hs = 2.0f * m_setting_->test_query.search_area_half_size;
-            const Position test_position = m_test_buffer_.positions->col(i);
+            const VectorD test_position = m_test_buffer_.positions->col(i);
             Aabb search_area = m_map_boundary_.Intersection({test_position, search_area_hs});
             while (gps.empty()) {
                 // no gp found, maybe the test position is on the query boundary
@@ -1213,7 +1248,7 @@ namespace erl::gp_sdf {
             if (gps.empty()) { continue; }   // no GPs found for this query position
 
             // sort GPs by distance
-            const Position test_position = m_test_buffer_.positions->col(i);
+            const VectorD test_position = m_test_buffer_.positions->col(i);
             gp_indices.resize(gps.size());
             std::iota(gp_indices.begin(), gp_indices.end(), 0);
             if (gps.size() > 1) {

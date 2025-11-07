@@ -10,7 +10,7 @@ BindGpSdfMappingImpl(const py::module &m, const char *name) {
     using namespace erl::gp_sdf;
     using T = GpSdfMapping<Dtype, Dim>;
     using Setting = typename T::Setting;
-    using Positions = typename T::Positions;
+    using MatrixDX = typename T::MatrixDX;
 
     py::class_<T, std::shared_ptr<T>> sdf_mapping(m, name);
 
@@ -25,9 +25,9 @@ BindGpSdfMappingImpl(const py::module &m, const char *name) {
         .def("update_gp_sdf", &T::UpdateGpSdf, py::arg("time_budget_us"))
         .def(
             "test",
-            [](T &self, const Eigen::Ref<const Positions> &positions) -> std::optional<py::dict> {
-                typename T::Distances distances;
-                typename T::Gradients gradients;
+            [](T &self, const Eigen::Ref<const MatrixDX> &positions) -> std::optional<py::dict> {
+                typename T::VectorX distances;
+                MatrixDX gradients;
                 typename T::Variances variances;
                 typename T::Covariances covariances;
 

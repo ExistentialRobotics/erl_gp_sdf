@@ -27,19 +27,16 @@ namespace erl::gp_sdf {
 
         using Key = typename SurfaceMapping::Key;
         using KeySet = typename SurfaceMapping::KeySet;
+        using VectorD = typename SurfaceMapping::VectorD;
+        using VectorX = typename SurfaceMapping::VectorX;
+        using MatrixDX = typename SurfaceMapping::MatrixDX;
         using MatrixX = typename SurfaceMapping::MatrixX;
-        using Position = typename SurfaceMapping::Position;
-        using Positions = typename SurfaceMapping::Positions;
         using Ranges = typename SurfaceMapping::Ranges;
         using Rotation = typename SurfaceMapping::Rotation;
         using Translation = typename SurfaceMapping::Translation;
-        using VectorX = typename SurfaceMapping::VectorX;
         using Face = typename SurfaceMapping::Face;
 
         using KeyVector = std::vector<Key>;
-        using Gradient = Eigen::Vector<Dtype, Dim>;
-        using Distances = VectorX;
-        using Gradients = Eigen::Matrix<Dtype, Dim, Eigen::Dynamic>;
         using Variances = Eigen::Matrix<Dtype, Dim + 1, Eigen::Dynamic>;
         using Covariances = Eigen::Matrix<Dtype, (Dim + 1) * Dim / 2, Eigen::Dynamic>;
 
@@ -47,7 +44,7 @@ namespace erl::gp_sdf {
         template<typename T>
         struct Greater {
             [[nodiscard]] bool
-            operator()(const T& lhs, const T& rhs) const {
+            operator()(const T &lhs, const T &rhs) const {
                 return lhs.time_stamp > rhs.time_stamp;
             }
         };
@@ -71,9 +68,9 @@ namespace erl::gp_sdf {
 
         struct TestBuffer {
 
-            std::unique_ptr<Eigen::Ref<const Positions>> positions = nullptr;
-            std::unique_ptr<Eigen::Ref<Distances>> distances = nullptr;
-            std::unique_ptr<Eigen::Ref<Gradients>> gradients = nullptr;
+            std::unique_ptr<Eigen::Ref<const MatrixDX>> positions = nullptr;
+            std::unique_ptr<Eigen::Ref<VectorX>> distances = nullptr;
+            std::unique_ptr<Eigen::Ref<MatrixDX>> gradients = nullptr;
             // var(d, grad.x, grad.y, grad.z)
             std::unique_ptr<Eigen::Ref<Variances>> variances = nullptr;
             // cov (gx, d), (gy, d), (gz, d), (gy, gx), (gz, gx), (gz, gy)
@@ -90,11 +87,11 @@ namespace erl::gp_sdf {
 
             bool
             ConnectBuffers(
-                const Eigen::Ref<const Positions>& positions_in,
-                Distances& distances_out,
-                Gradients& gradients_out,
-                Variances& variances_out,
-                Covariances& covariances_out,
+                const Eigen::Ref<const MatrixDX> &positions_in,
+                VectorX &distances_out,
+                MatrixDX &gradients_out,
+                Variances &variances_out,
+                Covariances &covariances_out,
                 bool compute_covariance);
 
             void
@@ -150,52 +147,55 @@ namespace erl::gp_sdf {
          */
         [[nodiscard]] bool
         Update(
-            const Eigen::Ref<const Rotation>& rotation,
-            const Eigen::Ref<const Translation>& translation,
-            const Eigen::Ref<const Ranges>& scan,
+            const Eigen::Ref<const Rotation> &rotation,
+            const Eigen::Ref<const Translation> &translation,
+            const Eigen::Ref<const Ranges> &scan,
             bool are_points,
             bool are_local);
 
         bool
         UpdateGpSdf(double time_budget_us = 0);
 
+        void
+        TrainAllGps();
+
         [[nodiscard]] bool
         Test(
-            const Eigen::Ref<const Positions>& positions_in,
-            Distances& distances_out,
-            Gradients& gradients_out,
-            Variances& variances_out,
-            Covariances& covariances_out);
+            const Eigen::Ref<const MatrixDX> &positions_in,
+            VectorX &distances_out,
+            MatrixDX &gradients_out,
+            Variances &variances_out,
+            Covariances &covariances_out);
 
-        [[nodiscard]] const std::vector<std::array<std::shared_ptr<SdfGp>, (Dim - 1) * 2>>&
+        [[nodiscard]] const std::vector<std::array<std::shared_ptr<SdfGp>, (Dim - 1) * 2>> &
         GetUsedGps() const {
             return m_query_used_gps_;
         }
 
-        [[nodiscard]] const KeyGpMap&
+        [[nodiscard]] const KeyGpMap &
         GetGpMap() const {
             return m_gp_map_;
         }
 
         void
         GetMesh(
-            const Position& boundary_size,
-            const Rotation& boundary_rotation,
-            const Position& boundary_center,
+            const VectorD &boundary_size,
+            const Rotation &boundary_rotation,
+            const VectorD &boundary_center,
             Dtype resolution,
             Dtype iso_value,
-            std::vector<Position>& surface_points,
-            std::vector<Face>& faces,
-            std::vector<Gradient>& face_normals) const;
+            std::vector<VectorD> &surface_points,
+            std::vector<Face> &faces,
+            std::vector<VectorD> &face_normals) const;
 
         [[nodiscard]] bool
-        Write(std::ostream& s) const;
+        Write(std::ostream &stream) const;
 
         [[nodiscard]] bool
-        Read(std::istream& s);
+        Read(std::istream &stream);
 
         [[nodiscard]] bool
-        operator==(const GpSdfMapping& other) const;
+        operator==(const GpSdfMapping &other) const;
 
     private:
         void
@@ -211,17 +211,17 @@ namespace erl::gp_sdf {
         TrainGpThread(uint32_t thread_idx, std::size_t start_idx, std::size_t end_idx);
 
         void
-        SearchCandidateGps(const Eigen::Ref<const Positions>& positions_in);
+        SearchCandidateGps(const Eigen::Ref<const MatrixDX> &positions_in);
 
         void
         SearchGpThread(
             uint32_t thread_idx,
             std::size_t start_idx,
             std::size_t end_idx,
-            std::vector<std::size_t>& no_gps_indices);
+            std::vector<std::size_t> &no_gps_indices);
 
         void
-        SearchGpFallback(const std::vector<std::size_t>& no_gps_indices);
+        SearchGpFallback(const std::vector<std::size_t> &no_gps_indices);
 
         void
         TestGpThread(uint32_t thread_idx, std::size_t start_idx, std::size_t end_idx);
@@ -230,19 +230,19 @@ namespace erl::gp_sdf {
         std::enable_if_t<D == 3, void>
         ComputeWeightedSum(
             uint32_t i,
-            const std::vector<std::pair<long, long>>& tested_idx,
-            const Eigen::Matrix<Dtype, 7, Eigen::Dynamic>& fs,
-            const Variances& variances,
-            const Covariances& covariances);
+            const std::vector<std::pair<long, long>> &tested_idx,
+            const Eigen::Matrix<Dtype, 7, Eigen::Dynamic> &fs,
+            const Variances &variances,
+            const Covariances &covariances);
 
         template<int D>
         std::enable_if_t<D == 2, void>
         ComputeWeightedSum(
             uint32_t i,
-            const std::vector<std::pair<long, long>>& tested_idx,
-            const Eigen::Matrix<Dtype, 5, Eigen::Dynamic>& fs,
-            const Variances& variances,
-            const Covariances& covariances);
+            const std::vector<std::pair<long, long>> &tested_idx,
+            const Eigen::Matrix<Dtype, 5, Eigen::Dynamic> &fs,
+            const Variances &variances,
+            const Covariances &covariances);
     };
 
     using GpSdfMapping2Df = GpSdfMapping<float, 2>;

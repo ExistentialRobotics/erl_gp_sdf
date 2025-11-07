@@ -23,51 +23,24 @@ struct Options : Yamlable<Options> {
     double var_y = 0.01;
     std::shared_ptr<Gp::Setting> gp = std::make_shared<Gp::Setting>();
     std::string output_dir = "sdf_regression";
-};
 
-template<>
-struct YAML::convert<Options> {
-    static Node
-    encode(const Options &options) {
-        Node node;
-        ERL_YAML_SAVE_ATTR(node, options, max_x);
-        ERL_YAML_SAVE_ATTR(node, options, max_y);
-        ERL_YAML_SAVE_ATTR(node, options, min_x);
-        ERL_YAML_SAVE_ATTR(node, options, min_y);
-        ERL_YAML_SAVE_ATTR(node, options, radius);
-        ERL_YAML_SAVE_ATTR(node, options, num_surf_samples);
-        ERL_YAML_SAVE_ATTR(node, options, test_num_x);
-        ERL_YAML_SAVE_ATTR(node, options, test_num_y);
-        ERL_YAML_SAVE_ATTR(node, options, seed);
-        ERL_YAML_SAVE_ATTR(node, options, near_surface);
-        ERL_YAML_SAVE_ATTR(node, options, near_surface_delta);
-        ERL_YAML_SAVE_ATTR(node, options, var_x);
-        ERL_YAML_SAVE_ATTR(node, options, var_y);
-        ERL_YAML_SAVE_ATTR(node, options, gp);
-        ERL_YAML_SAVE_ATTR(node, options, output_dir);
-        return node;
-    }
-
-    static bool
-    decode(const Node &node, Options &options) {
-        if (!node.IsMap()) { return false; }
-        ERL_YAML_LOAD_ATTR(node, options, max_x);
-        ERL_YAML_LOAD_ATTR(node, options, max_y);
-        ERL_YAML_LOAD_ATTR(node, options, min_x);
-        ERL_YAML_LOAD_ATTR(node, options, min_y);
-        ERL_YAML_LOAD_ATTR(node, options, radius);
-        ERL_YAML_LOAD_ATTR(node, options, num_surf_samples);
-        ERL_YAML_LOAD_ATTR(node, options, test_num_x);
-        ERL_YAML_LOAD_ATTR(node, options, test_num_y);
-        ERL_YAML_LOAD_ATTR(node, options, seed);
-        ERL_YAML_LOAD_ATTR(node, options, near_surface);
-        ERL_YAML_LOAD_ATTR(node, options, near_surface_delta);
-        ERL_YAML_LOAD_ATTR(node, options, var_x);
-        ERL_YAML_LOAD_ATTR(node, options, var_y);
-        if (!ERL_YAML_LOAD_ATTR(node, options, gp)) { return false; }
-        ERL_YAML_LOAD_ATTR(node, options, output_dir);
-        return true;
-    }
+    ERL_REFLECT_SCHEMA(
+        Options,
+        ERL_REFLECT_MEMBER(Options, max_x),
+        ERL_REFLECT_MEMBER(Options, max_y),
+        ERL_REFLECT_MEMBER(Options, min_x),
+        ERL_REFLECT_MEMBER(Options, min_y),
+        ERL_REFLECT_MEMBER(Options, radius),
+        ERL_REFLECT_MEMBER(Options, num_surf_samples),
+        ERL_REFLECT_MEMBER(Options, test_num_x),
+        ERL_REFLECT_MEMBER(Options, test_num_y),
+        ERL_REFLECT_MEMBER(Options, seed),
+        ERL_REFLECT_MEMBER(Options, near_surface),
+        ERL_REFLECT_MEMBER(Options, near_surface_delta),
+        ERL_REFLECT_MEMBER(Options, var_x),
+        ERL_REFLECT_MEMBER(Options, var_y),
+        ERL_REFLECT_MEMBER(Options, gp),
+        ERL_REFLECT_MEMBER(Options, output_dir));
 };
 
 struct App {
@@ -75,18 +48,8 @@ struct App {
     std::mt19937_64 rng;
     std::uniform_real_distribution<double> dist;
 
-    explicit App(const std::string &option_file) {  // NOLINT(*-msc51-cpp)
-        if (!std::filesystem::exists(option_file)) { options.AsYamlFile(option_file); }
-        if (!option_file.empty()) {
-            ERL_ASSERTM(
-                options.FromYamlFile(option_file),
-                "Failed to load options from file: {}",
-                option_file);
-        }
-
-        rng = std::mt19937_64(options.seed);
-        dist = std::uniform_real_distribution<double>(0.0, 1.0);
-    }
+    explicit App(Options opt)
+        : options(std::move(opt)), rng(options.seed), dist(0.0, 1.0) {}
 
     std::pair<Eigen::Matrix2Xd, Eigen::VectorXd>
     GenerateDataset() {
@@ -305,15 +268,10 @@ struct App {
 
 int
 main(const int argc, char **argv) {
-    if (argc > 2) {
-        std::cerr << "Usage: " << argv[0] << " <options_file>" << std::endl;
-        return EXIT_FAILURE;
-    }
     try {
-        const std::string options_file =
-            (argc == 2) ? argv[1]
-                        : (ERL_GP_SDF_ROOT_DIR "/config/demo/demo_sdf_regression.yaml");
-        App app(options_file);
+        Options options;
+        if (!options.FromCommandLine(argc, argv)) { return EXIT_FAILURE; }
+        App app(options);
         app.Run();
     } catch (const std::exception &e) {
         std::cerr << "Error: " << e.what() << std::endl;

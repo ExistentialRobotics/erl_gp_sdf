@@ -21,13 +21,10 @@ namespace erl::gp_sdf {
             Dtype log_lambda = 40.0f;         // log-edf parameter
             Dtype duplicate_epsilon = 1e-5f;  // epsilon for duplicate detection
 
-            struct YamlConvertImpl {
-                static YAML::Node
-                encode(const Setting &setting);
-
-                static bool
-                decode(const YAML::Node &node, Setting &setting);
-            };
+            ERL_REFLECT_SCHEMA(
+                Setting,
+                ERL_REFLECT_MEMBER(Setting, log_lambda),
+                ERL_REFLECT_MEMBER(Setting, duplicate_epsilon));
         };
 
         struct TestResult : Super::TestResult {
@@ -187,11 +184,3 @@ namespace erl::gp_sdf {
     extern template class LogEdfGaussianProcess<float>;
     extern template class LogEdfGaussianProcess<double>;
 }  // namespace erl::gp_sdf
-
-template<>
-struct YAML::convert<erl::gp_sdf::LogEdfGaussianProcessD::Setting>
-    : erl::gp_sdf::LogEdfGaussianProcessD::Setting::YamlConvertImpl {};
-
-template<>
-struct YAML::convert<erl::gp_sdf::LogEdfGaussianProcessF::Setting>
-    : erl::gp_sdf::LogEdfGaussianProcessF::Setting::YamlConvertImpl {};

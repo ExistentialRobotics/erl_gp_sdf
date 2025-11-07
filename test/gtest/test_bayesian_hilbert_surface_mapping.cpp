@@ -40,19 +40,117 @@ const std::filesystem::path kDataDir = kProjectRootDir / "data";
 const std::filesystem::path kConfigDir = kProjectRootDir / "config";
 
 template<typename Dtype, int Dim>
-void
-TestIo(const erl::gp_sdf::BayesianHilbertSurfaceMapping<Dtype, Dim> *bhm_surf_mapping) {
-    ERL_BLOCK_TIMER_MSG("IO");
-    using Mapping = erl::gp_sdf::BayesianHilbertSurfaceMapping<Dtype, Dim>;
-    using Serializer = erl::common::Serialization<Mapping>;
+std::string
+GetBinFilename() {
     GTEST_PREPARE_OUTPUT_DIR();
     std::string filename = fmt::format("bhm_surf_mapping_{}d_{}.bin", Dim, type_name<Dtype>());
     filename = test_output_dir / filename;
+    return filename;
+}
+
+template<typename Dtype, int Dim>
+void
+WriteSurfaceMapping(
+    const erl::gp_sdf::BayesianHilbertSurfaceMapping<Dtype, Dim> *bhm_surf_mapping) {
+    std::string filename = GetBinFilename<Dtype, Dim>();
+    using Mapping = erl::gp_sdf::BayesianHilbertSurfaceMapping<Dtype, Dim>;
+    using Serializer = erl::common::serialization::Serialization<Mapping>;
     ASSERT_TRUE(Serializer::Write(filename, bhm_surf_mapping));
+}
+
+template<typename Dtype, int Dim>
+void
+ReadSurfaceMapping(erl::gp_sdf::BayesianHilbertSurfaceMapping<Dtype, Dim> *bhm_surf_mapping) {
+    std::string filename = GetBinFilename<Dtype, Dim>();
+    using Mapping = erl::gp_sdf::BayesianHilbertSurfaceMapping<Dtype, Dim>;
+    using Serializer = erl::common::serialization::Serialization<Mapping>;
+    ASSERT_TRUE(Serializer::Read(filename, bhm_surf_mapping));
+}
+
+template<typename Dtype, int Dim>
+void
+TestIo(const erl::gp_sdf::BayesianHilbertSurfaceMapping<Dtype, Dim> *bhm_surf_mapping) {
+    ERL_BLOCK_TIMER_MSG("IO");
+
+    WriteSurfaceMapping(bhm_surf_mapping);
+
+    using Mapping = erl::gp_sdf::BayesianHilbertSurfaceMapping<Dtype, Dim>;
     Mapping bhm_surf_mapping_read(std::make_shared<typename Mapping::Setting>());
-    ASSERT_TRUE(Serializer::Read(filename, &bhm_surf_mapping_read));
+    ReadSurfaceMapping(&bhm_surf_mapping_read);
+
     ASSERT_TRUE(*bhm_surf_mapping == bhm_surf_mapping_read);
 }
+
+#pragma region options
+
+template<typename Dtype>
+struct Options3D : erl::common::Yamlable<Options3D<Dtype>> {
+    std::string dataset_name = "cow_and_lady";
+    std::string cow_and_lady_dir;
+    std::string newer_college_dir;
+    std::string mesh_file = kDataDir / "replica-hotel-0.ply";
+    std::string traj_file = kDataDir / "replica-hotel-0-traj.txt";
+    std::string surface_mapping_config_file;
+    std::string sensor_frame_type = type_name<erl::geometry::LidarFrame3D<Dtype>>();
+    std::string sensor_frame_config_file = kConfigDir / "sensors" / "lidar_frame_3d_271.yaml";
+    std::string o3d_view_status_file;
+    long start_wp_idx = 0;
+    long end_wp_idx = -1;  // -1 means all waypoints
+    long seq_stride = 1;
+    long scan_stride = 1;
+    Dtype surf_normal_scale = 0.25;
+    Dtype test_res = 0.02;
+    Dtype test_z = 0.0;
+    Dtype test_x_min = 0.0f;
+    Dtype test_x_max = 0.0f;
+    Dtype test_y_min = 0.0f;
+    Dtype test_y_max = 0.0f;
+    long test_xs = 150;
+    long test_ys = 100;
+    int logging_level = 1;
+    bool load_surface_mapping_bin = false;
+    bool test_io = false;
+    bool test_whole_map_at_end = false;
+    bool hold = false;
+    bool no_visualize = false;
+    bool add_range_noise = false;
+    Dtype noise_std = 0.01f;
+
+    ERL_REFLECT_SCHEMA(
+        Options3D,
+        ERL_REFLECT_MEMBER(Options3D, dataset_name),
+        ERL_REFLECT_MEMBER(Options3D, cow_and_lady_dir),
+        ERL_REFLECT_MEMBER(Options3D, newer_college_dir),
+        ERL_REFLECT_MEMBER(Options3D, mesh_file),
+        ERL_REFLECT_MEMBER(Options3D, traj_file),
+        ERL_REFLECT_MEMBER(Options3D, surface_mapping_config_file),
+        ERL_REFLECT_MEMBER(Options3D, sensor_frame_type),
+        ERL_REFLECT_MEMBER(Options3D, sensor_frame_config_file),
+        ERL_REFLECT_MEMBER(Options3D, o3d_view_status_file),
+        ERL_REFLECT_MEMBER(Options3D, start_wp_idx),
+        ERL_REFLECT_MEMBER(Options3D, end_wp_idx),
+        ERL_REFLECT_MEMBER(Options3D, seq_stride),
+        ERL_REFLECT_MEMBER(Options3D, scan_stride),
+        ERL_REFLECT_MEMBER(Options3D, surf_normal_scale),
+        ERL_REFLECT_MEMBER(Options3D, test_res),
+        ERL_REFLECT_MEMBER(Options3D, test_z),
+        ERL_REFLECT_MEMBER(Options3D, test_x_min),
+        ERL_REFLECT_MEMBER(Options3D, test_x_max),
+        ERL_REFLECT_MEMBER(Options3D, test_y_min),
+        ERL_REFLECT_MEMBER(Options3D, test_y_max),
+        ERL_REFLECT_MEMBER(Options3D, test_xs),
+        ERL_REFLECT_MEMBER(Options3D, test_ys),
+        ERL_REFLECT_MEMBER(Options3D, logging_level),
+        ERL_REFLECT_MEMBER(Options3D, load_surface_mapping_bin),
+        ERL_REFLECT_MEMBER(Options3D, test_io),
+        ERL_REFLECT_MEMBER(Options3D, test_whole_map_at_end),
+        ERL_REFLECT_MEMBER(Options3D, hold),
+        ERL_REFLECT_MEMBER(Options3D, no_visualize),
+        ERL_REFLECT_MEMBER(Options3D, add_range_noise),
+        ERL_REFLECT_MEMBER(Options3D, noise_std));
+};
+
+#pragma endregion
 
 template<typename Dtype>
 void
@@ -79,117 +177,8 @@ TestImpl3D() {
     using Vector3 = Eigen::Vector3<Dtype>;
     using VectorX = Eigen::VectorX<Dtype>;
 
-#pragma region options
-
-    struct Options {
-        std::string dataset_name = "cow_and_lady";
-        std::string cow_and_lady_dir;
-        std::string newer_college_dir;
-        std::string mesh_file = kDataDir / "replica-hotel-0.ply";
-        std::string traj_file = kDataDir / "replica-hotel-0-traj.txt";
-        std::string surface_mapping_config_file =
-            kConfigDir / "template" /
-            fmt::format("bayesian_hilbert_mapping_3d_{}.yaml", type_name<Dtype>());
-        std::string sensor_frame_type = type_name<LidarFrame3D>();
-        std::string sensor_frame_config_file = kConfigDir / "sensors" / "lidar_frame_3d_271.yaml";
-        std::string o3d_view_status_file = kConfigDir / "template" / "open3d_view_status.json";
-        long start_wp_idx = 0;
-        long end_wp_idx = -1;  // -1 means all waypoints
-        long seq_stride = 1;
-        long scan_stride = 1;
-        Dtype surf_normal_scale = 0.25;
-        Dtype test_res = 0.02;
-        Dtype test_z = 0.0;
-        Dtype test_x_min = 0.0f;
-        Dtype test_x_max = 0.0f;
-        Dtype test_y_min = 0.0f;
-        Dtype test_y_max = 0.0f;
-        long test_xs = 150;
-        long test_ys = 100;
-        bool test_io = false;
-        bool test_whole_map_at_end = false;
-        bool hold = false;
-        bool no_visualize = false;
-    };
-
-#pragma endregion
-
-    Options options;
-    bool options_parsed = false;
-    try {
-        namespace po = boost::program_options;
-        po::options_description desc;
-        // clang-format off
-        desc.add_options()
-            ("help", "produce help message")
-            (
-                "dataset-name",
-                po::value<std::string>(&options.dataset_name)->default_value(options.dataset_name)->value_name("name"),
-                "name of the dataset to use, options: cow_and_lady, mesh, newer_college"
-            )(
-                "cow-and-lady-dir",
-                po::value<std::string>(&options.cow_and_lady_dir)->default_value(options.cow_and_lady_dir)->value_name("dir"),
-                "directory containing the Cow and Lady dataset"
-            )(
-                "newer-college-dir",
-                po::value<std::string>(&options.newer_college_dir)->default_value(options.newer_college_dir)->value_name("dir"),
-                "directory containing the Newer College dataset"
-            )
-            ("mesh-file", po::value<std::string>(&options.mesh_file)->default_value(options.mesh_file)->value_name("file"), "mesh file")
-            ("traj-file", po::value<std::string>(&options.traj_file)->default_value(options.traj_file)->value_name("file"), "trajectory file")
-            ("start-wp-idx", po::value<long>(&options.start_wp_idx)->default_value(options.start_wp_idx)->value_name("idx"), "start waypoint index")
-            ("end-wp-idx", po::value<long>(&options.end_wp_idx)->default_value(options.end_wp_idx)->value_name("idx"), "end waypoint index (-1 means all waypoints)")
-            (
-                "surface-mapping-config-file",
-                po::value<std::string>(&options.surface_mapping_config_file)->default_value(options.surface_mapping_config_file)->value_name("file"),
-                "surface mapping config file"
-            )(
-                "sensor-frame-type",
-                po::value<std::string>(&options.sensor_frame_type)->default_value(options.sensor_frame_type)->value_name("sensor frame type"),
-                fmt::format(
-                        "sensor frame type, options: {}, {}, {}, {}",
-                        type_name<erl::geometry::LidarFrame3Dd>(),
-                        type_name<erl::geometry::DepthFrame3Dd>(),
-                        type_name<erl::geometry::LidarFrame3Df>(),
-                        type_name<erl::geometry::DepthFrame3Df>()).c_str()
-            )(
-                "sensor-frame-config-file",
-                po::value<std::string>(&options.sensor_frame_config_file)->default_value(options.sensor_frame_config_file)->value_name("file"),
-                "sensor frame config file"
-            )
-            (
-                "o3d-view-status-file",
-                po::value<std::string>(&options.o3d_view_status_file)->default_value(options.o3d_view_status_file)->value_name("file"),
-                "Open3D view status file, used to set the view of the visualization window"
-            )
-            ("seq-stride", po::value<long>(&options.seq_stride)->default_value(options.seq_stride)->value_name("stride"), "stride")
-            ("scan-stride", po::value<long>(&options.scan_stride)->default_value(options.scan_stride)->value_name("stride"), "scan stride")
-            ("surf-normal-scale", po::value<Dtype>(&options.surf_normal_scale)->default_value(options.surf_normal_scale)->value_name("scale"), "surface normal scale")
-            ("test-res", po::value<Dtype>(&options.test_res)->default_value(options.test_res)->value_name("res"), "test resolution")
-            ("test-z", po::value<Dtype>(&options.test_z)->default_value(options.test_z)->value_name("z"), "test z")
-            ("test-x-min", po::value<Dtype>(&options.test_x_min)->default_value(options.test_x_min)->value_name("x_min"), "test x min")
-            ("test-x-max", po::value<Dtype>(&options.test_x_max)->default_value(options.test_x_max)->value_name("x_max"), "test x max")
-            ("test-y-min", po::value<Dtype>(&options.test_y_min)->default_value(options.test_y_min)->value_name("y_min"), "test y min")
-            ("test-y-max", po::value<Dtype>(&options.test_y_max)->default_value(options.test_y_max)->value_name("y_max"), "test y max")
-            ("test-xs", po::value<long>(&options.test_xs)->default_value(options.test_xs)->value_name("xs"), "test xs")
-            ("test-ys", po::value<long>(&options.test_ys)->default_value(options.test_ys)->value_name("ys"), "test ys")
-            ("test-io", po::bool_switch(&options.test_io), "test IO")
-            ("test-whole-map-at-end", po::bool_switch(&options.test_whole_map_at_end), "test the whole map at the end")
-            ("hold", po::bool_switch(&options.hold), "hold the window")
-            ("no-visualize", po::bool_switch(&options.no_visualize), "do not visualize");
-        // clang-format on
-
-        po::variables_map vm;
-        po::store(po::command_line_parser(g_argc, g_argv).options(desc).run(), vm);
-        if (vm.count("help")) {
-            std::cout << "Usage: " << g_argv[0] << " [options]" << std::endl << desc << std::endl;
-            return;
-        }
-        po::notify(vm);
-        options_parsed = true;
-    } catch (std::exception &e) { std::cerr << e.what() << std::endl; }
-    ASSERT_TRUE(options_parsed);
-    ASSERT_TRUE(options.scan_stride > 0);
+    Options3D<Dtype> options;
+    ERL_ASSERTM(options.FromCommandLine(g_argc, g_argv), "Failed to parse command line");
 
     DataSetType dataset_type = DataSetType::Mesh;
     if (options.dataset_name == "cow_and_lady") {
@@ -214,6 +203,8 @@ TestImpl3D() {
 
     // prepare the data
     using namespace erl::common;
+
+    Logging::SetLevel(static_cast<LoggingLevel>(options.logging_level));
 
     std::vector<std::shared_ptr<open3d::geometry::Geometry>> geometries;  // for visualization
     std::shared_ptr<CowAndLady> cow_and_lady = nullptr;
@@ -450,7 +441,11 @@ TestImpl3D() {
                     std::tie(rotation, translation) =
                         range_sensor->GetOpticalPose(rotation_sensor, translation_sensor);
 
-                    MatrixX ranges = range_sensor->Scan(rotation_sensor, translation_sensor);
+                    MatrixX ranges = range_sensor->Scan(
+                        rotation_sensor,
+                        translation_sensor,
+                        options.add_range_noise,
+                        options.noise_std);
                     points = ranges_to_points(ranges);
                     ranges_img = ConvertMatrixToImage<Dtype>(ranges, true);
                     if (is_lidar) {
@@ -744,16 +739,19 @@ TestImpl3D() {
     };
 #pragma endregion
 
-    if (options.test_io) { TestIo<Dtype, 3>(&bhsm); }  // test IO of empty mapping
-
-    // start the mapping
-    if (options.no_visualize) {
-        while (wp_idx < max_wp_idx) { run_update(); }
+    if (options.load_surface_mapping_bin) {
+        ReadSurfaceMapping(&bhsm);
     } else {
-        vis_setting->z = options.test_z;
-        visualizer.SetAnimationCallback(callback);
-        visualizer.SetViewStatus(options.o3d_view_status_file);
-        visualizer.Show();
+        if (options.test_io) { TestIo<Dtype, 3>(&bhsm); }  // test IO of empty mapping
+        // start the mapping
+        if (options.no_visualize) {
+            while (wp_idx < max_wp_idx) { run_update(); }
+        } else {
+            vis_setting->z = options.test_z;
+            visualizer.SetAnimationCallback(callback);
+            visualizer.SetViewStatus(options.o3d_view_status_file);
+            visualizer.Show();
+        }
     }
 
     VectorX log_odd_values;
@@ -815,23 +813,42 @@ TestImpl3D() {
     visualizer.Show();
 
     // check the surf_log_odds of local BHMs
+    // check the number of unused rays
     o3d_surf_points->points_.clear();
     o3d_surf_points->colors_.clear();
     std::vector<double> log_odds;
+    long min_unused_ray_count = std::numeric_limits<long>::max();
+    long max_unused_ray_count = std::numeric_limits<long>::min();
+    std::vector<long> unused_ray_counts;
     auto &surf_data_buf = bhsm.GetSurfaceDataBuffer();
     const Dtype scaling = 1.0 / bhsm_setting->scaling;
+    mean = 0;
+    squared_mean = 0;
     for (const auto &[key, local_bhm]: bhsm.GetLocalBhms()) {
         if (!local_bhm->active) { continue; }
         for (const auto &[grid_index, index]: local_bhm->surface_indices) {
             Eigen::Vector3d point = surf_data_buf[index].position.template cast<double>() * scaling;
             o3d_surf_points->points_.push_back(point);
             log_odds.push_back(local_bhm->surface_log_odds);
+            mean += local_bhm->surface_log_odds;
+            squared_mean += local_bhm->surface_log_odds * local_bhm->surface_log_odds;
+            unused_ray_counts.push_back(local_bhm->unused_ray_count);
         }
+        min_unused_ray_count = std::min(min_unused_ray_count, local_bhm->unused_ray_count);
+        max_unused_ray_count = std::max(max_unused_ray_count, local_bhm->unused_ray_count);
     }
 
+    mean /= static_cast<Dtype>(log_odds.size());
+    squared_mean /= static_cast<Dtype>(log_odds.size());
+    std = std::sqrt(squared_mean - mean * mean);
     min = *std::min_element(log_odds.begin(), log_odds.end());
     max = *std::max_element(log_odds.begin(), log_odds.end());
-    ERL_INFO("log odd values of local bhm surface points: min={}, max={}", min, max);
+    ERL_INFO(
+        "log odd values of local bhm surface points: mean={}, std={}, min={}, max={}",
+        mean,
+        std,
+        min,
+        max);
 
     fig.Clear()
         .SetMargin(0.15, 0.85, 0.15, 0.85)
@@ -855,7 +872,50 @@ TestImpl3D() {
     visualizer.SetViewStatus(options.o3d_view_status_file);
     visualizer.Show();
 
-    if (options.test_io) { TestIo<Dtype, 3>(&bhsm); }  // test IO after mapping
+    // visualize the number of unused rays of local BHMs
+    ERL_INFO(
+        "unused ray counts of local bhm surface points: min={}, max={}",
+        min_unused_ray_count,
+        max_unused_ray_count);
+    o3d_surf_points->colors_.clear();
+    for (const auto &v: unused_ray_counts) {
+        o3d_surf_points->colors_.push_back(color_map.GetColor(
+            static_cast<double>(v - min_unused_ray_count) /
+            static_cast<double>(max_unused_ray_count - min_unused_ray_count)));
+    }
+    open3d::io::WritePointCloud(
+        test_output_dir / "local_bhm_surface_unused_ray_count.ply",
+        *o3d_surf_points);
+    visualizer.Reset();
+    visualizer.AddGeometries({o3d_surf_points});
+    visualizer.SetViewStatus(options.o3d_view_status_file);
+    visualizer.Show();
+
+    // visualize the local BHMs
+    auto o3d_line_set = std::make_shared<open3d::geometry::LineSet>();
+    const double hs = bhsm.GetClusterSize() * 0.5f;
+    auto box_active = open3d::geometry::LineSet::CreateFromAxisAlignedBoundingBox(
+        open3d::geometry::AxisAlignedBoundingBox(
+            Eigen::Vector3d(-hs, -hs, -hs),
+            Eigen::Vector3d(hs, hs, hs)));
+    auto box_inactive = std::make_shared<open3d::geometry::LineSet>(*box_active);
+    box_active->PaintUniformColor({0.0, 1.0, 0.0});
+    box_inactive->PaintUniformColor({1.0, 0.0, 0.0});
+    for (const auto &[key, local_bhm]: bhsm.GetLocalBhms()) {
+        open3d::geometry::LineSet box = local_bhm->active ? *box_active : *box_inactive;
+        box.Translate(local_bhm->bhm.GetMapBoundary().center.template cast<double>());
+        *o3d_line_set += box;
+    }
+    o3d_line_set->Scale(1.0f / bhsm_setting->scaling, Eigen::Vector3d::Zero());
+    visualizer.Reset();
+    visualizer.GetVisualizer()->GetRenderOption().line_width_ = 10.0f;
+    visualizer.AddGeometries({geometries.front(), o3d_line_set});
+    visualizer.SetViewStatus(options.o3d_view_status_file);
+    visualizer.Show();
+
+    if (!options.load_surface_mapping_bin) {
+        if (options.test_io) { TestIo<Dtype, 3>(&bhsm); }  // test IO after mapping
+    }
 
     auto drawer_setting = std::make_shared<typename OctreeDrawer::Setting>();
     drawer_setting->scaling = 1.0 / bhsm_setting->scaling;  // inverse scaling
@@ -899,6 +959,9 @@ TestImpl3D() {
                 if (bhsm_setting->local_bhm->surface_log_odds == iso_value) { return false; }
                 ERL_INFO("Generating mesh with iso_value={}", iso_value);
                 bhsm_setting->local_bhm->surface_log_odds = iso_value;
+                for (auto &[key, local_bhm]: bhsm.GetLocalBhms()) {
+                    local_bhm->surface_log_odds = iso_value;
+                }
                 bhsm.ResetMarchingResults();
                 bhsm.GetMesh(vertices, faces);
                 mesh->vertices_.clear();
@@ -1258,7 +1321,7 @@ TestImpl2D() {
         // save local bhms
         auto local_bhms = bhsm.GetLocalBhms();
         // save results
-        const long size = local_bhms.begin()->second->bhm.GetHingedPoints().cols();
+        const long size = local_bhms.begin()->second->bhm.GetHingedPoints().cols() + 1;
         MatrixX mu(size, static_cast<long>(local_bhms.size()));
         MatrixX sigma(size, static_cast<long>(local_bhms.size()));
         long idx = 0;
@@ -1306,7 +1369,7 @@ TestImpl2D() {
             tree_img,
             cur_traj.block(0, 0, 2, i),
             grid_map_info,
-            trajectory_color,
+            {0, 0, 0},
             2,
             true);
         for (const auto &px: surface_points_cv) {
@@ -1499,5 +1562,6 @@ main(int argc, char *argv[]) {
     testing::InitGoogleTest(&argc, argv);
     g_argc = argc;
     g_argv = argv;
+    erl::common::SetGlobalRandomSeed(0);
     return RUN_ALL_TESTS();
 }

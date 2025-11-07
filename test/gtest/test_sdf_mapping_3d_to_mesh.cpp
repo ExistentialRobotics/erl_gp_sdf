@@ -9,40 +9,24 @@
 #include <open3d/io/TriangleMeshIO.h>
 #include <open3d/visualization/utility/DrawGeometry.h>
 
-using namespace erl::common;
-
 const std::filesystem::path kProjectRootDir = ERL_GP_SDF_ROOT_DIR;
 const std::filesystem::path kConfigDir = kProjectRootDir / "config";
 int g_argc = 0;
 char **g_argv = nullptr;
 
 template<typename Dtype>
-struct GridDef : public Yamlable<GridDef<Dtype>> {
+struct GridDef : public erl::common::Yamlable<GridDef<Dtype>> {
     Eigen::Vector3<Dtype> size = Eigen::Vector3<Dtype>::Zero();
     Eigen::Matrix3<Dtype> rotation = Eigen::Matrix3<Dtype>::Identity();
     Eigen::Vector3<Dtype> translation = Eigen::Vector3<Dtype>::Zero();
 
+    ERL_REFLECT_SCHEMA(
+        GridDef,
+        ERL_REFLECT_MEMBER(GridDef, size),
+        ERL_REFLECT_MEMBER(GridDef, rotation),
+        ERL_REFLECT_MEMBER(GridDef, translation));
+
     GridDef() = default;
-
-    struct YamlConvertImpl {
-        static YAML::Node
-        encode(const GridDef &grid_def) {
-            YAML::Node node;
-            ERL_YAML_SAVE_ATTR(node, grid_def, size);
-            ERL_YAML_SAVE_ATTR(node, grid_def, rotation);
-            ERL_YAML_SAVE_ATTR(node, grid_def, translation);
-            return node;
-        }
-
-        static bool
-        decode(const YAML::Node &node, GridDef &grid_def) {
-            if (!node.IsMap()) { return false; }
-            ERL_YAML_LOAD_ATTR(node, grid_def, size);
-            ERL_YAML_LOAD_ATTR(node, grid_def, rotation);
-            ERL_YAML_LOAD_ATTR(node, grid_def, translation);
-            return true;
-        }
-    };
 };
 
 template<typename Dtype>
@@ -210,15 +194,15 @@ struct ToMeshImpl {
 
     void
     LoadMapping() {
-        auto &setting_factory = YamlableBase::Factory::GetInstance();
+        auto &setting_factory = erl::common::YamlableBase::Factory::GetInstance();
 
         auto surface_mapping_setting = setting_factory.Create(options.surface_mapping_setting_type);
         surface_mapping =
             AbstractSurfaceMapping::Create(options.surface_mapping_type, surface_mapping_setting);
         auto sdf_mapping_setting = std::make_shared<typename GpSdfMapping::Setting>();
         sdf_mapping = std::make_shared<GpSdfMapping>(sdf_mapping_setting, surface_mapping);
-        using Serializer = Serialization<GpSdfMapping>;
-        ASSERT_TRUE(Serializer::Read(options.sdf_mapping_bin, sdf_mapping.get()));
+        using Serialization = erl::common::serialization::Serialization<GpSdfMapping>;
+        ASSERT_TRUE(Serialization::Read(options.sdf_mapping_bin, sdf_mapping.get()));
     }
 
     void
@@ -266,7 +250,7 @@ struct ToMeshImpl {
             return;
         }
 
-        GridMapInfo3D<Dtype> grid_map_info(
+        erl::common::GridMapInfo3D<Dtype> grid_map_info(
             Vector3(options.x_min, options.y_min, options.z_min),
             Vector3(options.x_max, options.y_max, options.z_max),
             Vector3(options.grid_resolution, options.grid_resolution, options.grid_resolution),
@@ -283,8 +267,8 @@ struct ToMeshImpl {
         positions = grid_rotation * positions;
         positions.colwise() += grid_translation;
 
-        typename GpSdfMapping::Distances distances(positions.cols());
-        typename GpSdfMapping::Gradients gradients(3, positions.cols());
+        typename GpSdfMapping::VectorX distances(positions.cols());
+        typename GpSdfMapping::MatrixDX gradients(3, positions.cols());
         typename GpSdfMapping::Variances variances(4, positions.cols());
         typename GpSdfMapping::Covariances covariances(6, positions.cols());
         ASSERT_TRUE(sdf_mapping->Test(positions, distances, gradients, variances, covariances));
@@ -332,12 +316,6 @@ struct ToMeshImpl {
         open3d::visualization::DrawGeometries({extracted_mesh});
     }
 };
-
-template<>
-struct YAML::convert<GridDef<double>> : GridDef<double>::YamlConvertImpl {};
-
-template<>
-struct YAML::convert<GridDef<float>> : GridDef<float>::YamlConvertImpl {};
 
 TEST(GpSdfMapping, ToMeshD) { ToMeshImpl<double> test; }
 

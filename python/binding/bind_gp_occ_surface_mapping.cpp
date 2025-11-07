@@ -5,6 +5,7 @@ template<typename Dtype, int Dim>
 void
 BindGpOccSurfaceMappingImpl(const py::module &m, const char *name) {
     using namespace erl::common;
+    using namespace erl::common::serialization;
     using namespace erl::geometry;
     using namespace erl::gp_sdf;
 
@@ -72,7 +73,7 @@ BindGpOccSurfaceMappingImpl(const py::module &m, const char *name) {
         .def_property_readonly("map_boundary", &T::GetMapBoundary)
         .def(
             "is_in_free_space",
-            [](T &self, const typename T::Positions &positions) {
+            [](T &self, const typename T::MatrixDX &positions) {
                 Eigen::VectorXb in_free_space;
                 bool success = self.IsInFreeSpace(positions, in_free_space);
                 return std::make_tuple(success, in_free_space);
@@ -80,14 +81,12 @@ BindGpOccSurfaceMappingImpl(const py::module &m, const char *name) {
         .def(
             "write",
             [](const T *self, const char *filename) {
-                return erl::common::Serialization<T>::Write(filename, self);
+                return Serialization<T>::Write(filename, self);
             },
             py::arg("filename"))
         .def(
             "read",
-            [](T *self, const char *filename) {
-                return erl::common::Serialization<T>::Read(filename, self);
-            },
+            [](T *self, const char *filename) { return Serialization<T>::Read(filename, self); },
             py::arg("filename"));
     ;
 }

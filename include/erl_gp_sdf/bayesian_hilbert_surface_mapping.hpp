@@ -30,14 +30,14 @@ namespace erl::gp_sdf {
         using typename Super::Key;
         using typename Super::KeySet;
         using typename Super::KeyVector;
+        using typename Super::MatrixDX;
         using typename Super::MatrixX;
-        using typename Super::Position;
-        using typename Super::Positions;
         using typename Super::Ranges;
         using typename Super::Rotation;
         using typename Super::SurfData;
         using typename Super::SurfDataManager;
         using typename Super::Translation;
+        using typename Super::VectorD;
         using typename Super::VectorX;
         using GridShape = Eigen::Vector<long, Dim>;
         using GridIndex = Eigen::Vector<long, Dim + 1>;
@@ -77,19 +77,24 @@ namespace erl::gp_sdf {
 
         // eigen types
         using Scalar = Eigen::Matrix<Dtype, 1, 1>;
-        using Gradient = Position;
-        using Gradients = Positions;
 
         struct Setting : public common::Yamlable<Setting> {
 
-            struct UpdateTree {
+            struct UpdateTree : common::Yamlable<UpdateTree> {
                 bool with_count = false;
                 bool parallel = true;
                 bool lazy_eval = true;
                 bool discrete = true;
+
+                ERL_REFLECT_SCHEMA(
+                    UpdateTree,
+                    ERL_REFLECT_MEMBER(UpdateTree, with_count),
+                    ERL_REFLECT_MEMBER(UpdateTree, parallel),
+                    ERL_REFLECT_MEMBER(UpdateTree, lazy_eval),
+                    ERL_REFLECT_MEMBER(UpdateTree, discrete));
             };
 
-            struct UpdateMap {
+            struct UpdateMap : common::Yamlable<UpdateMap> {
                 // method for updating the map: 1=points, 2=marching-cubes
                 int method = 1;
                 // threshold for stopping the adjustment
@@ -98,8 +103,10 @@ namespace erl::gp_sdf {
                 Dtype surface_bad_abs_logodd = 0.1f;
                 // step size for the surface adjustment
                 Dtype surface_step_size = 0.01f;
-                // whether to automatically learn the surface log-odds
-                bool auto_surface_log_odds = true;
+                // whether to update neighboring BHMs of the current local BHM
+                bool include_neighbor_bhm = true;
+                // maximum number of local Bayesian Hilbert maps to update in one iteration
+                int max_num_bhm = 2800;
                 // maximum number of points to update, used when method=1
                 int max_num_points = 100000;
                 // maximum number of tries to adjust the surface points, used when method=1
@@ -110,12 +117,20 @@ namespace erl::gp_sdf {
                 Dtype var_scale = 1.0f;
                 // maximum variance for the surface points/normals
                 Dtype var_max = 2.0f;
-                // if true, update the local Bayesian Hilbert maps with CUDA
-                bool update_with_cuda = false;
-                // CUDA device ID to use for the local Bayesian Hilbert maps
-                int cuda_device_id = 0;
-                // number of local Bayesian Hilbert maps to update in one batch when using CUDA
-                std::size_t update_batch_size = 128;
+
+                ERL_REFLECT_SCHEMA(
+                    UpdateMap,
+                    ERL_REFLECT_MEMBER(UpdateMap, method),
+                    ERL_REFLECT_MEMBER(UpdateMap, surface_max_abs_logodd),
+                    ERL_REFLECT_MEMBER(UpdateMap, surface_bad_abs_logodd),
+                    ERL_REFLECT_MEMBER(UpdateMap, surface_step_size),
+                    ERL_REFLECT_MEMBER(UpdateMap, include_neighbor_bhm),
+                    ERL_REFLECT_MEMBER(UpdateMap, max_num_bhm),
+                    ERL_REFLECT_MEMBER(UpdateMap, max_num_points),
+                    ERL_REFLECT_MEMBER(UpdateMap, max_adjust_tries),
+                    ERL_REFLECT_MEMBER(UpdateMap, max_num_voxels),
+                    ERL_REFLECT_MEMBER(UpdateMap, var_scale),
+                    ERL_REFLECT_MEMBER(UpdateMap, var_max));
             };
 
             std::shared_ptr<LocalBhmSetting> local_bhm = std::make_shared<LocalBhmSetting>();
@@ -144,18 +159,32 @@ namespace erl::gp_sdf {
             bool build_bhm_on_hit = true;
             // bhm_cluster_size * 0.5 + bhm_test_margin is the half-size of the local test region
             Dtype bhm_test_margin = 0.1f;
+            // log-odds value for unknown space
+            Dtype unknown_log_odds = 0.0f;
             // number of nearest neighboring local Bayesian Hilbert maps to use for one test point
             int test_knn = 1;
             // number of test points to process in one batch
             int test_batch_size = 128;
 
-            struct YamlConvertImpl {
-                static YAML::Node
-                encode(const Setting &setting);
-
-                static bool
-                decode(const YAML::Node &node, Setting &setting);
-            };
+            ERL_REFLECT_SCHEMA(
+                Setting,
+                ERL_REFLECT_MEMBER(Setting, local_bhm),
+                ERL_REFLECT_MEMBER(Setting, ray_selector),
+                ERL_REFLECT_MEMBER(Setting, tree),
+                ERL_REFLECT_MEMBER(Setting, update_tree),
+                ERL_REFLECT_MEMBER(Setting, update_map),
+                ERL_REFLECT_MEMBER(Setting, scaling),
+                ERL_REFLECT_MEMBER(Setting, bhm_depth),
+                ERL_REFLECT_MEMBER(Setting, weight_sync),
+                ERL_REFLECT_MEMBER(Setting, sync_method),
+                ERL_REFLECT_MEMBER(Setting, hinged_grid_size),
+                ERL_REFLECT_MEMBER(Setting, bhm_overlap),
+                ERL_REFLECT_MEMBER(Setting, bhm_overlap_sync),
+                ERL_REFLECT_MEMBER(Setting, build_bhm_on_hit),
+                ERL_REFLECT_MEMBER(Setting, bhm_test_margin),
+                ERL_REFLECT_MEMBER(Setting, unknown_log_odds),
+                ERL_REFLECT_MEMBER(Setting, test_knn),
+                ERL_REFLECT_MEMBER(Setting, test_batch_size));
         };
 
     private:
@@ -182,20 +211,23 @@ namespace erl::gp_sdf {
             boost::heap::arity<8>,
             boost::heap::compare<MarchingOrder>>;
         using KeyQueueMap = absl::flat_hash_map<Key, typename PriorityQueue::handle_type>;
+        using KeyBhmMap = absl::flat_hash_map<Key, std::shared_ptr<LocalBhm>>;
+        using KeyBhmVector = std::vector<std::pair<Key, std::shared_ptr<LocalBhm>>>;
 
         std::shared_ptr<Setting> m_setting_ = nullptr;
         std::shared_ptr<Tree> m_tree_ = nullptr;
         std::shared_ptr<Kdtree> m_bhm_kdtree_ = nullptr;
         bool m_bhm_kdtree_needs_update_ = true;
-        Positions m_hinged_points_{};
-        std::vector<std::pair<Key, Position>> m_key_bhm_positions_{};  // key -> center
-        absl::flat_hash_map<Key, std::shared_ptr<LocalBhm>> m_key_bhm_dict_{};
-        SurfDataManager m_surf_data_manager_ = {};
-        KeySet m_changed_clusters_{};                   // keys of the changed clusters
-        KeyVector m_clusters_to_update_{};              // keys of the clusters to update
-        std::vector<int> m_updated_flags_{};            // flags: which BHMs are updated
+        MatrixDX m_hinged_points_;
+        std::vector<std::pair<Key, VectorD>> m_key_bhm_positions_;  // key -> center
+        KeyBhmMap m_key_bhm_dict_;
+        SurfDataManager m_surf_data_manager_;
+        KeySet m_changed_clusters_;                     // keys of the changed clusters
+        KeyVector m_clusters_to_update_;                // keys of the clusters to update
+        std::vector<int> m_updated_flags_;              // flags: which BHMs are updated
         RaySelector m_ray_selector_;                    // selector for rays
         std::vector<std::vector<long>> m_ray_indices_;  // buffer for ray indices
+        std::size_t m_local_bhm_head_ = 0;              // head index for batching local BHMs
 
         /* variables used when m_setting_->update_map.method = 1 */
 
@@ -222,8 +254,9 @@ namespace erl::gp_sdf {
         std::vector<std::tuple<Key, std::vector<PointInfo>, std::vector<PointInfo>>> m_hit_points_;
 
         /* variables used when m_setting_->update_map.method = 2 */
-        KeyQueueMap m_marching_queue_keys_ = {};  // caching key in the queue
-        PriorityQueue m_marching_queue_;          // queue BHMs, smaller cnt first
+        KeyQueueMap m_marching_queue_keys_;  // caching key in the queue
+        PriorityQueue m_marching_queue_;     // queue BHMs, smaller cnt first
+        KeyBhmVector m_local_bhms_;          // buffer of local BHMs for marching cubes/squares
 
         // members for synchronizing weights
 
@@ -259,7 +292,7 @@ namespace erl::gp_sdf {
         [[nodiscard]] std::shared_ptr<const Tree>
         GetTree() const;
 
-        [[nodiscard]] const absl::flat_hash_map<Key, std::shared_ptr<LocalBhm>> &
+        [[nodiscard]] const KeyBhmMap &
         GetLocalBhms() const;
 
         /**
@@ -273,8 +306,8 @@ namespace erl::gp_sdf {
         bool
         Update(
             const Eigen::Ref<const Rotation> &sensor_rotation,
-            const Eigen::Ref<const Position> &sensor_origin,
-            const Eigen::Ref<const Positions> &points,
+            const Eigen::Ref<const VectorD> &sensor_origin,
+            const Eigen::Ref<const MatrixDX> &points,
             bool parallel);
 
         typename SurfDataManager::Iterator
@@ -298,7 +331,7 @@ namespace erl::gp_sdf {
          */
         void
         Predict(
-            const Eigen::Ref<const Positions> &points,
+            const Eigen::Ref<const MatrixDX> &points,
             bool logodd,
             bool compute_free_space,
             bool compute_gradient,
@@ -306,14 +339,14 @@ namespace erl::gp_sdf {
             bool parallel,
             VectorX &prob_occupied,
             Eigen::VectorXb &in_free_space,
-            Gradients &gradients) const;
+            MatrixDX &gradients) const;
 
         void
         PredictGradient(
-            const Eigen::Ref<const Positions> &points,
+            const Eigen::Ref<const MatrixDX> &points,
             bool with_sigmoid,
             bool parallel,
-            Gradients &gradient) const;
+            MatrixDX &gradient) const;
 
         // implement the methods required by AbstractSurfaceMapping
 
@@ -331,7 +364,7 @@ namespace erl::gp_sdf {
         [[nodiscard]] Dtype
         GetClusterSize() const override;
 
-        [[nodiscard]] Position
+        [[nodiscard]] VectorD
         GetClusterCenter(const Key &key) const override;
 
         [[nodiscard]] const KeySet &
@@ -341,7 +374,7 @@ namespace erl::gp_sdf {
         GetAllClusters() const override;
 
         [[nodiscard]] Key
-        GetClusterKey(const Eigen::Ref<const Position> &pos) const override;
+        GetClusterKey(const Eigen::Ref<const VectorD> &pos) const override;
 
         void
         IterateClustersInAabb(const Aabb &aabb, std::function<void(const Key &)> callback)
@@ -356,22 +389,22 @@ namespace erl::gp_sdf {
             std::vector<std::pair<Dtype, std::size_t>> &surface_data_indices) const override;
 
         void
-        GetMesh(std::vector<Position> &vertices, std::vector<Face> &faces) const override;
+        GetMesh(std::vector<VectorD> &vertices, std::vector<Face> &faces) const override;
 
         [[nodiscard]] Aabb
         GetMapBoundary() const override;
 
         [[nodiscard]] bool
-        IsInFreeSpace(const Positions &positions, Eigen::VectorXb &in_free_space) const override;
+        IsInFreeSpace(const MatrixDX &positions, Eigen::VectorXb &in_free_space) const override;
 
         [[nodiscard]] bool
         operator==(const Super &other) const override;
 
         [[nodiscard]] bool
-        Write(std::ostream &s) const override;
+        Write(std::ostream &stream) const override;
 
         [[nodiscard]] bool
-        Read(std::istream &s) override;
+        Read(std::istream &stream) override;
 
         void
         ResetMarchingResults();
@@ -386,7 +419,7 @@ namespace erl::gp_sdf {
         void
         GenerateWeightAddress();
 
-        std::pair<typename absl::flat_hash_map<Key, std::shared_ptr<LocalBhm>>::iterator, bool>
+        std::pair<typename KeyBhmMap::iterator, bool>
         CreateBhm(const Key &key);
 
         void
@@ -410,10 +443,10 @@ namespace erl::gp_sdf {
             Dtype *gradient_ptr) const;
 
         void
-        UpdateMapPoints(const Position &sensor_origin, const Eigen::Ref<const Positions> &points);
+        UpdateMapPoints(const VectorD &sensor_origin, const Eigen::Ref<const MatrixDX> &points);
 
         void
-        UpdateMapPoints1(const Position &sensor_origin, const Eigen::Ref<const Positions> &points);
+        UpdateMapPoints1(const VectorD &sensor_origin, const Eigen::Ref<const MatrixDX> &points);
 
         void
         UpdateSurfaceManager1();
@@ -425,18 +458,18 @@ namespace erl::gp_sdf {
         UpdateMapPoint1(LocalBhm &local_bhm, SurfData &surf_data, bool &to_remove) const;
 
         void
-        UpdateMapPoints2(const Position &sensor_origin, const Eigen::Ref<const Positions> &points);
+        UpdateMapPoints2();
 
         void
         MarchingBhm(const Key &key, LocalBhm &local_bhm) const;
 
         void
-        UpdateSurfaceManager2(std::vector<std::pair<Key, std::shared_ptr<LocalBhm>>> &local_bhms);
+        UpdateSurfaceManager2();
 
         void
         RunMarchingQueue(bool run_all);
 
-        [[nodiscard]] Position
+        [[nodiscard]] VectorD
         GetUniqueVertex(Key key, GridIndex edge_idx, int buffer_idx) const;
     };
 
@@ -450,19 +483,3 @@ namespace erl::gp_sdf {
     extern template class BayesianHilbertSurfaceMapping<double, 2>;
     extern template class BayesianHilbertSurfaceMapping<double, 3>;
 }  // namespace erl::gp_sdf
-
-template<>
-struct YAML::convert<erl::gp_sdf::BayesianHilbertSurfaceMapping2Df::Setting>
-    : erl::gp_sdf::BayesianHilbertSurfaceMapping2Df::Setting::YamlConvertImpl {};
-
-template<>
-struct YAML::convert<erl::gp_sdf::BayesianHilbertSurfaceMapping2Dd::Setting>
-    : erl::gp_sdf::BayesianHilbertSurfaceMapping2Dd::Setting::YamlConvertImpl {};
-
-template<>
-struct YAML::convert<erl::gp_sdf::BayesianHilbertSurfaceMapping3Df::Setting>
-    : erl::gp_sdf::BayesianHilbertSurfaceMapping3Df::Setting::YamlConvertImpl {};
-
-template<>
-struct YAML::convert<erl::gp_sdf::BayesianHilbertSurfaceMapping3Dd::Setting>
-    : erl::gp_sdf::BayesianHilbertSurfaceMapping3Dd::Setting::YamlConvertImpl {};

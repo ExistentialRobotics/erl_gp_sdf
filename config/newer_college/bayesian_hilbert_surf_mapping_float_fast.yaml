@@ -3,27 +3,29 @@ local_bhm:
         diagonal_sigma: true
         min_distance: 0.06
         max_distance: 3.5
-        sampling_area_scale: 1.25
-        free_points_per_meter: 1.0
-        free_sampling_margin: 0.01
+        sampling_area_scale: 3.0
+        free_points_per_meter: 3.0
+        free_sampling_margin: 0.001
         init_mu: 0.0
         init_sigma: 10000
         num_em_iterations: 1
-        sparse_zero_threshold: 1.0e-3
+        sparse_zero_threshold: 0.0005
         use_sparse: true
     kernel_type: erl::covariance::RadialBiasFunction<float, 3>
     kernel_setting_type: erl::covariance::Covariance<float>::Setting
     kernel:
         x_dim: 3
-        scale: 0.016 # 0.16 # 0.25
+        scale: 0.02 # 0.16 # 0.25
         scale_mix: 1
         weights: [ ]
-    min_dataset_size: 10
+    min_dataset_size: 64
     max_dataset_size: 150
-    hit_buffer_size: 0
+    hit_point_buffer_size: 32
+    ray_buffer_size: 1024
     surface_grid_size: 7
-    surface_log_odds: 5.0
-    surface_log_odds_min: -10.0
+    surface_log_odds: 0.0
+    surface_log_odds_init_count: 1
+    surface_log_odds_min: -5.0
     surface_log_odds_max: 20.0
     faster_prediction: true
 ray_selector:
@@ -44,7 +46,7 @@ tree:
     log_odd_max: 20
     log_odd_hit: 0.9
     log_odd_miss: -0.05
-    log_odd_occ_threshold: 0
+    log_odd_occ_threshold: 5
     use_change_detection: false
     use_aabb_limit: false
     aabb:
@@ -61,22 +63,21 @@ update_map:
     surface_bad_abs_logodd: 200
     surface_step_size: 0.001
     auto_surface_log_odds: true
+    max_num_bhm: 2000
     max_num_points: 50000
     max_adjust_tries: 1
-    max_num_voxels: 20000
+    max_num_voxels: 8000
     var_scale: 0.01
     var_max: 1.5
-    update_with_cuda: false
-    cuda_device_id: 0
-    update_batch_size: 512
 scaling: 0.1
 bhm_depth: 15 # 15 # 16
 weight_sync: true
 sync_method: "copy"  # copy, mean, or bayesian
-hinged_grid_size: 7 # 5 # 7
+hinged_grid_size: 5 # 5 # 7
 bhm_overlap: 0.05 # 0.04  # 0.05 # 0.08 # 0.4 # 0.8
 bhm_overlap_sync: 1
 build_bhm_on_hit: true
-bhm_test_margin: 0.06 # 0.045 # 0.07 # 0.3 # 0.7
+bhm_test_margin: 0.05 # 0.045 # 0.07 # 0.3 # 0.7
+unknown_log_odds: 100.0  # unknown space log-odds
 test_knn: 1
 test_batch_size: 1000

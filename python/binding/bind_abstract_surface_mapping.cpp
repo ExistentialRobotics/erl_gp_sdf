@@ -25,13 +25,13 @@ BindAbstractSurfaceMappingImpl(const py::module &m, const char *name) {
         .def(
             "write",
             [](const T *self, const std::string &filename) {
-                return Serialization<T>::Write(filename, self);
+                return serialization::Serialization<T>::Write(filename, self);
             },
             py::arg("filename"))
         .def(
             "read",
             [](T *self, const std::string &filename) {
-                return Serialization<T>::Read(filename, self);
+                return serialization::Serialization<T>::Read(filename, self);
             },
             py::arg("filename"));
 }
