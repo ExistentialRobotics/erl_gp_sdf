@@ -58,6 +58,7 @@ namespace erl::gp_sdf {
         const Eigen::Ref<const Ranges> &scan,
         const bool are_points,
         const bool are_local) {
+
         ERL_ASSERTM(are_points, "scan must be points, not range data.");
 
         if (scan.cols() == 0) {
@@ -75,10 +76,7 @@ namespace erl::gp_sdf {
         } else {
             points = scan;
         }
-        {
-            ERL_BLOCK_TIMER_MSG("BHSM Update");
-            return Update(rotation, translation, points, true /*parallel*/);
-        }
+        return Update(rotation, translation, points, true /*parallel*/);
     }
 
     template<typename Dtype, int Dim>
@@ -94,12 +92,15 @@ namespace erl::gp_sdf {
             return false;
         }
 
+        auto lock = this->GetLockGuard();
+
         VectorD sensor_origin_s = sensor_origin;
         MatrixDX points_s = points;
         if (m_setting_->scaling != 1.0f) {
             sensor_origin_s.array() *= m_setting_->scaling;
             points_s.array() *= m_setting_->scaling;
         }
+        this->m_last_sensor_position_ = sensor_origin_s;
 
         // to update the occupancy tree first, the resolution of the tree should not be too high so
         // that we will not spend too much time on the tree update. the tree helps us find where to
@@ -208,14 +209,14 @@ namespace erl::gp_sdf {
                     m_updated_flags_[i] = local_bhm.Update(
                         sensor_origin_s,
                         points_s,
-                        ray_indices,
-                        m_setting_->update_map.method == 2);
+                        m_setting_->update_map.method == 2,
+                        ray_indices);
                 } else {
                     m_updated_flags_[i] = local_bhm.Update(
                         sensor_origin_s,
                         MatrixDX(),  // no points
-                        ray_indices,
-                        m_setting_->update_map.method == 2);
+                        m_setting_->update_map.method == 2,
+                        ray_indices);
                 }
             }
         }
@@ -328,7 +329,7 @@ namespace erl::gp_sdf {
         prob_occupied.fill(init_prob_occupied);  // initialize to unknown
         BuildBhmKdtree();
 
-        const int batch_size = m_setting_->test_batch_size;
+        long batch_size = m_setting_->test_batch_size;
         if (batch_size > num_points) {  // no need to run in parallel here
             PredictThread(
                 points_s.data(),
@@ -348,21 +349,12 @@ namespace erl::gp_sdf {
         const uint32_t num_threads = std::thread::hardware_concurrency();
         std::vector<std::thread> threads;
         threads.reserve(num_threads);
-        for (long i = 0; i < num_points; i += batch_size) {
-            long start = i;
-            long end = std::min(i + batch_size, num_points);
-
-            bool no_free = threads.size() >= num_threads;
-            while (no_free) {
-                for (auto it = threads.begin(); it != threads.end(); ++it) {
-                    if (!it->joinable()) { continue; }
-                    it->join();
-                    threads.erase(it);
-                    no_free = false;
-                    break;
-                }
-                if (no_free) { std::this_thread::sleep_for(std::chrono::milliseconds(1)); }
-            }
+        batch_size = num_points / static_cast<long>(num_threads);
+        const long leftover = num_points % static_cast<long>(num_threads);
+        long start = 0, end = 0;
+        for (uint32_t i = 0; i < num_threads; ++i) {
+            end = start + batch_size;
+            if (i < leftover) { ++end; }
             threads.emplace_back(
                 &BayesianHilbertSurfaceMapping::PredictThread,
                 this,
@@ -377,6 +369,7 @@ namespace erl::gp_sdf {
                 prob_occupied.data(),
                 in_free_space.data(),
                 gradients.data());
+            start = end;
         }
 
         for (auto &thread: threads) { thread.join(); }
@@ -391,22 +384,25 @@ namespace erl::gp_sdf {
         const bool parallel,
         MatrixDX &gradient) const {
 
+        MatrixDX points_s = points;
+        if (m_setting_->scaling != 1.0f) { points_s.array() *= m_setting_->scaling; }
+
         // we can only predict the gradient when bhm is available for the point
 
-        if (gradient.cols() < points.cols()) { gradient.resize(Dim, points.cols()); }
+        if (gradient.cols() < points_s.cols()) { gradient.resize(Dim, points_s.cols()); }
         gradient.fill(0.0f);
         BuildBhmKdtree();
 
         absl::flat_hash_map<Key, std::vector<long>> key_to_point_indices;
-        key_to_point_indices.reserve(points.size());
+        key_to_point_indices.reserve(points_s.cols());
         std::vector<Key> bhm_keys_set;
-        bhm_keys_set.reserve(points.size());
+        bhm_keys_set.reserve(points_s.cols());
         long bhm_index = -1;
-        Dtype bhm_distance = 0;
-        for (long i = 0; i < points.size(); ++i) {
-            m_bhm_kdtree_->Nearest(points.col(i), bhm_index, bhm_distance);  // find the nearest bhm
-            bhm_distance = std::sqrt(bhm_distance);                          // distance is squared
-            if (bhm_distance > m_half_bhm_test_size_) { continue; }          // too far from the bhm
+        Dtype bhm_distance_sq = 0;
+        const Dtype half_test_size_sq = m_half_bhm_test_size_ * m_half_bhm_test_size_;
+        for (long i = 0; i < points_s.cols(); ++i) {
+            (void) m_bhm_kdtree_->Nearest(points_s.col(i), bhm_index, bhm_distance_sq);
+            if (bhm_distance_sq > half_test_size_sq) { continue; }  // too far from the bhm
 
             const Key bhm_key = m_key_bhm_positions_[bhm_index].first;
             auto [it, inserted] = key_to_point_indices.insert({bhm_key, std::vector<long>()});
@@ -417,14 +413,14 @@ namespace erl::gp_sdf {
 
         // dynamic scheduling because some local Bayesian Hilbert maps may have more points.
 #pragma omp parallel for if (parallel) default(none) schedule(dynamic) \
-    shared(bhm_keys_set, key_to_point_indices, points, with_sigmoid, parallel, gradient)
+    shared(bhm_keys_set, key_to_point_indices, points_s, with_sigmoid, parallel, gradient)
         for (const Key &bhm_key: bhm_keys_set) {
             const auto &indices = key_to_point_indices[bhm_key];
 
             // copy the points of this key to a new matrix
             MatrixDX points_of_key(Dim, static_cast<long>(indices.size()));
             for (long i = 0; i < points_of_key.cols(); ++i) {
-                points_of_key.col(i) = points.col(indices[i]);
+                points_of_key.col(i) = points_s.col(indices[i]);
             }
 
             // predict
@@ -499,17 +495,23 @@ namespace erl::gp_sdf {
     }
 
     template<typename Dtype, int Dim>
+    const std::vector<std::size_t> &
+    BayesianHilbertSurfaceMapping<Dtype, Dim>::GetUnusedSurfaceDataIndices() const {
+        return this->m_surf_data_manager_.GetAvailableIndices();
+    }
+
+    template<typename Dtype, int Dim>
     const std::vector<typename BayesianHilbertSurfaceMapping<Dtype, Dim>::SurfData> &
     BayesianHilbertSurfaceMapping<Dtype, Dim>::GetSurfaceDataBuffer() const {
         return m_surf_data_manager_.GetBuffer();
     }
 
     template<typename Dtype, int Dim>
-    void
+    std::size_t
     BayesianHilbertSurfaceMapping<Dtype, Dim>::CollectSurfaceDataInAabb(
         const Aabb &aabb,
         std::vector<std::pair<Dtype, std::size_t>> &surface_data_indices) const {
-        surface_data_indices.clear();
+        std::size_t initial_size = surface_data_indices.size();
         for (auto it = m_tree_->BeginTreeInAabb(aabb, m_setting_->bhm_depth),
                   end = m_tree_->EndTreeInAabb();
              it != end;
@@ -521,14 +523,34 @@ namespace erl::gp_sdf {
             const LocalBhm &local_bhm = *bhm_it->second;
             if (!local_bhm.active) { continue; }  // skip inactive local BHM
             for (const auto &[grid_idx, surf_idx]: local_bhm.surface_indices) {
-                ERL_DEBUG_ASSERT(static_cast<long>(surf_idx) != -1l, "surf_idx should not be -1");
+                ERL_DEBUG_ASSERT_NE(static_cast<long>(surf_idx), -1l);
                 const SurfData &surf_data = m_surf_data_manager_[surf_idx];
-                if (surf_data.var_position >= 1.0e6f) { continue; }  // skip bad surface data
                 surface_data_indices.emplace_back(
                     (aabb.center - surf_data.position).norm(),
                     surf_idx);
             }
         }
+        return surface_data_indices.size() - initial_size;
+    }
+
+    template<typename Dtype, int Dim>
+    std::size_t
+    BayesianHilbertSurfaceMapping<Dtype, Dim>::CollectSurfaceDataFromCluster(
+        const Key &key,
+        std::vector<std::size_t> &surface_data_indices) const {
+        Key cluster_key = m_tree_->AdjustKeyToDepth(key, m_setting_->bhm_depth);
+        auto bhm_it = m_key_bhm_dict_.find(cluster_key);
+        if (bhm_it == m_key_bhm_dict_.end()) { return 0; }
+        const LocalBhm &local_bhm = *bhm_it->second;
+        if (!local_bhm.active) { return 0; }  // skip inactive local BHM
+
+        const std::size_t initial_size = surface_data_indices.size();
+        surface_data_indices.reserve(initial_size + local_bhm.surface_indices.size());
+        for (const auto &[grid_idx, surf_idx]: local_bhm.surface_indices) {
+            ERL_DEBUG_ASSERT_NE(static_cast<long>(surf_idx), -1l);
+            surface_data_indices.push_back(surf_idx);
+        }
+        return surface_data_indices.size() - initial_size;
     }
 
     template<typename Dtype, int Dim>
@@ -1196,15 +1218,14 @@ namespace erl::gp_sdf {
 
         const long num_points = end - start;
         const long knn = m_setting_->test_knn;
-        const uint32_t bhm_depth = m_setting_->bhm_depth;
-        Dtype half_size = 0.5f * m_tree_->GetNodeSize(bhm_depth) + m_setting_->bhm_test_margin;
+        const Dtype half_test_size_sq = m_half_bhm_test_size_ * m_half_bhm_test_size_;
 
         (void) parallel;
         // dynamic scheduling because some points may cause `continue`.
 #pragma omp parallel for if (parallel) default(none) schedule(dynamic) \
     shared(num_points,                                                 \
                knn,                                                    \
-               half_size,                                              \
+               half_test_size_sq,                                      \
                logodd,                                                 \
                compute_free_space,                                     \
                compute_gradient,                                       \
@@ -1225,13 +1246,12 @@ namespace erl::gp_sdf {
 
             if (knn == 1) {
                 long bhm_index = -1;
-                Dtype bhm_distance = 0.0f;
-                m_bhm_kdtree_->Nearest(point, bhm_index, bhm_distance);      // find the nearest bhm
-                bhm_distance = std::sqrt(bhm_distance);                      // distance is squared
+                Dtype bhm_distance_sq = 0.0f;
+                (void) m_bhm_kdtree_->Nearest(point, bhm_index, bhm_distance_sq);
                 const Key &bhm_key = m_key_bhm_positions_[bhm_index].first;  // the key of the bhm
                 const auto &local_bhm = m_key_bhm_dict_.at(bhm_key);         // obtain the bhm
 
-                if (bhm_index < 0 || bhm_distance > half_size || !local_bhm->active) {
+                if (bhm_index < 0 || bhm_distance_sq > half_test_size_sq || !local_bhm->active) {
                     if (node == nullptr) { continue; }  // unknown
                     // get the occupancy from the tree
                     prob_occupied_ptr[i] = logodd ? node->GetLogOdds() : node->GetOccupancy();
@@ -1258,15 +1278,15 @@ namespace erl::gp_sdf {
                 continue;
             }
 
-            std::vector<nanoflann::ResultItem<long, Dtype>> bhm_indices_dists;
-            m_bhm_kdtree_->RadiusSearch(point, half_size, bhm_indices_dists, true /*sorted*/);
+            std::vector<typename Kdtree::ResultItem> bhm_idx_dists;
+            (void) m_bhm_kdtree_->RadiusSearch(point, m_half_bhm_test_size_, true, bhm_idx_dists);
             Dtype weight_sum = 0.0f;
             Dtype prob_sum = 0.0f;
             Dtype in_free_space_sum = 0.0f;
             VectorD gradient_sum = VectorD::Zero();
             long cnt = 0;
-            for (auto &idx_dist: bhm_indices_dists) {  // iterate over the neighbors
-                if (cnt >= knn) { break; }             // only use the first knn active neighbors
+            for (auto &idx_dist: bhm_idx_dists) {  // iterate over the neighbors
+                if (cnt >= knn) { break; }         // only use the first knn active neighbors
                 const long &bhm_index = idx_dist.first;
                 const Key &bhm_key = m_key_bhm_positions_[bhm_index].first;    // obtain the bhm key
                 const auto &local_bhm = m_key_bhm_dict_.at(bhm_key);           // obtain the bhm

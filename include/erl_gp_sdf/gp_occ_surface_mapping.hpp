@@ -199,8 +199,8 @@ namespace erl::gp_sdf {
 
         struct Index {
             Key key;
-            int grid_index;
-            std::size_t surf_index;
+            int grid_index = 0;
+            std::size_t surf_index = 0;
         };
 
         // index, updated, to_remove, new_index
@@ -281,13 +281,21 @@ namespace erl::gp_sdf {
         IterateClustersInAabb(const Aabb &aabb, std::function<void(const Key &)> callback)
             const override;
 
+        [[nodiscard]] const std::vector<std::size_t> &
+        GetUnusedSurfaceDataIndices() const override;
+
         [[nodiscard]] const std::vector<SurfData> &
         GetSurfaceDataBuffer() const override;
 
-        void
+        [[nodiscard]] std::size_t
         CollectSurfaceDataInAabb(
             const Aabb &aabb,
             std::vector<std::pair<Dtype, std::size_t>> &surface_data_indices) const override;
+
+        [[nodiscard]] std::size_t
+        CollectSurfaceDataFromCluster(
+            const Key &key,
+            std::vector<std::size_t> &surface_data_indices) const override;
 
         [[nodiscard]] Aabb
         GetMapBoundary() const override;

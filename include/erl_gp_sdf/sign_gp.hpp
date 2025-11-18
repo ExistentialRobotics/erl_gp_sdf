@@ -48,6 +48,7 @@ namespace erl::gp_sdf {
             std::vector<std::pair<Dtype, std::size_t>> &surface_data_indices,
             const std::vector<SurfaceData<Dtype, Dim>> &surface_data_vec,
             const Eigen::Vector<Dtype, Dim> &coord_origin,
+            const bool data_sorted,
             const Dtype normal_scale,
             Dtype offset_distance,
             Dtype sensor_noise,
@@ -59,45 +60,50 @@ namespace erl::gp_sdf {
             const long max_num_samples = std::min(
                 this->m_setting_->max_num_samples,
                 static_cast<long>(surface_data_vec.size()));
+
+            // We are going to modify the buffer. Lock it here to prevent buffer swaps.
+            auto lock = this->GetBufferLock();
             this->Reset(max_num_samples, Dim, 1);
 
-            std::sort(
-                surface_data_indices.begin(),
-                surface_data_indices.end(),
-                [](const auto &a, const auto &b) { return a.first < b.first; });
-            typename Super::TrainSet &train_set = this->m_train_set_;
+            if (!data_sorted) {
+                std::sort(
+                    surface_data_indices.begin(),
+                    surface_data_indices.end(),
+                    [](const auto &a, const auto &b) { return a.first < b.first; });
+            }
+            typename Super::TrainBuf &buf = this->m_buf_loading_;
             const bool load_gradient = !this->m_setting_->no_gradient_observation;
             long count = 0;
             long count_grad = 0;
             for (auto &[distance, surface_data_index]: surface_data_indices) {
-                auto &surface_data = surface_data_vec[surface_data_index];
+                auto &surf_data = surface_data_vec[surface_data_index];
+                if (surf_data.var_position >= 1.0e6f) { continue; }  // skip invalid position
 
-                train_set.x.col(count) = surface_data.position;
-                train_set.y.col(0)[count] = offset_distance;
-                train_set.var_x[count] = surface_data.var_position;
-                train_set.var_y[count] = sensor_noise;
+                buf.x.col(count) = surf_data.position;
+                buf.y.col(0)[count] = offset_distance;
+                buf.var_x[count] = surf_data.var_position;
+                buf.var_y[count] = sensor_noise;
                 if (load_gradient) {
-                    train_set.grad.col(count) = normal_scale * surface_data.normal;
-                    train_set.var_grad[count] = surface_data.var_normal;
+                    buf.grad.col(count) = normal_scale * surf_data.normal;
+                    buf.var_grad[count] = surf_data.var_normal;
                 }
-                train_set.grad_flag[count] = load_gradient;
+                buf.grad_flag[count] = load_gradient;
                 ++count_grad;
 
-                if ((surface_data.var_normal > max_valid_gradient_var) ||  // invalid gradient
-                    (surface_data.normal.norm() < 0.9f)) {                 // invalid normal
-                    train_set.var_x[count] = std::max(train_set.var_x[count], invalid_position_var);
-                    train_set.grad_flag[count] = false;
+                if ((surf_data.var_normal > max_valid_gradient_var) ||  // invalid gradient
+                    (surf_data.normal.norm() < 0.9f)) {                 // invalid normal
+                    buf.var_x[count] = std::max(buf.var_x[count], invalid_position_var);
+                    buf.grad_flag[count] = false;
                     --count_grad;  // revert gradient count
                 }
-                if (++count >= train_set.x.cols()) { break; }  // reached max_num_samples
+                if (++count >= buf.x.cols()) { break; }  // reached max_num_samples
             }
-            train_set.num_samples = count;
-            train_set.num_samples_with_grad = load_gradient ? count_grad : 0;
+            buf.num_samples = count;
+            buf.num_samples_with_grad = load_gradient ? count_grad : 0;
 
             // for GPIS, y=0 does not work, as y* = ktest * K^-1 * y
             // the trick is to set y = offset_distance, then y* = ktest * K^-1 * y - offset_distance
 
-            if (this->m_reduced_rank_kernel_) { this->UpdateKtrain(); }
             return count;
         }
 

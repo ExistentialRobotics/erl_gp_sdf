@@ -35,7 +35,7 @@ namespace erl::gp_sdf {
         const auto gp = reinterpret_cast<const SignGaussianProcess *>(this->m_gp_);
         const auto alpha = gp->m_mat_alpha_.col(y_index).head(gp->m_k_train_cols_);
         const auto &mat_k_test = this->m_mat_k_test_;
-        const Dtype offset = gp->m_train_set_.y.data()[0];
+        const Dtype offset = gp->m_buf_train_.y.data()[0];
         Dtype *f = vec_f_out.data();
 #pragma omp parallel for if (parallel) default(none) \
     shared(num_test, mat_k_test, f, offset, alpha) schedule(static)
@@ -65,7 +65,7 @@ namespace erl::gp_sdf {
         const auto gp = reinterpret_cast<const SignGaussianProcess *>(this->m_gp_);
         const auto alpha = gp->m_mat_alpha_.col(y_index).head(gp->m_k_train_cols_);
         f = this->m_mat_k_test_.col(index).dot(alpha);  // h_{y_index}(x_{index})
-        f -= gp->m_train_set_.y.data()[0];
+        f -= gp->m_buf_train_.y.data()[0];
     }
 
     template<typename Dtype>

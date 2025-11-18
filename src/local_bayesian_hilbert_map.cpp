@@ -56,7 +56,7 @@ namespace erl::gp_sdf {
     LocalBayesianHilbertMap<Dtype, Dim>::GenerateDataset(
         const Eigen::Ref<const VectorD> &sensor_position,
         const Eigen::Ref<const MatrixDX> &points,
-        const std::vector<long> &point_indices) {
+        std::vector<long> &point_indices) {
 
         hit_indices.clear();
         if (points.cols() > 0) {
@@ -71,6 +71,8 @@ namespace erl::gp_sdf {
                 setting->bhm->max_distance,
                 setting->bhm->free_sampling_margin,
                 setting->bhm->free_points_per_meter,
+                max_used_ray_count * 5,
+                bhm.GetRandomGenerator(),
                 // output
                 hit_indices,       // cleared inside
                 ray_info_buffer);  // append to the buffer
@@ -124,6 +126,7 @@ namespace erl::gp_sdf {
             n_points,
             *dataset_points_ptr,
             *dataset_labels_ptr);
+        max_used_ray_count = std::max(max_used_ray_count, n_rays_used);
         unused_ray_count = static_cast<long>(ray_info_buffer.size() - n_rays_used);
 
         // combine extra points if needed
@@ -262,8 +265,8 @@ namespace erl::gp_sdf {
     LocalBayesianHilbertMap<Dtype, Dim>::Update(
         const Eigen::Ref<const VectorD> &sensor_origin,
         const Eigen::Ref<const MatrixDX> &points,
-        const std::vector<long> &point_indices,
-        const bool update_surface_voxels) {
+        const bool update_surface_voxels,
+        std::vector<long> &point_indices) {
 
         active = true;  // assume the map is valid first
         GenerateDataset(sensor_origin, points, point_indices);
@@ -521,6 +524,15 @@ namespace erl::gp_sdf {
                 },
             },
             {
+                "max_used_ray_count",
+                [](const LocalBayesianHilbertMap *self, std::ostream &s) {
+                    s.write(
+                        reinterpret_cast<const char *>(&self->max_used_ray_count),
+                        sizeof(self->max_used_ray_count));
+                    return s.good();
+                },
+            },
+            {
                 "active",
                 [](const LocalBayesianHilbertMap *self, std::ostream &s) {
                     s.write(reinterpret_cast<const char *>(&self->active), sizeof(bool));
@@ -743,6 +755,15 @@ namespace erl::gp_sdf {
                 },
             },
             {
+                "max_used_ray_count",
+                [](LocalBayesianHilbertMap *self, std::istream &s) {
+                    s.read(
+                        reinterpret_cast<char *>(&self->max_used_ray_count),
+                        sizeof(self->max_used_ray_count));
+                    return s.good();
+                },
+            },
+            {
                 "active",
                 [](LocalBayesianHilbertMap *self, std::istream &s) {
                     s.read(reinterpret_cast<char *>(&self->active), sizeof(bool));
@@ -791,6 +812,7 @@ namespace erl::gp_sdf {
         if (hit_point_ring_buffer != other.hit_point_ring_buffer) { return false; }
         if (ray_info_ring_buffer != other.ray_info_ring_buffer) { return false; }
         if (unused_ray_count != other.unused_ray_count) { return false; }
+        if (max_used_ray_count != other.max_used_ray_count) { return false; }
         if (active != other.active) { return false; }
         if (surface_log_odds != other.surface_log_odds) { return false; }
         if (log_odds_count != other.log_odds_count) { return false; }

@@ -105,11 +105,12 @@ namespace erl::gp_sdf {
         std::vector<RayInfo> ray_info_buffer;        // ray info buffer
         common::RingBuffer<VectorD> hit_point_ring_buffer{1};  // hit point ring buffer
         common::RingBuffer<RayInfo> ray_info_ring_buffer{1};   // ray info ring buffer
-        long unused_ray_count = 0;       // number of unused rays in the ray buffer
-        bool active = false;             // whether the local BHM is active
-        SurfaceDataMap surf_data_cache;  // temporary cache
-        Dtype surface_log_odds = 0.0f;   // log-odds value for surface points
-        uint64_t log_odds_count = 1;     // number of log-odds samples
+        long unused_ray_count = 0;           // number of unused rays in the ray buffer
+        std::size_t max_used_ray_count = 0;  // maximum number of used rays for generating dataset
+        bool active = false;                 // whether the local BHM is active
+        SurfaceDataMap surf_data_cache;      // temporary cache
+        Dtype surface_log_odds = 0.0f;       // log-odds value for surface points
+        uint64_t log_odds_count = 1;         // number of log-odds samples
 
         LocalBayesianHilbertMap(
             std::shared_ptr<Setting> setting_,
@@ -127,7 +128,7 @@ namespace erl::gp_sdf {
         GenerateDataset(
             const Eigen::Ref<const VectorD> &sensor_position,
             const Eigen::Ref<const MatrixDX> &points,
-            const std::vector<long> &point_indices);
+            std::vector<long> &point_indices);
 
         bool
         UpdateSurface(const Eigen::Ref<const MatrixDX> &points, bool update_surface_voxels);
@@ -136,8 +137,8 @@ namespace erl::gp_sdf {
         Update(
             const Eigen::Ref<const VectorD> &sensor_origin,
             const Eigen::Ref<const MatrixDX> &points,
-            const std::vector<long> &point_indices,
-            bool update_surface_voxels);
+            bool update_surface_voxels,
+            std::vector<long> &point_indices);
 
         [[nodiscard]] bool
         GetGridCoords(

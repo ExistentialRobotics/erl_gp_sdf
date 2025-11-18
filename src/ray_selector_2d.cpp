@@ -29,7 +29,7 @@ namespace erl::gp_sdf {
             Dtype angle = std::atan2(p.y(), p.x());
             angle = WrapAnglePi(angle);
             angle = std::max(m_setting_->angle_min, std::min(angle, m_setting_->angle_max));
-            long idx = MeterToGrid(angle, m_setting_->angle_min, m_angle_resolution_);
+            const long idx = MeterToGrid(angle, m_setting_->angle_min, m_angle_resolution_);
             m_ray_indices_[idx].push_back(i);
         }
     }

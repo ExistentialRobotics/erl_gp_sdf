@@ -206,7 +206,8 @@ namespace erl::gp_sdf {
         m_changed_keys_.clear();
         if (const Dtype s = m_setting_->scaling; s != 1.0f) {
             ERL_BLOCK_TIMER_MSG("Train sensor GP with scaling");
-            if (!m_sensor_gp_->Train(rotation, translation.array() * s, ranges.array() * s)) {
+            this->m_last_sensor_position_ = translation.array() * s;
+            if (!m_sensor_gp_->Train(rotation, this->m_last_sensor_position_, ranges.array() * s)) {
                 ERL_WARN(
                     "Failed to train the sensor Gaussian process with scaling factor {}. Original "
                     "ranges min: {}, max: {}.",
@@ -217,6 +218,7 @@ namespace erl::gp_sdf {
             }
         } else {
             ERL_BLOCK_TIMER_MSG("Train sensor GP");
+            this->m_last_sensor_position_ = translation;
             if (!m_sensor_gp_->Train(rotation, translation, ranges)) {
                 ERL_WARN(
                     "Failed to train the sensor Gaussian process. Ranges min: {}, max: {}",
@@ -318,23 +320,29 @@ namespace erl::gp_sdf {
     }
 
     template<typename Dtype, int Dim>
+    const std::vector<std::size_t> &
+    GpOccSurfaceMapping<Dtype, Dim>::GetUnusedSurfaceDataIndices() const {
+        return this->m_surf_data_manager_.GetAvailableIndices();
+    }
+
+    template<typename Dtype, int Dim>
     const std::vector<typename GpOccSurfaceMapping<Dtype, Dim>::SurfData> &
     GpOccSurfaceMapping<Dtype, Dim>::GetSurfaceDataBuffer() const {
         return this->m_surf_data_manager_.GetBuffer();
     }
 
     template<typename Dtype, int Dim>
-    void
+    std::size_t
     GpOccSurfaceMapping<Dtype, Dim>::CollectSurfaceDataInAabb(
         const Aabb &aabb,
         std::vector<std::pair<Dtype, std::size_t>> &surface_data_indices) const {
-        surface_data_indices.clear();
+        std::size_t initial_size = surface_data_indices.size();
         if (m_setting_->surface_resolution <= 0) {  // zero resolution, use m_surf_indices0_
             const bool update_occupancy = m_setting_->update_occupancy;
             for (auto it = m_tree_->BeginLeafInAabb(aabb), end = m_tree_->EndLeafInAabb();
                  it != end;
                  ++it) {
-                Key key = it.GetKey();
+                const Key &key = it.GetKey();
                 if (update_occupancy && !m_tree_->IsNodeOccupied(*it)) { continue; }
                 auto surf_it = m_surf_indices0_.find(key);
                 // no surface data for this key
@@ -344,11 +352,11 @@ namespace erl::gp_sdf {
                     (aabb.center - surface_data.position).norm(),
                     surf_it->second);
             }
-            return;
+            return surface_data_indices.size() - initial_size;
         }
         for (auto it = m_tree_->BeginLeafInAabb(aabb), end = m_tree_->EndLeafInAabb(); it != end;
              ++it) {
-            Key key = it.GetKey();
+            const Key &key = it.GetKey();
             auto surf_it = m_surf_indices1_.find(key);
             if (surf_it == m_surf_indices1_.end()) { continue; }  // no surface data for this key
             const absl::flat_hash_map<int, std::size_t> &surf_indices = surf_it->second;
@@ -360,6 +368,42 @@ namespace erl::gp_sdf {
                     surf_index);
             }
         }
+        return surface_data_indices.size() - initial_size;
+    }
+
+    template<typename Dtype, int Dim>
+    std::size_t
+    GpOccSurfaceMapping<Dtype, Dim>::CollectSurfaceDataFromCluster(
+        const Key &key,
+        std::vector<std::size_t> &surface_data_indices) const {
+        std::size_t initial_size = surface_data_indices.size();
+        if (m_setting_->surface_resolution <= 0) {  // zero resolution, use m_surf_indices0_
+            const bool update_occupancy = m_setting_->update_occupancy;
+
+            for (auto it = m_tree_->BeginLeafOfNode(key, m_setting_->cluster_depth),
+                      end = m_tree_->EndLeafOfNode();
+                 it != end;
+                 ++it) {
+                if (update_occupancy && !m_tree_->IsNodeOccupied(*it)) { continue; }
+                auto surf_it = m_surf_indices0_.find(it.GetKey());
+                if (surf_it == m_surf_indices0_.end()) { continue; }
+                surface_data_indices.emplace_back(surf_it->second);
+            }
+            return surface_data_indices.size() - initial_size;
+        }
+        for (auto it = m_tree_->BeginLeafOfNode(key, m_setting_->cluster_depth),
+                  end = m_tree_->EndLeafOfNode();
+             it != end;
+             ++it) {
+            auto surf_it = m_surf_indices1_.find(it.GetKey());
+            if (surf_it == m_surf_indices1_.end()) { continue; }
+            const absl::flat_hash_map<int, std::size_t> &surf_indices = surf_it->second;
+            if (surf_indices.empty()) { continue; }
+            for (const auto &[grid_index, surf_index]: surf_indices) {
+                surface_data_indices.emplace_back(surf_index);
+            }
+        }
+        return surface_data_indices.size() - initial_size;
     }
 
     template<typename Dtype, int Dim>
@@ -842,7 +886,7 @@ namespace erl::gp_sdf {
         ERL_DEBUG_ASSERT(
             m_setting_->surface_resolution > 0,
             "UpdateMapPoints1() should only be called when the surface resolution is > 0");
-        ERL_BLOCK_TIMER();
+        ERL_BLOCK_TIMER_MSG("UpdateMapPoints1");
 
         if (!m_sensor_gp_->IsTrained()) { return; }
         if (this->m_surf_data_manager_.GetBuffer().empty()) { return; }
@@ -1231,7 +1275,7 @@ namespace erl::gp_sdf {
     template<typename Dtype, int Dim>
     void
     GpOccSurfaceMapping<Dtype, Dim>::UpdateOccupancy() {
-        ERL_BLOCK_TIMER();
+        ERL_BLOCK_TIMER_MSG("UpdateOccupancy");
 
         const auto sensor_frame = m_sensor_gp_->GetSensorFrame();
         // In AddNewMeasurement(), only rays classified as hit are used. So, we use the same here to
@@ -1327,7 +1371,7 @@ namespace erl::gp_sdf {
         ERL_DEBUG_ASSERT(
             m_setting_->surface_resolution > 0.0f,
             "AddNewMeasurement1() should only be called when the surface resolution is > 0");
-        ERL_BLOCK_TIMER();
+        ERL_BLOCK_TIMER_MSG("AddNewMeasurement1");
 
         const auto sensor_frame = m_sensor_gp_->GetSensorFrame();
         const long num_hit_rays = sensor_frame->GetNumHitRays();

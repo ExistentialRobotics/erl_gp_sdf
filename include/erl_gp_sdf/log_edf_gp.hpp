@@ -49,7 +49,7 @@ namespace erl::gp_sdf {
 
             template<int Dim>
             [[nodiscard]] bool
-            GetGradientD(long index, long y_index, Dtype *grad) const {
+            GetGradientD(const long index, const long y_index, Dtype *grad) const {
                 ERL_DEBUG_ASSERT(
                     this->m_x_dim_ == Dim,
                     "x_dim = {}, it should be {}.",
@@ -105,6 +105,7 @@ namespace erl::gp_sdf {
             std::vector<std::pair<Dtype, std::size_t>> &surface_data_indices,
             const std::vector<SurfaceData<Dtype, Dim>> &surface_data_vec,
             const Eigen::Vector<Dtype, Dim> &coord_origin,
+            const bool data_sorted,
             const bool load_normals,
             const Dtype normal_scale,
             const Dtype offset_distance,
@@ -119,14 +120,20 @@ namespace erl::gp_sdf {
             this->SetKernelCoordOrigin(coord_origin);
             const long max_num_samples =
                 std::min(m_setting_->max_num_samples, static_cast<long>(surface_data_vec.size()));
+
+            // We are going to modify the buffer. Lock it here to prevent buffer swaps.
+            auto lock = this->GetBufferLock();
+
             this->Reset(max_num_samples, Dim, load_normals ? Dim + 1 : 1);
-            std::sort(
-                surface_data_indices.begin(),
-                surface_data_indices.end(),
-                [](const auto &a, const auto &b) { return a.first < b.first; });
+            if (!data_sorted) {
+                std::sort(
+                    surface_data_indices.begin(),
+                    surface_data_indices.end(),
+                    [](const auto &a, const auto &b) { return a.first < b.first; });
+            }
 
             long count = 0;
-            typename Super::TrainSet &train_set = this->m_train_set_;
+            typename Super::TrainBuf &buf = this->m_buf_loading_;
 
             absl::flat_hash_set<Eigen::Vector<long, Dim>> unique_points;
             unique_points.reserve(max_num_samples);
@@ -135,34 +142,33 @@ namespace erl::gp_sdf {
 
             for (auto &[distance, surface_data_index]: surface_data_indices) {
                 auto &surf_data = surface_data_vec[surface_data_index];
+                if (surf_data.var_position >= 1.0e6f) { continue; }  // skip invalid position
                 if (duplicate_epsilon > 0) {
                     point = (surf_data.position.array() / duplicate_epsilon).template cast<long>();
                     if (!unique_points.insert(point).second) { continue; }  // skip duplicate points
                 }
 
                 if (offset_distance == 0.0f) {
-                    train_set.x.col(count) = surf_data.position;
+                    buf.x.col(count) = surf_data.position;
                 } else {
-                    train_set.x.col(count) =
-                        surf_data.position - offset_distance * surf_data.normal;
+                    buf.x.col(count) = surf_data.position - offset_distance * surf_data.normal;
                 }
-                train_set.y.col(0)[count] = 1.0f;
+                buf.y.col(0)[count] = 1.0f;
                 if (load_normals) {
                     for (long i = 0; i < Dim; ++i) {
-                        train_set.y.col(i + 1)[count] = normal_scale * surf_data.normal[i];
+                        buf.y.col(i + 1)[count] = normal_scale * surf_data.normal[i];
                     }
                 }
-                train_set.var_x[count] = surf_data.var_position;
+                buf.var_x[count] = surf_data.var_position;
                 if ((surf_data.var_normal > max_valid_gradient_var) ||  // invalid gradient
                     (surf_data.normal.norm() < 0.9f)) {                 // invalid normal
-                    train_set.var_x[count] = std::max(train_set.var_x[count], invalid_position_var);
+                    buf.var_x[count] = std::max(buf.var_x[count], invalid_position_var);
                 }
-                train_set.var_y[count] = sensor_noise;
-                if (++count >= train_set.x.cols()) { break; }  // reached max_num_samples
+                buf.var_y[count] = sensor_noise;
+                if (++count >= buf.x.cols()) { break; }  // reached max_num_samples
             }
-            train_set.num_samples = count;
-            train_set.num_samples_with_grad = 0;
-            if (this->m_reduced_rank_kernel_) { this->UpdateKtrain(); }
+            buf.num_samples = count;
+            buf.num_samples_with_grad = 0;
             return count;
         }
 

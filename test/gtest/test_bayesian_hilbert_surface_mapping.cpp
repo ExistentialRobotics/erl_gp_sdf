@@ -180,7 +180,7 @@ TestImpl3D() {
     Options3D<Dtype> options;
     ERL_ASSERTM(options.FromCommandLine(g_argc, g_argv), "Failed to parse command line");
 
-    DataSetType dataset_type = DataSetType::Mesh;
+    auto dataset_type = DataSetType::Mesh;
     if (options.dataset_name == "cow_and_lady") {
         dataset_type = DataSetType::CowAndLady;
         ERL_ASSERTM(
@@ -314,7 +314,7 @@ TestImpl3D() {
                 !options.newer_college_dir.empty(),
                 "Please provide the Newer College dataset directory via --newer-college-dir");
             newer_college = std::make_shared<NewerCollege>(options.newer_college_dir);
-            max_wp_idx = newer_college->Size();
+            max_wp_idx = erl::geometry::NewerCollege::Size();
             auto pcd = newer_college->GetGroundTruthPointCloud();
             gt_surface_points.resize(3, pcd->points_.size());
             for (size_t i = 0; i < pcd->points_.size(); ++i) {
@@ -322,8 +322,8 @@ TestImpl3D() {
             }
             pcd = pcd->RandomDownSample(0.05);
             geometries.push_back(pcd);
-            map_min = newer_college->GetMapMin().cast<Dtype>();
-            map_max = newer_college->GetMapMax().cast<Dtype>();
+            map_min = erl::geometry::NewerCollege::GetMapMin().cast<Dtype>();
+            map_max = erl::geometry::NewerCollege::GetMapMax().cast<Dtype>();
             is_lidar = true;
             ERL_ASSERTM(
                 options.start_wp_idx < newer_college->Size(),
@@ -344,6 +344,7 @@ TestImpl3D() {
     // prepare the mapping
     const auto bhsm_setting = std::make_shared<typename BayesianHilbertSurfaceMapping::Setting>();
     ASSERT_TRUE(bhsm_setting->FromYamlFile(options.surface_mapping_config_file));
+    bhsm_setting->AsYamlFile(test_output_dir / "config.yaml");
     BayesianHilbertSurfaceMapping bhsm(bhsm_setting);
 
     // prepare the visualizer
@@ -531,14 +532,14 @@ TestImpl3D() {
             grid_map_info.GenerateMeterCoordinates(false).template cast<Dtype>();
         test_positions.row(2).setConstant(options.test_z + map_boundary.center[2] * scaling);
         VectorX prob_occupied;
+        Eigen::VectorXb in_free_space;
         {
             ERL_BLOCK_TIMER_MSG("bhsm.Predict");
             Matrix3X gradient;
-            Eigen::VectorXb in_free_space;
             bhsm.Predict(
                 test_positions,
                 false /*logodd*/,
-                false /*compute_free_space*/,
+                true /*compute_free_space*/,
                 false /*compute_gradient*/,
                 false /*gradient_with_sigmoid*/,
                 true /*parallel*/,
@@ -556,10 +557,16 @@ TestImpl3D() {
             grid_map_info.Shape(1),
             (prob_occupied.array() > 0.5).template cast<Dtype>(),
             true);
+        const cv::Mat free_space_img = ConvertVectorToImage<Dtype>(
+            grid_map_info.Shape(0),
+            grid_map_info.Shape(1),
+            in_free_space.cast<Dtype>(),
+            false);
         ConvertToVoxelGrid<Dtype>(prob_occupied_img, test_positions, o3d_voxel_grid);
         vis->UpdateGeometry(o3d_voxel_grid);
         cv::imshow("prob_occupied", prob_occupied_img);
         cv::imshow("occupancy", occupancy_img);
+        cv::imshow("free_space", free_space_img);
         cv::waitKey(1);
     };
 
@@ -598,7 +605,7 @@ TestImpl3D() {
         /// update the image
         cv::putText(
             ranges_img,
-            fmt::format("update {:.2f} fps", bhsm_update_fps),
+            fmt::format("wp_idx: {}/{}\nupdate {:.2f} fps", wp_idx, max_wp_idx, bhsm_update_fps),
             cv::Point(10, 30),
             cv::FONT_HERSHEY_PLAIN,
             1.5,

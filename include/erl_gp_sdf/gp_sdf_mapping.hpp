@@ -24,6 +24,7 @@ namespace erl::gp_sdf {
         using SdfGp = SdfGaussianProcess<Dtype, Dim>;
         using Setting = GpSdfMappingSetting<Dtype, Dim>;
         using KdTree = geometry::KdTreeEigenAdaptor<Dtype, Dim>;
+        using KdTreePtr = std::shared_ptr<KdTree>;
 
         using Key = typename SurfaceMapping::Key;
         using KeySet = typename SurfaceMapping::KeySet;
@@ -42,16 +43,21 @@ namespace erl::gp_sdf {
 
     private:
         template<typename T>
-        struct Greater {
+        struct Less {
             [[nodiscard]] bool
             operator()(const T &lhs, const T &rhs) const {
-                return lhs.time_stamp > rhs.time_stamp;
+                return lhs.priority < rhs.priority;
             }
         };
 
+        using GpPtr = std::shared_ptr<SdfGp>;
+        using KeyGpMap = absl::flat_hash_map<Key, GpPtr>;
+        using KeyGpPair = std::pair<Key, GpPtr>;
+        using Aabb = geometry::Aabb<Dtype, Dim>;
+
         struct PriorityQueueItem {
-            long time_stamp = 0;
-            Key key{};
+            Dtype priority = 0;
+            KeyGpPair key_gp_pair{};
         };
 
         using PriorityQueue = boost::heap::d_ary_heap<
@@ -59,15 +65,11 @@ namespace erl::gp_sdf {
             boost::heap::mutable_<true>,
             boost::heap::stable<true>,
             boost::heap::arity<8>,
-            boost::heap::compare<Greater<PriorityQueueItem>>>;
+            boost::heap::compare<Less<PriorityQueueItem>>>;  // max-heap
 
         using KeyQueueMap = absl::flat_hash_map<Key, typename PriorityQueue::handle_type>;
-        using KeyGpMap = absl::flat_hash_map<Key, std::shared_ptr<SdfGp>>;
-        using KeyGpPair = std::pair<Key, std::shared_ptr<SdfGp>>;
-        using Aabb = geometry::Aabb<Dtype, Dim>;
 
         struct TestBuffer {
-
             std::unique_ptr<Eigen::Ref<const MatrixDX>> positions = nullptr;
             std::unique_ptr<Eigen::Ref<VectorX>> distances = nullptr;
             std::unique_ptr<Eigen::Ref<MatrixDX>> gradients = nullptr;
@@ -104,19 +106,27 @@ namespace erl::gp_sdf {
         std::mutex m_mutex_;
         std::shared_ptr<Setting> m_setting_ = std::make_shared<Setting>();
         std::shared_ptr<SurfaceMapping> m_surface_mapping_ = nullptr;  // RACING CONDITION.
-        KeyGpMap m_gp_map_ = {};                 // key -> gp, RACING CONDITION.
-        KeyVector m_affected_clusters_ = {};     // stores clusters to update
-        KeyQueueMap m_cluster_queue_keys_ = {};  // caching clusters in the queue to be updated
-        PriorityQueue m_cluster_queue_;          // queue clusters, smaller time_stamp first (FIFO)
-        std::vector<KeyGpPair> m_clusters_to_train_ = {};  // clusters to train, RACING CONDITION.
-        std::vector<KeyGpPair> m_candidate_gps_ = {};      // for testing
-        std::shared_ptr<KdTree> m_kdtree_candidate_gps_ = nullptr;  // to search candidate GPs
-        Aabb m_map_boundary_ = {};  // for testing, boundary of the surface map
-        std::vector<std::vector<std::pair<Dtype, KeyGpPair>>> m_query_to_gps_ = {};  // for testing
-        Eigen::VectorXb m_in_free_space_ = {};  // if query positions are in free space
+        KeyGpMap m_gp_map_ = {};                // key -> gp, RACING CONDITION.
+        KeyQueueMap m_queue_keys_ = {};         // caching keys in the queue
+        PriorityQueue m_load_data_queue_;       // queue for loading surface data
+        double m_load_surf_data_time_us_ = 10;  // time spent for loading surface data
         double m_train_gp_time_us_ = 10;        // time spent for training GPs
-        TestBuffer m_test_buffer_ = {};
+
+        // temporary data for parallelism and test
+        KdTreePtr m_kdtree_surf_data_ = nullptr;  // for loading surface data
+        std::vector<std::vector<std::size_t>> m_surf_data_indices_{};
+        std::vector<std::vector<std::pair<Dtype, std::size_t>>> m_surf_data_dist_indices_{};
+        KeySet m_clusters_to_collect_data_ = {};                // stores clusters to collect data
+        KeySet m_clusters_to_load_data_ = {};                   // stores clusters to update
+        std::vector<GpPtr> m_gps_to_load_data_{};               // GPs to load surface data
+        std::vector<std::pair<long, GpPtr>> m_gps_to_train_{};  // GPs to train, [priority, gp]
+        std::vector<GpPtr> m_candidate_gps_{};                  // for test
+        KdTreePtr m_kdtree_candidate_gps_ = nullptr;            // for test to search candidate GPs
+        Aabb m_map_boundary_{};                                 // for test, boundary of the map
+        std::vector<std::vector<GpPtr>> m_query_to_gps_;        // for test
+        Eigen::VectorXb m_in_free_space_{};                     // if queries are in free space
         std::vector<std::array<std::shared_ptr<SdfGp>, (Dim - 1) * 2>> m_query_used_gps_ = {};
+        TestBuffer m_test_buffer_{};
 
     public:
         GpSdfMapping(
@@ -202,11 +212,34 @@ namespace erl::gp_sdf {
         CollectChangedClusters();
 
         void
-        UpdateClusterQueue();
+        UpdateLoadDataQueue();
 
+        // Load surface data to the GPs in m_gps_to_load_data_
+        void
+        LoadSurfaceData();
+
+        /**
+         * Do the actual loading of surface data for GPs.
+         * @param thread_idx the index of the thread
+         * @param start_idx the start index (inclusive)
+         * @param end_idx the end index (exclusive)
+         */
+        void
+        LoadSurfaceDataThread(uint32_t thread_idx, std::size_t start_idx, std::size_t end_idx);
+
+        void
+        CollectGpsToTrain();
+
+        // Train the GPs in m_gps_to_train_
         void
         TrainGps();
 
+        /**
+         * Do the actual training for GPs.
+         * @param thread_idx the index of the thread
+         * @param start_idx the start index (inclusive)
+         * @param end_idx the end index (exclusive)
+         */
         void
         TrainGpThread(uint32_t thread_idx, std::size_t start_idx, std::size_t end_idx);
 
@@ -226,11 +259,20 @@ namespace erl::gp_sdf {
         void
         TestGpThread(uint32_t thread_idx, std::size_t start_idx, std::size_t end_idx);
 
+        struct IndexedMetric {
+            long idx = 0;
+            std::size_t gp_idx = 0;
+            Dtype metric = 0;
+
+            IndexedMetric(long result_idx_, std::size_t gp_idx_, Dtype metric_)
+                : idx(result_idx_), gp_idx(gp_idx_), metric(metric_) {}
+        };
+
         template<int D>
         std::enable_if_t<D == 3, void>
         ComputeWeightedSum(
             uint32_t i,
-            const std::vector<std::pair<long, long>> &tested_idx,
+            const std::vector<IndexedMetric> &indexed_metrics,
             const Eigen::Matrix<Dtype, 7, Eigen::Dynamic> &fs,
             const Variances &variances,
             const Covariances &covariances);
@@ -239,7 +281,7 @@ namespace erl::gp_sdf {
         std::enable_if_t<D == 2, void>
         ComputeWeightedSum(
             uint32_t i,
-            const std::vector<std::pair<long, long>> &tested_idx,
+            const std::vector<IndexedMetric> &indexed_metrics,
             const Eigen::Matrix<Dtype, 5, Eigen::Dynamic> &fs,
             const Variances &variances,
             const Covariances &covariances);

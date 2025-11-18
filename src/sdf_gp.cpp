@@ -10,16 +10,23 @@ namespace erl::gp_sdf {
                         (setting->sign_method == SignMethod::kHybrid &&
                          (setting->hybrid_sign_methods.first == SignMethod::kNormalGp ||
                           setting->hybrid_sign_methods.second == SignMethod::kNormalGp));
+        std::array<Dtype, Dim> mean_pos{};
+        mean_pos.fill(0);
+        running_mean_position.store(mean_pos);
     }
 
     template<typename Dtype, int Dim>
     SdfGaussianProcess<Dtype, Dim>::SdfGaussianProcess(const SdfGaussianProcess &other)
         : setting(other.setting),
           active(other.active),
-          outdated(other.outdated),
+          time_stamp(other.time_stamp),
+          buf_outdated_count(other.buf_outdated_count),
+          gp_outdated_count(other.gp_outdated_count.load()),
+          query_count(other.query_count.load()),
           use_normal_gp(other.use_normal_gp),
-          locked_for_test(other.locked_for_test.load()),
           position(other.position),
+          running_mean_position(other.running_mean_position.load()),
+          running_num_samples(other.running_num_samples),
           half_size(other.half_size) {
         if (other.sign_gp != nullptr) { sign_gp = std::make_shared<SignGp>(*other.sign_gp); }
         if (other.edf_gp != nullptr) { edf_gp = std::make_shared<EdfGp>(*other.edf_gp); }
@@ -27,12 +34,16 @@ namespace erl::gp_sdf {
 
     template<typename Dtype, int Dim>
     SdfGaussianProcess<Dtype, Dim>::SdfGaussianProcess(SdfGaussianProcess &&other) noexcept
-        : setting(other.setting),
+        : setting(std::move(other.setting)),
           active(other.active),
-          outdated(other.outdated),
+          time_stamp(other.time_stamp),
+          buf_outdated_count(other.buf_outdated_count),
+          gp_outdated_count(other.gp_outdated_count.load()),
+          query_count(other.query_count.load()),
           use_normal_gp(other.use_normal_gp),
-          locked_for_test(other.locked_for_test.load()),
           position(std::move(other.position)),
+          running_mean_position(other.running_mean_position.load()),
+          running_num_samples(other.running_num_samples),
           half_size(other.half_size),
           sign_gp(std::move(other.sign_gp)),
           edf_gp(std::move(other.edf_gp)) {}
@@ -43,10 +54,14 @@ namespace erl::gp_sdf {
         if (this == &other) { return *this; }
         setting = other.setting;
         active = other.active;
-        outdated = other.outdated;
+        time_stamp = other.time_stamp;
+        buf_outdated_count = other.buf_outdated_count;
+        gp_outdated_count.store(other.gp_outdated_count.load());
+        query_count.store(other.query_count.load());
         use_normal_gp = other.use_normal_gp;
-        locked_for_test = other.locked_for_test.load();
         position = other.position;
+        running_mean_position.store(other.running_mean_position.load());
+        running_num_samples = other.running_num_samples;
         half_size = other.half_size;
         if (other.sign_gp != nullptr) {
             sign_gp = std::make_shared<SignGp>(*other.sign_gp);
@@ -67,9 +82,13 @@ namespace erl::gp_sdf {
         if (this == &other) { return *this; }
         setting = other.setting;
         active = other.active;
-        outdated = other.outdated;
+        time_stamp = other.time_stamp;
+        buf_outdated_count = other.buf_outdated_count;
+        gp_outdated_count.store(other.gp_outdated_count.load());
+        query_count.store(other.query_count.load());
         use_normal_gp = other.use_normal_gp;
-        locked_for_test = other.locked_for_test.load();
+        running_mean_position.store(other.running_mean_position.load());
+        running_num_samples = other.running_num_samples;
         position = other.position;
         half_size = other.half_size;
         sign_gp = std::move(other.sign_gp);
@@ -99,8 +118,64 @@ namespace erl::gp_sdf {
 
     template<typename Dtype, int Dim>
     void
-    SdfGaussianProcess<Dtype, Dim>::MarkOutdated() {
-        outdated = true;
+    SdfGaussianProcess<Dtype, Dim>::MarkBufferOutdated() {
+        ++buf_outdated_count;
+    }
+
+    template<typename Dtype, int Dim>
+    void
+    SdfGaussianProcess<Dtype, Dim>::MarkGpOutdated() {
+        ++gp_outdated_count;
+    }
+
+    template<typename Dtype, int Dim>
+    void
+    SdfGaussianProcess<Dtype, Dim>::MarkQueried() {
+        constexpr long max_query_count = 10000;
+        if (query_count.load() < max_query_count) { ++query_count; }
+    }
+
+    template<typename Dtype, int Dim>
+    bool
+    SdfGaussianProcess<Dtype, Dim>::BufferOutdated() const {
+        return buf_outdated_count > 0;
+    }
+
+    template<typename Dtype, int Dim>
+    bool
+    SdfGaussianProcess<Dtype, Dim>::GpOutdated() const {
+        return gp_outdated_count.load() > 0;
+    }
+
+    template<typename Dtype, int Dim>
+    Dtype
+    SdfGaussianProcess<Dtype, Dim>::GetLoadingPriority(const Dtype query_count_weight) const {
+        return static_cast<Dtype>(buf_outdated_count) *
+               (1.0f + query_count_weight * static_cast<Dtype>(query_count.load()));
+    }
+
+    template<typename Dtype, int Dim>
+    Dtype
+    SdfGaussianProcess<Dtype, Dim>::GetRetrainPriority(Dtype query_count_weight) const {
+        return static_cast<Dtype>(gp_outdated_count.load()) *
+               (1.0f + query_count_weight * static_cast<Dtype>(query_count.load()));
+    }
+
+    template<typename Dtype, int Dim>
+    void
+    SdfGaussianProcess<Dtype, Dim>::SetMeanPosition(const VectorD &mean_position) {
+        std::array<Dtype, Dim> pos;
+        for (int i = 0; i < Dim; ++i) { pos[i] = mean_position[i]; }
+        running_mean_position.store(pos);
+    }
+
+    template<typename Dtype, int Dim>
+    typename SdfGaussianProcess<Dtype, Dim>::VectorD
+    SdfGaussianProcess<Dtype, Dim>::GetMeanPosition() const {
+        VectorD pos;
+        std::array<Dtype, Dim> mean_pos = running_mean_position.load();
+        for (int i = 0; i < Dim; ++i) { pos[i] = mean_pos[i]; }
+        return pos;
     }
 
     template<typename Dtype, int Dim>
@@ -139,36 +214,57 @@ namespace erl::gp_sdf {
     }
 
     template<typename Dtype, int Dim>
-    void
+    bool
     SdfGaussianProcess<Dtype, Dim>::LoadSurfaceData(
         std::vector<std::pair<Dtype, std::size_t>> &surface_data_indices,
         const std::vector<SurfaceData<Dtype, Dim>> &surface_data_vec,
+        const bool data_sorted,
         Dtype sensor_noise,
         Dtype max_valid_gradient_var,
         Dtype invalid_position_var) {
+        bool loaded = false;
         if (sign_gp != nullptr) {
-            sign_gp->template LoadSurfaceData<Dim>(
+            loaded |= sign_gp->template LoadSurfaceData<Dim>(
                 surface_data_indices,
                 surface_data_vec,
                 position,
+                data_sorted,
                 setting->normal_scale,
                 setting->sign_gp_offset_distance,
                 sensor_noise,
                 max_valid_gradient_var,
                 invalid_position_var);
         }
-        if (edf_gp != nullptr) {
-            edf_gp->template LoadSurfaceData<Dim>(
-                surface_data_indices,
-                surface_data_vec,
-                position,
-                use_normal_gp,
-                setting->normal_scale,
-                setting->edf_gp_offset_distance,
-                sensor_noise,
-                max_valid_gradient_var,
-                invalid_position_var);
+        if (edf_gp != nullptr && edf_gp->template LoadSurfaceData<Dim>(
+                                     surface_data_indices,
+                                     surface_data_vec,
+                                     position,
+                                     data_sorted,
+                                     use_normal_gp,
+                                     setting->normal_scale,
+                                     setting->edf_gp_offset_distance,
+                                     sensor_noise,
+                                     max_valid_gradient_var,
+                                     invalid_position_var)) {
+            loaded = true;
+            auto &buf = edf_gp->GetLoadingBuffer();
+            std::array<Dtype, Dim> mean_pos = running_mean_position.load();
+            for (int i = 0; i < Dim; ++i) {
+                mean_pos[i] *= static_cast<Dtype>(running_num_samples);
+            }
+            for (long i = 0; i < buf.num_samples; ++i) {
+                auto p = buf.x.col(i);
+                for (int d = 0; d < Dim; ++d) { mean_pos[d] += p[d]; }
+            }
+            running_num_samples += buf.num_samples;
+            for (int i = 0; i < Dim; ++i) {
+                mean_pos[i] /= static_cast<Dtype>(running_num_samples);
+            }
+            running_mean_position.store(mean_pos);
         }
+        gp_outdated_count += buf_outdated_count;
+        buf_outdated_count = 0;
+        return loaded;
     }
 
     template<typename Dtype, int Dim>
@@ -182,10 +278,14 @@ namespace erl::gp_sdf {
     void
     SdfGaussianProcess<Dtype, Dim>::Train() {
         ERL_DEBUG_ASSERT(active, "SdfGaussianProcess is not active.");
-        if (sign_gp != nullptr) { sign_gp->Train(); }
-        if (edf_gp != nullptr) { edf_gp->Train(); }
-        outdated = false;  // mark as not outdated after training
-        time_stamp = std::chrono::high_resolution_clock::now().time_since_epoch().count();
+        bool trained = false;
+        if (sign_gp != nullptr) { trained |= sign_gp->ReTrain(); }
+        if (edf_gp != nullptr) { trained |= edf_gp->ReTrain(); }
+        if (trained) {
+            gp_outdated_count.store(0);
+            query_count.store(query_count.load() / 2);  // decay query count
+            time_stamp = std::chrono::high_resolution_clock::now().time_since_epoch().count();
+        }
     }
 
     template<typename Dtype, int Dim>
@@ -217,7 +317,8 @@ namespace erl::gp_sdf {
             edf_gp->Test(test_position, compute_gradient || use_normal_gp));
         edf_result.GetMean(0, 0, edf);
         if (!std::isfinite(edf)) {  // invalid sdf
-            var[0] = 1e6f;          // set a large variance if sdf is invalid
+            ERL_DEBUG("edf is not finite at position [{}].", test_position.transpose());
+            var[0] = 1e6f;  // set a large variance if sdf is invalid
             return false;
         }
         sdf = edf - setting->edf_gp_offset_distance;
@@ -246,6 +347,7 @@ namespace erl::gp_sdf {
             case SignMethod::kNormalGp: {
                 auto normal = f.template tail<Dim>();
                 if (!edf_result.template GetGradientD<Dim>(0, 0, sdf_gradient.data())) {
+                    ERL_DEBUG("Failed to predict gradient.");
                     var[0] = 1e6f;
                     return false;
                 }
@@ -270,6 +372,7 @@ namespace erl::gp_sdf {
         // compute sdf gradient
         if (compute_gradient && !sdf_gradient_computed) {
             if (!edf_result.template GetGradientD<Dim>(0, 0, sdf_gradient.data())) {
+                ERL_DEBUG("Failed to predict gradient.");
                 var[0] = 1e6f;
                 return false;
             }
@@ -308,11 +411,14 @@ namespace erl::gp_sdf {
         }
         if (active != other.active) { return false; }
         if (time_stamp != other.time_stamp) { return false; }
-        if (outdated != other.outdated) { return false; }
+        if (buf_outdated_count != other.buf_outdated_count) { return false; }
+        if (gp_outdated_count.load() != other.gp_outdated_count.load()) { return false; }
+        if (query_count != other.query_count) { return false; }
         if (use_normal_gp != other.use_normal_gp) { return false; }
-        if (locked_for_test.load() != other.locked_for_test.load()) { return false; }
         if (position != other.position) { return false; }
         if (half_size != other.half_size) { return false; }
+        if (running_num_samples != other.running_num_samples) { return false; }
+        if (running_mean_position.load() != other.running_mean_position.load()) { return false; }
         if (sign_gp == nullptr && other.sign_gp != nullptr) { return false; }
         if (sign_gp != nullptr && (other.sign_gp == nullptr || *sign_gp != *other.sign_gp)) {
             return false;
@@ -354,9 +460,28 @@ namespace erl::gp_sdf {
                 },
             },
             {
-                "outdated",
+                "buf_outdated_count",
                 [](const SdfGaussianProcess *gp, std::ostream &s) -> bool {
-                    s << gp->outdated;
+                    s.write(
+                        reinterpret_cast<const char *>(&gp->buf_outdated_count),
+                        sizeof(gp->buf_outdated_count));
+                    return s.good();
+                },
+            },
+            {
+                "gp_outdated_count",
+                [](const SdfGaussianProcess *gp, std::ostream &s) -> bool {
+                    const long count = gp->gp_outdated_count.load();
+                    s.write(reinterpret_cast<const char *>(&count), sizeof(count));
+                    return s.good();
+                },
+            },
+            {
+                "query_count",
+                [](const SdfGaussianProcess *gp, std::ostream &s) -> bool {
+                    s.write(
+                        reinterpret_cast<const char *>(&gp->query_count),
+                        sizeof(gp->query_count));
                     return s.good();
                 },
             },
@@ -364,13 +489,6 @@ namespace erl::gp_sdf {
                 "use_normal_gp",
                 [](const SdfGaussianProcess *gp, std::ostream &s) -> bool {
                     s << gp->use_normal_gp;
-                    return s.good();
-                },
-            },
-            {
-                "locked_for_test",
-                [](const SdfGaussianProcess *gp, std::ostream &s) -> bool {
-                    s << gp->locked_for_test.load();
                     return s.good();
                 },
             },
@@ -384,6 +502,25 @@ namespace erl::gp_sdf {
                 "half_size",
                 [](const SdfGaussianProcess *gp, std::ostream &s) -> bool {
                     s.write(reinterpret_cast<const char *>(&gp->half_size), sizeof(gp->half_size));
+                    return s.good();
+                },
+            },
+            {
+                "running_mean_position",
+                [](const SdfGaussianProcess *gp, std::ostream &s) -> bool {
+                    std::array<Dtype, Dim> mean_pos = gp->running_mean_position.load();
+                    for (std::size_t i = 0; i < Dim; ++i) {
+                        s.write(reinterpret_cast<const char *>(&mean_pos[i]), sizeof(Dtype));
+                    }
+                    return s.good();
+                },
+            },
+            {
+                "running_num_samples",
+                [](const SdfGaussianProcess *gp, std::ostream &s) -> bool {
+                    s.write(
+                        reinterpret_cast<const char *>(&gp->running_num_samples),
+                        sizeof(gp->running_num_samples));
                     return s.good();
                 },
             },
@@ -428,9 +565,27 @@ namespace erl::gp_sdf {
                 },
             },
             {
-                "outdated",
+                "buf_outdated_count",
                 [](SdfGaussianProcess *gp, std::istream &s) -> bool {
-                    s >> gp->outdated;
+                    s.read(
+                        reinterpret_cast<char *>(&gp->buf_outdated_count),
+                        sizeof(gp->buf_outdated_count));
+                    return s.good();
+                },
+            },
+            {
+                "gp_outdated_count",
+                [](SdfGaussianProcess *gp, std::istream &s) -> bool {
+                    long count;
+                    s.read(reinterpret_cast<char *>(&count), sizeof(count));
+                    gp->gp_outdated_count.store(count);
+                    return s.good();
+                },
+            },
+            {
+                "query_count",
+                [](SdfGaussianProcess *gp, std::istream &s) -> bool {
+                    s.read(reinterpret_cast<char *>(&gp->query_count), sizeof(gp->query_count));
                     return s.good();
                 },
             },
@@ -438,15 +593,6 @@ namespace erl::gp_sdf {
                 "use_normal_gp",
                 [](SdfGaussianProcess *gp, std::istream &s) -> bool {
                     s >> gp->use_normal_gp;
-                    return s.good();
-                },
-            },
-            {
-                "locked_for_test",
-                [](SdfGaussianProcess *gp, std::istream &s) -> bool {
-                    bool locked;
-                    s >> locked;
-                    gp->locked_for_test.store(locked);
                     return s.good();
                 },
             },
@@ -460,6 +606,26 @@ namespace erl::gp_sdf {
                 "half_size",
                 [](SdfGaussianProcess *gp, std::istream &s) -> bool {
                     s.read(reinterpret_cast<char *>(&gp->half_size), sizeof(gp->half_size));
+                    return s.good();
+                },
+            },
+            {
+                "running_mean_position",
+                [](SdfGaussianProcess *gp, std::istream &s) -> bool {
+                    std::array<Dtype, Dim> mean_pos;
+                    for (std::size_t i = 0; i < Dim; ++i) {
+                        s.read(reinterpret_cast<char *>(&mean_pos[i]), sizeof(Dtype));
+                    }
+                    gp->running_mean_position.store(mean_pos);
+                    return s.good();
+                },
+            },
+            {
+                "running_num_samples",
+                [](SdfGaussianProcess *gp, std::istream &s) -> bool {
+                    s.read(
+                        reinterpret_cast<char *>(&gp->running_num_samples),
+                        sizeof(gp->running_num_samples));
                     return s.good();
                 },
             },
@@ -509,8 +675,8 @@ namespace erl::gp_sdf {
         Dtype *var,
         Dtype *covariance) const {
 
-        const typename LogEdfGaussianProcess<Dtype>::TrainSet &train_set = edf_gp->GetTrainSet();
-        const long num_samples = train_set.num_samples;
+        const typename LogEdfGaussianProcess<Dtype>::TrainBuf &train_buf = edf_gp->GetTrainBuffer();
+        const long num_samples = train_buf.num_samples;
         const Dtype softmin_temperature = setting->softmin_temperature;
         const bool compute_cov_grad = compute_gradient_variance || compute_covariance;
 
@@ -519,7 +685,7 @@ namespace erl::gp_sdf {
         VectorX z(num_samples);
         Eigen::Matrix<Dtype, Dim, Eigen::Dynamic> mat_v(Dim, num_samples);
         for (long k = 0; k < num_samples; ++k) {
-            const VectorD v = test_position - train_set.x.col(k);
+            const VectorD v = test_position - train_buf.x.col(k);
             Dtype &d = z[k];
             d = v.norm();  // distance to the training sample
 
@@ -539,7 +705,7 @@ namespace erl::gp_sdf {
         for (long k = 0; k < num_samples; ++k) {
             Dtype &w = l[k];
             w = inv_s_sum * s[k] * (1.0f + softmin_temperature * (sz - z[k]));
-            var[0] += w * w * train_set.var_x[k];
+            var[0] += w * w * train_buf.var_x[k];
             if (!compute_cov_grad) { continue; }
             g += w * mat_v.col(k);
             f += s[k] * mat_v.col(k);
@@ -562,7 +728,7 @@ namespace erl::gp_sdf {
                 SqMat grad_j = vj * v.transpose();
                 grad_j.diagonal().array() -= c;
                 grad_j = grad_j * grad_norm;
-                cov_grad += train_set.var_x[j] * (grad_j.transpose() * grad_j);
+                cov_grad += train_buf.var_x[j] * (grad_j.transpose() * grad_j);
             }
         }
 

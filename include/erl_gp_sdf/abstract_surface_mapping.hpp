@@ -38,9 +38,9 @@ namespace erl::gp_sdf {
         using Face = Eigen::Vector<int, Dim>;
 
     protected:
-        std::mutex m_mutex_;
-        // surface data manager to manage the surface data buffer
-        SurfDataManager m_surf_data_manager_;
+        std::mutex m_mutex_;                   // mutex for thread safety
+        SurfDataManager m_surf_data_manager_;  // manage the surface data buffer
+        VectorD m_last_sensor_position_;       // last sensor position
 
     public:
         virtual ~AbstractSurfaceMapping() = default;
@@ -54,6 +54,9 @@ namespace erl::gp_sdf {
 
         [[nodiscard]] const SurfDataManager &
         GetSurfaceDataManager() const;
+
+        [[nodiscard]] const VectorD &
+        GetLastSensorPosition() const;
 
         /**
          * Update the surface mapping with the sensor observation.
@@ -123,6 +126,9 @@ namespace erl::gp_sdf {
         IterateClustersInAabb(const Aabb &aabb, std::function<void(const Key &)> callback)
             const = 0;
 
+        [[nodiscard]] virtual const std::vector<std::size_t> &
+        GetUnusedSurfaceDataIndices() const = 0;
+
         /**
          * Get the surface data buffer.
          * @return vector of surface data.
@@ -134,11 +140,23 @@ namespace erl::gp_sdf {
          * Collect surface data in the given axis-aligned bounding box.
          * @param aabb the axis-aligned bounding box to collect surface data.
          * @param surface_data_indices vector of (distance to point, surface point index).
+         * @return the number of collected surface data.
          */
-        virtual void
+        virtual std::size_t
         CollectSurfaceDataInAabb(
             const Aabb &aabb,
             std::vector<std::pair<Dtype, std::size_t>> &surface_data_indices) const = 0;
+
+        /**
+         * Collect surface data from the given cluster.
+         * @param key The key of the cluster to collect surface data from.
+         * @param surface_data_indices vector to store the indices of the surface data.
+         * @return the number of collected surface data.
+         */
+        virtual std::size_t
+        CollectSurfaceDataFromCluster(
+            const Key &key,
+            std::vector<std::size_t> &surface_data_indices) const = 0;
 
         virtual void
         GetMesh(std::vector<VectorD> &vertices, std::vector<Face> &faces) const;

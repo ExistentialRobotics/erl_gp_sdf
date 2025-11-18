@@ -60,15 +60,18 @@ namespace erl::gp_sdf {
         using VectorX = Eigen::VectorX<Dtype>;
 
         std::shared_ptr<Setting> setting = nullptr;
-        bool active = false;
-        long time_stamp = 0;   // last update timestamp
-        bool outdated = true;  // whether the GP is outdated and needs to be retrained
-        bool use_normal_gp = false;
-        std::atomic_bool locked_for_test = false;
-        VectorD position{};
-        Dtype half_size = 0;
-        std::shared_ptr<SignGp> sign_gp = nullptr;
-        std::shared_ptr<EdfGp> edf_gp = nullptr;  // initialized in Activate().
+        bool active = false;                     // true if the GP is active
+        long time_stamp = 0;                     // last update timestamp
+        long buf_outdated_count = 10000;         // C1: num of times buffer marked outdated
+        std::atomic_long gp_outdated_count = 0;  // C2: num of times GP marked outdated
+        std::atomic_long query_count = 0;        // C3: num of times queried
+        bool use_normal_gp = false;              // true if normal gp is used for sign prediction
+        VectorD position{};                      // center position of the GP
+        std::atomic<std::array<Dtype, Dim>> running_mean_position{};  // mean pos of training data
+        Dtype running_num_samples = 0;              // number of training data accumulated
+        Dtype half_size = 0;                        // half-size of the GP area
+        std::shared_ptr<SignGp> sign_gp = nullptr;  // initialized in Activate().
+        std::shared_ptr<EdfGp> edf_gp = nullptr;    // initialized in Activate().
 
         explicit SdfGaussianProcess(std::shared_ptr<Setting> setting_);
 
@@ -89,7 +92,33 @@ namespace erl::gp_sdf {
         Deactivate();
 
         void
-        MarkOutdated();
+        MarkBufferOutdated();
+
+        void
+        MarkGpOutdated();
+
+        void
+        MarkQueried();
+
+        [[nodiscard]]
+        bool
+        BufferOutdated() const;
+
+        [[nodiscard]]
+        bool
+        GpOutdated() const;
+
+        [[nodiscard]] Dtype
+        GetLoadingPriority(Dtype query_count_weight) const;
+
+        [[nodiscard]] Dtype
+        GetRetrainPriority(Dtype query_count_weight) const;
+
+        void
+        SetMeanPosition(const VectorD &mean_position);
+
+        [[nodiscard]] VectorD
+        GetMeanPosition() const;
 
         [[nodiscard]] std::size_t
         GetMemoryUsage() const;
@@ -100,10 +129,11 @@ namespace erl::gp_sdf {
         [[nodiscard]] bool
         Intersects(const VectorD &other_position, const VectorD &other_half_sizes) const;
 
-        void
+        bool
         LoadSurfaceData(
             std::vector<std::pair<Dtype, std::size_t>> &surface_data_indices,
             const std::vector<SurfaceData<Dtype, Dim>> &surface_data_vec,
+            bool data_sorted,
             Dtype sensor_noise,
             Dtype max_valid_gradient_var,
             Dtype invalid_position_var);

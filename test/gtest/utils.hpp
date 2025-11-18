@@ -1,3 +1,4 @@
+#pragma once
 #include "erl_common/eigen.hpp"
 #include "erl_common/opencv.hpp"
 
@@ -5,7 +6,7 @@
 
 template<typename Dtype>
 cv::Mat
-ConvertMatrixToImage(const Eigen::MatrixX<Dtype> &mat, bool colorize) {
+ConvertMatrixToImage(const Eigen::MatrixX<Dtype> &mat, const bool colorize) {
     cv::Mat img;
     Eigen::MatrixX<Dtype> mat_clean = Eigen::MatrixX<Dtype>::Zero(mat.rows(), mat.cols());
 
@@ -30,7 +31,7 @@ ConvertMatrixToImage(const Eigen::MatrixX<Dtype> &mat, bool colorize) {
 
 template<typename Dtype, int Order = Eigen::ColMajor>
 cv::Mat
-ConvertVectorToImage(int xs, int ys, const Eigen::VectorX<Dtype> &vec, bool colorize) {
+ConvertVectorToImage(int xs, int ys, const Eigen::VectorX<Dtype> &vec, const bool colorize) {
     cv::Mat img;  // x: down, y: right
     if (Order == Eigen::ColMajor) {
         img = cv::Mat(

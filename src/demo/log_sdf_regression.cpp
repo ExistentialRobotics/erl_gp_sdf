@@ -111,18 +111,18 @@ struct App {
         normals.colwise().normalize();
         Eigen::VectorXd sdf = points.colwise().norm().array() - options.radius;
 
-        auto &train_set = gp->GetTrainSet();
-        train_set.x.topRows<2>() = points;
-        train_set.y.col(0) = (sdf.array() * -options.gp->log_lambda).exp();
-        train_set.y.col(1) = 10 * normals.row(0).transpose();
-        train_set.y.col(2) = 10 * normals.row(1).transpose();
-        train_set.var_x.setConstant(options.var_x);
-        train_set.var_y.setConstant(options.var_y);
-        train_set.num_samples = num_samples;
-        train_set.num_samples_with_grad = 0;
-        train_set.grad_flag.setConstant(false);
-        train_set.x_dim = 2;
-        train_set.y_dim = 3;
+        auto &train_buf = gp->GetTrainBuffer();
+        train_buf.x.topRows<2>() = points;
+        train_buf.y.col(0) = (sdf.array() * -options.gp->log_lambda).exp();
+        train_buf.y.col(1) = 10 * normals.row(0).transpose();
+        train_buf.y.col(2) = 10 * normals.row(1).transpose();
+        train_buf.var_x.setConstant(options.var_x);
+        train_buf.var_y.setConstant(options.var_y);
+        train_buf.num_samples = num_samples;
+        train_buf.num_samples_with_grad = 0;
+        train_buf.grad_flag.setConstant(false);
+        train_buf.x_dim = 2;
+        train_buf.y_dim = 3;
         ERL_ASSERTM(gp->Train(), "Failed to train Gaussian Process.");
         return gp;
     }
@@ -138,7 +138,9 @@ struct App {
         Eigen::VectorXd dists(options.softmin_knn);
         for (long i = 0; i < num_test; ++i) {
             indices.setConstant(-1l);
-            tree.Knn(options.softmin_knn, test_points.col(i), indices, dists);
+            if (tree.Knn(options.softmin_knn, test_points.col(i), indices, dists) == 0) {
+                continue;
+            }
             double dist = 0.0;
             double weight_sum = 0.0;
             for (long j = 0; j < options.softmin_knn; ++j) {

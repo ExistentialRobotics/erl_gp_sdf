@@ -46,6 +46,46 @@ int g_argc = 0;
 char **g_argv = nullptr;
 
 template<typename Dtype>
+struct Options3D : erl::common::Yamlable<Options3D<Dtype>> {
+    std::string dataset_name = "cow_and_lady";
+    std::string cow_and_lady_dir;
+    std::string newer_college_dir;
+    std::string mesh_file = kDataDir / "replica-hotel-0.ply";
+    std::string traj_file = kDataDir / "replica-hotel-0-traj.txt";
+    std::string surface_mapping_config_file;
+    long start_wp_idx = 0;
+    long end_wp_idx = -1;  // -1 means all waypoints
+    long stride = 1;
+    long vis_stride = 1;  // for visualization
+    Dtype surf_normal_scale = 0.5;
+    Dtype test_res = 0.02;
+    Dtype test_z = 0.0;
+    long test_xs = 150;
+    long test_ys = 100;
+    bool test_io = false;
+    bool hold = false;
+
+    ERL_REFLECT_SCHEMA(Options3D,
+        ERL_REFLECT_MEMBER(Options3D, dataset_name),
+        ERL_REFLECT_MEMBER(Options3D, cow_and_lady_dir),
+        ERL_REFLECT_MEMBER(Options3D, newer_college_dir),
+        ERL_REFLECT_MEMBER(Options3D, mesh_file),
+        ERL_REFLECT_MEMBER(Options3D, traj_file),
+        ERL_REFLECT_MEMBER(Options3D, surface_mapping_config_file),
+        ERL_REFLECT_MEMBER(Options3D, start_wp_idx),
+        ERL_REFLECT_MEMBER(Options3D, end_wp_idx),
+        ERL_REFLECT_MEMBER(Options3D, stride),
+        ERL_REFLECT_MEMBER(Options3D, vis_stride),
+        ERL_REFLECT_MEMBER(Options3D, surf_normal_scale),
+        ERL_REFLECT_MEMBER(Options3D, test_res),
+        ERL_REFLECT_MEMBER(Options3D, test_z),
+        ERL_REFLECT_MEMBER(Options3D, test_xs),
+        ERL_REFLECT_MEMBER(Options3D, test_ys),
+        ERL_REFLECT_MEMBER(Options3D, test_io),
+        ERL_REFLECT_MEMBER(Options3D, hold));
+};
+
+template<typename Dtype>
 void
 TestImpl3D() {
     GTEST_PREPARE_OUTPUT_DIR();
@@ -68,85 +108,10 @@ TestImpl3D() {
     using MatrixX = Eigen::MatrixX<Dtype>;
     using Vector3 = Eigen::Vector3<Dtype>;
 
-#pragma region options_3d
+    Options3D<Dtype> options;
+    ASSERT_TRUE(options.FromCommandLine(g_argc, g_argv));
 
-    struct Options {
-        std::string dataset_name = "cow_and_lady";
-        std::string cow_and_lady_dir;
-        std::string newer_college_dir;
-        std::string mesh_file = kDataDir / "replica-hotel-0.ply";
-        std::string traj_file = kDataDir / "replica-hotel-0-traj.txt";
-        std::string surface_mapping_config_file =
-            kConfigDir / "template" /
-            fmt::format("gp_occ_mapping_3d_lidar_{}.yaml", type_name<Dtype>());
-        long start_wp_idx = 0;
-        long end_wp_idx = -1;  // -1 means all waypoints
-        long stride = 1;
-        long vis_stride = 1;  // for visualization
-        Dtype surf_normal_scale = 0.5;
-        Dtype test_res = 0.02;
-        Dtype test_z = 0.0;
-        long test_xs = 150;
-        long test_ys = 100;
-        bool test_io = false;
-        bool hold = false;
-    };
-
-#pragma endregion
-
-    Options options;
-    bool options_parsed = false;
-    try {
-        namespace po = boost::program_options;
-        po::options_description desc;
-        // clang-format off
-        desc.add_options()
-            ("help", "produce help message")
-            (
-                "dataset-name",
-                po::value<std::string>(&options.dataset_name)->default_value(options.dataset_name)->value_name("name"),
-                "name of the dataset to use, options: cow_and_lady, mesh, newer_college"
-            )(
-                "cow-and-lady-dir",
-                po::value<std::string>(&options.cow_and_lady_dir)->default_value(options.cow_and_lady_dir)->value_name("dir"),
-                "directory containing the Cow and Lady dataset"
-            )(
-                "newer-college-dir",
-                po::value<std::string>(&options.newer_college_dir)->default_value(options.newer_college_dir)->value_name("dir"),
-                "directory containing the Newer College dataset"
-            )
-            ("mesh-file", po::value<std::string>(&options.mesh_file)->default_value(options.mesh_file)->value_name("file"), "mesh file")
-            ("traj-file", po::value<std::string>(&options.traj_file)->default_value(options.traj_file)->value_name("file"), "trajectory file")
-            (
-                "surface-mapping-config-file",
-                po::value<std::string>(&options.surface_mapping_config_file)->default_value(options.surface_mapping_config_file)->value_name("file"),
-                "SDF mapping config file"
-            )
-            ("start-wp-idx", po::value<long>(&options.start_wp_idx)->default_value(options.start_wp_idx)->value_name("idx"), "start waypoint index")
-            ("end-wp-idx", po::value<long>(&options.end_wp_idx)->default_value(options.end_wp_idx)->value_name("idx"), "end waypoint index (-1 means all waypoints)")
-            ("stride", po::value<long>(&options.stride)->default_value(options.stride)->value_name("stride"), "stride")
-            ("vis-stride", po::value<long>(&options.vis_stride)->default_value(options.vis_stride)->value_name("stride"), "visualization stride")
-            ("surf-normal-scale", po::value<Dtype>(&options.surf_normal_scale)->default_value(options.surf_normal_scale)->value_name("scale"), "surface normal scale")
-            ("test-res", po::value<Dtype>(&options.test_res)->default_value(options.test_res)->value_name("res"), "test resolution")
-            ("test-z", po::value<Dtype>(&options.test_z)->default_value(options.test_z)->value_name("z"), "test z")
-            ("test-xs", po::value<long>(&options.test_xs)->default_value(options.test_xs)->value_name("xs"), "test xs")
-            ("test-ys", po::value<long>(&options.test_ys)->default_value(options.test_ys)->value_name("ys"), "test ys")
-            ("test-io", po::bool_switch(&options.test_io), "test IO")
-            ("hold", po::bool_switch(&options.hold), "hold the window");
-        // clang-format on
-
-        po::variables_map vm;
-        po::store(po::command_line_parser(g_argc, g_argv).options(desc).run(), vm);
-        if (vm.count("help")) {
-            std::cout << "Usage: " << g_argv[0] << " [options]" << std::endl << desc << std::endl;
-            return;
-        }
-        po::notify(vm);
-        options_parsed = true;
-    } catch (std::exception &e) { std::cerr << e.what() << std::endl; }
-    ASSERT_TRUE(options_parsed);
-
-    DataSetType dataset_type = DataSetType::Mesh;
+    DataSetType dataset_type;
     if (options.dataset_name == "cow_and_lady") {
         dataset_type = DataSetType::CowAndLady;
     } else if (options.dataset_name == "mesh") {
@@ -302,6 +267,7 @@ TestImpl3D() {
     double cnt = 0.0;
     (void) wp_idx, (void) gp_update_dt, (void) cnt, (void) max_wp_idx;
     Matrix4 last_pose = Matrix4::Identity();
+    std::vector<std::pair<Dtype, std::size_t>> surface_data_indices;
     auto callback = [&](Open3dVisualizerWrapper *wrapper,
                         open3d::visualization::Visualizer *vis) -> bool {
         ERL_TRACY_FRAME_MARK_START();
@@ -415,11 +381,12 @@ TestImpl3D() {
         mesh_sensor->Transform(delta_pose.template cast<double>());
         mesh_sensor_xyz->Transform(delta_pose.template cast<double>());
         /// update the observation point cloud
+        const Dtype scaling = 1.0f / gp_surf_setting->scaling;
         pcd_obs->points_.clear();
         pcd_obs->colors_.clear();
         pcd_obs->points_.reserve(gp.GetSensorGp()->GetSensorFrame()->GetHitPointsWorld().size());
         for (const auto &point: gp.GetSensorGp()->GetSensorFrame()->GetHitPointsWorld()) {
-            pcd_obs->points_.emplace_back(point.template cast<double>());
+            pcd_obs->points_.emplace_back(point.template cast<double>() * scaling);
         }
         pcd_obs->PaintUniformColor({0.0, 1.0, 0.0});
         /// update the surface point cloud and normals
@@ -427,21 +394,21 @@ TestImpl3D() {
         pcd_surf_points->normals_.clear();
         line_set_surf_normals->points_.clear();
         line_set_surf_normals->lines_.clear();
-        std::vector<std::pair<Dtype, std::size_t>> surface_data_indices;
+        surface_data_indices.clear();
         gp.CollectSurfaceDataInAabb(Aabb<Dtype, 3>(map_min, map_max), surface_data_indices);
         std::sort(
             surface_data_indices.begin(),
             surface_data_indices.end(),
             [](const auto &a, const auto &b) { return a.second < b.second; });
+        pcd_surf_points->points_.reserve(surface_data_indices.size());
+        pcd_surf_points->normals_.reserve(surface_data_indices.size());
+        line_set_surf_normals->points_.reserve(surface_data_indices.size() * 2);
+        line_set_surf_normals->lines_.reserve(surface_data_indices.size());
         auto buffer = gp.GetSurfaceDataBuffer();
         for (const auto &[dist, index]: surface_data_indices) {
             const auto &surface_data = buffer[index];
-            const Vector3 &position = surface_data.position;
+            const Vector3 position = surface_data.position * scaling;
             const Vector3 &normal = surface_data.normal;
-            ERL_ASSERTM(
-                std::abs(normal.norm() - 1.0) < 1.e-5,
-                "normal.norm() = {:.6f}",
-                normal.norm());
             pcd_surf_points->points_.emplace_back(position.template cast<double>());
             pcd_surf_points->normals_.emplace_back(normal.template cast<double>());
             line_set_surf_normals->points_.emplace_back(position.template cast<double>());
@@ -466,7 +433,7 @@ TestImpl3D() {
         auto duration_total = std::chrono::duration<Dtype, std::milli>(t_end - t_start).count();
         ERL_INFO("duration_total: {:.3f} ms", duration_total);
         ERL_TRACY_PLOT("gui_update (ms)", duration_total);
-        ERL_TRACY_PLOT("gui_update (fps)", 1000.0 / duration_total);
+        ERL_TRACY_PLOT("gui_update (fps)", 1000.0f / duration_total);
 
         if (wp_idx == 1 && options.test_io) {
             ERL_BLOCK_TIMER_MSG("IO");
@@ -495,6 +462,7 @@ TestImpl3D() {
     drawer_setting->area_min = map_min.template cast<double>();
     drawer_setting->area_max = map_max.template cast<double>();
     drawer_setting->occupied_only = true;
+    drawer_setting->scaling = 1.0f / gp_surf_setting->scaling;
     OctreeDrawer octree_drawer(drawer_setting, gp.GetTree());
     auto mesh = geometries[0];
     geometries = octree_drawer.GetBlankGeometries();
@@ -508,6 +476,38 @@ TestImpl3D() {
     open3d::io::WritePointCloud(test_output_dir / "surface_points.ply", *pcd_surf_points);
     open3d::io::WritePointCloud(test_output_dir / "observed_points.ply", *pcd_obs);
 }
+
+template<typename Dtype>
+struct Options2D: erl::common::Yamlable<Options2D<Dtype>> {
+    std::string gazebo_train_file = kProjectRootDir / "data" / "gazebo";
+    std::string house_expo_map_file = kProjectRootDir / "data" / "house_expo_room_1451.json";
+    std::string house_expo_traj_file = kProjectRootDir / "data" / "house_expo_room_1451.csv";
+    std::string ucsd_fah_2d_file = kProjectRootDir / "data" / "ucsd_fah_2d.dat";
+    std::string surface_mapping_config_file;
+    std::string dataset_name = "gazebo_room_2d";
+    bool visualize = false;
+    bool test_io = false;
+    bool hold = false;
+    long stride = 1;
+    long init_frame = 0;
+    Dtype map_resolution = 0.025;
+    Dtype surf_normal_scale = 1.0;
+
+    ERL_REFLECT_SCHEMA(Options2D,
+        ERL_REFLECT_MEMBER(Options2D, gazebo_train_file),
+        ERL_REFLECT_MEMBER(Options2D, house_expo_map_file),
+        ERL_REFLECT_MEMBER(Options2D, house_expo_traj_file),
+        ERL_REFLECT_MEMBER(Options2D, ucsd_fah_2d_file),
+        ERL_REFLECT_MEMBER(Options2D, surface_mapping_config_file),
+        ERL_REFLECT_MEMBER(Options2D, dataset_name),
+        ERL_REFLECT_MEMBER(Options2D, visualize),
+        ERL_REFLECT_MEMBER(Options2D, test_io),
+        ERL_REFLECT_MEMBER(Options2D, hold),
+        ERL_REFLECT_MEMBER(Options2D, stride),
+        ERL_REFLECT_MEMBER(Options2D, init_frame),
+        ERL_REFLECT_MEMBER(Options2D, map_resolution),
+        ERL_REFLECT_MEMBER(Options2D, surf_normal_scale));
+};
 
 template<typename Dtype>
 void
@@ -526,81 +526,10 @@ TestImpl2D() {
     using Vector2 = Eigen::Vector2<Dtype>;
     using VectorX = Eigen::VectorX<Dtype>;
 
-#pragma region options_2d
+    Options2D<Dtype> options;
+    ASSERT_TRUE(options.FromCommandLine(g_argc, g_argv));
 
-    struct Options {
-        std::string gazebo_train_file = kProjectRootDir / "data" / "gazebo";
-        std::string house_expo_map_file = kProjectRootDir / "data" / "house_expo_room_1451.json";
-        std::string house_expo_traj_file = kProjectRootDir / "data" / "house_expo_room_1451.csv";
-        std::string ucsd_fah_2d_file = kProjectRootDir / "data" / "ucsd_fah_2d.dat";
-        std::string surface_mapping_config_file =
-            kProjectRootDir / "config" / "template" /
-            fmt::format("gp_occ_mapping_2d_{}.yaml", type_name<Dtype>());
-        std::string dataset_name = "gazebo_room_2d";
-        bool visualize = false;
-        bool test_io = false;
-        bool hold = false;
-        long stride = 1;
-        long init_frame = 0;
-        Dtype map_resolution = 0.025;
-        Dtype surf_normal_scale = 1.0;
-    };
-
-#pragma endregion
-    Options options;
-    bool options_parsed = false;
-    try {
-        namespace po = boost::program_options;
-        po::options_description desc;
-        // clang-format off
-        desc.add_options()
-            ("help", "produce help message")
-            (
-                "dataset-name",
-                po::value<std::string>(&options.dataset_name)->default_value(options.dataset_name),
-                "Dataset name, options: gazebo_room_2d, house_expo_lidar_2d, ucsd_fah_2d"
-            )
-            ("stride", po::value<long>(&options.stride)->default_value(options.stride), "stride for running the sequence")
-            ("init-frame", po::value<long>(&options.init_frame)->default_value(options.init_frame), "Initial frame index")
-            ("map-resolution", po::value<Dtype>(&options.map_resolution)->default_value(options.map_resolution), "Map resolution")
-            ("surf-normal-scale", po::value<Dtype>(&options.surf_normal_scale)->default_value(options.surf_normal_scale), "Surface normal scale")
-            ("visualize", po::bool_switch(&options.visualize)->default_value(options.visualize), "Visualize the mapping")
-            ("test-io", po::bool_switch(&options.test_io)->default_value(options.test_io), "Test IO")
-            ("hold", po::bool_switch(&options.hold)->default_value(options.hold), "Hold the test until a key is pressed")
-            (
-                "house-expo-map-file",
-                po::value<std::string>(&options.house_expo_map_file)->default_value(options.house_expo_map_file)->value_name("file"),
-                "HouseExpo map file"
-            )(
-                "house-expo-traj-file",
-                po::value<std::string>(&options.house_expo_traj_file)->default_value(options.house_expo_traj_file)->value_name("file"),
-                "HouseExpo trajectory file"
-            )(
-                "gazebo-train-file",
-                po::value<std::string>(&options.gazebo_train_file)->default_value(options.gazebo_train_file)->value_name("file"),
-                "Gazebo train data file"
-            )(
-                "ucsd-fah-2d-dat-file",
-                po::value<std::string>(&options.ucsd_fah_2d_file)->default_value(options.ucsd_fah_2d_file)->value_name("file"),
-                "UCSD FAH 2D dat file"
-            )(
-                "surface-mapping-config-file",
-                po::value<std::string>(&options.surface_mapping_config_file)->default_value(options.surface_mapping_config_file)->value_name("file"),
-                "Surface mapping config file");
-        // clang-format on
-
-        po::variables_map vm;
-        po::store(po::command_line_parser(g_argc, g_argv).options(desc).run(), vm);
-        if (vm.count("help")) {
-            std::cout << "Usage: " << g_argv[0] << " [options]" << std::endl << desc << std::endl;
-            return;
-        }
-        po::notify(vm);
-        options_parsed = true;
-    } catch (std::exception &e) { std::cerr << e.what() << "\n"; }
-    ASSERT_TRUE(options_parsed);
-
-    DataSetType dataset_type = DataSetType::GazeboRoom;
+    DataSetType dataset_type;
     if (options.dataset_name == "gazebo_room_2d") {
         dataset_type = DataSetType::GazeboRoom;
         ASSERT_TRUE(std::filesystem::exists(options.gazebo_train_file))
@@ -748,8 +677,7 @@ TestImpl2D() {
             cur_traj.conservativeResize(2, cnt);
             break;
         }
-        default:
-            break;
+        default:;
     }
     max_update_cnt = cur_traj.cols();
 
@@ -771,7 +699,7 @@ TestImpl2D() {
     drawer_setting->area_min = map_min.template cast<float>();
     drawer_setting->area_max = map_max.template cast<float>();
     drawer_setting->resolution = map_resolution[0];
-    drawer_setting->scaling = gp_setting->scaling;
+    drawer_setting->scaling = 1.0f / gp_setting->scaling;
     drawer_setting->padding = map_padding[0];
     drawer_setting->border_color = cv::Scalar(255, 0, 0, 255);
     QuadtreeDrawer drawer(drawer_setting);
@@ -822,9 +750,10 @@ TestImpl2D() {
             } else {
                 drawer.DrawTree(img);
             }
+            const Dtype scaling = 1.0f / gp_setting->scaling;
             for (auto it = gp.BeginSurfaceData(), end = gp.EndSurfaceData(); it != end; ++it) {
                 Eigen::Vector2i position_px =
-                    drawer.template GetPixelCoordsForPositions<Dtype>(it->position, true);
+                    drawer.template GetPixelCoordsForPositions<Dtype>(it->position * scaling, true);
                 cv::Point position_px_cv(position_px[0], position_px[1]);
                 cv::circle(
                     img,

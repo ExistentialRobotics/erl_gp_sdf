@@ -81,16 +81,16 @@ struct App {
         auto gp = std::make_shared<Gp>(options.gp);
         gp->Reset(options.num_surf_samples, 2, 1);
 
-        auto &train_set = gp->GetTrainSet();
-        train_set.x.topRows<2>() = points;
-        train_set.y.leftCols<1>().setConstant(1);
-        train_set.var_x.setConstant(var_x);
-        train_set.var_y.setConstant(options.var_y);
-        train_set.num_samples = options.num_surf_samples;
-        train_set.num_samples_with_grad = 0;
-        train_set.grad_flag.setConstant(false);
-        train_set.x_dim = 2;
-        train_set.y_dim = 1;
+        auto &train_buf = gp->GetTrainBuffer();
+        train_buf.x.topRows<2>() = points;
+        train_buf.y.leftCols<1>().setConstant(1);
+        train_buf.var_x.setConstant(var_x);
+        train_buf.var_y.setConstant(options.var_y);
+        train_buf.num_samples = options.num_surf_samples;
+        train_buf.num_samples_with_grad = 0;
+        train_buf.grad_flag.setConstant(false);
+        train_buf.x_dim = 2;
+        train_buf.y_dim = 1;
         ERL_ASSERTM(gp->Train(), "Failed to train Gaussian Process.");
         return gp;
     }
@@ -102,15 +102,15 @@ struct App {
         const Dtype edf_pred,
         const bool compute_var_grad,
         Dtype *var) const {
-        const Gp::TrainSet &train_set = gp->GetTrainSet();
-        const long num_samples = train_set.num_samples;
+        const Gp::TrainBuf &train_buf = gp->GetTrainBuffer();
+        const long num_samples = train_buf.num_samples;
 
         VectorX s(num_samples);
         Dtype s_sum = 0;
         VectorX z(num_samples);
         Eigen::Matrix<Dtype, Dim, Eigen::Dynamic> mat_v(Dim, num_samples);
         for (long k = 0; k < num_samples; ++k) {
-            const VectorD v = test_position - train_set.x.col(k);
+            const VectorD v = test_position - train_buf.x.col(k);
             Dtype &d = z[k];
             d = v.norm();  // distance to the training sample
 
@@ -128,7 +128,7 @@ struct App {
         for (long k = 0; k < num_samples; ++k) {
             Dtype &w = l[k];
             w = inv_s_sum * s[k] * (1.0f + options.softmin_temperature * (sz - z[k]));
-            var[0] += w * w * train_set.var_x[k];
+            var[0] += w * w * train_buf.var_x[k];
             // prepare for gradient variance
             g += w * mat_v.col(k);
             f += s[k] * mat_v.col(k);
@@ -152,7 +152,7 @@ struct App {
             SqMat grad_j = vj * v.transpose();
             grad_j.diagonal().array() -= c;
             grad_j = grad_j * grad_norm;
-            cov_grad += train_set.var_x[j] * (grad_j.transpose() * grad_j);
+            cov_grad += train_buf.var_x[j] * (grad_j.transpose() * grad_j);
         }
         for (long i = 1; i <= Dim; ++i) { var[i] = cov_grad(i - 1, i - 1); }  // var_grad
     }

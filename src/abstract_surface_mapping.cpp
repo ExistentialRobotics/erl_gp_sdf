@@ -14,6 +14,12 @@ namespace erl::gp_sdf {
     }
 
     template<typename Dtype, int Dim>
+    const typename AbstractSurfaceMapping<Dtype, Dim>::VectorD &
+    AbstractSurfaceMapping<Dtype, Dim>::GetLastSensorPosition() const {
+        return m_last_sensor_position_;
+    }
+
+    template<typename Dtype, int Dim>
     void
     AbstractSurfaceMapping<Dtype, Dim>::GetMesh(
         std::vector<VectorD> & /*vertices*/,

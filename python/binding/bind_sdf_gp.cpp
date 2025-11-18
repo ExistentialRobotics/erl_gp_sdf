@@ -11,16 +11,18 @@ BindSdfGpImpl(const py::module &m, const char *name) {
     py::class_<T, std::shared_ptr<T>>(m, name)
         .def_readwrite("setting", &T::setting)
         .def_readonly("active", &T::active)
-        .def_property_readonly(
-            "locked_for_test",
-            [](const T &gp) { return gp.locked_for_test.load(); })
+        .def_readonly("time_stamp", &T::time_stamp)
+        .def_readonly("use_normal_gp", &T::use_normal_gp)
         .def_readonly("position", &T::position)
         .def_readonly("half_size", &T::half_size)
         .def_readonly("sign_gp", &T::sign_gp)
         .def_readonly("edf_gp", &T::edf_gp)
         .def("activate", &T::Activate)
         .def("deactivate", &T::Deactivate)
-        .def("mark_outdated", &T::MarkOutdated)
+        .def("mark_buffer_outdated", &T::MarkBufferOutdated)
+        .def("mark_gp_outdated", &T::MarkGpOutdated)
+        .def("mark_queried", &T::MarkQueried)
+        .def_property_readonly("buffer_outdated", &T::BufferOutdated)
         .def_property_readonly("memory_usage", &T::GetMemoryUsage)
         .def(
             "intersects",
@@ -39,6 +41,7 @@ BindSdfGpImpl(const py::module &m, const char *name) {
             &T::LoadSurfaceData,
             py::arg("surface_data_indices"),
             py::arg("surface_data_vec"),
+            py::arg("data_sorted"),
             py::arg("sensor_noise"),
             py::arg("max_valid_gradient_var"),
             py::arg("invalid_position_var"))

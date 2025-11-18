@@ -82,16 +82,16 @@ struct App {
     Train(const Eigen::Matrix2Xd &points, const Eigen::VectorXd &sdf_values) {
         auto gp = std::make_shared<Gp>(options.gp);
         gp->Reset(options.num_surf_samples, 2, 1);
-        auto &train_set = gp->GetTrainSet();
-        train_set.x.topRows<2>() = points;
-        train_set.y.leftCols<1>() = sdf_values;
-        train_set.var_x.setConstant(options.var_x);
-        train_set.var_y.setConstant(options.var_y);
-        train_set.num_samples = options.num_surf_samples;
-        train_set.num_samples_with_grad = 0;
-        train_set.grad_flag.setConstant(false);
-        train_set.x_dim = 2;
-        train_set.y_dim = 1;
+        auto &train_buf = gp->GetTrainBuffer();
+        train_buf.x.topRows<2>() = points;
+        train_buf.y.leftCols<1>() = sdf_values;
+        train_buf.var_x.setConstant(options.var_x);
+        train_buf.var_y.setConstant(options.var_y);
+        train_buf.num_samples = options.num_surf_samples;
+        train_buf.num_samples_with_grad = 0;
+        train_buf.grad_flag.setConstant(false);
+        train_buf.x_dim = 2;
+        train_buf.y_dim = 1;
         ERL_ASSERTM(gp->Train(), "Failed to train Gaussian Process.");
         return gp;
     }

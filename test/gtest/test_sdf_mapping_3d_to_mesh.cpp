@@ -48,7 +48,7 @@ struct ToMeshImpl {
             type_name<typename GpOccSurfaceMapping::Setting>();
         std::string sdf_mapping_bin = "sdf_mapping.bin";
         std::string output_mesh_file = "output_mesh.ply";
-        std::string grid_file = "";
+        std::string grid_file;
         float x_min = 0.0f;
         float x_max = 0.0f;
         float y_min = 0.0f;

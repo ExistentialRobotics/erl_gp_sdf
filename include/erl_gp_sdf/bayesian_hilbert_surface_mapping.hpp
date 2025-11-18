@@ -380,13 +380,21 @@ namespace erl::gp_sdf {
         IterateClustersInAabb(const Aabb &aabb, std::function<void(const Key &)> callback)
             const override;
 
+        [[nodiscard]] const std::vector<std::size_t> &
+        GetUnusedSurfaceDataIndices() const override;
+
         [[nodiscard]] const std::vector<SurfData> &
         GetSurfaceDataBuffer() const override;
 
-        void
+        [[nodiscard]] std::size_t
         CollectSurfaceDataInAabb(
             const Aabb &aabb,
             std::vector<std::pair<Dtype, std::size_t>> &surface_data_indices) const override;
+
+        [[nodiscard]] std::size_t
+        CollectSurfaceDataFromCluster(
+            const Key &key,
+            std::vector<std::size_t> &surface_data_indices) const override;
 
         void
         GetMesh(std::vector<VectorD> &vertices, std::vector<Face> &faces) const override;
