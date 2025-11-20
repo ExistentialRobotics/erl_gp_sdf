@@ -791,13 +791,13 @@ protected:
     void
     LoadDataFromCowAndLady() {
         const auto frame = (*cow_and_lady)[wp_idx];
-        rotation_frame = frame.rotation.cast<Dtype>();
-        translation_frame = frame.translation.cast<Dtype>();
+        rotation_frame = frame.rotation.template cast<Dtype>();
+        translation_frame = frame.translation.template cast<Dtype>();
         std::tie(rotation_sensor, translation_sensor) =
             erl::geometry::CameraBase3D<Dtype>::ComputeCameraPose(
                 rotation_frame,
                 translation_frame);
-        frame_ranges = frame.depth.cast<Dtype>();
+        frame_ranges = frame.depth.template cast<Dtype>();
         ranges_img = frame.depth_jet;
     }
 
@@ -818,13 +818,13 @@ protected:
     void
     LoadDataFromNewerCollege() {
         const auto frame = (*newer_college)[wp_idx];
-        rotation_frame = frame.rotation.cast<Dtype>();
-        translation_frame = frame.translation.cast<Dtype>();
+        rotation_frame = frame.rotation.template cast<Dtype>();
+        translation_frame = frame.translation.template cast<Dtype>();
         rotation_sensor = rotation_frame;
         translation_sensor = translation_frame;
 
-        frame_points = frame.points.cast<Dtype>();
-        frame_ranges = frame.GetRangeMatrix().cast<Dtype>();
+        frame_points = frame.points.template cast<Dtype>();
+        frame_ranges = frame.GetRangeMatrix().template cast<Dtype>();
         ranges_img = ConvertMatrixToImage(frame_ranges, true);
         ranges_img = ranges_img.t();
         cv::flip(ranges_img, ranges_img, 0);
@@ -1213,7 +1213,7 @@ protected:
                 auto box = line_set_gp_box;
                 box.Translate(gp->position.template cast<double>());
                 for (std::size_t i = 0; i < box.points_.size(); ++i) {
-                    Eigen::Vector3l p = (box.points_[i] / 0.005).cast<long>();
+                    Eigen::Vector3l p = (box.points_[i] / 0.005).template cast<long>();
                     auto [it_p, inserted_p] =
                         gp_vertex_index_map.try_emplace(p, gp_vertex_index_map.size());
                     if (inserted_p) { line_set_gps->points_.emplace_back(box.points_[i]); }

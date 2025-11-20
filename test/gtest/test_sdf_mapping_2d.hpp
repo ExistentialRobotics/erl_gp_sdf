@@ -210,7 +210,7 @@ OpenCvMouseCallback(const int event, const int x, const int y, int /*flags*/, vo
             ERL_INFO("position: {}, half_size: {}", gp->position.transpose(), gp->half_size);
             erl::geometry::Aabb<Dtype, 2> aabb(gp->position, gp->half_size);
             std::vector<std::pair<Dtype, std::size_t>> distances_indices;
-            data->surf_map->CollectSurfaceDataInAabb(aabb, distances_indices);
+            (void) data->surf_map->CollectSurfaceDataInAabb(aabb, distances_indices);
             ERL_INFO("Found {} surface data points in the area.", distances_indices.size());
 
             cv::Mat img = data->img.clone();
@@ -471,7 +471,7 @@ protected:
         max_wp_idx = gazebo_room_2d->size();
         ERL_ASSERT_LT(options.start_wp_idx, max_wp_idx);
         ERL_ASSERT_POS_LT(options.end_wp_idx, max_wp_idx);
-        train_angles = (*gazebo_room_2d)[0].angles.cast<Dtype>();
+        train_angles = (*gazebo_room_2d)[0].angles.template cast<Dtype>();
         // test data
         map_min = GazeboRoom2D::kMapMin.cast<Dtype>();
         map_max = GazeboRoom2D::kMapMax.cast<Dtype>();
@@ -510,7 +510,7 @@ protected:
         max_wp_idx = ucsd_fah_2d->Size();
         ERL_ASSERT_LT(options.start_wp_idx, max_wp_idx);
         ERL_ASSERT_POS_LT(options.end_wp_idx, max_wp_idx);
-        train_angles = (*ucsd_fah_2d)[0].angles.cast<Dtype>();
+        train_angles = (*ucsd_fah_2d)[0].angles.template cast<Dtype>();
         t_span = 500.0f * ucsd_fah_2d->GetTimeStep();
         // test data
         map_min = UcsdFah2D::kMapMin.cast<Dtype>();
@@ -654,9 +654,9 @@ protected:
     void
     LoadDataFromGazeboRoom2D() {
         const auto &frame = (*gazebo_room_2d)[wp_idx];
-        rotation = frame.rotation.cast<Dtype>();
-        translation = frame.translation.cast<Dtype>();
-        train_ranges = frame.ranges.cast<Dtype>();
+        rotation = frame.rotation.template cast<Dtype>();
+        translation = frame.translation.template cast<Dtype>();
+        train_ranges = frame.ranges.template cast<Dtype>();
         traj_t += 0.2;  // assume 5 Hz
     }
 
@@ -681,9 +681,9 @@ protected:
              translation_vec,
              angles,
              ranges] = (*ucsd_fah_2d)[wp_idx];
-        rotation = rotation_mat.cast<Dtype>();
-        translation = translation_vec.cast<Dtype>();
-        train_ranges = ranges.cast<Dtype>();
+        rotation = rotation_mat.template cast<Dtype>();
+        translation = translation_vec.template cast<Dtype>();
+        train_ranges = ranges.template cast<Dtype>();
         traj_t += ucsd_fah_2d->GetTimeStep();
     }
 

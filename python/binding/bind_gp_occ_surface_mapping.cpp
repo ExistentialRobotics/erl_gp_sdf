@@ -66,7 +66,7 @@ BindGpOccSurfaceMappingImpl(const py::module &m, const char *name) {
             "collect_surface_data_in_aabb",
             [](T &self, const typename T::Aabb &aabb) {
                 std::vector<std::pair<Dtype, std::size_t>> surface_data_indices;
-                self.CollectSurfaceDataInAabb(aabb, surface_data_indices);
+                (void) self.CollectSurfaceDataInAabb(aabb, surface_data_indices);
                 return surface_data_indices;
             },
             py::arg("aabb"))
