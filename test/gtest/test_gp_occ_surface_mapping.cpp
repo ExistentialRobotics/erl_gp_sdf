@@ -395,7 +395,7 @@ TestImpl3D() {
         line_set_surf_normals->points_.clear();
         line_set_surf_normals->lines_.clear();
         surface_data_indices.clear();
-        gp.CollectSurfaceDataInAabb(Aabb<Dtype, 3>(map_min, map_max), surface_data_indices);
+        (void) gp.CollectSurfaceDataInAabb(Aabb<Dtype, 3>(map_min, map_max), surface_data_indices);
         std::sort(
             surface_data_indices.begin(),
             surface_data_indices.end(),

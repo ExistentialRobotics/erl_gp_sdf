@@ -21,7 +21,6 @@
 #include "erl_geometry/ucsd_fah_2d.hpp"
 #include "erl_gp_sdf/bayesian_hilbert_surface_mapping.hpp"
 
-#include <boost/program_options.hpp>
 #include <open3d/io/PointCloudIO.h>
 
 enum class DataSetType {
@@ -81,7 +80,7 @@ TestIo(const erl::gp_sdf::BayesianHilbertSurfaceMapping<Dtype, Dim> *bhm_surf_ma
     ASSERT_TRUE(*bhm_surf_mapping == bhm_surf_mapping_read);
 }
 
-#pragma region options
+#pragma region options_3d
 
 template<typename Dtype>
 struct Options3D : erl::common::Yamlable<Options3D<Dtype>> {
@@ -185,18 +184,18 @@ TestImpl3D() {
         dataset_type = DataSetType::CowAndLady;
         ERL_ASSERTM(
             !options.cow_and_lady_dir.empty(),
-            "Please provide the Cow and Lady dataset directory via --cow-and-lady-dir");
+            "Please provide the Cow and Lady dataset directory via --cow_and_lady_dir");
     } else if (options.dataset_name == "mesh") {
         dataset_type = DataSetType::Mesh;
-        ERL_ASSERTM(!options.mesh_file.empty(), "Please provide the mesh file via --mesh-file");
+        ERL_ASSERTM(!options.mesh_file.empty(), "Please provide the mesh file via --mesh_file");
         ERL_ASSERTM(
             !options.traj_file.empty(),
-            "Please provide the trajectory file via --traj-file");
+            "Please provide the trajectory file via --traj_file");
     } else if (options.dataset_name == "newer_college") {
         dataset_type = DataSetType::NewerCollege;
         ERL_ASSERTM(
             !options.newer_college_dir.empty(),
-            "Please provide the Newer College dataset directory via --newer-college-dir");
+            "Please provide the Newer College dataset directory via --newer_college_dir");
     } else {
         ERL_FATAL("Unknown dataset name {} for 3D", options.dataset_name);
     }
@@ -392,7 +391,6 @@ TestImpl3D() {
     bool animation_ended = false;
     double bhsm_update_dt = 0.0;
     double bhsm_update_fps = 0.0;
-    double cnt = 0.0;
     Matrix4 last_pose = Matrix4::Identity();
     cv::Mat ranges_img;
     Matrix3X points;
@@ -500,9 +498,7 @@ TestImpl3D() {
             bhsm.Update(rotation, translation, points, true /* parallel */);
         }
 
-        // bhsm_update_dt = (bhsm_update_dt * cnt + dt) / (cnt + 1.0);
         bhsm_update_dt = bhsm_update_dt * 0.3 + dt * 0.7;
-        cnt += 1.0;
         bhsm_update_fps = 1000.0 / bhsm_update_dt;
         ERL_INFO(
             "bhsm_update_dt: {:.3f} ms, bhsm_update_fps: {:.3f} fps",
@@ -605,8 +601,16 @@ TestImpl3D() {
         /// update the image
         cv::putText(
             ranges_img,
-            fmt::format("wp_idx: {}/{}\nupdate {:.2f} fps", wp_idx, max_wp_idx, bhsm_update_fps),
+            fmt::format("wp_idx: {}/{}", wp_idx, max_wp_idx),
             cv::Point(10, 30),
+            cv::FONT_HERSHEY_PLAIN,
+            1.5,
+            cv::Scalar(255, 255, 255),
+            2);
+        cv::putText(
+            ranges_img,
+            fmt::format("update {:.2f} fps", bhsm_update_fps),
+            cv::Point(10, 60),
             cv::FONT_HERSHEY_PLAIN,
             1.5,
             cv::Scalar(255, 255, 255),
@@ -988,6 +992,44 @@ TestImpl3D() {
     }
 }
 
+#pragma region options_2d
+
+template<typename Dtype>
+struct Options2D : erl::common::Yamlable<Options2D<Dtype>> {
+    std::string gazebo_train_file = kDataDir / "gazebo";
+    std::string house_expo_map_file = kDataDir / "house_expo_room_1451.json";
+    std::string house_expo_traj_file = kDataDir / "house_expo_room_1451.csv";
+    std::string ucsd_fah_2d_file = kDataDir / "ucsd_fah_2d.dat";
+    std::string surface_mapping_config_file =
+        kConfigDir / fmt::format("bayesian_hilbert_mapping_2d_{}.yaml", type_name<Dtype>());
+    std::string dataset_name = "gazebo";
+    bool visualize = false;
+    bool test_io = false;
+    bool hold = false;
+    int stride = 5;
+    int init_frame = 0;
+    Dtype map_resolution = 0.025;
+    Dtype surf_normal_scale = 0.35;
+
+    ERL_REFLECT_SCHEMA(
+        Options2D,
+        ERL_REFLECT_MEMBER(Options2D, gazebo_train_file),
+        ERL_REFLECT_MEMBER(Options2D, house_expo_map_file),
+        ERL_REFLECT_MEMBER(Options2D, house_expo_traj_file),
+        ERL_REFLECT_MEMBER(Options2D, ucsd_fah_2d_file),
+        ERL_REFLECT_MEMBER(Options2D, surface_mapping_config_file),
+        ERL_REFLECT_MEMBER(Options2D, dataset_name),
+        ERL_REFLECT_MEMBER(Options2D, visualize),
+        ERL_REFLECT_MEMBER(Options2D, test_io),
+        ERL_REFLECT_MEMBER(Options2D, hold),
+        ERL_REFLECT_MEMBER(Options2D, stride),
+        ERL_REFLECT_MEMBER(Options2D, init_frame),
+        ERL_REFLECT_MEMBER(Options2D, map_resolution),
+        ERL_REFLECT_MEMBER(Options2D, surf_normal_scale));
+};
+
+#pragma endregion
+
 template<typename Dtype>
 void
 TestImpl2D() {
@@ -1004,95 +1046,8 @@ TestImpl2D() {
     using Vector2 = Eigen::Vector2<Dtype>;
     using VectorX = Eigen::VectorX<Dtype>;
 
-    // load setting from the command line
-    struct Options {
-        std::string gazebo_train_file = kDataDir / "gazebo";
-        std::string house_expo_map_file = kDataDir / "house_expo_room_1451.json";
-        std::string house_expo_traj_file = kDataDir / "house_expo_room_1451.csv";
-        std::string ucsd_fah_2d_file = kDataDir / "ucsd_fah_2d.dat";
-        std::string surface_mapping_config_file =
-            kConfigDir / fmt::format("bayesian_hilbert_mapping_2d_{}.yaml", type_name<Dtype>());
-        bool use_gazebo_room_2d = false;
-        bool use_house_expo_lidar_2d = false;
-        bool use_ucsd_fah_2d = false;
-        bool visualize = false;
-        bool test_io = false;
-        bool hold = false;
-        int stride = 5;
-        int init_frame = 0;
-        Dtype map_resolution = 0.025;
-        Dtype surf_normal_scale = 0.35;
-    };
-
-    Options options;
-    bool options_parsed = false;
-    try {
-        namespace po = boost::program_options;
-        po::options_description desc;
-        // clang-format off
-        desc.add_options()
-            ("help", "produce help message")
-            ("use-gazebo-room-2d", po::bool_switch(&options.use_gazebo_room_2d)->default_value(options.use_gazebo_room_2d), "Use Gazebo data")
-            ("use-house-expo-lidar-2d", po::bool_switch(&options.use_house_expo_lidar_2d)->default_value(options.use_house_expo_lidar_2d), "Use HouseExpo data")
-            ("use-ucsd-fah-2d", po::bool_switch(&options.use_ucsd_fah_2d)->default_value(options.use_ucsd_fah_2d), "Use UCSD FAH 2D data")
-            ("map-resolution", po::value<Dtype>(&options.map_resolution)->default_value(options.map_resolution), "Map resolution")
-            ("surf-normal-scale", po::value<Dtype>(&options.surf_normal_scale)->default_value(options.surf_normal_scale), "Surface normal scale")
-            ("visualize", po::bool_switch(&options.visualize)->default_value(options.visualize), "Visualize the mapping")
-            ("test-io", po::bool_switch(&options.test_io)->default_value(options.test_io), "Test IO")
-            ("hold", po::bool_switch(&options.hold)->default_value(options.hold), "Hold the test until a key is pressed")
-            ("stride", po::value<int>(&options.stride)->default_value(options.stride), "stride for running the sequence")
-            ("init-frame", po::value<int>(&options.init_frame)->default_value(options.init_frame), "Initial frame index")
-            (
-                "house-expo-map-file",
-                po::value<std::string>(&options.house_expo_map_file)->default_value(options.house_expo_map_file)->value_name("file"),
-                "HouseExpo map file"
-            )(
-                "house-expo-traj-file",
-                po::value<std::string>(&options.house_expo_traj_file)->default_value(options.house_expo_traj_file)->value_name("file"),
-                "HouseExpo trajectory file"
-            )(
-                "gazebo-train-file",
-                po::value<std::string>(&options.gazebo_train_file)->default_value(options.gazebo_train_file)->value_name("file"),
-                "Gazebo train data file"
-            )(
-                "ucsd-fah-2d-dat-file",
-                po::value<std::string>(&options.ucsd_fah_2d_file)->default_value(options.ucsd_fah_2d_file)->value_name("file"),
-                "UCSD FAH 2D dat file"
-            )(
-                "surface-mapping-config-file",
-                po::value<std::string>(&options.surface_mapping_config_file)->default_value(options.surface_mapping_config_file)->value_name("file"),
-                "Surface mapping config file");
-        // clang-format on
-
-        po::variables_map vm;
-        po::store(po::command_line_parser(g_argc, g_argv).options(desc).run(), vm);
-        if (vm.count("help")) {
-            std::cout << "Usage: " << g_argv[0] << " [options]" << std::endl << desc << std::endl;
-            return;
-        }
-        po::notify(vm);
-        options_parsed = true;
-    } catch (std::exception &e) { std::cerr << e.what() << "\n"; }
-    ASSERT_TRUE(options_parsed);
-
-    ASSERT_TRUE(
-        options.use_gazebo_room_2d || options.use_house_expo_lidar_2d || options.use_ucsd_fah_2d)
-        << "Please specify one of --use-gazebo-room-2d, --use-house-expo-lidar-2d, "
-           "--use-ucsd-fah-2d.";
-    if (options.use_gazebo_room_2d) {
-        ASSERT_TRUE(std::filesystem::exists(options.gazebo_train_file))
-            << "Gazebo train data file " << options.gazebo_train_file << " does not exist.";
-    }
-    if (options.use_house_expo_lidar_2d) {
-        ASSERT_TRUE(std::filesystem::exists(options.house_expo_map_file))
-            << "HouseExpo map file " << options.house_expo_map_file << " does not exist.";
-        ASSERT_TRUE(std::filesystem::exists(options.house_expo_traj_file))
-            << "HouseExpo trajectory file " << options.house_expo_traj_file << " does not exist.";
-    }
-    if (options.use_ucsd_fah_2d) {
-        ASSERT_TRUE(std::filesystem::exists(options.ucsd_fah_2d_file))
-            << "ROS bag dat file " << options.ucsd_fah_2d_file << " does not exist.";
-    }
+    Options2D<Dtype> options;
+    ERL_ASSERTM(options.FromCommandLine(g_argc, g_argv), "Failed to parse command line");
 
     // load the scene
     long max_update_cnt;
@@ -1107,7 +1062,7 @@ TestImpl2D() {
 
     using namespace erl::geometry;
 
-    if (options.use_gazebo_room_2d) {
+    if (options.dataset_name == "gazebo_room_2d") {
         auto train_data_loader = GazeboRoom2D::TrainDataLoader(options.gazebo_train_file);
         max_update_cnt =
             static_cast<long>(train_data_loader.size() - options.init_frame) / options.stride + 1;
@@ -1136,7 +1091,7 @@ TestImpl2D() {
         train_ranges.resize(cnt);
         train_poses.resize(cnt);
         cur_traj.conservativeResize(2, cnt);
-    } else if (options.use_house_expo_lidar_2d) {
+    } else if (options.dataset_name == "house_expo_lidar_2d") {
         HouseExpoMap house_expo_map(options.house_expo_map_file, 0.2);
         map_min = house_expo_map.GetMeterSpace()
                       ->GetSurface()
@@ -1184,7 +1139,7 @@ TestImpl2D() {
         train_ranges.resize(cnt);
         train_poses.resize(cnt);
         cur_traj.conservativeResize(2, cnt);
-    } else if (options.use_ucsd_fah_2d) {
+    } else if (options.dataset_name == "ucsd_fah_2d") {
         UcsdFah2D ucsd_fah(options.ucsd_fah_2d_file);
         map_min = UcsdFah2D::kMapMin.cast<Dtype>();
         map_max = UcsdFah2D::kMapMax.cast<Dtype>();
@@ -1219,6 +1174,7 @@ TestImpl2D() {
         train_poses.resize(cnt);
         cur_traj.conservativeResize(2, cnt);
     } else {
+        ERL_ERROR("Unknown dataset: {}", options.dataset_name);
         return;
     }
     max_update_cnt = cur_traj.cols();
