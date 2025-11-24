@@ -529,7 +529,7 @@ TestImpl2D() {
     Options2D<Dtype> options;
     ASSERT_TRUE(options.FromCommandLine(g_argc, g_argv));
 
-    DataSetType dataset_type;
+    DataSetType dataset_type = DataSetType::GazeboRoom;
     if (options.dataset_name == "gazebo_room_2d") {
         dataset_type = DataSetType::GazeboRoom;
         ASSERT_TRUE(std::filesystem::exists(options.gazebo_train_file))

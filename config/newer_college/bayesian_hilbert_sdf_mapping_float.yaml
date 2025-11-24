@@ -12,13 +12,14 @@ test_query:
     max_num_retrain_gps: 500  # max number of retrained GPs before a test query
     use_global_buffer: true  # whether to use the global buffer for test queries
 num_threads: 64
-update_hz: 60
+min_num_gps_to_update: 256
+update_hz: 10
 sensor_noise: 0.001
 gp_sdf_area_scale: 3
 max_valid_gradient_var: 0.1
 invalid_position_var: 2.0
 sdf_gp:
-    sign_method: "external" # "kSignGp", "normal_gp", "external", "hybrid", "none"
+    sign_method: "external" # "sign_gp", "normal_gp", "external", "hybrid", "none"
     hybrid_sign_methods: [ "sign_gp", "external" ]
     hybrid_sign_threshold: 0.18 # > sqrt(3) * tree_resolution
     normal_scale: 1000.0
@@ -32,7 +33,6 @@ sdf_gp:
             x_dim: 3
             scale: 0.1
             scale_mix: 1
-            weights: [ ]
         max_num_samples: 48 # max dataset size
         no_gradient_observation: false
     edf_gp:
@@ -42,7 +42,6 @@ sdf_gp:
             x_dim: 3
             scale: 0.043 # sqrt(3) / log_lambda, will be overridden by log_lambda
             scale_mix: 1
-            weights: [ ]
         log_lambda: 25
         duplicate_epsilon: 0.001
         max_num_samples: 128 # max dataset size
