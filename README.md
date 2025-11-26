@@ -152,3 +152,7 @@ done
   trained on [House Expo LiDAR 2D](data/house_expo_room_1451.json) with simulated 2D LiDAR. -->
 
 ### 🚪 [With ROS](https://github.com/ExistentialRobotics/erl_gp_sdf_ros)
+
+## Acknowledgements
+
+This work was supported by the Ministry of Trade, Industry and Energy (MOTIE), Korea, under the Strategic Technology Development Program, supervised by the Korea Institute for Advancement of Technology (KIAT) [Grant No. P0026052].
