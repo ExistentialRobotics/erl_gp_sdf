@@ -1,0 +1,11 @@
+row_margin: 0
+col_margin: 0
+valid_range_min: 0.1
+valid_range_max: 100
+camera_intrinsic:
+    image_height: 680
+    image_width: 1200
+    camera_fx: 600
+    camera_fy: 600
+    camera_cx: 599.5
+    camera_cy: 339.5

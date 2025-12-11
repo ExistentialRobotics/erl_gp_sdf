@@ -1,72 +1,9 @@
 #pragma once
 
-#include "erl_common/block_timer.hpp"
-#include "erl_common/csv.hpp"
+#include "test_mapping_2d.hpp"
+
 #include "erl_common/macros.hpp"
-#include "erl_common/plplot_fig.hpp"
-#include "erl_common/test_helper.hpp"
-#include "erl_common/yaml.hpp"
-#include "erl_geometry/gazebo_room_2d.hpp"
-#include "erl_geometry/house_expo_map.hpp"
-#include "erl_geometry/lidar_2d.hpp"
-#include "erl_geometry/occupancy_quadtree_drawer.hpp"
-#include "erl_geometry/ucsd_fah_2d.hpp"
 #include "erl_gp_sdf/gp_sdf_mapping.hpp"
-
-enum class DataSetType {
-    GazeboRoom2D = 1,
-    HouseExpoLidar2D = 2,
-    UcsdFah2D = 3,
-};
-
-template<typename Dtype>
-struct Options : public erl::common::Yamlable<Options<Dtype>> {
-    inline static const std::filesystem::path kProjectRootDir = ERL_GP_SDF_ROOT_DIR;
-    inline static const std::filesystem::path kDataDir = kProjectRootDir / "data";
-    inline static const std::filesystem::path kConfigDir = kProjectRootDir / "config";
-
-    std::string dataset_name = "gazebo_room_2d";
-    std::string gazebo_dir = kDataDir / "gazebo";
-    std::string house_expo_map_file = kDataDir / "house_expo_room_1451.json";
-    std::string house_expo_traj_file = kDataDir / "house_expo_room_1451.csv";
-    std::string ucsd_fah_2d_file = kDataDir / "ucsd_fah_2d.dat";
-    std::string surface_mapping_config_file;
-    std::string sdf_mapping_config_file;
-    bool load_sdf_mapping_bin = false;
-    bool visualize = false;
-    bool test_io = false;
-    bool hold = false;
-    bool interactive = false;
-    bool save_video = false;
-    long start_wp_idx = 0;
-    long end_wp_idx = -1;
-    long seq_stride = 1;
-    long vis_stride = 1;
-    Dtype map_resolution = 0.025;
-    Dtype surf_normal_scale = 0.35;
-
-    ERL_REFLECT_SCHEMA(
-        Options,
-        ERL_REFLECT_MEMBER(Options, dataset_name),
-        ERL_REFLECT_MEMBER(Options, gazebo_dir),
-        ERL_REFLECT_MEMBER(Options, house_expo_map_file),
-        ERL_REFLECT_MEMBER(Options, house_expo_traj_file),
-        ERL_REFLECT_MEMBER(Options, ucsd_fah_2d_file),
-        ERL_REFLECT_MEMBER(Options, surface_mapping_config_file),
-        ERL_REFLECT_MEMBER(Options, sdf_mapping_config_file),
-        ERL_REFLECT_MEMBER(Options, load_sdf_mapping_bin),
-        ERL_REFLECT_MEMBER(Options, visualize),
-        ERL_REFLECT_MEMBER(Options, test_io),
-        ERL_REFLECT_MEMBER(Options, hold),
-        ERL_REFLECT_MEMBER(Options, interactive),
-        ERL_REFLECT_MEMBER(Options, save_video),
-        ERL_REFLECT_MEMBER(Options, start_wp_idx),
-        ERL_REFLECT_MEMBER(Options, end_wp_idx),
-        ERL_REFLECT_MEMBER(Options, seq_stride),
-        ERL_REFLECT_MEMBER(Options, vis_stride),
-        ERL_REFLECT_MEMBER(Options, map_resolution),
-        ERL_REFLECT_MEMBER(Options, surf_normal_scale));
-};
 
 inline cv::Point
 EigenToOpenCV(const Eigen::Vector2i &p) {
@@ -172,20 +109,20 @@ DrawGp(
     }
 }
 
-template<typename SurfaceMapping, typename SdfMapping, typename Drawer>
+template<typename SurfMap, typename SdfMapping, typename Drawer>
 struct OpenCvUserData {
     std::string window_name;
-    SurfaceMapping *surf_map = nullptr;
+    SurfMap *surf_map = nullptr;
     SdfMapping *sdf_map = nullptr;
     Drawer *drawer = nullptr;
     cv::Mat img;
 };
 
-template<typename Dtype, typename SurfaceMapping, typename SdfMapping, typename Drawer>
+template<typename Dtype, typename SurfMap, typename SdfMapping, typename Drawer>
 void
 OpenCvMouseCallback(const int event, const int x, const int y, int /*flags*/, void *userdata) {
     if (event == cv::EVENT_LBUTTONDOWN) {
-        auto *data = static_cast<OpenCvUserData<SurfaceMapping, SdfMapping, Drawer> *>(userdata);
+        auto *data = static_cast<OpenCvUserData<SurfMap, SdfMapping, Drawer> *>(userdata);
         Eigen::Vector2<Dtype> position =
             data->drawer->template GetMeterCoordsForPositions<Dtype>(Eigen::Vector2i(x, y), false);
         ERL_INFO("Clicked at [{:f}, {:f}].", position.x(), position.y());
@@ -252,70 +189,80 @@ OpenCvMouseCallback(const int event, const int x, const int y, int /*flags*/, vo
     }
 }
 
-template<typename Dtype, typename SurfaceMappingType>
-struct TestSdfMapping2D {
-    using SurfaceMapping = SurfaceMappingType;
-    using SdfMapping = erl::gp_sdf::GpSdfMapping<Dtype, 2>;
-    using SurfaceMappingSetting = typename SurfaceMapping::Setting;
-    using SdfMappingSetting = typename SdfMapping::Setting;
+template<typename Dtype>
+struct Options : public erl::common::Yamlable<Options<Dtype>, OptionsForTestMapping2D<Dtype>> {
+    using Super = OptionsForTestMapping2D<Dtype>;
 
-    using GazeboRoom2D = erl::geometry::GazeboRoom2D;
-    using HouseExpoMap = erl::geometry::HouseExpoMap;
-    using UcsdFah2D = erl::geometry::UcsdFah2D;
+    std::string surf_map_config_file;
+    std::string sdf_map_config_file;
 
-    using Quadtree = typename SurfaceMapping::Tree;
-    using QuadtreeDrawer = erl::geometry::OccupancyQuadtreeDrawer<Quadtree>;
-    using QuadtreeDrawerSetting = typename QuadtreeDrawer::Setting;
-    using GridMapInfo2D = erl::common::GridMapInfo2D<Dtype>;
-    using Lidar2D = erl::geometry::Lidar2D;
+    ERL_REFLECT_SCHEMA(
+        Options,
+        ERL_REFLECT_MEMBER(Options, surf_map_config_file),
+        ERL_REFLECT_MEMBER(Options, sdf_map_config_file));
+
+    bool
+    PostDeserialization() override {
+        if (!Super::PostDeserialization()) { return false; }
+        ERL_ASSERTM(
+            !surf_map_config_file.empty(),
+            "Please provide the surface mapping config file via --surf_map_config_file");
+        ERL_ASSERTM(
+            !sdf_map_config_file.empty(),
+            "Please provide the SDF mapping config file via --sdf_map_config_file");
+        return true;
+    }
+};
+
+template<typename Dtype, typename SurfMapType>
+struct TestSdfMapping2D : public TestMapping2D<Dtype, erl::gp_sdf::GpSdfMapping<Dtype, 2>> {
+    using Super = TestMapping2D<Dtype, erl::gp_sdf::GpSdfMapping<Dtype, 2>>;
+    using SurfMap = SurfMapType;
+    using SdfMap = erl::gp_sdf::GpSdfMapping<Dtype, 2>;
+    using SurfMapSetting = typename SurfMap::Setting;
+    using SdfMapSetting = typename SdfMap::Setting;
+    using OptionType = Options<Dtype>;
 
     using PlplotFig = erl::common::PlplotFig;
 
-    using VectorX = Eigen::VectorX<Dtype>;
-    using Vector2 = Eigen::Vector2<Dtype>;
-    using Matrix2 = Eigen::Matrix2<Dtype>;
     using Matrix3 = Eigen::Matrix3<Dtype>;
     using MatrixX = Eigen::MatrixX<Dtype>;
     using Matrix2X = Eigen::Matrix2X<Dtype>;
     using Matrix3X = Eigen::Matrix3X<Dtype>;
 
-    Options<Dtype> options;
+    using typename Super::QuadtreeDrawer;
+    using typename Super::Vector2;
+    using typename Super::VectorX;
 
-    std::shared_ptr<SurfaceMappingSetting> surf_map_setting = nullptr;
-    std::shared_ptr<SdfMappingSetting> sdf_map_setting = nullptr;
-    std::shared_ptr<SurfaceMapping> surf_map = nullptr;
-    std::shared_ptr<SdfMapping> sdf_map = nullptr;
+    using Super::grid_map_info;
+    using Super::img_canvas;
+    using Super::img_dir;
+    using Super::mapping_uses_points;
+    using Super::max_wp_idx;
+    using Super::quadtree;
+    using Super::quadtree_drawer;
+    using Super::rotation;
+    using Super::scaling;
+    using Super::t_span;
+    using Super::test_output_folder;
+    using Super::train_ranges;
+    using Super::traj_t;
+    using Super::translation;
+    using Super::window_name;
+    using Super::wp_idx;
 
-    // dataset
-
-    DataSetType dataset_type;
-    std::shared_ptr<GazeboRoom2D::TrainDataLoader> gazebo_room_2d = nullptr;
-    std::shared_ptr<HouseExpoMap> house_expo_map = nullptr;
-    std::shared_ptr<UcsdFah2D> ucsd_fah_2d = nullptr;
-    std::vector<std::vector<Dtype>> trajectory;
-    long max_wp_idx = 0;
-    long wp_idx = 0;
-    bool mapping_uses_points = false;  // should be set externally
-    VectorX train_angles;
-    VectorX train_ranges;
-    Matrix2 rotation;
-    Vector2 translation;
-
-    // sensor
-
-    std::shared_ptr<Lidar2D> lidar = nullptr;
+    std::shared_ptr<SurfMapSetting> surf_map_setting = nullptr;
+    std::shared_ptr<SdfMapSetting> sdf_map_setting = nullptr;
+    std::shared_ptr<SurfMap> surf_map = nullptr;
+    std::shared_ptr<SdfMap> sdf_map = nullptr;
 
     // visualization
 
-    std::shared_ptr<QuadtreeDrawer> quadtree_drawer = nullptr;
-    std::shared_ptr<GridMapInfo2D> grid_map_info = nullptr;
     PlplotFig fig_sdf{1280, 480, true};
     PlplotFig fig_grad{1280, 480, true};
     PlplotFig::LegendOpt legend_opt_sdf{3, {"SDF", "EDF", "Variance"}};
     PlplotFig::LegendOpt legend_opt_grad{4, {"grad_x", "grad_y", "var_grad_x", "var_grad_y"}};
     double t_ms = 0;
-    double traj_t = 0;
-    double t_span = 100;
     std::vector<double> timestamps_sec;
     std::vector<double> sdf_values;
     std::vector<double> edf_values;
@@ -325,20 +272,22 @@ struct TestSdfMapping2D {
     std::vector<double> var_grad_x_values;
     std::vector<double> var_grad_y_values;
     cv::Mat img_scene;
-    cv::Mat img_canvas;
     cv::Scalar color_trajectory{0, 0, 0, 255};
     cv::Scalar color_surf_point{0, 255, 125, 255};
     cv::Scalar color_normal_vec{0, 0, 255, 255};
     cv::Scalar color_text{0, 255, 0, 255};
-    std::shared_ptr<cv::VideoWriter> video_writer = nullptr;
-    std::string window_name;
+    Matrix2X grid_points;
 
     // test data
-    Vector2 map_min, map_max;
-    VectorX sdf_pred{1};
-    Matrix2X sdf_gradient_pred{2, 1};
-    Matrix3X sdf_var_pred{3, 1};
-    Matrix3X sdf_covariances_pred{3, 1};
+    VectorX sdf_pred_follow{1};
+    Matrix2X sdf_gradient_pred_follow{2, 1};
+    Matrix3X sdf_var_pred_follow{3, 1};
+    Matrix3X sdf_covariances_pred_follow{3, 1};
+
+    VectorX sdf_pred_whole_map;
+    Matrix2X sdf_gradient_pred_whole_map;
+    Matrix3X sdf_var_pred_whole_map;
+    Matrix3X sdf_covariances_pred_whole_map;
 
     // logging
 
@@ -348,206 +297,68 @@ struct TestSdfMapping2D {
     Eigen::Matrix4Xd fps_data;
     double surf_map_update_dt = 0;
     double sdf_map_update_dt = 0;
-    double test_dt = 0;
-    double gui_dt = 0;
     double surf_map_update_fps = 0;
     double sdf_map_update_fps = 0;
-    double test_fps = 0;
-    double gui_fps = 0;
-    Matrix2X grid_points;
     // Eigen::VectorXl gp_indices;
     // absl::flat_hash_map<uint64_t, long> gp_index_map;
 
-    // output folders
+private:
+    std::shared_ptr<OptionType> options = nullptr;
 
-    std::filesystem::path test_output_folder;
-    std::filesystem::path img_dir;
-    std::filesystem::path video_path;
-
-    TestSdfMapping2D(const int argc, char *argv[]) {
-        ParseOptions(argc, argv);
-        LoadSetting();
-        PrepareDataset();
-        PrepareOutputFolders();
-        PrepareVisualizer();
-    }
-
-    void
-    Run() {
-        if (options.load_sdf_mapping_bin) {
-            ReadSdfMappingBin(*sdf_map);
-        } else {
-            if (options.test_io) { TestIo(); }
-
-            for (; wp_idx < max_wp_idx; wp_idx += options.seq_stride) {
-                ERL_INFO("wp_idx: {}", wp_idx);
-                ERL_BLOCK_TIMER_MSG_TIME("gui_update", gui_dt);
-                if (UpdateSdfMap()) { PredSdfFollow(); }
-                if (wp_idx % options.vis_stride == 0) { UpdateVisualization(); }
-            }
-            ERL_INFO("gui_update (fps): {:.2f}", 1000.0 / gui_dt);
-
-            if (options.save_video) {
-                video_writer->release();
-                ERL_INFO("Saved surface mapping video to {}.", video_path.c_str());
-            }
-
-            if (options.test_io) { TestIo(); }
-        }
-
-        ShowFinalResults();
-
-        if (options.visualize && options.hold) {
-            std::cout << "Press any key to exit." << std::endl;
-            cv::waitKey(0);
-        } else {
-            constexpr double wait_time = 10.0;
-            cv::waitKey(wait_time * 1000);  // wait for 10 seconds
-        }
-
-        if (options.interactive) { Interactive(); }
-    }
-
-    virtual ~TestSdfMapping2D() = default;
+public:
+    TestSdfMapping2D(
+        const int argc,
+        char *argv[],
+        std::shared_ptr<OptionType> options = std::make_shared<OptionType>())
+        : Super(argc, argv, options), options(options) {}
 
 protected:
     // initialization
-
     void
-    ParseOptions(int argc, char **argv) {
-        options.FromCommandLine(argc, argv);
-
-        if (options.dataset_name == "gazebo_room_2d") {
-            dataset_type = DataSetType::GazeboRoom2D;
-            ERL_ASSERTM(
-                !options.gazebo_dir.empty(),
-                "Please provide the Gazebo dataset directory via --gazebo_dir");
-        } else if (options.dataset_name == "house_expo_lidar_2d") {
-            dataset_type = DataSetType::HouseExpoLidar2D;
-            ERL_ASSERTM(
-                !options.house_expo_map_file.empty(),
-                "Please provide the HouseExpo map file via --house_expo_map_file");
-            ERL_ASSERTM(
-                !options.house_expo_traj_file.empty(),
-                "Please provide the HouseExpo trajectory file via --house_expo_traj_file");
-        } else if (options.dataset_name == "ucsd_fah_2d") {
-            dataset_type = DataSetType::UcsdFah2D;
-            ERL_ASSERTM(
-                !options.ucsd_fah_2d_file.empty(),
-                "Please provide the ROS bag dat file via --ucsd_fah_2d_file");
-        } else {
-            ERL_FATAL("Unknown dataset name {} for 2D", options.dataset_name);
-        }
-    }
-
-    void
-    LoadSetting() {
-        surf_map_setting = std::make_shared<SurfaceMappingSetting>();
+    Init() override {
+        surf_map_setting = std::make_shared<SurfMapSetting>();
         ERL_ASSERTM(
-            surf_map_setting->FromYamlFile(options.surface_mapping_config_file),
-            "Failed to load surface_mapping_config_file: {}",
-            options.surface_mapping_config_file);
+            surf_map_setting->FromYamlFile(options->surf_map_config_file),
+            "Failed to load surf_map_config_file: {}",
+            options->surf_map_config_file);
+        surf_map_setting->AsYamlFile(test_output_folder / "surf_map.yaml");
 
-        sdf_map_setting = std::make_shared<SdfMappingSetting>();
+        sdf_map_setting = std::make_shared<SdfMapSetting>();
         ERL_ASSERTM(
-            sdf_map_setting->FromYamlFile(options.sdf_mapping_config_file),
-            "Failed to load sdf_mapping_config_file: {}",
-            options.sdf_mapping_config_file);
+            sdf_map_setting->FromYamlFile(options->sdf_map_config_file),
+            "Failed to load sdf_map_config_file: {}",
+            options->sdf_map_config_file);
+        sdf_map_setting->AsYamlFile(test_output_folder / "sdf_map.yaml");
 
-        ERL_INFO("Surface mapping config: {}", options.surface_mapping_config_file);
+        ERL_INFO("Surface mapping config: {}", options->surf_map_config_file);
         std::cout << surf_map_setting->AsYamlString() << std::endl;
 
-        ERL_INFO("SDF mapping config: {}", options.sdf_mapping_config_file);
+        ERL_INFO("SDF mapping config: {}", options->sdf_map_config_file);
         std::cout << sdf_map_setting->AsYamlString() << std::endl;
 
-        surf_map = std::make_shared<SurfaceMapping>(surf_map_setting);
-        sdf_map = std::make_shared<SdfMapping>(sdf_map_setting, surf_map);
+        // create mappings
+        surf_map = std::make_shared<SurfMap>(surf_map_setting);
+        sdf_map = std::make_shared<SdfMap>(sdf_map_setting, surf_map);
+        quadtree = surf_map->GetTree();
+        Super::mapping = sdf_map;
+
+        // cluster size
+        scaling = surf_map_setting->scaling;
+
+        // base init
+        Super::Init();
+
+        // other
+        sdf_pred_whole_map.resize(grid_points.cols());
+        sdf_gradient_pred_whole_map.resize(2, grid_points.cols());
+        sdf_var_pred_whole_map.resize(3, grid_points.cols());
+        sdf_covariances_pred_whole_map.resize(3, grid_points.cols());
     }
 
     void
-    PrepareGazeboRoom2D() {
-        // dataset
-        gazebo_room_2d = std::make_shared<GazeboRoom2D::TrainDataLoader>(options.gazebo_dir);
-        max_wp_idx = gazebo_room_2d->size();
-        ERL_ASSERT_LT(options.start_wp_idx, max_wp_idx);
-        ERL_ASSERT_POS_LT(options.end_wp_idx, max_wp_idx);
-        train_angles = (*gazebo_room_2d)[0].angles.template cast<Dtype>();
-        // test data
-        map_min = GazeboRoom2D::kMapMin.cast<Dtype>();
-        map_max = GazeboRoom2D::kMapMax.cast<Dtype>();
-    }
+    PrepareVisualization() override {
+        Super::PrepareVisualization();
 
-    void
-    PrepareHouseExpoLidar2D() {
-        house_expo_map = std::make_shared<HouseExpoMap>(options.house_expo_map_file, 0.2);
-        trajectory = erl::common::LoadAndCastCsvFile<Dtype>(
-            options.house_expo_traj_file,
-            [](const std::string &str) -> double { return std::stod(str); });
-        max_wp_idx = static_cast<long>(trajectory.size());
-        ERL_ASSERT_LT(options.start_wp_idx, max_wp_idx);
-        ERL_ASSERT_POS_LT(options.end_wp_idx, max_wp_idx);
-        // sensor
-        auto lidar_setting = std::make_shared<Lidar2D::Setting>();
-        lidar_setting->num_lines = 720;
-        lidar = std::make_shared<Lidar2D>(lidar_setting, house_expo_map->GetMeterSpace());
-        train_angles = lidar->GetAngles().cast<Dtype>();
-        // test data
-        map_min = house_expo_map->GetMeterSpace()
-                      ->GetSurface()
-                      ->vertices.rowwise()
-                      .minCoeff()
-                      .cast<Dtype>();
-        map_max = house_expo_map->GetMeterSpace()
-                      ->GetSurface()
-                      ->vertices.rowwise()
-                      .maxCoeff()
-                      .cast<Dtype>();
-    }
-
-    void
-    PrepareUcsdFah2D() {
-        ucsd_fah_2d = std::make_shared<UcsdFah2D>(options.ucsd_fah_2d_file);
-        max_wp_idx = ucsd_fah_2d->Size();
-        ERL_ASSERT_LT(options.start_wp_idx, max_wp_idx);
-        ERL_ASSERT_POS_LT(options.end_wp_idx, max_wp_idx);
-        train_angles = (*ucsd_fah_2d)[0].angles.template cast<Dtype>();
-        t_span = 500.0f * ucsd_fah_2d->GetTimeStep();
-        // test data
-        map_min = UcsdFah2D::kMapMin.cast<Dtype>();
-        map_max = UcsdFah2D::kMapMax.cast<Dtype>();
-    }
-
-    void
-    PrepareDataset() {
-        switch (dataset_type) {
-            case DataSetType::GazeboRoom2D:
-                PrepareGazeboRoom2D();
-                break;
-            case DataSetType::HouseExpoLidar2D:
-                PrepareHouseExpoLidar2D();
-                break;
-            case DataSetType::UcsdFah2D:
-                PrepareUcsdFah2D();
-                break;
-            default:
-                ERL_FATAL("Unsupported dataset type.");
-        }
-
-        max_wp_idx = (options.end_wp_idx == -1) ? max_wp_idx : options.end_wp_idx;
-    }
-
-    void
-    PrepareOutputFolders() {
-        GTEST_PREPARE_OUTPUT_DIR();
-        test_output_folder = test_output_dir;
-        img_dir = test_output_folder / "images";
-        video_path = test_output_folder / "sdf_mapping.avi";
-        std::filesystem::create_directory(img_dir);
-        window_name = test_info->name();
-    }
-
-    void
-    PrepareVisualizer() {
         legend_opt_sdf
             .SetTextColors(
                 {PlplotFig::Color0::Red, PlplotFig::Color0::Blue, PlplotFig::Color0::Green})
@@ -585,149 +396,21 @@ protected:
         var_grad_x_values.reserve(max_wp_idx);
         var_grad_y_values.reserve(max_wp_idx);
 
-        auto drawer_setting = std::make_shared<QuadtreeDrawerSetting>();
-        drawer_setting->area_min = map_min.template cast<float>();
-        drawer_setting->area_max = map_max.template cast<float>();
-        drawer_setting->resolution = options.map_resolution;
-        drawer_setting->scaling = surf_map_setting->scaling;
-        drawer_setting->padding = 1;
-        drawer_setting->border_color = cv::Scalar(255, 0, 0, 255);
-        quadtree_drawer = std::make_shared<QuadtreeDrawer>(drawer_setting, surf_map->GetTree());
-        grid_map_info = quadtree_drawer->GetGridMapInfo()->template CastSharedPtr<Dtype>();
-        options.map_resolution = grid_map_info->Resolution(0);
         grid_points = grid_map_info->GenerateMeterCoordinates(true);
-
-        if (options.save_video) {
-            cv::Size frame_size(
-                grid_map_info->Width() + 1280,
-                std::max(grid_map_info->Height(), 960));
-            video_writer = std::make_shared<cv::VideoWriter>(
-                video_path,
-                cv::VideoWriter::fourcc('M', 'J', 'P', 'G'),
-                30.0,
-                frame_size);
-        }
-    }
-
-    std::string
-    GetBinFileName() {
-        std::string bin_file = fmt::format("sdf_mapping_2d_{}.bin", type_name<Dtype>());
-        bin_file = test_output_folder / bin_file;
-        return bin_file;
-    }
-
-    void
-    WriteSdfMappingBin() {
-        ERL_BLOCK_TIMER_MSG("WriteSdfMappingBin");
-        std::string bin_file = GetBinFileName();
-        using namespace erl::common::serialization;
-        ERL_ASSERTM(
-            Serialization<SdfMapping>::Write(bin_file, sdf_map),
-            "Failed to write to file: {}",
-            bin_file);
-    }
-
-    void
-    ReadSdfMappingBin(SdfMapping &sdf_mapping_read) {
-        ERL_BLOCK_TIMER_MSG("ReadSdfMappingBin");
-        std::string bin_file = GetBinFileName();
-        using namespace erl::common::serialization;
-        ERL_ASSERTM(
-            Serialization<SdfMapping>::Read(bin_file, &sdf_mapping_read),
-            "Failed to read from file: {}",
-            bin_file);
-    }
-
-    void
-    TestIo() {
-        ERL_BLOCK_TIMER_MSG("IO");
-        WriteSdfMappingBin();
-
-        auto surface_mapping_read =
-            std::make_shared<SurfaceMapping>(std::make_shared<typename SurfaceMapping::Setting>());
-        SdfMapping sdf_mapping_read(std::make_shared<SdfMappingSetting>(), surface_mapping_read);
-        ReadSdfMappingBin(sdf_mapping_read);
-
-        ERL_ASSERTM(*sdf_map == sdf_mapping_read, "sdf_map != sdf_mapping_read");
-    }
-
-    void
-    LoadDataFromGazeboRoom2D() {
-        const auto &frame = (*gazebo_room_2d)[wp_idx];
-        rotation = frame.rotation.template cast<Dtype>();
-        translation = frame.translation.template cast<Dtype>();
-        train_ranges = frame.ranges.template cast<Dtype>();
-        traj_t += 0.2;  // assume 5 Hz
-    }
-
-    void
-    LoadDataFromHouseExpoLidar2D() {
-        const std::vector<Dtype> &wp = trajectory[wp_idx];
-        rotation = Eigen::Rotation2D<Dtype>(wp[2]).toRotationMatrix();
-        translation[0] = wp[0];
-        translation[1] = wp[1];
-        train_ranges =
-            lidar->Scan(wp[2], translation.template cast<double>(), true).template cast<Dtype>();
-        traj_t += 0.2;  // assume 5 Hz
-    }
-
-    void
-    LoadDataFromUcsdFah2D() {
-        auto
-            [sequence_number,
-             timestamp,
-             header_timestamp,
-             rotation_mat,
-             translation_vec,
-             angles,
-             ranges] = (*ucsd_fah_2d)[wp_idx];
-        rotation = rotation_mat.template cast<Dtype>();
-        translation = translation_vec.template cast<Dtype>();
-        train_ranges = ranges.template cast<Dtype>();
-        traj_t += ucsd_fah_2d->GetTimeStep();
-    }
-
-    void
-    LoadData() {
-        ERL_BLOCK_TIMER_MSG("data loading");
-        switch (dataset_type) {
-            case DataSetType::GazeboRoom2D:
-                LoadDataFromGazeboRoom2D();
-                break;
-            case DataSetType::HouseExpoLidar2D:
-                LoadDataFromHouseExpoLidar2D();
-                break;
-            case DataSetType::UcsdFah2D:
-                LoadDataFromUcsdFah2D();
-                break;
-            default:
-                ERL_FATAL("Unsupported dataset type.");
-        }
     }
 
     bool
     UpdateSurfaceMap() {
-        LoadData();
-
-        if (!mapping_uses_points) {
+        if (Super::mapping_uses_points) {
             ERL_BLOCK_TIMER_MSG_TIME("surf_map.Update", surf_map_update_dt);
-            return surf_map->Update(rotation, translation, train_ranges, false, true);
-        }
-
-        // transform points from sensor frame to world frame
-        Matrix2X points(2, train_ranges.size());
-#pragma omp parallel for default(none) schedule(static) shared(points)
-        for (long i = 0; i < train_ranges.size(); ++i) {
-            // clang-format off
-            points.col(i) << train_ranges[i] * std::cos(train_angles[i]),
-                             train_ranges[i] * std::sin(train_angles[i]);
-            // clang-format on
-            points.col(i) = rotation * points.col(i) + translation;
+            // are_points: true, are_local: false
+            return surf_map->Update(rotation, translation, Super::train_world_points, true, false);
         }
 
         {
             ERL_BLOCK_TIMER_MSG_TIME("surf_map.Update", surf_map_update_dt);
-            return surf_map->Update(rotation, translation, points, true, false);
+            // are_points: false, are_local: true
+            return surf_map->Update(rotation, translation, train_ranges, false, true);
         }
     }
 
@@ -745,15 +428,19 @@ protected:
         return sdf_map_updated;
     }
 
+    bool
+    UpdateMap() override {
+        return UpdateSdfMap();
+    }
+
     void
-    PredSdfFollow() {
-        ERL_BLOCK_TIMER_MSG_TIME("sdf_map.Test", test_dt);
+    UpdatePrediction() override {
         test_success = sdf_map->Test(
             translation,
-            sdf_pred,
-            sdf_gradient_pred,
-            sdf_var_pred,
-            sdf_covariances_pred);
+            sdf_pred_follow,
+            sdf_gradient_pred_follow,
+            sdf_var_pred_follow,
+            sdf_covariances_pred_follow);
     }
 
     static void
@@ -775,7 +462,7 @@ protected:
             const cv::Point position_px_cv(position_px[0], position_px[1]);
             cv::circle(img, position_px_cv, 2, color_surf_point, -1);
             Eigen::Vector2i normal_px = quadtree_drawer->template GetPixelCoordsForVectors<Dtype>(
-                it->normal * options.surf_normal_scale);
+                it->normal * options->surf_normal_scale);
             const cv::Point arrow_end_px(
                 position_px[0] + normal_px[0],
                 position_px[1] + normal_px[1]);
@@ -798,8 +485,6 @@ protected:
     UpdateSceneImg() {
         if (surf_map_updated) { surf_map_update_fps = 1000.0 / surf_map_update_dt; }
         if (sdf_map_updated) { sdf_map_update_fps = 1000.0 / sdf_map_update_dt; }
-        if (test_success) { test_fps = 1000.0 / test_dt; }
-        if (gui_dt > 0) { gui_fps = 1000.0 / gui_dt; }
 
         InitSceneImg();
 
@@ -809,21 +494,21 @@ protected:
             img_scene,
             position_px.x,
             position_px.y,
-            sdf_pred[0],
-            options.map_resolution);
+            sdf_pred_follow[0],
+            options->map_resolution);
         DrawSdfVariance<Dtype>(
             img_scene,
             position_px.x,
             position_px.y,
-            sdf_pred[0],
-            sdf_var_pred(0, 0),
-            options.map_resolution);
+            sdf_pred_follow[0],
+            sdf_var_pred_follow(0, 0),
+            options->map_resolution);
         DrawSdfGradient(
             img_scene,
             *quadtree_drawer,
             position_px.x,
             position_px.y,
-            Eigen::Vector2<Dtype>(sdf_gradient_pred.col(0)));
+            Eigen::Vector2<Dtype>(sdf_gradient_pred_follow.col(0)));
 
         // draw used surface points
         if (test_success) {
@@ -860,7 +545,7 @@ protected:
             }
         }
 
-        // draw trajectory
+        // draw house_expo_traj
         erl::common::DrawTrajectoryInplace<Dtype>(
             img_scene,
             translation,
@@ -891,7 +576,7 @@ protected:
             kThickness);
         cv::putText(
             img_scene,
-            fmt::format("sdf_map.Test: {:.2f} fps", test_fps),
+            fmt::format("sdf_map.Test: {:.2f} fps", Super::update_pred_fps),
             cv::Point(10, 45),
             kFontFace,
             kFontScale,
@@ -899,7 +584,7 @@ protected:
             kThickness);
         cv::putText(
             img_scene,
-            fmt::format("GUI: {:.2f} fps", gui_fps),
+            fmt::format("GUI: {:.2f} fps", Super::update_vis_fps),
             cv::Point(10, 60),
             kFontFace,
             kFontScale,
@@ -910,13 +595,13 @@ protected:
     void
     UpdateCurves() {
         timestamps_sec.push_back(traj_t);
-        sdf_values.push_back(sdf_pred[0]);
-        edf_values.push_back(std::abs(sdf_pred[0]));
-        var_sdf_values.push_back(sdf_var_pred(0, 0));
-        grad_x_values.push_back(sdf_gradient_pred(0, 0));
-        grad_y_values.push_back(sdf_gradient_pred(1, 0));
-        var_grad_x_values.push_back(sdf_var_pred(1, 0));
-        var_grad_y_values.push_back(sdf_var_pred(2, 0));
+        sdf_values.push_back(sdf_pred_follow[0]);
+        edf_values.push_back(std::abs(sdf_pred_follow[0]));
+        var_sdf_values.push_back(sdf_var_pred_follow(0, 0));
+        grad_x_values.push_back(sdf_gradient_pred_follow(0, 0));
+        grad_y_values.push_back(sdf_gradient_pred_follow(1, 0));
+        var_grad_x_values.push_back(sdf_var_pred_follow(1, 0));
+        var_grad_y_values.push_back(sdf_var_pred_follow(2, 0));
         const double t_min = traj_t - t_span;
         int n = 0;
         for (; n < static_cast<int>(timestamps_sec.size()) && timestamps_sec[n] < t_min; ++n) {}
@@ -971,7 +656,10 @@ protected:
             .SetCurrentColor(PlplotFig::Color0::Black)
             .SetAxisLabelY("Variance", true)
             .SetTitle(
-                fmt::format("sdf: {:.2f}, var_sdf: {:.2e}", sdf_pred[0], sdf_var_pred(0, 0))
+                fmt::format(
+                    "sdf: {:.2f}, var_sdf: {:.2e}",
+                    sdf_pred_follow[0],
+                    sdf_var_pred_follow(0, 0))
                     .c_str());
         DrawCurve(
             fig_sdf,
@@ -1032,10 +720,10 @@ protected:
             .SetTitle(
                 fmt::format(
                     "grad: [{:.2f}, {:.2f}], var_grad: [{:.2e}, {:.2e}]",
-                    sdf_gradient_pred(0, 0),
-                    sdf_gradient_pred(1, 0),
-                    sdf_var_pred(1, 0),
-                    sdf_var_pred(2, 0))
+                    sdf_gradient_pred_follow(0, 0),
+                    sdf_gradient_pred_follow(1, 0),
+                    sdf_var_pred_follow(1, 0),
+                    sdf_var_pred_follow(2, 0))
                     .c_str());
         DrawCurve(
             fig_grad,
@@ -1079,31 +767,28 @@ protected:
                 cv::Rect(img_scene.cols, fig_sdf.Height(), fig_grad.Width(), fig_grad.Height())));
         }
         cv::cvtColor(tmp, img_canvas, cv::COLOR_BGRA2BGR);
-        if (options.save_video) { video_writer->write(img_canvas); }
         cv::imshow(window_name, img_canvas);
         cv::waitKey(1);
     }
 
     void
-    UpdateVisualization() {
-        if (!options.visualize) { return; }
-        ERL_BLOCK_TIMER_MSG("UpdateVisualization");
-
+    UpdateVisualization() override {
         UpdateSceneImg();
         UpdateCurves();
         UpdateCanvas();
     }
 
     void
-    ShowFinalResults() {
-        if (!options.visualize) { return; }
+    ShowFinalResults() override {
+        if (!options->visualize) { return; }
 
-        VectorX sdf_out(grid_points.cols());
-        Matrix2X grads_out(2, grid_points.cols());
-        Matrix3X var_out(3, grid_points.cols());
-        Matrix3X cov_out;
         const auto t0 = std::chrono::high_resolution_clock::now();
-        bool success = sdf_map->Test(grid_points, sdf_out, grads_out, var_out, cov_out);
+        bool success = sdf_map->Test(
+            grid_points,
+            sdf_pred_whole_map,
+            sdf_gradient_pred_whole_map,
+            sdf_var_pred_whole_map,
+            sdf_covariances_pred_whole_map);
         const auto t1 = std::chrono::high_resolution_clock::now();
         auto dt = std::chrono::duration<double, std::milli>(t1 - t0).count();
         double t_per_point = dt / static_cast<double>(grid_points.cols()) * 1000;  // us
@@ -1113,8 +798,8 @@ protected:
             dt,
             grid_points.cols(),
             t_per_point);
-        Dtype min_sdf = sdf_out.minCoeff();
-        Dtype max_sdf = sdf_out.maxCoeff();
+        Dtype min_sdf = sdf_pred_whole_map.minCoeff();
+        Dtype max_sdf = sdf_pred_whole_map.maxCoeff();
         ERL_INFO("min SDF: {:f}, max SDF: {:f}.", min_sdf, max_sdf);
 
         InitSceneImg();
@@ -1144,7 +829,7 @@ protected:
             grid_map_info->Width(),
             grid_map_info->Height(),
             sizeof(Dtype) == 4 ? CV_32FC1 : CV_64FC1,
-            sdf_out.data());
+            sdf_pred_whole_map.data());
         img_sdf = img_sdf.t();
         cv::normalize(img_sdf, img_sdf, 0, 255, cv::NORM_MINMAX, CV_8UC1);
         cv::flip(img_sdf, img_sdf, 0);
@@ -1155,7 +840,7 @@ protected:
         cv::imwrite(img_dir / "sdf.png", img_sdf);
 
         // convert to binary image: 0 for negative, 255 for positive
-        Eigen::VectorXi sdf_sign = (sdf_out.array() >= 0).template cast<int>();
+        Eigen::VectorXi sdf_sign = (sdf_pred_whole_map.array() >= 0).template cast<int>();
         cv::Mat img_sign(
             grid_map_info->Width(),
             grid_map_info->Height(),
@@ -1168,7 +853,7 @@ protected:
         cv::imwrite(img_dir / "sdf_sign.png", img_sign);
 
         // draw SDF variance map
-        VectorX sdf_variances = var_out.row(0).transpose();
+        VectorX sdf_variances = sdf_var_pred_whole_map.row(0).transpose();
         cv::Mat img_sdf_variance(
             grid_map_info->Width(),
             grid_map_info->Height(),
@@ -1188,12 +873,12 @@ protected:
     }
 
     void
-    Interactive() {
-        if (!options.interactive) { return; }
+    Interactive() override {
+        if (!options->interactive) { return; }
 
         InitSceneImg();
 
-        OpenCvUserData<SurfaceMapping, SdfMapping, QuadtreeDrawer> data;
+        OpenCvUserData<SurfMap, SdfMap, QuadtreeDrawer> data;
         data.window_name = window_name + ": interactive";
         data.img = img_scene;
         data.drawer = quadtree_drawer.get();
@@ -1203,8 +888,22 @@ protected:
         cv::imshow(data.window_name, img_scene);
         cv::setMouseCallback(
             data.window_name,
-            OpenCvMouseCallback<Dtype, SurfaceMapping, SdfMapping, QuadtreeDrawer>,
+            OpenCvMouseCallback<Dtype, SurfMap, SdfMap, QuadtreeDrawer>,
             &data);
         while (cv::waitKey(0) != 27) {}  // wait for the ESC key
+    }
+
+    std::string
+    GetBinFileName() override {
+        std::string bin_file = fmt::format("sdf_mapping_2d_{}.bin", type_name<Dtype>());
+        bin_file = test_output_folder / bin_file;
+        return bin_file;
+    }
+
+    void
+    TestIo() override {
+        auto surf_map_read = std::make_shared<SurfMap>(std::make_shared<SurfMapSetting>());
+        SdfMap sdf_map_read(std::make_shared<SdfMapSetting>(), surf_map_read);
+        Super::TestIo(sdf_map_read);
     }
 };

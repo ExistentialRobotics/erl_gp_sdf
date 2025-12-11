@@ -13,6 +13,7 @@ struct TestSdfMappingWithBayesianHilbertMap2D
         this->color_normal_vec = {255, 255, 255, 255};
     }
 
+protected:
     void
     InitSceneImg() override {
         this->img_scene.setTo(cv::Scalar(128, 128, 128, 255));
