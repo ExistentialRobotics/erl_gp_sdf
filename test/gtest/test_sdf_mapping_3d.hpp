@@ -2,7 +2,6 @@
 
 #include "test_mapping_3d.hpp"
 
-#include "erl_common/macros.hpp"
 #include "erl_gp_sdf/gp_sdf_mapping.hpp"
 
 template<typename Dtype>
@@ -10,23 +9,23 @@ struct Options : public erl::common::Yamlable<Options<Dtype>, OptionsForTestMapp
 
     using Super = OptionsForTestMapping3D<Dtype>;
 
-    std::string surface_mapping_config_file;
-    std::string sdf_mapping_config_file;
+    std::string surf_map_config_file;
+    std::string sdf_map_config_file;
 
     ERL_REFLECT_SCHEMA(
         Options,
-        ERL_REFLECT_MEMBER(Options, surface_mapping_config_file),
-        ERL_REFLECT_MEMBER(Options, sdf_mapping_config_file));
+        ERL_REFLECT_MEMBER(Options, surf_map_config_file),
+        ERL_REFLECT_MEMBER(Options, sdf_map_config_file));
 
     bool
     PostDeserialization() override {
         if (!Super::PostDeserialization()) { return false; }
         ERL_ASSERTM(
-            !surface_mapping_config_file.empty(),
-            "Please provide the surface mapping config file via --surface_mapping_config_file");
+            !surf_map_config_file.empty(),
+            "Please provide the surface mapping config file via --surf_map_config_file");
         ERL_ASSERTM(
-            !sdf_mapping_config_file.empty(),
-            "Please provide the SDF mapping config file via --sdf_mapping_config_file");
+            !sdf_map_config_file.empty(),
+            "Please provide the SDF mapping config file via --sdf_map_config_file");
         return true;
     }
 };
@@ -85,6 +84,7 @@ struct TestSdfMapping3D : public TestMapping3D<Dtype, erl::gp_sdf::GpSdfMapping<
     using Super::ranges_img_texts;
     using Super::rotation_frame;
     using Super::rotation_sensor;
+    using Super::scaling;
     using Super::surf_data_buffer;
     using Super::test_output_folder;
     using Super::translation_frame;
@@ -148,22 +148,22 @@ protected:
         // load settings
         surf_map_setting = std::make_shared<SurfaceMappingSetting>();
         ERL_ASSERTM(
-            surf_map_setting->FromYamlFile(options->surface_mapping_config_file),
-            "Failed to load surface_mapping_config_file: {}",
-            options->surface_mapping_config_file);
+            surf_map_setting->FromYamlFile(options->surf_map_config_file),
+            "Failed to load surf_map_config_file: {}",
+            options->surf_map_config_file);
         surf_map_setting->AsYamlFile(test_output_folder / "surf_mapping.yaml");
 
         sdf_map_setting = std::make_shared<SdfMappingSetting>();
         ERL_ASSERTM(
-            sdf_map_setting->FromYamlFile(options->sdf_mapping_config_file),
-            "Failed to load sdf_mapping_config_file: {}",
-            options->sdf_mapping_config_file);
+            sdf_map_setting->FromYamlFile(options->sdf_map_config_file),
+            "Failed to load sdf_map_config_file: {}",
+            options->sdf_map_config_file);
         sdf_map_setting->AsYamlFile(test_output_folder / "sdf_mapping.yaml");
 
-        ERL_INFO("Surface mapping config: {}", options->surface_mapping_config_file);
+        ERL_INFO("Surface mapping config: {}", options->surf_map_config_file);
         std::cout << surf_map_setting->AsYamlString() << std::endl;
 
-        ERL_INFO("SDF mapping config: {}", options->sdf_mapping_config_file);
+        ERL_INFO("SDF mapping config: {}", options->sdf_map_config_file);
         std::cout << sdf_map_setting->AsYamlString() << std::endl;
 
         // create mappings
@@ -172,6 +172,7 @@ protected:
         mapping = sdf_map;
 
         // cluster size
+        scaling = surf_map_setting->scaling;
         cluster_half_size = surf_map->GetClusterSize() * 0.5f / surf_map_setting->scaling;
 
         // base init
@@ -210,7 +211,7 @@ protected:
         positions_test_whole_map.row(2).setConstant(options->test_z);
 
         {
-            ERL_BLOCK_TIMER_MSG("sdf_map.Test");
+            const ERL_BLOCK_TIMER_MSG("sdf_map.Test");
             ASSERT_TRUE(sdf_map->Test(
                 positions_test_whole_map,
                 sdf_pred_whole_map,
@@ -288,7 +289,7 @@ protected:
         cluster_indices.setConstant(-1);
         if (test_success && !used_gps.empty()) {
             for (long i = 0; i < cluster_indices.size(); ++i) {
-                auto &gp = VEC_ACCESS(used_gps, i)[0];
+                auto &gp = CHECKED_AT(used_gps, i)[0];
                 if (gp == nullptr) { continue; }
                 auto key = reinterpret_cast<uint64_t>(gp.get());
                 auto [it, inserted] = gp_index_map.try_emplace(key, gp_index_map.size());
@@ -350,9 +351,8 @@ protected:
         if (test_success) { test_fps = 1000.0 / test_dt; }
         if (gui_dt > 0) { gui_fps = 1000.0 / gui_dt; }
 
-        fps_data.col(wp_idx / options->seq_stride) << surf_map_update_fps, sdf_map_update_fps,
+        fps_data.col(wp_idx / options->seq_stride - 1) << surf_map_update_fps, sdf_map_update_fps,
             test_fps, gui_fps;
-        wp_idx += options->seq_stride;
 
         ranges_img_texts.clear();
         ranges_img_texts.push_back(fmt::format("frame {}", wp_idx));

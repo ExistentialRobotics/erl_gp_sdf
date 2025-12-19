@@ -1,7 +1,6 @@
 #include "erl_gp_sdf/gp_sdf_mapping.hpp"
 
 #include "erl_common/block_timer.hpp"
-#include "erl_common/macros.hpp"
 #include "erl_common/tracy.hpp"
 #include "erl_geometry/marching_cubes.hpp"
 #include "erl_geometry/marching_squares.hpp"
@@ -25,7 +24,7 @@ namespace erl::gp_sdf {
         variances = nullptr;
         covariances = nullptr;
         const long n = positions_in.cols();
-        if (n == 0) return false;
+        if (n == 0) { return false; }
 
         distances_out.resize(n);
         gradients_out.resize(MatrixDX::RowsAtCompileTime, n);
@@ -85,7 +84,7 @@ namespace erl::gp_sdf {
 
     template<typename Dtype, int Dim>
     std::lock_guard<std::mutex>
-    GpSdfMapping<Dtype, Dim>::GetLockGuard() {
+    GpSdfMapping<Dtype, Dim>::GetLockGuard() const {
         return std::lock_guard<std::mutex>(m_mutex_);
     }
 
@@ -110,10 +109,10 @@ namespace erl::gp_sdf {
         bool are_points,
         bool are_local) {
 
-        double surf_mapping_time;
-        bool ok;
+        double surf_mapping_time = 0;
+        bool ok = false;
         {
-            ERL_BLOCK_TIMER_MSG_TIME("Surface mapping update", surf_mapping_time);
+            const ERL_BLOCK_TIMER_MSG_TIME("Surface mapping update", surf_mapping_time);
             ok = m_surface_mapping_->Update(rotation, translation, scan, are_points, are_local);
         }
 
@@ -164,7 +163,8 @@ namespace erl::gp_sdf {
     void
     GpSdfMapping<Dtype, Dim>::TrainAllGps() {
         // CRITICAL SECTION: access m_load_data_queue_
-        auto lock = GetLockGuard();
+        const auto lock = GetLockGuard();
+        (void) lock;
 
         m_gps_to_load_data_.clear();
         for (auto &[key, handle]: m_queue_keys_) {
@@ -196,7 +196,8 @@ namespace erl::gp_sdf {
         m_query_used_gps_.clear();
 
         {
-            auto lock = GetLockGuard();  // CRITICAL SECTION: access m_gp_map_
+            const auto lock = GetLockGuard();  // CRITICAL SECTION: access m_gp_map_
+            (void) lock;
             if (m_gp_map_.empty()) {
                 ERL_WARN("No GPs available for testing.");
                 return false;
@@ -226,10 +227,11 @@ namespace erl::gp_sdf {
         threads.reserve(num_threads);
         const std::size_t batch_size = num_queries / num_threads;
         const std::size_t leftover = num_queries - batch_size * num_threads;
-        std::size_t start_idx, end_idx;
+
         {
             // CRITICAL SECTION: access m_surface_mapping_
-            auto surface_mapping_lock = m_surface_mapping_->GetLockGuard();
+            const auto surface_mapping_lock = m_surface_mapping_->GetLockGuard();
+            (void) surface_mapping_lock;
             m_map_boundary_ = m_surface_mapping_->GetMapBoundary();
         }
 
@@ -256,6 +258,8 @@ namespace erl::gp_sdf {
 #pragma endregion
 
 #pragma region test_search_gps
+        std::size_t start_idx = 0;
+        std::size_t end_idx = 0;
         m_kdtree_candidate_gps_.reset();
         // build kdtree of candidate GPs to allow fast search.
         // remove inactive GPs and collect GP positions
@@ -323,7 +327,8 @@ namespace erl::gp_sdf {
               hybrid_sign_methods.second == SignMethod::kExternal))) {
             // collect the sign from the surface mapping, which is not thread-safe
             // CRITICAL SECTION: access m_surface_mapping_
-            auto surface_mapping_lock = m_surface_mapping_->GetLockGuard();
+            const auto surface_mapping_lock = m_surface_mapping_->GetLockGuard();
+            (void) surface_mapping_lock;
             surf_mapping_sign = m_surface_mapping_->IsInFreeSpace(positions_in, m_in_free_space_);
             ERL_WARN_COND(!surf_mapping_sign, "Failed to get sign from the surface mapping.");
         }
@@ -377,7 +382,7 @@ namespace erl::gp_sdf {
         const Dtype iso_value,
         std::vector<VectorD> &surface_points,
         std::vector<Face> &faces,
-        std::vector<VectorD> &face_normals) const {
+        std::vector<VectorD> &face_normals) {
 
         using GridShape = Eigen::Vector<long, Dim>;
         using VoxelCoord = Eigen::Vector<long, Dim>;
@@ -414,7 +419,7 @@ namespace erl::gp_sdf {
         cluster_centers *= scaling;
         Dtype radius = m_surface_mapping_->GetClusterSize() * scaling * std::sqrt(Dim) * 0.5f;
         radius *= std::sqrt(static_cast<Dtype>(Dim));
-        KdTree kdtree_clusters(cluster_centers);
+        const KdTree kdtree_clusters(cluster_centers);
         const long n_voxels = grid_shape.prod();
         Eigen::VectorXb flags_near_surface(n_voxels);
 #pragma omp parallel for schedule(static) default(none) \
@@ -477,8 +482,8 @@ namespace erl::gp_sdf {
                bound_min,              \
                grid_resolution)
         for (std::size_t tidx = 0; tidx < num_threads; ++tidx) {
-            std::size_t start_idx = tidx * batch_size;
-            std::size_t end_idx =
+            const std::size_t start_idx = tidx * batch_size;
+            const std::size_t end_idx =
                 (tidx == num_threads - 1) ? near_surface_voxels.size() : start_idx + batch_size;
             std::vector<std::pair<VoxelCoord, VectorD>> &vertices = vertices_batches[tidx];
             absl::flat_hash_set<VoxelCoord> &vertex_set = vertex_sets[tidx];
@@ -508,7 +513,7 @@ namespace erl::gp_sdf {
             }
         }
         // merge vertices from all threads into a single unique set
-        std::size_t n_unique_vertices = std::accumulate(
+        const std::size_t n_unique_vertices = std::accumulate(
             vertices_batches.begin(),
             vertices_batches.end(),
             0,
@@ -537,8 +542,7 @@ namespace erl::gp_sdf {
         Variances variances = Variances::Zero(Dim + 1, vertices.cols());
         Covariances covariances;
         ERL_INFO("Querying SDF at {} vertices", vertices.cols());
-        const bool success = const_cast<GpSdfMapping *>(this)
-                                 ->Test(vertices, sdf_values, gradients, variances, covariances);
+        const bool success = Test(vertices, sdf_values, gradients, variances, covariances);
         if (!success) {
             ERL_WARN("Failed to query SDF at voxel vertices");
             return;
@@ -616,11 +620,11 @@ namespace erl::gp_sdf {
                iso_value)
         for (long i = 0; i < static_cast<long>(n_unique_edges); ++i) {
             const EdgeCoord &edge_coord = unique_edges[i];
-            VoxelCoord v1_coord = edge_coord.template head<Dim>();
+            const VoxelCoord v1_coord = edge_coord.template head<Dim>();
             VoxelCoord v2_coord = edge_coord.template head<Dim>();
             ++v2_coord[edge_coord[Dim] - 1];
-            long vid1 = vertex_map.at(v1_coord);
-            long vid2 = vertex_map.at(v2_coord);
+            const long vid1 = vertex_map.at(v1_coord);
+            const long vid2 = vertex_map.at(v2_coord);
             constexpr Dtype kEpsilon = 1e-6f;
             const Dtype val1 = sdf_values[vid1];
             const Dtype val2 = sdf_values[vid2];
@@ -692,7 +696,7 @@ namespace erl::gp_sdf {
         using namespace common;
         using namespace common::serialization;
 
-        const_cast<GpSdfMapping *>(this)->TrainAllGps();
+        const_cast<GpSdfMapping *>(this)->TrainAllGps();  // NOLINT(*-pro-type-const-cast)
 
         static const TokenWriteFunctionPairs<GpSdfMapping> token_function_pairs = {
             {
@@ -779,7 +783,7 @@ namespace erl::gp_sdf {
             {
                 "gp_map",
                 [](GpSdfMapping *self, std::istream &s) {
-                    std::size_t n;
+                    std::size_t n = 0;
                     s.read(reinterpret_cast<char *>(&n), sizeof(std::size_t));
                     self->m_gp_map_.clear();
                     self->m_gp_map_.reserve(n);
@@ -791,7 +795,7 @@ namespace erl::gp_sdf {
                             ERL_WARN("Duplicate GP key: {}.", static_cast<std::string>(key));
                             return false;
                         }
-                        bool has_gp;
+                        bool has_gp = false;
                         s.read(reinterpret_cast<char *>(&has_gp), sizeof(bool));
                         if (has_gp) {
                             it->second = std::make_shared<SdfGp>(self->m_setting_->sdf_gp);
@@ -809,7 +813,7 @@ namespace erl::gp_sdf {
             {
                 "queue_keys",
                 [](GpSdfMapping *self, std::istream &s) {
-                    std::size_t n;
+                    std::size_t n = 0;
                     s.read(reinterpret_cast<char *>(&n), sizeof(std::size_t));
                     self->m_queue_keys_.clear();
                     self->m_queue_keys_.reserve(n);
@@ -893,13 +897,14 @@ namespace erl::gp_sdf {
     template<typename Dtype, int Dim>
     void
     GpSdfMapping<Dtype, Dim>::CollectChangedClusters() {
-        ERL_BLOCK_TIMER_MSG("CollectChangedClusters");
+        const ERL_BLOCK_TIMER_MSG("CollectChangedClusters");
 
         const Dtype cluster_size = m_surface_mapping_->GetClusterSize();
         const Dtype area_half_size = cluster_size * m_setting_->gp_sdf_area_scale * 0.5f;
 
         // CRITICAL SECTION: access m_surface_mapping_
-        auto surface_mapping_lock = m_surface_mapping_->GetLockGuard();
+        const auto surface_mapping_lock = m_surface_mapping_->GetLockGuard();
+        (void) surface_mapping_lock;
         const KeySet &changed_clusters = m_surface_mapping_->GetChangedClusters();
         m_clusters_to_load_data_ = changed_clusters;
         m_clusters_to_collect_data_ = changed_clusters;
@@ -922,7 +927,7 @@ namespace erl::gp_sdf {
     template<typename Dtype, int Dim>
     void
     GpSdfMapping<Dtype, Dim>::UpdateLoadDataQueue() {
-        ERL_BLOCK_TIMER_MSG("UpdateLoadDataQueue");
+        const ERL_BLOCK_TIMER_MSG("UpdateLoadDataQueue");
 
         const Dtype cluster_size = m_surface_mapping_->GetClusterSize();
         const Dtype area_half_size = cluster_size * m_setting_->gp_sdf_area_scale * 0.5f;
@@ -930,15 +935,17 @@ namespace erl::gp_sdf {
         const Dtype alpha = m_setting_->queue_priority.distance_weight;
         const Dtype beta = m_setting_->queue_priority.query_weight_for_loading;
 
-        auto lock = GetLockGuard();  // CRITICAL SECTION: access m_gp_map_
-        VectorD sensor_pos = m_surface_mapping_->GetLastSensorPosition();
+        const auto lock = GetLockGuard();  // CRITICAL SECTION: access m_gp_map_
+        (void) lock;
+
+        const VectorD sensor_pos = m_surface_mapping_->GetLastSensorPosition();
         for (const auto &cluster_key: m_clusters_to_load_data_) {
             auto [it, inserted] = m_gp_map_.try_emplace(cluster_key, nullptr);
             auto &gp = it->second;
             Dtype priority;
             if (inserted) {
                 // new GP
-                VectorD gp_center = m_surface_mapping_->GetClusterCenter(cluster_key);
+                const VectorD gp_center = m_surface_mapping_->GetClusterCenter(cluster_key);
                 Dtype d = (gp_center - sensor_pos).squaredNorm();
                 priority = max_c1 * std::exp(-d * alpha);
                 gp = std::make_shared<SdfGp>(m_setting_->sdf_gp);
@@ -969,7 +976,7 @@ namespace erl::gp_sdf {
     template<typename Dtype, int Dim>
     void
     GpSdfMapping<Dtype, Dim>::LoadSurfaceData() {
-        ERL_BLOCK_TIMER_MSG("LoadSurfaceData");
+        const ERL_BLOCK_TIMER_MSG("LoadSurfaceData");
 
         const std::size_t n = m_gps_to_load_data_.size();
         if (n == 0) { return; }
@@ -977,11 +984,12 @@ namespace erl::gp_sdf {
         ERL_INFO("Load surface data for {} GPs, {} GPs in queue.", n, m_load_data_queue_.size());
 
         // CRITICAL SECTION: access m_surface_mapping_ in LoadSurfaceDataThread
-        auto surface_mapping_lock = m_surface_mapping_->GetLockGuard();
+        const auto surface_mapping_lock = m_surface_mapping_->GetLockGuard();
+        (void) surface_mapping_lock;
 
         const auto t0 = std::chrono::high_resolution_clock::now();
 
-        KeyVector clusters_to_load_data_vec(
+        const KeyVector clusters_to_load_data_vec(
             m_clusters_to_load_data_.begin(),
             m_clusters_to_load_data_.end());
         for (auto &indices: m_surf_data_indices_) { indices.clear(); }
@@ -1019,7 +1027,7 @@ namespace erl::gp_sdf {
         const std::size_t left_over = n - batch_size * n_threads;
         std::size_t end = 0;
         for (uint32_t t_idx = 0; t_idx < n_threads; ++t_idx) {
-            std::size_t start = end;
+            const std::size_t start = end;
             end = start + batch_size;
             if (t_idx < left_over) { end++; }
             threads.emplace_back(&GpSdfMapping::LoadSurfaceDataThread, this, t_idx, start, end);
@@ -1054,11 +1062,12 @@ namespace erl::gp_sdf {
         std::vector<Dtype> dists;
         auto &data_indices = m_surf_data_dist_indices_[thread_idx];
         for (std::size_t i = start_idx; i < end_idx; ++i) {
-            auto &gp = VEC_ACCESS(m_gps_to_load_data_, i);
+            auto &gp = CHECKED_AT(m_gps_to_load_data_, i);
             ERL_DEBUG_ASSERT(gp->active, "GP is not active");
 
             // collect surface data in the area
-            long k = m_kdtree_surf_data_->RadiusKnn(max_k, gp->position, radius, indices, dists);
+            const long k =
+                m_kdtree_surf_data_->RadiusKnn(max_k, gp->position, radius, indices, dists);
 
             if (k == 0) {          // no surface data in the area
                 gp->Deactivate();  // deactivate the GP if there is no training data
@@ -1114,7 +1123,7 @@ namespace erl::gp_sdf {
             m_gps_to_train_.emplace_back(highest_priority, gp);  // prioritize training
         }
         ERL_ASSERT_EQ(addr_set.size(), m_gps_to_train_.size());
-        std::size_t n_must_train = m_gps_to_train_.size();
+        const std::size_t n_must_train = m_gps_to_train_.size();
 
         const std::size_t max_num_retrain_gps = m_setting_->test_query.max_num_retrain_gps;
         if (max_num_retrain_gps == 0 || m_gps_to_train_.size() < max_num_retrain_gps) {
@@ -1144,7 +1153,7 @@ namespace erl::gp_sdf {
     template<typename Dtype, int Dim>
     void
     GpSdfMapping<Dtype, Dim>::TrainGps() {
-        ERL_BLOCK_TIMER_MSG("TrainGps");
+        const ERL_BLOCK_TIMER_MSG("TrainGps");
 
         const std::size_t n = m_gps_to_train_.size();
         if (n == 0) { return; }
@@ -1160,7 +1169,7 @@ namespace erl::gp_sdf {
         const std::size_t left_over = n - batch_size * n_threads;
         std::size_t end_idx = 0;
         for (uint32_t t_idx = 0; t_idx < n_threads; ++t_idx) {
-            std::size_t start_idx = end_idx;
+            const std::size_t start_idx = end_idx;
             end_idx = start_idx + batch_size;
             if (t_idx < left_over) { end_idx++; }
             threads.emplace_back(&GpSdfMapping::TrainGpThread, this, t_idx, start_idx, end_idx);
@@ -1187,7 +1196,7 @@ namespace erl::gp_sdf {
         (void) thread_idx;
 
         for (uint32_t i = start_idx; i < end_idx; ++i) {
-            auto &gp = VEC_ACCESS(m_gps_to_train_, i).second;
+            auto &gp = CHECKED_AT(m_gps_to_train_, i).second;
             if (!gp->active) { continue; }
             gp->Train();
         }
@@ -1214,8 +1223,10 @@ namespace erl::gp_sdf {
             if (area.IsValid()) {
                 // valid area: min < max
                 // CRITICAL SECTION: access m_surface_mapping_ and m_gp_map_
-                auto surface_mapping_lock = m_surface_mapping_->GetLockGuard();
-                auto lock = GetLockGuard();
+                const auto surface_mapping_lock = m_surface_mapping_->GetLockGuard();
+                const auto lock = GetLockGuard();
+                (void) surface_mapping_lock;
+                (void) lock;
                 m_surface_mapping_->IterateClustersInAabb(area, [&](const Key &cluster_key) {
                     // search for clusters in the area
                     if (auto it = m_gp_map_.find(cluster_key); it != m_gp_map_.end()) {
@@ -1259,7 +1270,7 @@ namespace erl::gp_sdf {
             gps.clear();
             gps.reserve(knn);
             idxs.fill(-1);
-            long n_gps =
+            const long n_gps =
                 m_kdtree_candidate_gps_->RadiusKnn(knn, test_pos, radius, idxs, squared_dists);
             for (long j = 0; j < n_gps; ++j) {
                 const long &index = idxs[j];
@@ -1277,8 +1288,10 @@ namespace erl::gp_sdf {
         if (no_gps_indices.empty()) { return; }
 
         // CRITICAL SECTION: access m_surface_mapping_ and m_gp_map_
-        auto surface_mapping_lock = m_surface_mapping_->GetLockGuard();
-        auto lock = GetLockGuard();
+        const auto surface_mapping_lock = m_surface_mapping_->GetLockGuard();
+        const auto lock = GetLockGuard();
+        (void) surface_mapping_lock;
+        (void) lock;
 
         ERL_WARN_COND(
             !no_gps_indices.empty(),
@@ -1507,8 +1520,8 @@ namespace erl::gp_sdf {
         const bool compute_gradient_variance = m_setting_->test_query.compute_gradient_variance;
         const bool compute_covariance = m_setting_->test_query.compute_covariance;
         Dtype max_test_valid_distance_var = m_setting_->test_query.max_test_valid_distance_var;
-        auto &gps = m_query_to_gps_[i];
-        auto &used_gps = m_query_used_gps_[i];
+        std::vector<GpPtr> &gps = m_query_to_gps_[i];
+        UsedGps &used_gps = m_query_used_gps_[i];
         used_gps.fill(nullptr);
 
         // pick the best <= 4 results to compute the weighted sum.
@@ -1523,7 +1536,7 @@ namespace erl::gp_sdf {
             w_sum += w;
             f += fs.col(jk).template head<4>() * w;
             variance_f += variances.col(jk) * w;
-            used_gps[k] = gps[jk];
+            CHECKED_AT(used_gps, k) = CHECKED_AT(gps, jk);
             if (compute_covariance) { covariance_f += covariances.col(jk) * w; }
         }
         f /= w_sum;

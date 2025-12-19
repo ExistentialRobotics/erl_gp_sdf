@@ -1,36 +1,22 @@
+__base__: ../common/bayesian_hilbert_surf_mapping_float.yaml
 local_bhm:
     bhm:
-        diagonal_sigma: true
-        min_distance: 0.0
-        max_distance: 30
+        min_distance: 0.01
+        max_distance: 20
         sampling_area_scale: 3.0
         free_points_per_meter: 3.0
-        free_sampling_margin: 0.001
-        init_mu: 10.0
-        init_sigma: 10000
-        num_em_iterations: 1
-        sparse_zero_threshold: 0.001
-        use_sparse: true
+        init_mu: 2.0
+        sparse_zero_threshold: 0.005
     kernel_type: erl::covariance::RadialBiasFunction<float, 3>
-    kernel_setting_type: erl::covariance::Covariance<float>::Setting
     kernel:
         x_dim: 3
-        scale: 0.02
-        scale_mix: 1
-        weights: [ ]
+        scale: 0.017  # 0.022
     min_dataset_size: 20
-    min_dataset_hit_size: 10
-    max_dataset_size: 150
-    hit_point_buffer_size: 50
+    min_dataset_hit_size: 8
+    max_dataset_size: 120  # 200
+    hit_point_buffer_size: 256 # 100
     ray_buffer_size: 2048
     surface_grid_size: 7
-    surface_log_odds: 0
-    surface_log_odds_init_count: 1
-    surface_log_odds_min: -5.0
-    surface_log_odds_max: 5.0
-    auto_surface_log_odds: true
-    include_neighbor_voxels: true
-    faster_prediction: true
 ray_selector:
     azimuth_min: -3.1415926535897931
     azimuth_max: 3.1415926535897931
@@ -43,44 +29,16 @@ ray_selector:
         - [ 0, 1, 0, 0 ]
         - [ 0, 0, 1, 0 ]
 tree:
-    resolution: 0.15
-    tree_depth: 16
-    log_odd_min: -5
-    log_odd_max: 10
-    log_odd_hit: 0.9
-    log_odd_miss: -0.05
+    resolution: 0.1  # 0.15
+    log_odd_min: -10
+    log_odd_max: 50
+    log_odd_hit: 0.95
+    log_odd_miss: -0.025
     log_odd_occ_threshold: 0
-    use_change_detection: false
-    use_aabb_limit: false
-    aabb:
-        center: [ 0, 0, 0 ]
-        half_sizes: [ 0, 0, 0 ]
-update_tree:
-    with_count: false
-    parallel: true
-    lazy_eval: true
-    discrete: true
 update_map:
     method: 2
-    surface_max_abs_logodd: 2
-    surface_bad_abs_logodd: 200
-    surface_step_size: 0.001
-    include_neighbor_bhm: true
-    max_num_bhm: 1000
-    max_num_points: 50000
-    max_adjust_tries: 1
-    max_num_voxels: 8000
-    var_scale: 0.01
-    var_max: 1.5
+    max_num_bhm: 1500
+    max_num_voxels: 10000
 scaling: 1.0
-bhm_depth: 15
-weight_sync: true
-sync_method: "copy"
 hinged_grid_size: 7
-bhm_overlap: 0.12
-bhm_overlap_sync: 1
-build_bhm_on_hit: true
-bhm_test_margin: 0.095 # 0.045 # 0.07 # 0.3 # 0.7
-unknown_log_odds: 100.0  # unknown space log-odds
-test_knn: 1
-test_batch_size: 1000
+bhm_test_margin: 0.045  # 0.08

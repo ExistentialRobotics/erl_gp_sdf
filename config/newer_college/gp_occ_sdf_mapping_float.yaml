@@ -39,7 +39,7 @@ sdf_gp:
         kernel_setting_type: erl::covariance::Covariance<float>::Setting
         kernel:
             x_dim: 3
-            scale: 0.043  # sqrt(3) / log_lambda, will be overridden by log_lambda
+            scale: 0.043
             scale_mix: 1
             weights: [ ]
         log_lambda: 10

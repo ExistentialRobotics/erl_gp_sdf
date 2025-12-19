@@ -55,12 +55,15 @@ struct OptionsForTestMapping3D : public erl::common::Yamlable<OptionsForTestMapp
     std::string mesh_file = kDataDir / "replica-hotel-0.ply";       // mesh file
     std::string traj_file = kDataDir / "replica-hotel-0-traj.txt";  // trajectory file
     std::string o3d_view_status_file;
+    bool add_sensor_noise = false;
+    Dtype sensor_noise_std = 0.01f;
 
     std::string sensor_frame_type = type_name<erl::geometry::LidarFrame3D<Dtype>>();
     std::string sensor_frame_config_file = kConfigDir / "sensors" / "lidar_frame_3d_360.yaml";
     long start_wp_idx = 0;
     long end_wp_idx = -1;  // -1 means all waypoints
     long seq_stride = 1;
+    bool exhausting = false;              // update until cached data is exhausted
     Eigen::VectorXl scan_stride;          // linear scan stride or per axis scan stride
     bool random_scan_downsample = false;  // use random downsample the scan points
     long vis_stride = 1;                  // visualization stride
@@ -101,11 +104,14 @@ struct OptionsForTestMapping3D : public erl::common::Yamlable<OptionsForTestMapp
         ERL_REFLECT_MEMBER(OptionsForTestMapping3D, mesh_file),
         ERL_REFLECT_MEMBER(OptionsForTestMapping3D, traj_file),
         ERL_REFLECT_MEMBER(OptionsForTestMapping3D, o3d_view_status_file),
+        ERL_REFLECT_MEMBER(OptionsForTestMapping3D, add_sensor_noise),
+        ERL_REFLECT_MEMBER(OptionsForTestMapping3D, sensor_noise_std),
         ERL_REFLECT_MEMBER(OptionsForTestMapping3D, sensor_frame_type),
         ERL_REFLECT_MEMBER(OptionsForTestMapping3D, sensor_frame_config_file),
         ERL_REFLECT_MEMBER(OptionsForTestMapping3D, start_wp_idx),
         ERL_REFLECT_MEMBER(OptionsForTestMapping3D, end_wp_idx),
         ERL_REFLECT_MEMBER(OptionsForTestMapping3D, seq_stride),
+        ERL_REFLECT_MEMBER(OptionsForTestMapping3D, exhausting),
         ERL_REFLECT_MEMBER(OptionsForTestMapping3D, scan_stride),
         ERL_REFLECT_MEMBER(OptionsForTestMapping3D, random_scan_downsample),
         ERL_REFLECT_MEMBER(OptionsForTestMapping3D, vis_stride),
@@ -133,6 +139,10 @@ struct OptionsForTestMapping3D : public erl::common::Yamlable<OptionsForTestMapp
         if (scan_stride.size() > 0) {
             ERL_ASSERT_LE(scan_stride.size(), 2);
             for (long i = 0; i < scan_stride.size(); ++i) { ERL_ASSERT_POS_GT(scan_stride[i], 0); }
+        }
+
+        if (show_geometries.size() == 1) {
+            show_geometries = erl::common::SplitString(show_geometries[0], ',');
         }
 
         switch (dataset_type) {
@@ -244,6 +254,9 @@ struct TestMapping3D {
     std::shared_ptr<open3d::geometry::LineSet> line_set_surf_normals = nullptr;
     const SurfDataBuffer *surf_data_buffer = nullptr;
     const std::vector<std::size_t> *unused_surf_data_indices = nullptr;
+    std::shared_ptr<open3d::geometry::TriangleMesh> mesh_surf = nullptr;
+    std::vector<Vector3> mesh_surf_vertices;
+    std::vector<Eigen::Vector3i> mesh_surf_faces;
 
     // for field prediction
 
@@ -289,6 +302,7 @@ private:
     std::shared_ptr<OptionsForTestMapping3D<Dtype>> options = nullptr;
 
 protected:
+    Dtype scaling = 1.0;
     Dtype cluster_half_size = 0.01;
 
 public:
@@ -297,9 +311,16 @@ public:
         char *argv[],
         std::shared_ptr<OptionsForTestMapping3D<Dtype>> options_in)
         : options(std::move(options_in)) {
-        options->FromCommandLine(argc, argv);
+        ERL_ASSERT(options->FromCommandLine(argc, argv));
         erl::common::SetGlobalRandomSeed(options->random_seed);
     }
+
+    TestMapping3D(const TestMapping3D &) = delete;
+    TestMapping3D &
+    operator=(const TestMapping3D &) = delete;
+    TestMapping3D(TestMapping3D &&) = delete;
+    TestMapping3D &
+    operator=(TestMapping3D &&) = delete;
 
     virtual ~TestMapping3D() = default;
 
@@ -309,7 +330,9 @@ public:
 
         visualizer->SetAnimationCallback(
             [this](auto *wrapper, auto *vis) { return this->AnimationCallback(wrapper, vis); });
-        visualizer->SetViewStatus(options->o3d_view_status_file);
+        if (!options->o3d_view_status_file.empty()) {
+            visualizer->SetViewStatus(options->o3d_view_status_file);
+        }
 
         if (options->load_mapping_bin) {
             ReadMappingBin(*mapping);
@@ -351,7 +374,7 @@ protected:
         cow_and_lady = std::make_shared<CowAndLady>(options->cow_and_lady_dir);
         max_wp_idx = cow_and_lady->Size();
         ERL_ASSERT_LT(options->start_wp_idx, max_wp_idx);
-        ERL_ASSERT_POS_LT(options->end_wp_idx, max_wp_idx);
+        ERL_ASSERT_POS_LE(options->end_wp_idx, max_wp_idx);
         raw_data_is_points = false;
         raw_data_is_row_major = false;
         // sensor
@@ -392,11 +415,12 @@ protected:
         raw_data_is_points = false;
         raw_data_is_row_major = false;
         ERL_ASSERT_LT(options->start_wp_idx, max_wp_idx);
-        ERL_ASSERT_POS_GT(options->end_wp_idx, max_wp_idx);
+        ERL_ASSERT_POS_LE(options->end_wp_idx, max_wp_idx);
         // sensor
         if (options->sensor_frame_type == type_name<LidarFrame>()) {
             lidar_frame_setting = std::make_shared<typename LidarFrame::Setting>();
             ASSERT_TRUE(lidar_frame_setting->FromYamlFile(options->sensor_frame_config_file));
+            ERL_INFO("Lidar frame setting: \n{}", lidar_frame_setting->AsYamlString());
             const auto lidar_setting = std::make_shared<typename Lidar::Setting>();
             lidar_setting->azimuth_min = lidar_frame_setting->azimuth_min;
             lidar_setting->azimuth_max = lidar_frame_setting->azimuth_max;
@@ -404,14 +428,17 @@ protected:
             lidar_setting->elevation_min = lidar_frame_setting->elevation_min;
             lidar_setting->elevation_max = lidar_frame_setting->elevation_max;
             lidar_setting->num_elevation_lines = lidar_frame_setting->num_elevation_lines;
+            ERL_INFO("Lidar setting: \n{}", lidar_setting->AsYamlString());
             range_sensor = std::make_shared<Lidar>(lidar_setting);
             is_lidar = true;
             range_sensor_frame = std::make_shared<LidarFrame>(lidar_frame_setting);
         } else if (options->sensor_frame_type == type_name<DepthFrame>()) {
             depth_frame_setting = std::make_shared<typename DepthFrame::Setting>();
             ASSERT_TRUE(depth_frame_setting->FromYamlFile(options->sensor_frame_config_file));
+            ERL_INFO("Depth frame setting: \n{}", depth_frame_setting->AsYamlString());
             auto depth_camera_setting = std::make_shared<typename DepthCamera::Setting>(
                 depth_frame_setting->camera_intrinsic);
+            ERL_INFO("Depth camera setting: \n{}", depth_camera_setting->AsYamlString());
             range_sensor = std::make_shared<DepthCamera>(depth_camera_setting);
             is_lidar = false;
             range_sensor_frame = std::make_shared<DepthFrame>(depth_frame_setting);
@@ -446,7 +473,7 @@ protected:
         raw_data_is_points = true;
         raw_data_is_row_major = true;
         ERL_ASSERT_LT(options->start_wp_idx, max_wp_idx);
-        ERL_ASSERT_POS_GT(options->end_wp_idx, max_wp_idx);
+        ERL_ASSERT_POS_LE(options->end_wp_idx, max_wp_idx);
         // sensor
         lidar_frame_setting = std::make_shared<typename LidarFrame::Setting>();
         lidar_frame_setting->azimuth_min = -M_PI;
@@ -505,7 +532,7 @@ protected:
             options->replica_rgbd_scene_name);
         max_wp_idx = replica_rgbd->Size();
         ERL_ASSERT_LT(options->start_wp_idx, max_wp_idx);
-        ERL_ASSERT_POS_LT(options->end_wp_idx, max_wp_idx);
+        ERL_ASSERT_POS_LE(options->end_wp_idx, max_wp_idx);
         raw_data_is_points = false;
         raw_data_is_row_major = false;
         // sensor
@@ -560,7 +587,8 @@ protected:
                 ERL_FATAL("Unsupported dataset type.");
         }
 
-        max_wp_idx = (options->end_wp_idx == -1) ? max_wp_idx : options->end_wp_idx;
+        wp_idx = std::max(options->start_wp_idx, 0l);
+        if (options->end_wp_idx > 0) { max_wp_idx = options->end_wp_idx; }
         options->test_z = (map_min[2] + map_max[2]) / 2;
 
         vis_setting->z = options->test_z;
@@ -592,7 +620,7 @@ protected:
             options->test_y_min = map_min[1];
             options->test_y_max = map_max[1];
         }
-        erl::common::GridMapInfo2D<Dtype> grid_map_info(
+        const erl::common::GridMapInfo2D<Dtype> grid_map_info(
             Eigen::Vector2<Dtype>(options->test_x_min, options->test_y_min),
             Eigen::Vector2<Dtype>(options->test_x_max, options->test_y_max),
             Eigen::Vector2<Dtype>(options->test_res, options->test_res),
@@ -663,13 +691,13 @@ protected:
         pcd_obs = std::make_shared<open3d::geometry::PointCloud>();
         pcd_surf_points = std::make_shared<open3d::geometry::PointCloud>();
         line_set_surf_normals = std::make_shared<open3d::geometry::LineSet>();
+        mesh_surf = std::make_shared<open3d::geometry::TriangleMesh>();
 
         voxel_grid_pred = std::make_shared<open3d::geometry::VoxelGrid>();
         voxel_grid_pred->origin_.setZero();
         voxel_grid_pred->voxel_size_ = options->test_res * 1.42f;
 
         line_set_clusters = std::make_shared<open3d::geometry::LineSet>();
-        auto o3d_line_set = std::make_shared<open3d::geometry::LineSet>();
         const double hs = cluster_half_size;
         line_set_cluster_box = *open3d::geometry::LineSet::CreateFromAxisAlignedBoundingBox(
             open3d::geometry::AxisAlignedBoundingBox(
@@ -685,6 +713,7 @@ protected:
         geo_map["pcd_obs"] = pcd_obs;
         geo_map["pcd_surf_points"] = pcd_surf_points;
         geo_map["line_set_surf_normals"] = line_set_surf_normals;
+        geo_map["mesh_surf"] = mesh_surf;
         geo_map["voxel_grid_pred"] = voxel_grid_pred;
         geo_map["line_set_clusters"] = line_set_clusters;
         std::vector<std::string> geo_names;
@@ -708,6 +737,7 @@ protected:
                 geometries.push_back(pcd_obs);
                 geometries.push_back(pcd_surf_points);
                 geometries.push_back(line_set_surf_normals);
+                geometries.push_back(mesh_surf);
                 geometries.push_back(voxel_grid_pred);
                 geometries.push_back(line_set_clusters);
                 continue;
@@ -843,6 +873,7 @@ protected:
                 translation_frame);
         frame_ranges = frame.depth.template cast<Dtype>();
         ranges_img = frame.depth_jet;
+        // CowAndLady is real dataset, so we do not add noise here.
     }
 
     void
@@ -851,7 +882,11 @@ protected:
         std::tie(rotation_frame, translation_frame) =
             range_sensor->GetOpticalPose(rotation_sensor, translation_sensor);
 
-        frame_ranges = range_sensor->Scan(rotation_sensor, translation_sensor);
+        frame_ranges = range_sensor->Scan(
+            rotation_sensor,
+            translation_sensor,
+            options->add_sensor_noise,
+            options->sensor_noise_std);
         ranges_img = ConvertMatrixToImage(frame_ranges, true);
         if (is_lidar) {                           // azimuth: down, elevation: right
             ranges_img = ranges_img.t();          // elevation: down, azimuth: right
@@ -872,6 +907,7 @@ protected:
         ranges_img = ConvertMatrixToImage(frame_ranges, true);
         ranges_img = ranges_img.t();
         cv::flip(ranges_img, ranges_img, 0);
+        // Newer College is real dataset, so we do not add noise here.
     }
 
     void
@@ -885,11 +921,32 @@ protected:
                 translation_frame);
         frame_ranges = frame.depth.template cast<Dtype>();
         ranges_img = frame.depth_jet;
+        AddSensorNoise();
+    }
+
+    void
+    AddSensorNoise() {
+        if (!options->add_sensor_noise) { return; }
+        const long n_cols = frame_ranges.cols();
+        std::vector<uint64_t> random_seeds(n_cols);
+        for (long i = 0; i < n_cols; ++i) { random_seeds[i] = erl::common::g_random_engine(); }
+
+#pragma omp parallel for default(none) shared(random_seeds, n_cols)
+        for (long v = 0; v < n_cols; ++v) {
+            std::mt19937_64 generator(random_seeds[v]);
+            std::normal_distribution<Dtype> distribution(0, options->sensor_noise_std);
+            for (long u = 0; u < frame_ranges.rows(); ++u) {
+                Dtype &r = frame_ranges(u, v);
+                if (r <= 0) { continue; }
+                r += distribution(generator);
+                if (r < 0) { r = 0; }
+            }
+        }
     }
 
     void
     LoadData() {
-        ERL_BLOCK_TIMER_MSG("data loading");
+        const ERL_BLOCK_TIMER_MSG("data loading");
         switch (options->dataset_type) {
             case DataSetType::CowAndLady:
                 LoadDataFromCowAndLady();
@@ -908,6 +965,7 @@ protected:
         }
         RangesToPoints();
         ApplyScanStride();
+        wp_idx += options->seq_stride;
     }
 
 #pragma endregion
@@ -918,8 +976,8 @@ protected:
     VisualizeSensorMesh() {
         const Eigen::Matrix4d last_pose_inv = last_sensor_pose.inverse();
         Eigen::Matrix4d cur_pose = Eigen::Matrix4d::Identity();
-        cur_pose.topLeftCorner<3, 3>() = rotation_sensor.template cast<double>();
-        cur_pose.topRightCorner<3, 1>() = translation_sensor.template cast<double>();
+        cur_pose.topLeftCorner<3, 3>() = rotation_frame.template cast<double>();
+        cur_pose.topRightCorner<3, 1>() = translation_frame.template cast<double>();
         const Eigen::Matrix4d delta_pose = cur_pose * last_pose_inv;
         last_sensor_pose = cur_pose;
         mesh_sensor->Transform(delta_pose);
@@ -934,15 +992,16 @@ protected:
         const cv::Scalar kTextColor = {255, 255, 255, 255};
 
         Dtype resize_scale = options->image_resize_scale;
-        resize_scale = std::min(resize_scale, 600.0f / static_cast<Dtype>(ranges_img.cols));
-        resize_scale = std::min(resize_scale, 600.0f / static_cast<Dtype>(ranges_img.rows));
-        cv::resize(ranges_img, ranges_img, cv::Size(), resize_scale, resize_scale);
+        resize_scale = std::min(resize_scale, 1000.0f / static_cast<Dtype>(ranges_img.cols));
+        resize_scale = std::min(resize_scale, 1000.0f / static_cast<Dtype>(ranges_img.rows));
+        cv::Mat ranges_img_resize;
+        cv::resize(ranges_img, ranges_img_resize, cv::Size(), resize_scale, resize_scale);
         int y = 30;
         for (const auto &text: ranges_img_texts) {
             constexpr int kFontThickness = 2;
             constexpr double kFontScale = 1.5;
             cv::putText(
-                ranges_img,
+                ranges_img_resize,
                 text,
                 cv::Point(10, y),
                 kFontFace,
@@ -951,7 +1010,7 @@ protected:
                 kFontThickness);
             y += 30;
         }
-        cv::imshow("ranges", ranges_img);
+        cv::imshow("ranges", ranges_img_resize);
         cv::waitKey(1);
 
         if (std::find(geometries.begin(), geometries.end(), pcd_obs) != geometries.end()) {
@@ -976,7 +1035,7 @@ protected:
             const size_t n_points = line_set_traj->points_.size();
             if (n_points >= 2) {
                 line_set_traj->lines_.emplace_back(n_points - 2, n_points - 1);
-                line_set_traj->colors_.emplace_back(0.0, 0.0, 0.0);  // black
+                line_set_traj->colors_.emplace_back(0.0, 1.0, 0.0);  // green
             }
             visualizer->GetVisualizer()->UpdateGeometry(line_set_traj);
         }
@@ -993,7 +1052,7 @@ protected:
             pcd_surf_points->points_.clear();
             line_set_surf_normals->points_.clear();
             line_set_surf_normals->lines_.clear();
-            auto &unused_indices = *unused_surf_data_indices;
+            const auto &unused_indices = *unused_surf_data_indices;
             const std::unordered_set<std::size_t> unused_set(
                 unused_indices.begin(),
                 unused_indices.end());
@@ -1005,10 +1064,11 @@ protected:
             line_set_surf_normals->lines_.reserve(n_points);
             const Dtype scale = options->surf_normal_scale;
             for (std::size_t i = 0; i < surf_data_buffer->size(); i += options->pcd_stride) {
-                if (unused_set.count(i)) { continue; }  // skip unused surface data
+                if (unused_set.count(i) != 0u) { continue; }  // skip unused surface data
                 const auto &surface_data = (*surf_data_buffer)[i];
+                if (surface_data.var_position >= 1.e6f) { continue; }  // invalid surface data
 
-                const Vector3 &position = surface_data.position;
+                const Vector3 position = surface_data.position / scaling;
                 const Vector3 &normal = surface_data.normal;
                 ERL_ASSERTM(
                     std::abs(normal.norm() - 1.0) < 1.e-4,
@@ -1030,6 +1090,10 @@ protected:
             if (it1 != geometries.end()) { vis->UpdateGeometry(pcd_surf_points); }
             if (it2 != geometries.end()) { vis->UpdateGeometry(line_set_surf_normals); }
         }
+
+        if (std::find(geometries.begin(), geometries.end(), mesh_surf) != geometries.end()) {
+            visualizer->GetVisualizer()->UpdateGeometry(mesh_surf);
+        }
     }
 
     virtual void
@@ -1047,20 +1111,20 @@ protected:
         auto box = line_set_cluster_box;
         box.Translate(cluster_position);
         for (std::size_t i = 0; i < box.points_.size(); ++i) {
-            Eigen::Vector3l p = (box.points_[i] / 0.005f).template cast<long>();
+            const Eigen::Vector3l p = (box.points_[i] / 0.005f).template cast<long>();
             auto [it_p, inserted_p] =
                 cluster_vertex_index_map.try_emplace(p, cluster_vertex_index_map.size());
             if (inserted_p) { line_set_clusters->points_.emplace_back(box.points_[i]); }
-            it->second.first[i] = it_p->second;
+            CHECKED_AT(it->second.first, i) = it_p->second;
         }
         for (std::size_t i = 0; i < box.lines_.size(); ++i) {
             Eigen::Vector2i l = box.lines_[i];
-            l[0] = static_cast<int>(it->second.first[l[0]]);
-            l[1] = static_cast<int>(it->second.first[l[1]]);
+            l[0] = static_cast<int>(CHECKED_AT(it->second.first, l[0]));
+            l[1] = static_cast<int>(CHECKED_AT(it->second.first, l[1]));
             auto [it_l, inserted_l] =
                 cluster_edge_index_map.try_emplace(l, cluster_edge_index_map.size());
             if (inserted_l) { line_set_clusters->lines_.emplace_back(l); }
-            it->second.second[i] = it_l->second;
+            CHECKED_AT(it->second.second, i) = it_l->second;
         }
     }
 
@@ -1087,7 +1151,7 @@ protected:
 
     void
     UpdateVisualization() {
-        ERL_BLOCK_TIMER_MSG("UpdateVisualization");
+        const ERL_BLOCK_TIMER_MSG("UpdateVisualization");
 
         VisualizeSensorMesh();
         VisualizeSensorData();
@@ -1144,6 +1208,16 @@ protected:
 
         if (wp_idx >= max_wp_idx) {  // end of animation
             animation_ended = true;
+            if (options->exhausting) {
+                // clear frame data
+                frame_points = Matrix3X();
+                frame_ranges = MatrixX();
+
+                while (UpdateMap()) {
+                    UpdateFollowingMapPrediction();
+                    UpdateVisualization();
+                }
+            }
             if (options->test_whole_map_at_end) {
                 UpdateWholeMapPrediction();
             } else {
@@ -1161,7 +1235,8 @@ protected:
 
         ERL_INFO("wp_idx: {}", wp_idx);
         {
-            ERL_BLOCK_TIMER_MSG_TIME("gui_update", gui_dt);
+            const ERL_BLOCK_TIMER_MSG_TIME("gui_update", gui_dt);
+            LoadData();
             if (UpdateMap()) { UpdateFollowingMapPrediction(); }
             if (wp_idx % options->vis_stride == 0) { UpdateVisualization(); }
         }
@@ -1181,7 +1256,7 @@ protected:
 
     void
     WriteMappingBin() {
-        ERL_BLOCK_TIMER_MSG("WriteMappingBin");
+        const ERL_BLOCK_TIMER_MSG("WriteMappingBin");
         std::string bin_file = GetBinFileName();
         using namespace erl::common::serialization;
         ERL_ASSERTM(
@@ -1192,7 +1267,7 @@ protected:
 
     void
     ReadMappingBin(MappingType &mapping_read) {
-        ERL_BLOCK_TIMER_MSG("ReadMappingBin");
+        const ERL_BLOCK_TIMER_MSG("ReadMappingBin");
         std::string bin_file = GetBinFileName();
         using namespace erl::common::serialization;
         ERL_ASSERTM(
@@ -1203,7 +1278,7 @@ protected:
 
     void
     TestIo(MappingType &mapping_read) {
-        ERL_BLOCK_TIMER_MSG("TestIo");
+        const ERL_BLOCK_TIMER_MSG("TestIo");
         WriteMappingBin();
         ReadMappingBin(mapping_read);
         ERL_ASSERT(*mapping == mapping_read);

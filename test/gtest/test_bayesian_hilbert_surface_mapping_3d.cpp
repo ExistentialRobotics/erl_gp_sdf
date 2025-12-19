@@ -33,6 +33,9 @@ struct TestBayesianHilbertSurfaceMapping3D
     using Super::in_free_space_whole_map;
     using Super::map_max;
     using Super::map_min;
+    using Super::mesh_surf;
+    using Super::mesh_surf_faces;
+    using Super::mesh_surf_vertices;
     using Super::options;
     using Super::pcd_obs;
     using Super::pcd_surf_points;
@@ -110,12 +113,12 @@ struct TestBayesianHilbertSurfaceMapping3D
         pcd_surf_points->colors_.clear();
         pcd_surf_points->points_.reserve(gt_surface_points.cols());
         pcd_surf_points->colors_.reserve(gt_surface_points.cols());
-        open3d::visualization::ColorMapJet color_map;
-        min = -30.0f;
-        max = 30.0f;
+        const open3d::visualization::ColorMapJet color_map;
+        min = -20.0f;
+        max = 20.0f;
         for (long i = 0; i < gt_surface_points.cols(); ++i) {
             pcd_surf_points->points_.push_back(gt_surface_points.col(i).template cast<double>());
-            double v = std::min(std::max(log_odd_values[i], min), max);
+            const double v = std::min(std::max(log_odd_values[i], min), max);
             pcd_surf_points->colors_.push_back(color_map.GetColor((v - min) / (max - min)));
         }
         open3d::io::WritePointCloud(
@@ -123,7 +126,9 @@ struct TestBayesianHilbertSurfaceMapping3D
             *pcd_surf_points);
         visualizer->Reset();
         visualizer->AddGeometries({pcd_surf_points});
-        visualizer->SetViewStatus(options->o3d_view_status_file);
+        if (!options->o3d_view_status_file.empty()) {
+            visualizer->SetViewStatus(options->o3d_view_status_file);
+        }
         visualizer->Show();
 
         // check the surf_log_odds of local BHMs
@@ -139,9 +144,9 @@ struct TestBayesianHilbertSurfaceMapping3D
         mean = 0;
         squared_mean = 0;
         for (const auto &[key, local_bhm]: surf_map->GetLocalBhms()) {
-            if (!local_bhm->active) { continue; }
+            // if (!local_bhm->active) { continue; }
             for (const auto &[grid_index, index]: local_bhm->surface_indices) {
-                Eigen::Vector3d point =
+                const Eigen::Vector3d point =
                     surf_data_buf[index].position.template cast<double>() * scaling;
                 pcd_surf_points->points_.push_back(point);
                 log_odds.push_back(local_bhm->surface_log_odds);
@@ -156,14 +161,14 @@ struct TestBayesianHilbertSurfaceMapping3D
         mean /= static_cast<Dtype>(log_odds.size());
         squared_mean /= static_cast<Dtype>(log_odds.size());
         std = std::sqrt(squared_mean - mean * mean);
-        min = *std::min_element(log_odds.begin(), log_odds.end());
-        max = *std::max_element(log_odds.begin(), log_odds.end());
+        // min = *std::min_element(log_odds.begin(), log_odds.end());
+        // max = *std::max_element(log_odds.begin(), log_odds.end());
         ERL_INFO(
             "log odd values of local bhm surface points: mean={}, std={}, min={}, max={}",
             mean,
             std,
-            min,
-            max);
+            *std::min_element(log_odds.begin(), log_odds.end()),
+            *std::max_element(log_odds.begin(), log_odds.end()));
 
         fig.Clear()
             .SetMargin(0.15, 0.85, 0.15, 0.85)
@@ -178,7 +183,8 @@ struct TestBayesianHilbertSurfaceMapping3D
         cv::waitKey(0);
 
         pcd_surf_points->colors_.reserve(log_odds.size());
-        for (const auto &v: log_odds) {
+        for (auto v: log_odds) {
+            v = std::min(std::max(v, static_cast<double>(min)), static_cast<double>(max));
             pcd_surf_points->colors_.push_back(color_map.GetColor((v - min) / (max - min)));
         }
         open3d::io::WritePointCloud(
@@ -186,7 +192,9 @@ struct TestBayesianHilbertSurfaceMapping3D
             *pcd_surf_points);
         visualizer->Reset();
         visualizer->AddGeometries({pcd_surf_points});
-        visualizer->SetViewStatus(options->o3d_view_status_file);
+        if (!options->o3d_view_status_file.empty()) {
+            visualizer->SetViewStatus(options->o3d_view_status_file);
+        }
         visualizer->Show();
 
         // visualize the number of unused rays of local BHMs
@@ -205,7 +213,9 @@ struct TestBayesianHilbertSurfaceMapping3D
             *pcd_surf_points);
         visualizer->Reset();
         visualizer->AddGeometries({pcd_surf_points});
-        visualizer->SetViewStatus(options->o3d_view_status_file);
+        if (!options->o3d_view_status_file.empty()) {
+            visualizer->SetViewStatus(options->o3d_view_status_file);
+        }
         visualizer->Show();
 
         // visualize the local BHMs
@@ -216,10 +226,21 @@ struct TestBayesianHilbertSurfaceMapping3D
                 Eigen::Vector3d(-hs, -hs, -hs),
                 Eigen::Vector3d(hs, hs, hs)));
         auto box_inactive = std::make_shared<open3d::geometry::LineSet>(*box_active);
-        box_active->PaintUniformColor({0.0, 1.0, 0.0});
-        box_inactive->PaintUniformColor({1.0, 0.0, 0.0});
+        auto box_empty = std::make_shared<open3d::geometry::LineSet>(*box_active);
+        box_active->PaintUniformColor({0.0, 1.0, 0.0});    // green
+        box_inactive->PaintUniformColor({1.0, 0.0, 0.0});  // red
+        box_empty->PaintUniformColor({1.0, 0.5, 0.0});     // orange
         for (const auto &[key, local_bhm]: surf_map->GetLocalBhms()) {
-            open3d::geometry::LineSet box = local_bhm->active ? *box_active : *box_inactive;
+            open3d::geometry::LineSet box;
+            if (local_bhm->active) {
+                if (local_bhm->surface_indices.empty()) {
+                    box = *box_empty;
+                } else {
+                    box = *box_active;
+                }
+            } else {
+                box = *box_inactive;
+            }
             box.Translate(local_bhm->bhm.GetMapBoundary().center.template cast<double>());
             *o3d_line_set += box;
         }
@@ -227,7 +248,9 @@ struct TestBayesianHilbertSurfaceMapping3D
         visualizer->Reset();
         visualizer->GetVisualizer()->GetRenderOption().line_width_ = 10.0f;
         visualizer->AddGeometries({geometries.front(), o3d_line_set});
-        visualizer->SetViewStatus(options->o3d_view_status_file);
+        if (!options->o3d_view_status_file.empty()) {
+            visualizer->SetViewStatus(options->o3d_view_status_file);
+        }
         visualizer->Show();
 
         auto drawer_setting = std::make_shared<typename OctreeDrawer::Setting>();
@@ -235,14 +258,16 @@ struct TestBayesianHilbertSurfaceMapping3D
         drawer_setting->area_min = map_min.template cast<double>();
         drawer_setting->area_max = map_max.template cast<double>();
         drawer_setting->occupied_only = true;
-        OctreeDrawer octree_drawer(drawer_setting, surf_map->GetTree());
+        const OctreeDrawer octree_drawer(drawer_setting, surf_map->GetTree());
         auto gt_mesh = geometries[0];
         geometries = octree_drawer.GetBlankGeometries();
         geometries.push_back(gt_mesh);
         octree_drawer.DrawLeaves(geometries);
         visualizer->Reset();
         visualizer->AddGeometries(geometries);
-        visualizer->SetViewStatus(options->o3d_view_status_file);
+        if (!options->o3d_view_status_file.empty()) {
+            visualizer->SetViewStatus(options->o3d_view_status_file);
+        }
         visualizer->Show();
 
         ERL_INFO("Writing point clouds to {}", test_output_folder);
@@ -252,18 +277,16 @@ struct TestBayesianHilbertSurfaceMapping3D
         if (surf_map_setting->update_map.method == 2) {
             std::vector<Vector3> vertices;
             std::vector<Eigen::Vector3i> faces;
-            surf_map->GetMesh(vertices, faces);
+            surf_map->GetMesh(false, vertices, faces);
             auto mesh = std::make_shared<open3d::geometry::TriangleMesh>();
-            mesh->vertices_.reserve(vertices.size());
-            mesh->triangles_.reserve(faces.size());
-            for (const auto &v: vertices) { mesh->vertices_.emplace_back(v.x(), v.y(), v.z()); }
-            for (const auto &f: faces) { mesh->triangles_.emplace_back(f.x(), f.y(), f.z()); }
-            mesh->ComputeVertexNormals();
+            ConvertToOpen3dMesh(mesh, vertices, faces);
             open3d::io::WriteTriangleMesh(test_output_folder / "surface_mesh.ply", *mesh);
 
             visualizer->Reset();
             visualizer->AddGeometries({mesh});
-            visualizer->SetViewStatus(options->o3d_view_status_file);
+            if (!options->o3d_view_status_file.empty()) {
+                visualizer->SetViewStatus(options->o3d_view_status_file);
+            }
             visualizer->SetKeyboardCallback(
                 [this, &mesh, &vertices, &faces](
                     const Open3dVisualizerWrapper *wrapper,
@@ -278,18 +301,8 @@ struct TestBayesianHilbertSurfaceMapping3D
                         local_bhm->surface_log_odds = iso_value;
                     }
                     surf_map->ResetMarchingResults();
-                    surf_map->GetMesh(vertices, faces);
-                    mesh->vertices_.clear();
-                    mesh->triangles_.clear();
-                    mesh->vertices_.reserve(vertices.size());
-                    mesh->triangles_.reserve(faces.size());
-                    for (const auto &v: vertices) {
-                        mesh->vertices_.emplace_back(v.x(), v.y(), v.z());
-                    }
-                    for (const auto &f: faces) {
-                        mesh->triangles_.emplace_back(f.x(), f.y(), f.z());
-                    }
-                    mesh->ComputeVertexNormals();
+                    surf_map->GetMesh(false, vertices, faces);
+                    ConvertToOpen3dMesh(mesh, vertices, faces);
                     open3d::io::WriteTriangleMesh(test_output_folder / "surface_mesh.ply", *mesh);
                     vis->UpdateGeometry(mesh);
                     return true;
@@ -308,7 +321,7 @@ protected:
         positions_test_whole_map.row(2).setConstant(options->test_z);
 
         {
-            ERL_BLOCK_TIMER_MSG("surf_map.Test");
+            const ERL_BLOCK_TIMER_MSG("surf_map.Test");
             const double scaling = surf_map_setting->scaling;
             surf_map->Predict(
                 positions_test_whole_map * scaling,
@@ -321,18 +334,27 @@ protected:
                 in_free_space_whole_map,
                 gradient_whole_map);
         }
-        const cv::Mat prob_occupied_img =
-            ConvertVectorToImage(whole_map_xs, whole_map_ys, prob_occupied_whole_map, true);
-        const cv::Mat occupancy_img = ConvertVectorToImage<Dtype>(
+        cv::Mat prob_occupied_img = ConvertVectorToImage<Dtype>(
+            whole_map_xs,
+            whole_map_ys,
+            prob_occupied_whole_map,
+            true,
+            0,
+            1);
+        cv::Mat occupancy_img = ConvertVectorToImage<Dtype>(
             whole_map_xs,
             whole_map_ys,
             (prob_occupied_whole_map.array() > 0.5f).template cast<Dtype>(),
-            true);
-        const cv::Mat free_space_img = ConvertVectorToImage<Dtype>(
+            true,
+            0,
+            1);
+        cv::Mat free_space_img = ConvertVectorToImage<Dtype>(
             whole_map_xs,
             whole_map_ys,
             in_free_space_whole_map.template cast<Dtype>(),
-            false);
+            false,
+            0,
+            1);
         ConvertToVoxelGrid<Dtype>(prob_occupied_img, positions_test_whole_map, voxel_grid_pred);
         visualizer->GetVisualizer()->UpdateGeometry(voxel_grid_pred);
 
@@ -359,10 +381,9 @@ protected:
         positions_test_follow =
             (rotation_sensor * positions_test_follow_org).colwise() + translation_sensor;
 
-        ERL_BLOCK_TIMER_MSG_TIME("surf_map.Test", test_dt);
-        const double scaling = surf_map_setting->scaling;
+        const ERL_BLOCK_TIMER_MSG_TIME("surf_map.Test", test_dt);
         surf_map->Predict(
-            positions_test_follow * scaling,
+            positions_test_follow,
             false /*logodd*/,
             true /*compute_free_space*/,
             false /*compute_gradient*/,
@@ -372,6 +393,11 @@ protected:
             in_free_space_follow,
             gradient_follow);
         test_success = true;
+
+        if (std::find(geometries.begin(), geometries.end(), mesh_surf) != geometries.end()) {
+            surf_map->GetMesh(true, mesh_surf_vertices, mesh_surf_faces);
+            ConvertToOpen3dMesh(mesh_surf, mesh_surf_vertices, mesh_surf_faces);
+        }
     }
 
     void
@@ -379,19 +405,28 @@ protected:
 
     void
     VisualizePrediction() override {
-        cv::Mat prob_occupied_img =
-            ConvertVectorToImage(options->test_xs, options->test_ys, prob_occupied_follow, true);
+        cv::Mat prob_occupied_img = ConvertVectorToImage<Dtype>(
+            options->test_xs,
+            options->test_ys,
+            prob_occupied_follow,
+            true,
+            0,
+            1);
         ConvertToVoxelGrid<Dtype>(prob_occupied_img, positions_test_follow, voxel_grid_pred);
         cv::Mat occupancy_img = ConvertVectorToImage<Dtype>(
             options->test_xs,
             options->test_ys,
             (prob_occupied_follow.array() > 0.5f).template cast<Dtype>(),
-            true);
+            true,
+            0,
+            1);
         cv::Mat free_space_img = ConvertVectorToImage<Dtype>(
             options->test_xs,
             options->test_ys,
             in_free_space_follow.template cast<Dtype>(),
-            false);
+            false,
+            0,
+            1);
 
         Dtype resize_scale = options->image_resize_scale;
         resize_scale = std::min(resize_scale, 1920.0f / static_cast<Dtype>(prob_occupied_img.cols));
@@ -408,13 +443,27 @@ protected:
 
         Super::VisualizePrediction();
     }
+
+    void
+    ConvertToOpen3dMesh(
+        const std::shared_ptr<open3d::geometry::TriangleMesh> &mesh,
+        const std::vector<Vector3> &vertices,
+        const std::vector<Eigen::Vector3i> &faces) {
+        mesh->vertices_.clear();
+        mesh->triangles_.clear();
+        mesh->vertices_.reserve(vertices.size());
+        mesh->triangles_.reserve(faces.size());
+        for (const auto &v: vertices) { mesh->vertices_.emplace_back(v.x(), v.y(), v.z()); }
+        for (const auto &f: faces) { mesh->triangles_.emplace_back(f.x(), f.y(), f.z()); }
+        mesh->ComputeVertexNormals();
+    }
 };
 
 // Update FPS:
 // Replica Lidar-271: 40-70 fps (float/double)
 
-int g_argc = 0;
-char **g_argv = nullptr;
+static int g_argc = 0;
+static char **g_argv = nullptr;
 
 TEST(SurfMapping, BayesianHilbert3Dd) {
     TestBayesianHilbertSurfaceMapping3D<double> test(g_argc, g_argv);

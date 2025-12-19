@@ -48,6 +48,7 @@ struct TestSurfMapping3D : public TestMapping3D<Dtype, SurfaceMappingType> {
     using Super::ranges_img_texts;
     using Super::rotation_frame;
     using Super::rotation_sensor;
+    using Super::scaling;
     using Super::surf_data_buffer;
     using Super::test_output_folder;
     using Super::translation_frame;
@@ -68,6 +69,7 @@ struct TestSurfMapping3D : public TestMapping3D<Dtype, SurfaceMappingType> {
     std::shared_ptr<SurfaceMapping> surf_map = nullptr;
 
     // test data
+
     VectorX prob_occupied_follow;
     Eigen::VectorXb in_free_space_follow;
     Matrix3X gradient_follow;
@@ -109,6 +111,7 @@ protected:
         mapping = surf_map;
 
         // cluster size
+        scaling = surf_map_setting->scaling;
         cluster_half_size = surf_map->GetClusterSize() * 0.5f / surf_map_setting->scaling;
 
         // base init
@@ -132,8 +135,7 @@ protected:
         if (test_success) { test_fps = 1000.0 / test_dt; }
         if (gui_dt > 0) { gui_fps = 1000.0 / gui_dt; }
 
-        fps_data.col(wp_idx / options->seq_stride) << surf_map_update_fps, test_fps, gui_fps;
-        wp_idx += options->seq_stride;
+        fps_data.col(wp_idx / options->seq_stride - 1) << surf_map_update_fps, test_fps, gui_fps;
 
         ranges_img_texts.clear();
         ranges_img_texts.push_back(fmt::format("frame {}", wp_idx));
@@ -168,8 +170,6 @@ protected:
 
     bool
     UpdateMap() override {
-        LoadData();
-
         if (!mapping_uses_points) {
             ERL_BLOCK_TIMER_MSG_TIME("surf_map.Update", surf_map_update_dt);
             return surf_map->Update(rotation_frame, translation_frame, frame_ranges, false, true);

@@ -216,8 +216,8 @@ namespace erl::gp_sdf {
 
         std::shared_ptr<Setting> m_setting_ = nullptr;
         std::shared_ptr<Tree> m_tree_ = nullptr;
-        std::shared_ptr<Kdtree> m_bhm_kdtree_ = nullptr;
-        bool m_bhm_kdtree_needs_update_ = true;
+        mutable std::shared_ptr<Kdtree> m_bhm_kdtree_ = nullptr;
+        mutable bool m_bhm_kdtree_needs_update_ = true;
         MatrixDX m_hinged_points_;
         std::vector<std::pair<Key, VectorD>> m_key_bhm_positions_;  // key -> center
         KeyBhmMap m_key_bhm_dict_;
@@ -256,7 +256,7 @@ namespace erl::gp_sdf {
         /* variables used when m_setting_->update_map.method = 2 */
         KeyQueueMap m_marching_queue_keys_;  // caching key in the queue
         PriorityQueue m_marching_queue_;     // queue BHMs, smaller cnt first
-        KeyBhmVector m_local_bhms_;          // buffer of local BHMs for marching cubes/squares
+        KeyBhmVector m_bhms_to_marching_;    // buffer of local BHMs for marching cubes/squares
 
         // members for synchronizing weights
 
@@ -397,7 +397,7 @@ namespace erl::gp_sdf {
             std::vector<std::size_t> &surface_data_indices) const override;
 
         void
-        GetMesh(std::vector<VectorD> &vertices, std::vector<Face> &faces) const override;
+        GetMesh(bool online, std::vector<VectorD> &vertices, std::vector<Face> &faces) override;
 
         [[nodiscard]] Aabb
         GetMapBoundary() const override;

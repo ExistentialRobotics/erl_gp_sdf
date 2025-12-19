@@ -3,7 +3,7 @@
 namespace erl::gp_sdf {
     template<typename Dtype, int Dim>
     std::lock_guard<std::mutex>
-    AbstractSurfaceMapping<Dtype, Dim>::GetLockGuard() {
+    AbstractSurfaceMapping<Dtype, Dim>::GetLockGuard() const {
         return std::lock_guard<std::mutex>(m_mutex_);
     }
 
@@ -22,8 +22,9 @@ namespace erl::gp_sdf {
     template<typename Dtype, int Dim>
     void
     AbstractSurfaceMapping<Dtype, Dim>::GetMesh(
+        const bool /*online*/,
         std::vector<VectorD> & /*vertices*/,
-        std::vector<Face> & /*faces*/) const {
+        std::vector<Face> & /*faces*/) {
         throw NotImplemented(__PRETTY_FUNCTION__);
     }
 

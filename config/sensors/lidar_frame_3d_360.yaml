@@ -6,5 +6,5 @@ azimuth_min: -3.1415926535897931
 azimuth_max: 3.1415926535897931
 elevation_min: -1.5707963267948966
 elevation_max: 1.5707963267948966
-num_azimuth_lines: 360
-num_elevation_lines: 90
+num_azimuth_lines: 720 # 360
+num_elevation_lines: 180 # 90

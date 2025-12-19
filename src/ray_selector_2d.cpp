@@ -29,7 +29,8 @@ namespace erl::gp_sdf {
             Dtype angle = std::atan2(p.y(), p.x());
             angle = WrapAnglePi(angle);
             angle = std::max(m_setting_->angle_min, std::min(angle, m_setting_->angle_max));
-            const long idx = MeterToGrid(angle, m_setting_->angle_min, m_angle_resolution_);
+            const long idx =
+                MeterToGrid<Dtype, long>(angle, m_setting_->angle_min, m_angle_resolution_);
             m_ray_indices_[idx].push_back(i);
         }
     }
@@ -54,8 +55,10 @@ namespace erl::gp_sdf {
         min_angle = std::max(m_setting_->angle_min, std::min(min_angle, m_setting_->angle_max));
         Dtype max_angle = WrapAnglePi(angle + theta);
         max_angle = std::max(m_setting_->angle_min, std::min(max_angle, m_setting_->angle_max));
-        const auto min_idx = MeterToGrid(min_angle, m_setting_->angle_min, m_angle_resolution_);
-        const auto max_idx = MeterToGrid(max_angle, m_setting_->angle_min, m_angle_resolution_);
+        const long min_idx =
+            MeterToGrid<Dtype, long>(min_angle, m_setting_->angle_min, m_angle_resolution_);
+        const long max_idx =
+            MeterToGrid<Dtype, long>(max_angle, m_setting_->angle_min, m_angle_resolution_);
 
         if (min_angle < max_angle) {
             for (long i = min_idx; i <= max_idx; ++i) {

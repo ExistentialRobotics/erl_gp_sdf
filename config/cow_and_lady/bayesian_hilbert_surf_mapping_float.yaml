@@ -1,6 +1,7 @@
 __base__: ../common/bayesian_hilbert_surf_mapping_float.yaml
 local_bhm:
     bhm:
+        diagonal_sigma: true
         min_distance: 0.1
         max_distance: 3.5
         sampling_area_scale: 3.5
@@ -9,12 +10,12 @@ local_bhm:
     kernel_type: erl::covariance::RadialBiasFunction<float, 3>
     kernel:
         x_dim: 3
-        scale: 0.017
-    min_dataset_size: 64
-    min_dataset_hit_size: 48
+        scale: 0.014
+    min_dataset_size: 10
+    min_dataset_hit_size: 5
     max_dataset_size: 200
     hit_point_buffer_size: 64
-    ray_buffer_size: 1024
+    ray_buffer_size: 2048
     surface_grid_size: 7
 ray_selector:
     azimuth_min: -0.55

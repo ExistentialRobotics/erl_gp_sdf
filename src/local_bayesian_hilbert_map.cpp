@@ -4,6 +4,8 @@
 #include "erl_common/random.hpp"
 #include "erl_geometry/logodd.hpp"
 
+#include <absl/container/flat_hash_set.h>
+
 namespace erl::gp_sdf {
 
     template<typename Dtype, int Dim>
@@ -16,6 +18,70 @@ namespace erl::gp_sdf {
     bool
     LocalBayesianHilbertMap<Dtype, Dim>::Voxel::operator!=(const Voxel &other) const {
         return !(*this == other);
+    }
+
+    template<typename Dtype, int Dim>
+    bool
+    LocalBayesianHilbertMap<Dtype, Dim>::Voxel::Write(std::ostream &stream) const {
+        stream.write(reinterpret_cast<const char *>(&good), sizeof(good));
+        stream.write(reinterpret_cast<const char *>(&neighbors_added), sizeof(neighbors_added));
+        stream.write(reinterpret_cast<const char *>(&surf_config), sizeof(surf_config));
+        // write edges
+        const std::size_t n_edges = edges.size();
+        stream.write(reinterpret_cast<const char *>(&n_edges), sizeof(n_edges));
+        for (const auto &edge: edges) {
+            for (long i = 0; i < edge.size(); ++i) {
+                stream.write(reinterpret_cast<const char *>(&edge[i]), sizeof(edge[i]));
+            }
+        }
+        // write faces
+        const std::size_t n_faces = faces.size();
+        stream.write(reinterpret_cast<const char *>(&n_faces), sizeof(n_faces));
+        for (const auto &face: faces) {
+            for (long i = 0; i < face.size(); ++i) {
+                stream.write(reinterpret_cast<const char *>(&face[i]), sizeof(face[i]));
+            }
+        }
+        return stream.good();
+    }
+
+    template<typename Dtype, int Dim>
+    bool
+    LocalBayesianHilbertMap<Dtype, Dim>::Voxel::Read(std::istream &stream) {
+        stream.read(reinterpret_cast<char *>(&good), sizeof(good));
+        stream.read(reinterpret_cast<char *>(&neighbors_added), sizeof(neighbors_added));
+        stream.read(reinterpret_cast<char *>(&surf_config), sizeof(surf_config));
+        // read edges
+        std::size_t n_edges = 0;
+        stream.read(reinterpret_cast<char *>(&n_edges), sizeof(n_edges));
+        if (n_edges == 0) {
+            edges.clear();
+        } else {
+            edges.reserve(n_edges);
+            for (std::size_t j = 0; j < n_edges; ++j) {
+                GridIndex edge;
+                for (long k = 0; k < edge.size(); ++k) {
+                    stream.read(reinterpret_cast<char *>(&edge[k]), sizeof(edge[k]));
+                }
+                edges.push_back(edge);
+            }
+        }
+        // read faces
+        std::size_t n_faces = 0;
+        stream.read(reinterpret_cast<char *>(&n_faces), sizeof(n_faces));
+        if (n_faces == 0) {
+            faces.clear();
+        } else {
+            faces.reserve(n_faces);
+            for (std::size_t j = 0; j < n_faces; ++j) {
+                Face face;
+                for (long k = 0; k < face.size(); ++k) {
+                    stream.read(reinterpret_cast<char *>(&face[k]), sizeof(face[k]));
+                }
+                faces.push_back(face);
+            }
+        }
+        return stream.good();
     }
 
     template<typename Dtype, int Dim>
@@ -92,7 +158,8 @@ namespace erl::gp_sdf {
         const long max_dataset_size = setting->max_dataset_size;
         const long max_num_points = total_num_free_points + total_num_hit_points;
         const bool limit_exceeded = max_dataset_size > 0 && max_num_points > max_dataset_size;
-        long num_hit_to_sample, num_free_to_sample;
+        long num_hit_to_sample = 0;
+        long num_free_to_sample = 0;
         if (limit_exceeded) {
             num_hit_to_sample = max_dataset_size * total_num_hit_points / max_num_points;
             num_free_to_sample = max_dataset_size * total_num_free_points / max_num_points;
@@ -107,13 +174,15 @@ namespace erl::gp_sdf {
         long n_points = 0;
         MatrixDX extra_points;
         VectorX extra_labels;
-        bool combine = (dataset_size > 0) && ((dataset_size < setting->min_dataset_size) ||
-                                              (dataset_hit_size < setting->min_dataset_hit_size));
+        const bool combine =
+            (dataset_size > 0) && ((dataset_size < setting->min_dataset_size) ||
+                                   (dataset_hit_size < setting->min_dataset_hit_size));
         // previous dataset was too small. combine it with new points.
         if (combine) {
             dataset_points_ptr = &extra_points;
             dataset_labels_ptr = &extra_labels;
         }
+
         const std::size_t n_rays_used = geometry::OccupancyMap<Dtype, Dim>::GenerateSamples(
             // input
             ray_info_buffer,
@@ -128,6 +197,10 @@ namespace erl::gp_sdf {
             *dataset_labels_ptr);
         max_used_ray_count = std::max(max_used_ray_count, n_rays_used);
         unused_ray_count = static_cast<long>(ray_info_buffer.size() - n_rays_used);
+
+        if (points.cols() == 0) {                      // no new points, only use cached rays
+            ray_info_buffer.resize(unused_ray_count);  // remove used rays (exhausting mode)
+        }
 
         // combine extra points if needed
         if (combine && n_points > 0) {
@@ -150,7 +223,10 @@ namespace erl::gp_sdf {
         } else if (n_points > 0) {
             dataset_size = n_points;
             dataset_hit_size = num_hit_to_sample;
-        }  // else: no new points generated
+        } else {
+            dataset_size = 0;
+            dataset_hit_size = 0;
+        }
 
         if (setting->ray_buffer_size > 0) {
             // move rays to the ring buffer.
@@ -180,22 +256,62 @@ namespace erl::gp_sdf {
         if (points.cols() > 0 && !hit_indices.empty()) {
             const int gs = setting->surface_grid_size;
             const bool include_neighbor_voxels = setting->include_neighbor_voxels;
+
+            auto add_neighbor_voxels = [this, &gs, &updated](GridIndex voxel_coords) {
+                static const Eigen::Matrix<long, Dim, Dim == 2 ? 8 : 26> neighbor_offsets =
+                    common::GetGridNeighborOffsets<long, Dim>(true);
+                static const long n_neighbors = neighbor_offsets.cols();
+
+                GridIndex coords;
+                coords[Dim] = 0;  // edge coord, not used here
+                for (long i = 0; i < n_neighbors; ++i) {
+                    const long *offset = neighbor_offsets.col(i).data();
+                    bool valid = true;
+                    for (int d = 0; d < Dim; ++d) {
+                        coords[d] = voxel_coords[d] + offset[d];
+                        if (coords[d] < 0 || coords[d] >= gs) {
+                            valid = false;
+                            break;
+                        }
+                    }
+                    if (!valid) { continue; }
+                    updated |= surf_voxels.try_emplace(coords, Voxel{}).second;
+                }
+            };
+
+            absl::flat_hash_set<GridIndex> voxels_to_add_neighbors;
+
             // add hit points to the hit point buffer
             for (const auto &index: hit_indices) {
-                VectorD point = points.col(index);
+                const VectorD point = points.col(index);
                 if (auto_surface_log_odds) { hit_point_buffer.emplace_back(point); }
                 if (!update_surface_voxels) { continue; }
                 GridIndex voxel_coords;
                 voxel_coords[Dim] = 0;  // edge coord, not used here
+
+                // check if the point is within the tracked surface boundary
                 if (!GetGridCoords(point, true, voxel_coords)) { continue; }
-                if (surf_voxels.try_emplace(voxel_coords, Voxel{}).second) { updated = true; }
-                if (!include_neighbor_voxels) { continue; }
-                for (int i = 0; i < Dim; ++i) {
-                    voxel_coords[i] += 1;
-                    if (voxel_coords[i] < gs) { surf_voxels.try_emplace(voxel_coords, Voxel{}); }
-                    voxel_coords[i] -= 2;
-                    if (voxel_coords[i] >= 0) { surf_voxels.try_emplace(voxel_coords, Voxel{}); }
-                    voxel_coords[i] += 1;
+
+                // if new voxel, mark as updated
+                auto [iter, inserted] = surf_voxels.try_emplace(voxel_coords, Voxel{});
+                updated |= inserted;
+
+                // add neighbor voxels later
+                if (include_neighbor_voxels && !iter->second.neighbors_added) {
+                    voxels_to_add_neighbors.insert(voxel_coords);
+                    iter->second.neighbors_added = true;
+                }
+            }
+            if (update_surface_voxels && include_neighbor_voxels) {
+
+                for (const auto &[voxel_coords, voxel]: surf_voxels) {
+                    if (!voxel.good) { continue; }            // only check good voxels
+                    if (voxel.neighbors_added) { continue; }  // already added
+                    voxels_to_add_neighbors.insert(voxel_coords);
+                }
+
+                for (const auto &voxel_coords: voxels_to_add_neighbors) {
+                    add_neighbor_voxels(voxel_coords);
                 }
             }
         }
@@ -207,7 +323,7 @@ namespace erl::gp_sdf {
 
         // limit the number of hit points used to update the surface log-odds
         long n_hit_points = static_cast<long>(hit_point_buffer.size());
-        n_hit_points = std::min(n_hit_points, setting->hit_point_buffer_size);
+        n_hit_points = std::min(n_hit_points, setting->surface_log_odds_num_points);
         if (n_hit_points == 0) { return updated; }
 
         // update surface log-odds value
@@ -215,11 +331,13 @@ namespace erl::gp_sdf {
             0,
             hit_point_buffer.size() - 1);
         updated = true;
+        const Dtype valid_surf_log_odds_max = 10.0f * setting->surface_log_odds_max;
+        const Dtype valid_surf_log_odds_min = -valid_surf_log_odds_max;
         surface_log_odds *= static_cast<Dtype>(log_odds_count);
         for (long i = 0; i < n_hit_points; ++i) {
             std::size_t idx1 = hit_point_distribution(bhm.GetRandomGenerator());
             idx1 %= (hit_point_buffer.size() - i);
-            std::size_t idx2 = hit_point_buffer.size() - 1 - i;
+            const std::size_t idx2 = hit_point_buffer.size() - 1 - i;
             std::swap(hit_point_buffer[idx1], hit_point_buffer[idx2]);
 
             Dtype log_odd = 0.0f;
@@ -232,6 +350,9 @@ namespace erl::gp_sdf {
                 false /*gradient_with_sigmoid*/,
                 log_odd,
                 gradient);
+            if (log_odd < valid_surf_log_odds_min || log_odd > valid_surf_log_odds_max) {
+                continue;  // skip outliers
+            }
             surface_log_odds += log_odd;
         }
         log_odds_count += n_hit_points;
@@ -278,7 +399,9 @@ namespace erl::gp_sdf {
             bhm.RunExpectationMaximization(dataset_points, dataset_labels, dataset_size);
         }
 
-        updated |= UpdateSurface(points, update_surface_voxels);
+        if (updated || points.cols() > 0) {
+            updated |= UpdateSurface(points, update_surface_voxels);
+        }
 
         return updated;
     }
@@ -298,12 +421,12 @@ namespace erl::gp_sdf {
 
         if (check_bounds) {
             for (long d = 0; d < Dim; ++d) {
-                grid_coords[d] = MeterToGrid<Dtype>(point[d], map_min[d], map_res[d]);
+                grid_coords[d] = MeterToGrid<Dtype, long>(point[d], map_min[d], map_res[d]);
                 if (grid_coords[d] < 0 || grid_coords[d] >= grid_size) { return false; }
             }
         } else {
             for (long d = 0; d < Dim; ++d) {
-                grid_coords[d] = MeterToGrid<Dtype>(point[d], map_min[d], map_res[d]);
+                grid_coords[d] = MeterToGrid<Dtype, long>(point[d], map_min[d], map_res[d]);
             }
         }
 
@@ -344,10 +467,10 @@ namespace erl::gp_sdf {
     void
     LocalBayesianHilbertMap<Dtype, Dim>::PredictAt(
         const VectorD &point,
-        bool logodd,
-        bool compute_free_space,
-        bool compute_gradient,
-        bool gradient_with_sigmoid,
+        const bool logodd,
+        const bool compute_free_space,
+        const bool compute_gradient,
+        const bool gradient_with_sigmoid,
         Dtype &prob_occupied,
         bool &in_free_space,
         VectorD &gradient) const {
@@ -413,26 +536,7 @@ namespace erl::gp_sdf {
                     s.write(reinterpret_cast<const char *>(&n_voxels), sizeof(n_voxels));
                     for (const auto &[index, voxel]: self->surf_voxels) {
                         s.write(reinterpret_cast<const char *>(&index), sizeof(index));
-                        s.write(reinterpret_cast<const char *>(&voxel.good), sizeof(voxel.good));
-                        s.write(
-                            reinterpret_cast<const char *>(&voxel.surf_config),
-                            sizeof(voxel.surf_config));
-                        // write edges
-                        const std::size_t n_edges = voxel.edges.size();
-                        s.write(reinterpret_cast<const char *>(&n_edges), sizeof(n_edges));
-                        for (const auto &edge: voxel.edges) {
-                            for (long i = 0; i < edge.size(); ++i) {
-                                s.write(reinterpret_cast<const char *>(&edge[i]), sizeof(edge[i]));
-                            }
-                        }
-                        // write faces
-                        const std::size_t n_faces = voxel.faces.size();
-                        s.write(reinterpret_cast<const char *>(&n_faces), sizeof(n_faces));
-                        for (const auto &face: voxel.faces) {
-                            for (long i = 0; i < face.size(); ++i) {
-                                s.write(reinterpret_cast<const char *>(&face[i]), sizeof(face[i]));
-                            }
-                        }
+                        if (!voxel.Write(s)) { return false; }
                     }
                     return s.good();
                 },
@@ -581,13 +685,13 @@ namespace erl::gp_sdf {
             {
                 "surface_indices",
                 [](LocalBayesianHilbertMap *self, std::istream &s) {
-                    std::size_t n;
+                    std::size_t n = 0;
                     s.read(reinterpret_cast<char *>(&n), sizeof(n));
                     self->surface_indices.reserve(n);
                     for (std::size_t i = 0; i < n; ++i) {
                         GridIndex index;
                         s.read(reinterpret_cast<char *>(&index), sizeof(index));
-                        std::size_t buf_idx;
+                        std::size_t buf_idx = 0;
                         s.read(reinterpret_cast<char *>(&buf_idx), sizeof(buf_idx));
                         if (!self->surface_indices.try_emplace(index, buf_idx).second) {
                             ERL_WARN("Duplicate surface_indices index: {}.", index);
@@ -600,7 +704,7 @@ namespace erl::gp_sdf {
             {
                 "surf_voxels",
                 [](LocalBayesianHilbertMap *self, std::istream &s) {
-                    std::size_t n_voxels;
+                    std::size_t n_voxels = 0;
                     s.read(reinterpret_cast<char *>(&n_voxels), sizeof(n_voxels));
                     if (n_voxels == 0) {
                         self->surf_voxels.clear();
@@ -610,47 +714,12 @@ namespace erl::gp_sdf {
                     for (std::size_t i = 0; i < n_voxels; ++i) {
                         GridIndex index;
                         s.read(reinterpret_cast<char *>(&index), sizeof(index));
-                        if (self->surf_voxels.contains(index)) {
+                        auto [it, inserted] = self->surf_voxels.try_emplace(index, Voxel{});
+                        if (!inserted) {
                             ERL_WARN("Duplicate surf_voxels index: {}.", index);
                             return false;
                         }
-                        Voxel voxel;
-                        s.read(reinterpret_cast<char *>(&voxel.good), sizeof(voxel.good));
-                        s.read(
-                            reinterpret_cast<char *>(&voxel.surf_config),
-                            sizeof(voxel.surf_config));
-                        // read edges
-                        std::size_t n_edges = 0;
-                        s.read(reinterpret_cast<char *>(&n_edges), sizeof(n_edges));
-                        if (n_edges == 0) {
-                            voxel.edges.clear();
-                        } else {
-                            voxel.edges.reserve(n_edges);
-                            for (std::size_t j = 0; j < n_edges; ++j) {
-                                GridIndex edge;
-                                for (long k = 0; k < edge.size(); ++k) {
-                                    s.read(reinterpret_cast<char *>(&edge[k]), sizeof(edge[k]));
-                                }
-                                voxel.edges.push_back(edge);
-                            }
-                        }
-                        // read faces
-                        std::size_t n_faces = 0;
-                        s.read(reinterpret_cast<char *>(&n_faces), sizeof(n_faces));
-                        if (n_faces == 0) {
-                            voxel.faces.clear();
-                        } else {
-                            voxel.faces.reserve(n_faces);
-                            for (std::size_t j = 0; j < n_faces; ++j) {
-                                Face face;
-                                for (long k = 0; k < face.size(); ++k) {
-                                    s.read(reinterpret_cast<char *>(&face[k]), sizeof(face[k]));
-                                }
-                                voxel.faces.push_back(face);
-                            }
-                        }
-                        // insert it
-                        self->surf_voxels[index] = std::move(voxel);
+                        if (!it->second.Read(s)) { return false; }
                     }
                     return s.good();
                 },
@@ -688,7 +757,7 @@ namespace erl::gp_sdf {
             {
                 "hit_indices",
                 [](LocalBayesianHilbertMap *self, std::istream &s) {
-                    std::size_t n;
+                    std::size_t n = 0;
                     s.read(reinterpret_cast<char *>(&n), sizeof(n));
                     if (n == 0) {
                         self->hit_indices.clear();
@@ -704,7 +773,7 @@ namespace erl::gp_sdf {
             {
                 "hit_point_buffer",
                 [](LocalBayesianHilbertMap *self, std::istream &s) {
-                    std::size_t n;
+                    std::size_t n = 0;
                     s.read(reinterpret_cast<char *>(&n), sizeof(n));
                     if (n == 0) {
                         self->hit_point_buffer.clear();
@@ -720,7 +789,7 @@ namespace erl::gp_sdf {
             {
                 "ray_info_buffer",
                 [](LocalBayesianHilbertMap *self, std::istream &s) {
-                    std::size_t n;
+                    std::size_t n = 0;
                     s.read(reinterpret_cast<char *>(&n), sizeof(n));
                     if (n == 0) {
                         self->ray_info_buffer.clear();

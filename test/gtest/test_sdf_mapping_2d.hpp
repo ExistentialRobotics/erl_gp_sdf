@@ -2,7 +2,6 @@
 
 #include "test_mapping_2d.hpp"
 
-#include "erl_common/macros.hpp"
 #include "erl_gp_sdf/gp_sdf_mapping.hpp"
 
 inline cv::Point
@@ -512,7 +511,7 @@ protected:
 
         // draw used surface points
         if (test_success) {
-            auto &gps = VEC_ACCESS(sdf_map->GetUsedGps(), 0);
+            auto &gps = CHECKED_AT(sdf_map->GetUsedGps(), 0);
             auto gp1 = gps[0];
             auto gp2 = gps[1];
             if (gp1 != nullptr) {

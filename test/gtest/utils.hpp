@@ -31,7 +31,14 @@ ConvertMatrixToImage(const Eigen::MatrixX<Dtype> &mat, const bool colorize) {
 
 template<typename Dtype, int Order = Eigen::ColMajor>
 cv::Mat
-ConvertVectorToImage(int xs, int ys, const Eigen::VectorX<Dtype> &vec, const bool colorize) {
+ConvertVectorToImage(
+    const int xs,
+    const int ys,
+    const Eigen::VectorX<Dtype> &vec,
+    const bool colorize,
+    const Dtype lower = 0,
+    const Dtype upper = 255) {
+
     cv::Mat img;  // x: down, y: right
     if (Order == Eigen::ColMajor) {
         img = cv::Mat(
@@ -48,7 +55,13 @@ ConvertVectorToImage(int xs, int ys, const Eigen::VectorX<Dtype> &vec, const boo
             const_cast<Dtype *>(vec.data()));
     }
 
-    cv::normalize(img, img, 0, 255, cv::NORM_MINMAX);
+    const Dtype min = vec.minCoeff();
+    const Dtype max = vec.maxCoeff();
+    if (min != max) {
+        cv::normalize(img, img, 0, 255, cv::NORM_MINMAX);
+    } else {
+        img.setTo((min - lower) / (upper - lower) * 255);
+    }
     img.convertTo(img, CV_8UC1);
     if (colorize) {
         cv::applyColorMap(img, img, cv::COLORMAP_JET);

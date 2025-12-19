@@ -69,6 +69,8 @@ namespace erl::gp_sdf {
 
         using KeyQueueMap = absl::flat_hash_map<Key, typename PriorityQueue::handle_type>;
 
+        using UsedGps = std::array<std::shared_ptr<SdfGp>, static_cast<std::size_t>(Dim - 1) * 2>;
+
         struct TestBuffer {
             std::unique_ptr<Eigen::Ref<const MatrixDX>> positions = nullptr;
             std::unique_ptr<Eigen::Ref<VectorX>> distances = nullptr;
@@ -83,7 +85,7 @@ namespace erl::gp_sdf {
 
             [[nodiscard]] std::size_t
             Size() const {
-                if (positions == nullptr) return 0;
+                if (positions == nullptr) { return 0; }
                 return positions->cols();
             }
 
@@ -103,7 +105,7 @@ namespace erl::gp_sdf {
             PrepareGpBuffer(long num_queries, long num_neighbor_gps);
         };
 
-        std::mutex m_mutex_;
+        mutable std::mutex m_mutex_;
         std::shared_ptr<Setting> m_setting_ = std::make_shared<Setting>();
         std::shared_ptr<SurfaceMapping> m_surface_mapping_ = nullptr;  // RACING CONDITION.
         KeyGpMap m_gp_map_ = {};                // key -> gp, RACING CONDITION.
@@ -114,18 +116,18 @@ namespace erl::gp_sdf {
 
         // temporary data for parallelism and test
         KdTreePtr m_kdtree_surf_data_ = nullptr;  // for loading surface data
-        std::vector<std::vector<std::size_t>> m_surf_data_indices_{};
+        std::vector<std::vector<std::size_t>> m_surf_data_indices_;
         std::vector<std::vector<std::pair<Dtype, std::size_t>>> m_surf_data_dist_indices_{};
-        KeySet m_clusters_to_collect_data_ = {};                // stores clusters to collect data
-        KeySet m_clusters_to_load_data_ = {};                   // stores clusters to update
-        std::vector<GpPtr> m_gps_to_load_data_{};               // GPs to load surface data
-        std::vector<std::pair<long, GpPtr>> m_gps_to_train_{};  // GPs to train, [priority, gp]
-        std::vector<GpPtr> m_candidate_gps_{};                  // for test
-        KdTreePtr m_kdtree_candidate_gps_ = nullptr;            // for test to search candidate GPs
-        Aabb m_map_boundary_{};                                 // for test, boundary of the map
-        std::vector<std::vector<GpPtr>> m_query_to_gps_;        // for test
-        Eigen::VectorXb m_in_free_space_{};                     // if queries are in free space
-        std::vector<std::array<std::shared_ptr<SdfGp>, (Dim - 1) * 2>> m_query_used_gps_ = {};
+        KeySet m_clusters_to_collect_data_;                   // stores clusters to collect data
+        KeySet m_clusters_to_load_data_;                      // stores clusters to update
+        std::vector<GpPtr> m_gps_to_load_data_;               // GPs to load surface data
+        std::vector<std::pair<long, GpPtr>> m_gps_to_train_;  // GPs to train, [priority, gp]
+        std::vector<GpPtr> m_candidate_gps_;                  // for test
+        KdTreePtr m_kdtree_candidate_gps_ = nullptr;          // for test to search candidate GPs
+        Aabb m_map_boundary_{};                               // for test, boundary of the map
+        std::vector<std::vector<GpPtr>> m_query_to_gps_;      // for test
+        Eigen::VectorXb m_in_free_space_;                     // if queries are in free space
+        std::vector<UsedGps> m_query_used_gps_;
         TestBuffer m_test_buffer_{};
 
     public:
@@ -134,7 +136,7 @@ namespace erl::gp_sdf {
             std::shared_ptr<SurfaceMapping> surface_mapping);
 
         [[nodiscard]] std::lock_guard<std::mutex>
-        GetLockGuard();
+        GetLockGuard() const;
 
         [[nodiscard]] std::shared_ptr<const Setting>
         GetSetting() const;
@@ -177,7 +179,7 @@ namespace erl::gp_sdf {
             Variances &variances_out,
             Covariances &covariances_out);
 
-        [[nodiscard]] const std::vector<std::array<std::shared_ptr<SdfGp>, (Dim - 1) * 2>> &
+        [[nodiscard]] const std::vector<UsedGps> &
         GetUsedGps() const {
             return m_query_used_gps_;
         }
@@ -196,7 +198,7 @@ namespace erl::gp_sdf {
             Dtype iso_value,
             std::vector<VectorD> &surface_points,
             std::vector<Face> &faces,
-            std::vector<VectorD> &face_normals) const;
+            std::vector<VectorD> &face_normals);
 
         [[nodiscard]] bool
         Write(std::ostream &stream) const;

@@ -6,11 +6,12 @@ local_bhm:
         sampling_area_scale: 2.5
         free_points_per_meter: 1.8  # should not be too small or too large
         free_sampling_margin: 0.01
+        init_mu: 3.0
         sparse_zero_threshold: 0.0005
     kernel_type: erl::covariance::RadialBiasFunction<float, 2>
     kernel:
         x_dim: 2
-        scale: 0.08
+        scale: 0.085
     min_dataset_size: 16
     min_dataset_hit_size: 8
     max_dataset_size: 256

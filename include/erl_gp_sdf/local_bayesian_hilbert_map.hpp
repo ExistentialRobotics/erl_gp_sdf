@@ -29,6 +29,7 @@ namespace erl::gp_sdf {
         long surface_grid_size = 5;            // size of the surface grid
         Dtype surface_log_odds = 0.0f;         // log-odds value for the surface points
         long surface_log_odds_init_count = 1;  // initial number of log-odds sample count
+        long surface_log_odds_num_points = 1;  // # samples to estimate the surface log-odds
         Dtype surface_log_odds_min = -20.0f;   // minimum log-odds value for the surface points
         Dtype surface_log_odds_max = 20.0f;    // maximum log-odds value for the surface points
         bool auto_surface_log_odds = true;     // automatically learn the surface log-odds
@@ -44,16 +45,43 @@ namespace erl::gp_sdf {
             ERL_REFLECT_MEMBER(LocalBayesianHilbertMapSetting, kernel_setting_type),
             ERL_REFLECT_MEMBER_POLY(LocalBayesianHilbertMapSetting, kernel, kernel_setting_type),
             ERL_REFLECT_MEMBER(LocalBayesianHilbertMapSetting, min_dataset_size),
+            ERL_REFLECT_MEMBER(LocalBayesianHilbertMapSetting, min_dataset_hit_size),
             ERL_REFLECT_MEMBER(LocalBayesianHilbertMapSetting, max_dataset_size),
             ERL_REFLECT_MEMBER(LocalBayesianHilbertMapSetting, hit_point_buffer_size),
             ERL_REFLECT_MEMBER(LocalBayesianHilbertMapSetting, ray_buffer_size),
             ERL_REFLECT_MEMBER(LocalBayesianHilbertMapSetting, surface_grid_size),
             ERL_REFLECT_MEMBER(LocalBayesianHilbertMapSetting, surface_log_odds),
+            ERL_REFLECT_MEMBER(LocalBayesianHilbertMapSetting, surface_log_odds_init_count),
+            ERL_REFLECT_MEMBER(LocalBayesianHilbertMapSetting, surface_log_odds_num_points),
             ERL_REFLECT_MEMBER(LocalBayesianHilbertMapSetting, surface_log_odds_min),
             ERL_REFLECT_MEMBER(LocalBayesianHilbertMapSetting, surface_log_odds_max),
             ERL_REFLECT_MEMBER(LocalBayesianHilbertMapSetting, auto_surface_log_odds),
             ERL_REFLECT_MEMBER(LocalBayesianHilbertMapSetting, include_neighbor_voxels),
             ERL_REFLECT_MEMBER(LocalBayesianHilbertMapSetting, faster_prediction));
+
+        bool
+        PostDeserialization() override {
+            if (kernel == nullptr) {
+                ERL_ERROR("kernel is nullptr after deserialization.");
+                return false;
+            }
+            if (surface_log_odds_min >= surface_log_odds_max) {
+                ERL_ERROR(
+                    "surface_log_odds_min ({}) >= surface_log_odds_max ({}).",
+                    surface_log_odds_min,
+                    surface_log_odds_max);
+                return false;
+            }
+            if (surface_log_odds_min > 0) {
+                // just a warning
+                ERL_WARN("surface_log_odds_min ({}) > 0.", surface_log_odds_min);
+            }
+            if (surface_log_odds_max < 0) {
+                ERL_ERROR("surface_log_odds_max ({}) < 0.", surface_log_odds_max);
+                return false;
+            }
+            return true;
+        }
     };
 
     template<typename Dtype, int Dim>
@@ -77,6 +105,7 @@ namespace erl::gp_sdf {
 
         struct Voxel {
             bool good = false;
+            bool neighbors_added = false;
             int surf_config = 0;
             std::vector<GridIndex> edges{};
             std::vector<Face> faces{};
@@ -86,6 +115,12 @@ namespace erl::gp_sdf {
 
             [[nodiscard]] bool
             operator!=(const Voxel &other) const;
+
+            [[nodiscard]] bool
+            Write(std::ostream &stream) const;
+
+            [[nodiscard]] bool
+            Read(std::istream &stream);
         };
 
         using SurfaceVoxelMap = absl::flat_hash_map<GridIndex, Voxel>;
@@ -124,6 +159,16 @@ namespace erl::gp_sdf {
             return unused_ray_count > 0;
         }
 
+        /**
+         * Generate the dataset for updating the local Bayesian Hilbert map from the given sensor
+         * observation and the cached rays.
+         * @param sensor_position Sensor position in the world frame.
+         * @param points Point cloud in the world frame, observed at the sensor position.
+         * sensor_position is not used if points has no data.
+         * @param point_indices indices of the points used to generate the dataset. If empty, all
+         * points are used. Used indices will be moved to the back of the vector if sampling
+         * is necessary.
+         */
         void
         GenerateDataset(
             const Eigen::Ref<const VectorD> &sensor_position,

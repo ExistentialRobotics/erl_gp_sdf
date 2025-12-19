@@ -164,8 +164,8 @@ namespace erl::gp_sdf {
     template<typename Dtype, int Dim>
     void
     SdfGaussianProcess<Dtype, Dim>::SetMeanPosition(const VectorD &mean_position) {
-        std::array<Dtype, Dim> pos;
-        for (int i = 0; i < Dim; ++i) { pos[i] = mean_position[i]; }
+        std::array<Dtype, Dim> pos{};
+        for (int i = 0; i < Dim; ++i) { CHECKED_AT(pos, i) = mean_position[i]; }
         running_mean_position.store(pos);
     }
 
@@ -174,7 +174,7 @@ namespace erl::gp_sdf {
     SdfGaussianProcess<Dtype, Dim>::GetMeanPosition() const {
         VectorD pos;
         std::array<Dtype, Dim> mean_pos = running_mean_position.load();
-        for (int i = 0; i < Dim; ++i) { pos[i] = mean_pos[i]; }
+        for (int i = 0; i < Dim; ++i) { pos[i] = CHECKED_AT(mean_pos, i); }
         return pos;
     }
 
@@ -250,15 +250,15 @@ namespace erl::gp_sdf {
             auto &buf = edf_gp->GetLoadingBuffer();
             std::array<Dtype, Dim> mean_pos = running_mean_position.load();
             for (int i = 0; i < Dim; ++i) {
-                mean_pos[i] *= static_cast<Dtype>(running_num_samples);
+                CHECKED_AT(mean_pos, i) *= static_cast<Dtype>(running_num_samples);
             }
             for (long i = 0; i < buf.num_samples; ++i) {
                 auto p = buf.x.col(i);
-                for (int d = 0; d < Dim; ++d) { mean_pos[d] += p[d]; }
+                for (int d = 0; d < Dim; ++d) { CHECKED_AT(mean_pos, d) += p[d]; }
             }
             running_num_samples += buf.num_samples;
             for (int i = 0; i < Dim; ++i) {
-                mean_pos[i] /= static_cast<Dtype>(running_num_samples);
+                CHECKED_AT(mean_pos, i) /= static_cast<Dtype>(running_num_samples);
             }
             running_mean_position.store(mean_pos);
         }
@@ -510,7 +510,9 @@ namespace erl::gp_sdf {
                 [](const SdfGaussianProcess *gp, std::ostream &s) -> bool {
                     std::array<Dtype, Dim> mean_pos = gp->running_mean_position.load();
                     for (std::size_t i = 0; i < Dim; ++i) {
-                        s.write(reinterpret_cast<const char *>(&mean_pos[i]), sizeof(Dtype));
+                        s.write(
+                            reinterpret_cast<const char *>(&CHECKED_AT(mean_pos, i)),
+                            sizeof(Dtype));
                     }
                     return s.good();
                 },
@@ -576,7 +578,7 @@ namespace erl::gp_sdf {
             {
                 "gp_outdated_count",
                 [](SdfGaussianProcess *gp, std::istream &s) -> bool {
-                    long count;
+                    long count = 0;
                     s.read(reinterpret_cast<char *>(&count), sizeof(count));
                     gp->gp_outdated_count.store(count);
                     return s.good();
@@ -612,9 +614,9 @@ namespace erl::gp_sdf {
             {
                 "running_mean_position",
                 [](SdfGaussianProcess *gp, std::istream &s) -> bool {
-                    std::array<Dtype, Dim> mean_pos;
+                    std::array<Dtype, Dim> mean_pos{};
                     for (std::size_t i = 0; i < Dim; ++i) {
-                        s.read(reinterpret_cast<char *>(&mean_pos[i]), sizeof(Dtype));
+                        s.read(reinterpret_cast<char *>(&CHECKED_AT(mean_pos, i)), sizeof(Dtype));
                     }
                     gp->running_mean_position.store(mean_pos);
                     return s.good();
@@ -632,7 +634,7 @@ namespace erl::gp_sdf {
             {
                 "sign_gp",
                 [](SdfGaussianProcess *gp, std::istream &s) -> bool {
-                    bool has_gp;
+                    bool has_gp = false;
                     s >> has_gp;
                     SkipLine(s);
                     if (!has_gp) {  // no sign GP, skip
@@ -648,7 +650,7 @@ namespace erl::gp_sdf {
             {
                 "edf_gp",
                 [](SdfGaussianProcess *gp, std::istream &s) -> bool {
-                    bool has_gp;
+                    bool has_gp = false;
                     s >> has_gp;
                     SkipLine(s);
                     if (!has_gp) {  // no EDF GP, skip

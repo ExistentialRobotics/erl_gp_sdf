@@ -38,11 +38,20 @@ namespace erl::gp_sdf {
         using Face = Eigen::Vector<int, Dim>;
 
     protected:
-        std::mutex m_mutex_;                   // mutex for thread safety
+        mutable std::mutex m_mutex_;           // mutex for thread safety
         SurfDataManager m_surf_data_manager_;  // manage the surface data buffer
         VectorD m_last_sensor_position_;       // last sensor position
 
     public:
+        AbstractSurfaceMapping() = default;
+
+        AbstractSurfaceMapping(const AbstractSurfaceMapping &) = default;
+        AbstractSurfaceMapping &
+        operator=(const AbstractSurfaceMapping &) = default;
+        AbstractSurfaceMapping(AbstractSurfaceMapping &&) = default;
+        AbstractSurfaceMapping &
+        operator=(AbstractSurfaceMapping &&) = default;
+
         virtual ~AbstractSurfaceMapping() = default;
 
         /**
@@ -50,7 +59,7 @@ namespace erl::gp_sdf {
          * @return the lock guard of the mutex.
          */
         [[nodiscard]] std::lock_guard<std::mutex>
-        GetLockGuard();
+        GetLockGuard() const;
 
         [[nodiscard]] const SurfDataManager &
         GetSurfaceDataManager() const;
@@ -158,8 +167,14 @@ namespace erl::gp_sdf {
             const Key &key,
             std::vector<std::size_t> &surface_data_indices) const = 0;
 
+        /**
+         * Get the mesh representation of the surface mapping.
+         * @param online If true, generate the mesh faster but with lower quality.
+         * @param vertices vector to store the vertices of the mesh.
+         * @param faces vector to store the faces of the mesh.
+         */
         virtual void
-        GetMesh(std::vector<VectorD> &vertices, std::vector<Face> &faces) const;
+        GetMesh(bool online, std::vector<VectorD> &vertices, std::vector<Face> &faces);
 
         /**
          * Get the boundary of the map.
