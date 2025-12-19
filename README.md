@@ -20,7 +20,8 @@
 - **Accurate SDF Prediction**: Provides accurate SDF predictions using Gaussian Processes.
 - **C++ Implementation**: Written in C++ for performance and efficiency.
 - **Python Bindings**: Includes Python bindings for easy integration with Python applications.
-- **ROS Support**: Compatible with both ROS1 (Noetic) and ROS2 (Humble). 🚪 [erl_gp_sdf_ros](https://github.com/ExistentialRobotics/erl_gp_sdf_ros)
+- **ROS Support**: Compatible with both ROS1 (Noetic) and ROS2 (Humble).
+  🚪 [erl_gp_sdf_ros](https://github.com/ExistentialRobotics/erl_gp_sdf_ros)
 
 ## Getting Started
 
@@ -55,7 +56,9 @@ wget -qO - https://raw.githubusercontent.com/ExistentialRobotics/erl_geometry/re
 
 ### Docker Option
 
-The easiest way to get started is to use the provided [Docker files](https://github.com/ExistentialRobotics/erl_geometry/tree/main/docker), which contains all dependencies.
+The easiest way to get started is to use the
+provided [Docker files](https://github.com/ExistentialRobotics/erl_geometry/tree/main/docker), which contains all
+dependencies.
 
 ### Use as a standard CMake package
 
@@ -67,7 +70,7 @@ touch CMakeLists.txt
 Add the following lines to your `CMakeLists.txt`:
 
 ```cmake
-cmake_minimum_required(VERSION 3.24)
+cmake_minimum_required(VERSION 3.16)
 project(<your_project_name>)
 add_subdirectory(src/erl_cmake_tools)
 add_subdirectory(src/erl_common)
@@ -98,6 +101,7 @@ source devel/setup.bash
 colcon build --packages-up-to erl_gp_sdf
 source install/setup.bash
 ```
+
 See also 🚪[erl_gp_sdf_ros](https://github.com/ExistentialRobotics/erl_gp_sdf_ros) for additional ROS tools.
 
 ### Install As Python Package
@@ -153,6 +157,9 @@ done
 
 ### 🚪 [With ROS](https://github.com/ExistentialRobotics/erl_gp_sdf_ros)
 
+### 🚪 [Configuration Guidance](docs/config_guidance.md)
+
 ## Acknowledgements
 
-This work was supported by the Ministry of Trade, Industry and Energy (MOTIE), Korea, under the Strategic Technology Development Program, supervised by the Korea Institute for Advancement of Technology (KIAT) [Grant No. P0026052].
+This work was supported by the Ministry of Trade, Industry and Energy (MOTIE), Korea, under the Strategic Technology
+Development Program, supervised by the Korea Institute for Advancement of Technology (KIAT) [Grant No. P0026052].
