@@ -325,6 +325,7 @@ namespace erl::gp_sdf {
             (sign_method == SignMethod::kHybrid &&
              (hybrid_sign_methods.first == SignMethod::kExternal ||
               hybrid_sign_methods.second == SignMethod::kExternal))) {
+            const ERL_BLOCK_TIMER_MSG("Get sign from surface mapping");
             // collect the sign from the surface mapping, which is not thread-safe
             // CRITICAL SECTION: access m_surface_mapping_
             const auto surface_mapping_lock = m_surface_mapping_->GetLockGuard();
@@ -340,23 +341,26 @@ namespace erl::gp_sdf {
         // Compute the inference result for each query position
         m_query_used_gps_.clear();
         m_query_used_gps_.resize(num_queries);
-        if (num_queries == 1) {
-            TestGpThread(0, 0, 1);  // save time on thread creation
-        } else {
-            start_idx = 0;
-            for (uint32_t thread_idx = 0; thread_idx < num_threads; thread_idx++) {
-                end_idx = start_idx + batch_size;
-                if (thread_idx < leftover) { ++end_idx; }
-                threads.emplace_back(
-                    &GpSdfMapping::TestGpThread,
-                    this,
-                    thread_idx,
-                    start_idx,
-                    end_idx);
-                start_idx = end_idx;
+        {
+            const ERL_BLOCK_TIMER_MSG("Query GPs");
+            if (num_queries == 1) {
+                TestGpThread(0, 0, 1);  // save time on thread creation
+            } else {
+                start_idx = 0;
+                for (uint32_t thread_idx = 0; thread_idx < num_threads; thread_idx++) {
+                    end_idx = start_idx + batch_size;
+                    if (thread_idx < leftover) { ++end_idx; }
+                    threads.emplace_back(
+                        &GpSdfMapping::TestGpThread,
+                        this,
+                        thread_idx,
+                        start_idx,
+                        end_idx);
+                    start_idx = end_idx;
+                }
+                for (auto &thread: threads) { thread.join(); }
+                threads.clear();
             }
-            for (auto &thread: threads) { thread.join(); }
-            threads.clear();
         }
 #pragma endregion
 
@@ -1205,6 +1209,8 @@ namespace erl::gp_sdf {
     template<typename Dtype, int Dim>
     void
     GpSdfMapping<Dtype, Dim>::SearchCandidateGps(const Eigen::Ref<const MatrixDX> &positions_in) {
+        const ERL_BLOCK_TIMER_MSG("SearchCandidateGps");
+
         m_candidate_gps_.clear();
 
         VectorD query_area_min = positions_in.col(0);
@@ -1286,6 +1292,8 @@ namespace erl::gp_sdf {
     void
     GpSdfMapping<Dtype, Dim>::SearchGpFallback(const std::vector<std::size_t> &no_gps_indices) {
         if (no_gps_indices.empty()) { return; }
+
+        const ERL_BLOCK_TIMER_MSG("SearchGpFallback");
 
         // CRITICAL SECTION: access m_surface_mapping_ and m_gp_map_
         const auto surface_mapping_lock = m_surface_mapping_->GetLockGuard();

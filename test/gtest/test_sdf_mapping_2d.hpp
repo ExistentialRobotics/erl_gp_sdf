@@ -905,4 +905,42 @@ protected:
         SdfMap sdf_map_read(std::make_shared<SdfMapSetting>(), surf_map_read);
         Super::TestIo(sdf_map_read);
     }
+
+    void
+    TestGrid(const Matrix2X &grid_positions) override {
+        VectorX pred_sdf;
+        Matrix2X pred_grads;
+        Matrix3X pred_vars;
+        Matrix3X pred_covars;
+        {
+            const ERL_BLOCK_TIMER_MSG("sdf_map.Test grid");
+            ERL_ASSERT(sdf_map->Test(grid_positions, pred_sdf, pred_grads, pred_vars, pred_covars));
+        }
+
+        std::filesystem::path file = test_output_folder / "test_grid_positions.bin";
+        ERL_INFO("Saving test grid positions to {}", file.string());
+        ERL_ASSERT(erl::common::SaveEigenMatrixToBinaryFile<Dtype>(file, grid_positions));
+
+        file = test_output_folder / "test_grid_sdf.bin";
+        ERL_INFO("Saving test grid sdf to {}", file.string());
+        ERL_ASSERT(erl::common::SaveEigenMatrixToBinaryFile<Dtype>(file, pred_sdf));
+
+        if (pred_grads.cols() > 0) {
+            file = test_output_folder / "test_grid_gradients.bin";
+            ERL_INFO("Saving test grid gradients to {}", file.string());
+            ERL_ASSERT(erl::common::SaveEigenMatrixToBinaryFile<Dtype>(file, pred_grads));
+        }
+
+        if (pred_vars.cols() > 0) {
+            file = test_output_folder / "test_grid_variances.bin";
+            ERL_INFO("Saving test grid variances to {}", file.string());
+            ERL_ASSERT(erl::common::SaveEigenMatrixToBinaryFile<Dtype>(file, pred_vars));
+        }
+
+        if (pred_covars.cols() > 0) {
+            file = test_output_folder / "test_grid_covariances.bin";
+            ERL_INFO("Saving test grid covariances to {}", file.string());
+            ERL_ASSERT(erl::common::SaveEigenMatrixToBinaryFile<Dtype>(file, pred_covars));
+        }
+    }
 };

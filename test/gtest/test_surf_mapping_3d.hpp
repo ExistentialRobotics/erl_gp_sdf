@@ -36,6 +36,7 @@ struct TestSurfMapping3D : public TestMapping3D<Dtype, SurfaceMappingType> {
 
     using Super::cluster_half_size;
     using Super::fps_data;
+    using Super::frame_idx;
     using Super::frame_points;
     using Super::frame_ranges;
     using Super::gui_dt;
@@ -126,7 +127,7 @@ protected:
         in_free_space_whole_map.resize(positions_test_whole_map.cols());
         gradient_whole_map.resize(3, positions_test_whole_map.cols());
 
-        fps_data.resize(3, (max_wp_idx + options->seq_stride - 1) / options->seq_stride);
+        fps_data.setConstant(3, Super::GetNumOfFrames(), 0.0);
     }
 
     void
@@ -135,7 +136,7 @@ protected:
         if (test_success) { test_fps = 1000.0 / test_dt; }
         if (gui_dt > 0) { gui_fps = 1000.0 / gui_dt; }
 
-        fps_data.col(wp_idx / options->seq_stride - 1) << surf_map_update_fps, test_fps, gui_fps;
+        fps_data.col(frame_idx - 1) << surf_map_update_fps, test_fps, gui_fps;
 
         ranges_img_texts.clear();
         ranges_img_texts.push_back(fmt::format("frame {}", wp_idx));

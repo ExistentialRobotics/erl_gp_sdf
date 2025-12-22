@@ -3,6 +3,7 @@
 #include "utils.hpp"
 
 #include "erl_common/block_timer.hpp"
+#include "erl_common/grid_map_info.hpp"
 #include "erl_common/test_helper.hpp"
 #include "erl_geometry/cow_and_lady.hpp"
 #include "erl_geometry/depth_camera_3d.hpp"
@@ -24,6 +25,8 @@
 #include <open3d/io/TriangleMeshIO.h>
 #include <open3d/visualization/utility/DrawGeometry.h>
 
+#pragma region options
+
 enum class DataSetType {
     CowAndLady = 1,
     Mesh = 2,
@@ -44,6 +47,9 @@ struct OptionsForTestMapping3D : public erl::common::Yamlable<OptionsForTestMapp
     inline static const std::filesystem::path kProjectRootDir = ERL_GP_SDF_ROOT_DIR;
     inline static const std::filesystem::path kDataDir = kProjectRootDir / "data";
     inline static const std::filesystem::path kConfigDir = kProjectRootDir / "config";
+
+    using Vector3 = Eigen::Vector3<Dtype>;
+    using Matrix3 = Eigen::Matrix3<Dtype>;
 
     uint64_t random_seed = 0;
 
@@ -75,17 +81,24 @@ struct OptionsForTestMapping3D : public erl::common::Yamlable<OptionsForTestMapp
         "-line_set_surf_normals",
         "-line_set_clusters",
     };
-    Dtype test_res = 0.02;               // test resolution
-    Dtype test_x_min = 0.0f;             // x min for testing of the whole map
-    Dtype test_x_max = 0.0f;             // x max for testing of the whole map
-    Dtype test_y_min = 0.0f;             // y min for testing of the whole map
-    Dtype test_y_max = 0.0f;             // y max for testing of the whole map
-    Dtype test_z = 0.0;                  // test z for the whole map/ single query point
-    long test_xs = 150;                  // num of x for testing of the follow map
-    long test_ys = 100;                  // num of y for testing of the follow map
-    bool test_whole_map_at_end = false;  // test the whole map at the end
-    Dtype image_resize_scale = 10;       // image resize scale
-    Dtype surf_normal_scale = 0.25;      // surface normal visualization scale
+    long test_batch_size = 200000;                     // test batch size
+    Dtype test_res_grid = 0.05;                        // test resolution for the grid
+    Vector3 test_grid_size = Vector3::Zero();          // test grid size, 0 means auto
+    Vector3 test_grid_center = Vector3::Zero();        // test grid center, 0 means auto
+    Matrix3 test_grid_rotation = Matrix3::Identity();  // test grid rotation
+    bool test_grid_at_end = false;                     // test the grid at the end
+    Dtype test_res_whole_map = 0.02;                   // test resolution for the whole map
+    Dtype test_whole_map_x_min = 0.0f;                 // x min for testing of the whole map
+    Dtype test_whole_map_x_max = 0.0f;                 // x max for testing of the whole map
+    Dtype test_whole_map_y_min = 0.0f;                 // y min for testing of the whole map
+    Dtype test_whole_map_y_max = 0.0f;                 // y max for testing of the whole map
+    Dtype test_whole_map_z = 0.0;                      // test z for the whole map
+    bool test_whole_map_at_end = false;                // test the whole map at the end
+    Dtype test_res_follow_map = 0.02;                  // test resolution for the follow map
+    long test_follow_map_xs = 150;                     // num of x for testing of the follow map
+    long test_follow_map_ys = 100;                     // num of y for testing of the follow map
+    Dtype image_resize_scale = 10;                     // image resize scale
+    Dtype surf_normal_scale = 0.25;                    // surface normal visualization scale
     bool save_images = false;
     bool test_io = false;
     bool hold = false;
@@ -117,15 +130,22 @@ struct OptionsForTestMapping3D : public erl::common::Yamlable<OptionsForTestMapp
         ERL_REFLECT_MEMBER(OptionsForTestMapping3D, vis_stride),
         ERL_REFLECT_MEMBER(OptionsForTestMapping3D, pcd_stride),
         ERL_REFLECT_MEMBER(OptionsForTestMapping3D, show_geometries),
-        ERL_REFLECT_MEMBER(OptionsForTestMapping3D, test_res),
-        ERL_REFLECT_MEMBER(OptionsForTestMapping3D, test_x_min),
-        ERL_REFLECT_MEMBER(OptionsForTestMapping3D, test_x_max),
-        ERL_REFLECT_MEMBER(OptionsForTestMapping3D, test_y_min),
-        ERL_REFLECT_MEMBER(OptionsForTestMapping3D, test_y_max),
-        ERL_REFLECT_MEMBER(OptionsForTestMapping3D, test_z),
-        ERL_REFLECT_MEMBER(OptionsForTestMapping3D, test_xs),
-        ERL_REFLECT_MEMBER(OptionsForTestMapping3D, test_ys),
+        ERL_REFLECT_MEMBER(OptionsForTestMapping3D, test_batch_size),
+        ERL_REFLECT_MEMBER(OptionsForTestMapping3D, test_res_grid),
+        ERL_REFLECT_MEMBER(OptionsForTestMapping3D, test_grid_size),
+        ERL_REFLECT_MEMBER(OptionsForTestMapping3D, test_grid_center),
+        ERL_REFLECT_MEMBER(OptionsForTestMapping3D, test_grid_rotation),
+        ERL_REFLECT_MEMBER(OptionsForTestMapping3D, test_grid_at_end),
+        ERL_REFLECT_MEMBER(OptionsForTestMapping3D, test_res_whole_map),
+        ERL_REFLECT_MEMBER(OptionsForTestMapping3D, test_whole_map_x_min),
+        ERL_REFLECT_MEMBER(OptionsForTestMapping3D, test_whole_map_x_max),
+        ERL_REFLECT_MEMBER(OptionsForTestMapping3D, test_whole_map_y_min),
+        ERL_REFLECT_MEMBER(OptionsForTestMapping3D, test_whole_map_y_max),
+        ERL_REFLECT_MEMBER(OptionsForTestMapping3D, test_whole_map_z),
         ERL_REFLECT_MEMBER(OptionsForTestMapping3D, test_whole_map_at_end),
+        ERL_REFLECT_MEMBER(OptionsForTestMapping3D, test_res_follow_map),
+        ERL_REFLECT_MEMBER(OptionsForTestMapping3D, test_follow_map_xs),
+        ERL_REFLECT_MEMBER(OptionsForTestMapping3D, test_follow_map_ys),
         ERL_REFLECT_MEMBER(OptionsForTestMapping3D, image_resize_scale),
         ERL_REFLECT_MEMBER(OptionsForTestMapping3D, surf_normal_scale),
         ERL_REFLECT_MEMBER(OptionsForTestMapping3D, save_images),
@@ -183,8 +203,13 @@ struct OptionsForTestMapping3D : public erl::common::Yamlable<OptionsForTestMapp
     }
 };
 
+#pragma endregion
+
 template<typename Dtype, typename MappingType>
 struct TestMapping3D {
+
+#pragma region types
+
     using DepthFrame = erl::geometry::DepthFrame3D<Dtype>;
     using LidarFrame = erl::geometry::LidarFrame3D<Dtype>;
     using RangeSensorFrame = erl::geometry::RangeSensorFrame3D<Dtype>;
@@ -208,6 +233,10 @@ struct TestMapping3D {
     using Matrix4X = Eigen::Matrix4X<Dtype>;
     using Matrix6X = Eigen::Matrix<Dtype, 6, Eigen::Dynamic>;
 
+#pragma endregion
+
+#pragma region members
+
     std::shared_ptr<MappingType> mapping = nullptr;
 
     // datasets
@@ -219,6 +248,7 @@ struct TestMapping3D {
     Matrix3X gt_surface_points;
     long max_wp_idx = 0;
     long wp_idx = 0;
+    long frame_idx = 0;
     bool mapping_uses_points = false;  // should be set externally
     bool raw_data_is_points = false;
     bool raw_data_is_row_major = false;
@@ -305,6 +335,8 @@ protected:
     Dtype scaling = 1.0;
     Dtype cluster_half_size = 0.01;
 
+#pragma endregion
+
 public:
     TestMapping3D(
         const int argc,
@@ -354,6 +386,49 @@ public:
                     *pcd_surf_points);
             }
         }
+
+        if (options->test_grid_at_end) {
+            Vector3 max = options->test_grid_size.array() * 0.5f;
+            const Vector3 min = -max;
+            Eigen::Vector3i grid_shape;
+            const Dtype res = options->test_res_grid;
+            grid_shape[0] = static_cast<int>(std::ceil((max[0] - min[0]) / res));
+            grid_shape[1] = static_cast<int>(std::ceil((max[1] - min[1]) / res));
+            grid_shape[2] = static_cast<int>(std::ceil((max[2] - min[2]) / res));
+            const Vector3 resolution = Vector3::Constant(res);
+            max = min.array() + grid_shape.cast<Dtype>().array() * resolution.array();
+            ERL_INFO(
+                "Grid size: [{}], resolution: [{}], shape: [{}], min: [{}], max: [{}]",
+                options->test_grid_size.transpose(),
+                resolution.transpose(),
+                grid_shape.transpose(),
+                min.transpose(),
+                max.transpose());
+            Matrix3X positions = erl::common::CalculateMeterCoordinates<Dtype, int, 3, true, true>(
+                grid_shape,
+                min,
+                max,
+                resolution);
+            ERL_INFO(
+                "Grid rotation:\n{}\nGrid center: [{}]",
+                options->test_grid_rotation,
+                options->test_grid_center.transpose());
+            ERL_INFO(
+                "Before transform, positions min: [{}], max: [{}]",
+                positions.rowwise().minCoeff().transpose(),
+                positions.rowwise().maxCoeff().transpose());
+            positions =
+                (options->test_grid_rotation * positions).colwise() + options->test_grid_center;
+            ERL_INFO(
+                "After transform, positions min: [{}], max: [{}]",
+                positions.rowwise().minCoeff().transpose(),
+                positions.rowwise().maxCoeff().transpose());
+            if (positions.cols() > 0) {
+                TestGrid(positions);
+            } else {
+                ERL_WARN("No positions to test the grid at the end.");
+            }
+        }
     }
 
 protected:
@@ -387,7 +462,7 @@ protected:
         depth_frame_setting->camera_intrinsic.camera_cy = CowAndLady::kCameraCy;
         range_sensor_frame = std::make_shared<DepthFrame>(depth_frame_setting);
         // open3d
-        auto pcd = cow_and_lady->GetGroundTruthPointCloud();
+        const auto pcd = cow_and_lady->GetGroundTruthPointCloud();
         gt_scene = pcd;
         gt_surface_points.resize(3, pcd->points_.size());
         for (size_t i = 0; i < pcd->points_.size(); ++i) {
@@ -396,13 +471,6 @@ protected:
         // test data
         map_min = cow_and_lady->GetMapMin().cast<Dtype>();
         map_max = cow_and_lady->GetMapMax().cast<Dtype>();
-        if (options->test_x_min == options->test_x_max ||
-            options->test_y_min == options->test_y_max) {
-            options->test_x_min = map_min[0];
-            options->test_x_max = map_max[0];
-            options->test_y_min = map_min[1];
-            options->test_y_max = map_max[1];
-        }
     }
 
     void
@@ -455,13 +523,6 @@ protected:
         // test data
         map_min = mesh->GetMinBound().template cast<Dtype>();
         map_max = mesh->GetMaxBound().template cast<Dtype>();
-        if (options->test_x_min == options->test_x_max ||
-            options->test_y_min == options->test_y_max) {
-            options->test_x_min = map_min[0];
-            options->test_x_max = map_max[0];
-            options->test_y_min = map_min[1];
-            options->test_y_max = map_max[1];
-        }
     }
 
     void
@@ -514,14 +575,6 @@ protected:
 
         map_max = box_size.cast<Dtype>() / 2;
         map_min = -map_max;
-
-        if (options->test_x_min == options->test_x_max ||
-            options->test_y_min == options->test_y_max) {
-            options->test_x_min = -box_size[0] / 2;
-            options->test_x_max = box_size[0] / 2;
-            options->test_y_min = -box_size[1] / 2;
-            options->test_y_max = box_size[1] / 2;
-        }
     }
 
     void
@@ -554,13 +607,6 @@ protected:
         // test data
         map_min = replica_rgbd->GetMapMin().cast<Dtype>();
         map_max = replica_rgbd->GetMapMax().cast<Dtype>();
-        if (options->test_x_min == options->test_x_max ||
-            options->test_y_min == options->test_y_max) {
-            options->test_x_min = map_min[0];
-            options->test_x_max = map_max[0];
-            options->test_y_min = map_min[1];
-            options->test_y_max = map_max[1];
-        }
     }
 
     virtual void
@@ -589,41 +635,48 @@ protected:
 
         wp_idx = std::max(options->start_wp_idx, 0l);
         if (options->end_wp_idx > 0) { max_wp_idx = options->end_wp_idx; }
-        options->test_z = (map_min[2] + map_max[2]) / 2;
+        options->test_whole_map_z = (map_min[2] + map_max[2]) / 2;
 
-        vis_setting->z = options->test_z;
+        vis_setting->z = options->test_whole_map_z;
         position_test[0] = vis_setting->x;
         position_test[1] = vis_setting->y;
-        position_test[2] = options->test_z;
+        position_test[2] = options->test_whole_map_z;
 
-        positions_test_follow_org.resize(3, options->test_xs * options->test_ys);
+        Dtype res = options->test_res_follow_map;
+        const long xs = options->test_follow_map_xs;
+        const long ys = options->test_follow_map_ys;
+        positions_test_follow_org.resize(3, xs * ys);
         const Vector3 offset(
-            static_cast<Dtype>(-0.5f) * options->test_res * static_cast<Dtype>(options->test_xs),
-            static_cast<Dtype>(-0.5f) * options->test_res * static_cast<Dtype>(options->test_ys),
+            static_cast<Dtype>(-0.5f) * res * static_cast<Dtype>(xs),
+            static_cast<Dtype>(-0.5f) * res * static_cast<Dtype>(ys),
             0.0);
         // x: down, y: right
         long idx = 0;
-        for (long j = 0; j < options->test_ys; ++j) {
-            const Dtype y = static_cast<Dtype>(j) * options->test_res + offset[1];
-            for (long i = 0; i < options->test_xs; ++i) {
-                const Dtype x = static_cast<Dtype>(i) * options->test_res + offset[0];
+        for (long j = 0; j < ys; ++j) {
+            const Dtype y = static_cast<Dtype>(j) * res + offset[1];
+            for (long i = 0; i < xs; ++i) {
+                const Dtype x = static_cast<Dtype>(i) * res + offset[0];
                 positions_test_follow_org.col(idx++) << x, y, offset[2];
             }
         }
         positions_test_follow.resize(3, positions_test_follow_org.cols());
 
-        if (options->test_x_min == options->test_x_max ||
-            options->test_y_min == options->test_y_max) {
+        Dtype &x_min = options->test_whole_map_x_min;
+        Dtype &x_max = options->test_whole_map_x_max;
+        Dtype &y_min = options->test_whole_map_y_min;
+        Dtype &y_max = options->test_whole_map_y_max;
+        res = options->test_res_whole_map;
+        if (x_min == x_max || y_min == y_max) {
             ERL_INFO("Map boundary is not fully defined, using surface mapping boundary.");
-            options->test_x_min = map_min[0];
-            options->test_x_max = map_max[0];
-            options->test_y_min = map_min[1];
-            options->test_y_max = map_max[1];
+            x_min = map_min[0];
+            x_max = map_max[0];
+            y_min = map_min[1];
+            y_max = map_max[1];
         }
         const erl::common::GridMapInfo2D<Dtype> grid_map_info(
-            Eigen::Vector2<Dtype>(options->test_x_min, options->test_y_min),
-            Eigen::Vector2<Dtype>(options->test_x_max, options->test_y_max),
-            Eigen::Vector2<Dtype>(options->test_res, options->test_res),
+            Eigen::Vector2<Dtype>(x_min, y_min),
+            Eigen::Vector2<Dtype>(x_max, y_max),
+            Eigen::Vector2<Dtype>(res, res),
             Eigen::Vector2i(0, 0));
         whole_map_xs = grid_map_info.Shape(0);
         whole_map_ys = grid_map_info.Shape(1);
@@ -634,9 +687,15 @@ protected:
             (grid_rotation * positions_test_whole_map).colwise() + grid_translation;
 
         cluster_indices.resize(positions_test_follow_org.cols());
+
+        if (options->test_grid_size == Vector3::Zero()) {
+            options->test_grid_size = map_max - map_min;
+        }
     }
 
 #pragma endregion
+
+#pragma region output_prep
 
     void
     PrepareOutputFolders() {
@@ -647,14 +706,18 @@ protected:
         vis_setting->window_name = test_info->name();
     }
 
+#pragma endregion
+
+#pragma region visualizer_prep
+
     virtual void
     PrepareVisualizer() {
         vis_setting->mesh_show_back_face = false;
         vis_setting->translate_step =
             options->dataset_type == DataSetType::NewerCollege ? 0.1 : 0.01;
-        vis_setting->x = (options->test_x_min + options->test_x_max) / 2;
-        vis_setting->y = (options->test_y_min + options->test_y_max) / 2;
-        vis_setting->z = options->test_z;
+        vis_setting->x = (options->test_whole_map_x_min + options->test_whole_map_x_max) / 2;
+        vis_setting->y = (options->test_whole_map_y_min + options->test_whole_map_y_max) / 2;
+        vis_setting->z = options->test_whole_map_z;
         visualizer = std::make_shared<Open3dVisualizerWrapper>(vis_setting);
 
         switch (options->dataset_type) {
@@ -695,7 +758,7 @@ protected:
 
         voxel_grid_pred = std::make_shared<open3d::geometry::VoxelGrid>();
         voxel_grid_pred->origin_.setZero();
-        voxel_grid_pred->voxel_size_ = options->test_res * 1.42f;
+        voxel_grid_pred->voxel_size_ = options->test_res_follow_map * 1.42f;
 
         line_set_clusters = std::make_shared<open3d::geometry::LineSet>();
         const double hs = cluster_half_size;
@@ -773,6 +836,8 @@ protected:
 
         visualizer->AddGeometries(geometries);
     }
+
+#pragma endregion
 
 #pragma region data_loading
 
@@ -878,7 +943,7 @@ protected:
 
     void
     LoadDataFromMeshDataset() {
-        std::tie(rotation_sensor, translation_sensor) = poses[wp_idx];
+        std::tie(rotation_sensor, translation_sensor) = poses.at(wp_idx);
         std::tie(rotation_frame, translation_frame) =
             range_sensor->GetOpticalPose(rotation_sensor, translation_sensor);
 
@@ -966,6 +1031,12 @@ protected:
         RangesToPoints();
         ApplyScanStride();
         wp_idx += options->seq_stride;
+        ++frame_idx;
+    }
+
+    [[nodiscard]] long
+    GetNumOfFrames() const {
+        return (max_wp_idx - options->start_wp_idx + options->seq_stride - 1) / options->seq_stride;
     }
 
 #pragma endregion
@@ -1186,13 +1257,14 @@ protected:
     virtual bool
     AnimationCallback(Open3dVisualizerWrapper *wrapper, open3d::visualization::Visualizer *vis) {
         if (options->save_images) {
-            vis->CaptureScreenImage(img_dir / fmt::format("{:04d}.png", wp_idx), false);
+            vis->CaptureScreenImage(img_dir / fmt::format("{:04d}.png", frame_idx), false);
         }
 
         if (animation_ended) {
             // options->hold is true, so the window is not closed yet
             if (options->test_whole_map_at_end) {
-                if (options->test_z != static_cast<Dtype>(vis_setting->z)) {
+                if (options->test_whole_map_z != static_cast<Dtype>(vis_setting->z)) {
+                    voxel_grid_pred->voxel_size_ = options->test_res_whole_map * 1.42f;
                     UpdateWholeMapPrediction();
                 }
             } else {
@@ -1224,7 +1296,7 @@ protected:
                 UpdatePredictionAtPosition();
             }
             if (options->save_images) {
-                vis->CaptureScreenImage(img_dir / fmt::format("{:04d}.png", wp_idx + 1), true);
+                vis->CaptureScreenImage(img_dir / fmt::format("{:04d}.png", frame_idx), true);
             }
             if (!options->hold) {
                 wrapper->SetAnimationCallback(nullptr);  // stop calling this callback
@@ -1238,10 +1310,24 @@ protected:
             const ERL_BLOCK_TIMER_MSG_TIME("gui_update", gui_dt);
             LoadData();
             if (UpdateMap()) { UpdateFollowingMapPrediction(); }
-            if (wp_idx % options->vis_stride == 0) { UpdateVisualization(); }
+            if (frame_idx % options->vis_stride == 0) { UpdateVisualization(); }
         }
         ERL_INFO("gui_update (fps): {:.2f}", 1000.0 / gui_dt);
         return true;
+    }
+
+    void
+    ConvertToOpen3dMesh(
+        const std::shared_ptr<open3d::geometry::TriangleMesh> &mesh,
+        const std::vector<Vector3> &vertices,
+        const std::vector<Eigen::Vector3i> &faces) {
+        mesh->vertices_.clear();
+        mesh->triangles_.clear();
+        mesh->vertices_.reserve(vertices.size());
+        mesh->triangles_.reserve(faces.size());
+        for (const auto &v: vertices) { mesh->vertices_.emplace_back(v.x(), v.y(), v.z()); }
+        for (const auto &f: faces) { mesh->triangles_.emplace_back(f.x(), f.y(), f.z()); }
+        mesh->ComputeVertexNormals();
     }
 
 #pragma endregion
@@ -1285,4 +1371,7 @@ protected:
     }
 
 #pragma endregion
+
+    virtual void
+    TestGrid(const Matrix3X & /*grid_positions*/) {}
 };

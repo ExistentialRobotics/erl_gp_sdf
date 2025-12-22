@@ -71,7 +71,7 @@ struct TestBayesianHilbertSurfaceMapping3D
         VectorX log_odd_values;
         Eigen::VectorXb in_free_space;
         Matrix3X gradients;
-        surf_map->Predict(
+        GetPrediction(
             gt_surface_points,
             true /*logodd*/,
             false /*compute_free_space*/,
@@ -279,7 +279,7 @@ struct TestBayesianHilbertSurfaceMapping3D
             std::vector<Eigen::Vector3i> faces;
             surf_map->GetMesh(false, vertices, faces);
             auto mesh = std::make_shared<open3d::geometry::TriangleMesh>();
-            ConvertToOpen3dMesh(mesh, vertices, faces);
+            Super::ConvertToOpen3dMesh(mesh, vertices, faces);
             open3d::io::WriteTriangleMesh(test_output_folder / "surface_mesh.ply", *mesh);
 
             visualizer->Reset();
@@ -302,7 +302,7 @@ struct TestBayesianHilbertSurfaceMapping3D
                     }
                     surf_map->ResetMarchingResults();
                     surf_map->GetMesh(false, vertices, faces);
-                    ConvertToOpen3dMesh(mesh, vertices, faces);
+                    Super::ConvertToOpen3dMesh(mesh, vertices, faces);
                     open3d::io::WriteTriangleMesh(test_output_folder / "surface_mesh.ply", *mesh);
                     vis->UpdateGeometry(mesh);
                     return true;
@@ -316,15 +316,77 @@ struct TestBayesianHilbertSurfaceMapping3D
 
 protected:
     void
+    GetPrediction(
+        const Matrix3X &positions,
+        const bool logodd,
+        const bool compute_free_space,
+        const bool compute_gradient,
+        const bool gradient_with_sigmoid,
+        const bool parallel,
+        VectorX &pred_logodds,
+        Eigen::VectorXb &pred_in_free_space,
+        Matrix3X &pred_gradients) {
+
+        const long batch_size = options->test_batch_size;
+        const long n = positions.cols();
+
+        if (n <= batch_size) {
+            surf_map->Predict(
+                positions,
+                logodd,
+                compute_free_space,
+                compute_gradient,
+                gradient_with_sigmoid,
+                parallel,
+                pred_logodds,
+                pred_in_free_space,
+                pred_gradients);
+            return;
+        }
+
+        pred_logodds.resize(n);
+        if (compute_free_space) { pred_in_free_space.resize(n); }
+        if (compute_gradient) { pred_gradients.resize(3, n); }
+
+        VectorX pred_logodds_batch;
+        Eigen::VectorXb pred_in_free_space_batch;
+        Matrix3X pred_gradients_batch;
+
+        const long i_max = (n + batch_size - 1) / batch_size;
+        for (long i = 0; i < n; i += batch_size) {
+            const long j = std::min(i + batch_size, n);  // end index (exclusive)
+            const long m = j - i;                        // actual batch size
+            ERL_INFO("Batch {}/{}: {} to {}, total {}", i / batch_size, i_max, i, j - 1, n);
+            surf_map->Predict(
+                positions.middleCols(i, m),
+                logodd,
+                compute_free_space,
+                compute_gradient,
+                gradient_with_sigmoid,
+                parallel,
+                pred_logodds_batch,
+                pred_in_free_space_batch,
+                pred_gradients_batch);
+            // store results
+            pred_logodds.segment(i, m) = pred_logodds_batch.head(m);
+            if (compute_free_space) {
+                pred_in_free_space.segment(i, m) = pred_in_free_space_batch.head(m);
+            }
+            if (compute_gradient) {
+                pred_gradients.middleCols(i, m) = pred_gradients_batch.leftCols(m);
+            }
+        }
+    }
+
+    void
     UpdateWholeMapPrediction() override {
-        options->test_z = static_cast<Dtype>(vis_setting->z);
-        positions_test_whole_map.row(2).setConstant(options->test_z);
+        options->test_whole_map_z = static_cast<Dtype>(vis_setting->z);
+        positions_test_whole_map.row(2).setConstant(options->test_whole_map_z);
 
         {
             const ERL_BLOCK_TIMER_MSG("surf_map.Test");
-            const double scaling = surf_map_setting->scaling;
-            surf_map->Predict(
-                positions_test_whole_map * scaling,
+            GetPrediction(
+                positions_test_whole_map,
                 false /*logodd*/,
                 true /*compute_free_space*/,
                 false /*compute_gradient*/,
@@ -382,7 +444,7 @@ protected:
             (rotation_sensor * positions_test_follow_org).colwise() + translation_sensor;
 
         const ERL_BLOCK_TIMER_MSG_TIME("surf_map.Test", test_dt);
-        surf_map->Predict(
+        GetPrediction(
             positions_test_follow,
             false /*logodd*/,
             true /*compute_free_space*/,
@@ -396,7 +458,7 @@ protected:
 
         if (std::find(geometries.begin(), geometries.end(), mesh_surf) != geometries.end()) {
             surf_map->GetMesh(true, mesh_surf_vertices, mesh_surf_faces);
-            ConvertToOpen3dMesh(mesh_surf, mesh_surf_vertices, mesh_surf_faces);
+            Super::ConvertToOpen3dMesh(mesh_surf, mesh_surf_vertices, mesh_surf_faces);
         }
     }
 
@@ -406,23 +468,23 @@ protected:
     void
     VisualizePrediction() override {
         cv::Mat prob_occupied_img = ConvertVectorToImage<Dtype>(
-            options->test_xs,
-            options->test_ys,
+            options->test_follow_map_xs,
+            options->test_follow_map_ys,
             prob_occupied_follow,
             true,
             0,
             1);
         ConvertToVoxelGrid<Dtype>(prob_occupied_img, positions_test_follow, voxel_grid_pred);
         cv::Mat occupancy_img = ConvertVectorToImage<Dtype>(
-            options->test_xs,
-            options->test_ys,
+            options->test_follow_map_xs,
+            options->test_follow_map_ys,
             (prob_occupied_follow.array() > 0.5f).template cast<Dtype>(),
             true,
             0,
             1);
         cv::Mat free_space_img = ConvertVectorToImage<Dtype>(
-            options->test_xs,
-            options->test_ys,
+            options->test_follow_map_xs,
+            options->test_follow_map_ys,
             in_free_space_follow.template cast<Dtype>(),
             false,
             0,
@@ -445,17 +507,39 @@ protected:
     }
 
     void
-    ConvertToOpen3dMesh(
-        const std::shared_ptr<open3d::geometry::TriangleMesh> &mesh,
-        const std::vector<Vector3> &vertices,
-        const std::vector<Eigen::Vector3i> &faces) {
-        mesh->vertices_.clear();
-        mesh->triangles_.clear();
-        mesh->vertices_.reserve(vertices.size());
-        mesh->triangles_.reserve(faces.size());
-        for (const auto &v: vertices) { mesh->vertices_.emplace_back(v.x(), v.y(), v.z()); }
-        for (const auto &f: faces) { mesh->triangles_.emplace_back(f.x(), f.y(), f.z()); }
-        mesh->ComputeVertexNormals();
+    TestGrid(const Matrix3X &grid_positions) override {
+        const ERL_BLOCK_TIMER_MSG("TestGrid");
+
+        VectorX pred_logodds;
+        Eigen::VectorXb pred_in_free_space;
+        Matrix3X pred_gradients;
+
+        GetPrediction(
+            grid_positions,
+            true /*logodd*/,
+            true /*compute_free_space*/,
+            true /*compute_gradient*/,
+            false /*gradient_with_sigmoid*/,
+            true /*parallel*/,
+            pred_logodds,
+            pred_in_free_space,
+            pred_gradients);
+
+        std::filesystem::path file = test_output_folder / "test_grid_positions.bin";
+        ERL_INFO("Saving test grid positions to {}", file.string());
+        ERL_ASSERT(erl::common::SaveEigenMatrixToBinaryFile<Dtype>(file, grid_positions));
+
+        file = test_output_folder / "test_grid_logodds.bin";
+        ERL_INFO("Saving test grid logodds to {}", file.string());
+        ERL_ASSERT(erl::common::SaveEigenMatrixToBinaryFile<Dtype>(file, pred_logodds));
+
+        file = test_output_folder / "test_grid_in_free_space.bin";
+        ERL_INFO("Saving test grid in_free_space to {}", file.string());
+        ERL_ASSERT(erl::common::SaveEigenMatrixToBinaryFile<bool>(file, pred_in_free_space));
+
+        file = test_output_folder / "test_grid_gradients.bin";
+        ERL_INFO("Saving test grid gradients to {}", file.string());
+        ERL_ASSERT(erl::common::SaveEigenMatrixToBinaryFile<Dtype>(file, pred_gradients));
     }
 };
 

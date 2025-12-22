@@ -23,6 +23,7 @@ struct TestBayesianHilbertSurfaceMapping2D
     using Super::surf_map;
     using Super::surf_map_setting;
     using Super::surface_points_cv;
+    using Super::test_output_folder;
     using Super::update_map_fps;
     using Super::update_pred_fps;
     using Super::update_vis_fps;
@@ -274,6 +275,42 @@ protected:
             cv::imwrite(img_prob_occ_dir / filename, img_prob_occ);
             cv::imwrite(img_grad_norms_dir / filename, img_grad_norms);
         }
+    }
+
+    void
+    TestGrid(const Matrix2X &grid_positions) override {
+        const ERL_BLOCK_TIMER_MSG("TestGrid");
+
+        VectorX pred_logodds;
+        Eigen::VectorXb pred_in_free_space;
+        Matrix2X pred_gradients;
+
+        surf_map->Predict(
+            grid_positions,
+            true /*logodd*/,
+            true /*compute_free_space*/,
+            true /*compute_gradient*/,
+            false /*gradient_with_sigmoid*/,
+            true /*parallel*/,
+            pred_logodds,
+            pred_in_free_space,
+            pred_gradients);
+
+        std::filesystem::path file = test_output_folder / "test_grid_positions.bin";
+        ERL_INFO("Saving test grid positions to {}", file.string());
+        ERL_ASSERT(erl::common::SaveEigenMatrixToBinaryFile<Dtype>(file, grid_positions));
+
+        file = test_output_folder / "test_grid_logodds.bin";
+        ERL_INFO("Saving test grid logodds to {}", file.string());
+        ERL_ASSERT(erl::common::SaveEigenMatrixToBinaryFile<Dtype>(file, pred_logodds));
+
+        file = test_output_folder / "test_grid_in_free_space.bin";
+        ERL_INFO("Saving test grid in_free_space to {}", file.string());
+        ERL_ASSERT(erl::common::SaveEigenMatrixToBinaryFile<bool>(file, pred_in_free_space));
+
+        file = test_output_folder / "test_grid_gradients.bin";
+        ERL_INFO("Saving test grid gradients to {}", file.string());
+        ERL_ASSERT(erl::common::SaveEigenMatrixToBinaryFile<Dtype>(file, pred_gradients));
     }
 };
 

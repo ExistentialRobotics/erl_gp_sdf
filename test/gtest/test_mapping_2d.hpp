@@ -31,6 +31,8 @@ struct OptionsForTestMapping2D : public erl::common::Yamlable<OptionsForTestMapp
     inline static const std::filesystem::path kDataDir = kProjectRootDir / "data";
     inline static const std::filesystem::path kConfigDir = kProjectRootDir / "config";
 
+    using Vector2 = Eigen::Vector2<Dtype>;
+
     DataSetType dataset_type = DataSetType::GazeboRoom2D;
     std::string gazebo_dir = kDataDir / "gazebo";
     std::string house_expo_map_file = kDataDir / "house_expo_room_1451.json";
@@ -50,6 +52,11 @@ struct OptionsForTestMapping2D : public erl::common::Yamlable<OptionsForTestMapp
     long vis_stride = 1;
     Dtype map_resolution = 0.025;
     Dtype surf_normal_scale = 0.35;
+    bool test_grid_at_end = false;
+    Dtype test_res_grid = 0.025;
+    Vector2 test_grid_size = Vector2::Zero();
+    Vector2 test_grid_center = Vector2::Zero();
+    Dtype test_grid_rotation = 0.0;
 
     ERL_REFLECT_SCHEMA(
         OptionsForTestMapping2D,
@@ -71,7 +78,12 @@ struct OptionsForTestMapping2D : public erl::common::Yamlable<OptionsForTestMapp
         ERL_REFLECT_MEMBER(OptionsForTestMapping2D, seq_stride),
         ERL_REFLECT_MEMBER(OptionsForTestMapping2D, vis_stride),
         ERL_REFLECT_MEMBER(OptionsForTestMapping2D, map_resolution),
-        ERL_REFLECT_MEMBER(OptionsForTestMapping2D, surf_normal_scale));
+        ERL_REFLECT_MEMBER(OptionsForTestMapping2D, surf_normal_scale),
+        ERL_REFLECT_MEMBER(OptionsForTestMapping2D, test_grid_at_end),
+        ERL_REFLECT_MEMBER(OptionsForTestMapping2D, test_res_grid),
+        ERL_REFLECT_MEMBER(OptionsForTestMapping2D, test_grid_size),
+        ERL_REFLECT_MEMBER(OptionsForTestMapping2D, test_grid_center),
+        ERL_REFLECT_MEMBER(OptionsForTestMapping2D, test_grid_rotation));
 
     bool
     PostDeserialization() override {
@@ -272,6 +284,48 @@ public:
             if (options->test_io) { TestIo(); }
         }
 
+        if (options->test_grid_at_end) {
+            Vector2 max = options->test_grid_size.array() * 0.5f;
+            Vector2 min = -max;
+            Eigen::Vector2i grid_shape;
+            const Dtype res = options->test_res_grid;
+            grid_shape[0] = static_cast<int>(std::ceil((max[0] - min[0]) / res));
+            grid_shape[1] = static_cast<int>(std::ceil((max[1] - min[1]) / res));
+            const Vector2 resolution = Vector2::Constant(res);
+            max = min.array() + grid_shape.cast<Dtype>().array() * resolution.array();
+            ERL_INFO(
+                "Grid size: [{}], resolution: [{}], shape: [{}], min: [{}], max: [{}]",
+                options->test_grid_size.transpose(),
+                resolution.transpose(),
+                grid_shape.transpose(),
+                min.transpose(),
+                max.transpose());
+            Matrix2X positions = erl::common::CalculateMeterCoordinates<Dtype, int, 2, true, true>(
+                grid_shape,
+                min,
+                max,
+                resolution);
+            ERL_INFO(
+                "Grid rotation: {:.2f} rad, center: [{}]",
+                options->test_grid_rotation,
+                options->test_grid_center.transpose());
+            ERL_INFO(
+                "Before transform, positions min: [{}], max: [{}]",
+                positions.rowwise().minCoeff().transpose(),
+                positions.rowwise().maxCoeff().transpose());
+            Matrix2 rot = Eigen::Rotation2D<Dtype>(options->test_grid_rotation).toRotationMatrix();
+            positions = (rot * positions).colwise() + options->test_grid_center;
+            ERL_INFO(
+                "After transform, positions min: [{}], max: [{}]",
+                positions.rowwise().minCoeff().transpose(),
+                positions.rowwise().maxCoeff().transpose());
+            if (positions.cols() > 0) {
+                TestGrid(positions);
+            } else {
+                ERL_WARN("No positions to test the grid at the end.");
+            }
+        }
+
         ShowFinalResults();
         if (options->interactive) { Interactive(); }
 
@@ -379,6 +433,10 @@ protected:
         }
 
         max_wp_idx = (options->end_wp_idx == -1) ? max_wp_idx : options->end_wp_idx;
+
+        if (options->test_grid_size == Vector2::Zero()) {
+            options->test_grid_size = map_max - map_min;
+        }
     }
 
 #pragma endregion
@@ -526,4 +584,7 @@ protected:
     }
 
 #pragma endregion
+
+    virtual void
+    TestGrid(const Matrix2X & /*grid_positions*/) {}
 };

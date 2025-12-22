@@ -57,6 +57,7 @@ struct TestSdfMapping3D : public TestMapping3D<Dtype, erl::gp_sdf::GpSdfMapping<
     using Super::cluster_indices;
     using Super::cluster_vertex_index_map;
     using Super::fps_data;
+    using Super::frame_idx;
     using Super::frame_points;
     using Super::frame_ranges;
     using Super::geometries;
@@ -68,10 +69,15 @@ struct TestSdfMapping3D : public TestMapping3D<Dtype, erl::gp_sdf::GpSdfMapping<
     using Super::line_set_clusters_map;
     using Super::line_set_surf_normals;
     using Super::line_set_traj;
+    using Super::map_max;
+    using Super::map_min;
     using Super::mapping;
     using Super::mapping_uses_points;
     using Super::max_wp_idx;
     using Super::mesh_sensor;
+    using Super::mesh_surf;
+    using Super::mesh_surf_faces;
+    using Super::mesh_surf_vertices;
     using Super::pcd_cluster_samples;
     using Super::pcd_obs;
     using Super::pcd_surf_points;
@@ -110,6 +116,7 @@ struct TestSdfMapping3D : public TestMapping3D<Dtype, erl::gp_sdf::GpSdfMapping<
 
     // open3d visualization
     std::shared_ptr<open3d::geometry::TriangleMesh> mesh_sdf_sphere = nullptr;
+    bool surf_map_supports_mesh = true;
 
     // test data
     VectorX sdf_pred_follow;
@@ -187,7 +194,14 @@ protected:
         sdf_pred_whole_map.setZero();
         gradients_whole_map.resize(3, positions_test_whole_map.cols());
 
-        fps_data.resize(4, (max_wp_idx + options->seq_stride - 1) / options->seq_stride);
+        fps_data.setConstant(4, Super::GetNumOfFrames(), 0.0);
+
+        try {
+            surf_map->GetMesh(true, mesh_surf_vertices, mesh_surf_faces);
+        } catch (std::exception &e) {
+            ERL_WARN("Surface mapping does not support mesh extraction: {}", e.what());
+            surf_map_supports_mesh = false;
+        }
     }
 
     void
@@ -205,14 +219,66 @@ protected:
         }
     }
 
+    bool
+    GetPrediction(
+        const Matrix3X &positions,
+        VectorX &pred_sdf,
+        Matrix3X &pred_grads,
+        Matrix4X &pred_vars,
+        Matrix6X &pred_covars) {
+
+        const long batch_size = options->test_batch_size;
+        const long n = positions.cols();
+
+        if (n <= batch_size) {
+            return sdf_map->Test(positions, pred_sdf, pred_grads, pred_vars, pred_covars);
+        }
+
+        pred_sdf.resize(n);
+
+        VectorX pred_sdf_batch;
+        Matrix3X pred_grads_batch;
+        Matrix4X pred_vars_batch;
+        Matrix6X pred_covars_batch;
+
+        const long i_max = (n + batch_size - 1) / batch_size;
+        for (long i = 0; i < n; i += batch_size) {
+            const long j = std::min(i + batch_size, n);
+            const long m = j - i;
+            ERL_INFO("Batch {}/{}: {} to {}, total {}", i / batch_size, i_max, i, j - 1, n);
+            if (!sdf_map->Test(
+                    positions.middleCols(i, m),
+                    pred_sdf_batch,
+                    pred_grads_batch,
+                    pred_vars_batch,
+                    pred_covars_batch)) {
+                return false;
+            }
+            pred_sdf.segment(i, m) = pred_sdf_batch.head(m);
+            if (pred_grads_batch.cols() > 0) {
+                if (pred_grads.cols() < n) { pred_grads.resize(3, n); }
+                pred_grads.middleCols(i, m) = pred_grads_batch.leftCols(m);
+            }
+            if (pred_vars_batch.cols() > 0) {
+                if (pred_vars.cols() < n) { pred_vars.resize(4, n); }
+                pred_vars.middleCols(i, m) = pred_vars_batch.leftCols(m);
+            }
+            if (pred_covars_batch.cols() > 0) {
+                if (pred_covars.cols() < n) { pred_covars.resize(6, n); }
+                pred_covars.middleCols(i, m) = pred_covars_batch.leftCols(m);
+            }
+        }
+        return true;
+    }
+
     void
     UpdateWholeMapPrediction() override {
-        options->test_z = static_cast<Dtype>(vis_setting->z);
-        positions_test_whole_map.row(2).setConstant(options->test_z);
+        options->test_whole_map_z = static_cast<Dtype>(vis_setting->z);
+        positions_test_whole_map.row(2).setConstant(options->test_whole_map_z);
 
         {
             const ERL_BLOCK_TIMER_MSG("sdf_map.Test");
-            ASSERT_TRUE(sdf_map->Test(
+            ERL_ASSERT(GetPrediction(
                 positions_test_whole_map,
                 sdf_pred_whole_map,
                 gradients_whole_map,
@@ -235,7 +301,7 @@ protected:
         visualizer->GetVisualizer()->UpdateGeometry(voxel_grid_pred);
 
         Eigen::VectorXb in_free_space;
-        ASSERT_TRUE(surf_map->IsInFreeSpace(positions_test_whole_map, in_free_space));
+        ERL_ASSERT(surf_map->IsInFreeSpace(positions_test_whole_map, in_free_space));
         cv::Mat img_surf_mapping_sign = ConvertVectorToImage<Dtype>(
             whole_map_xs,
             whole_map_ys,
@@ -274,8 +340,8 @@ protected:
             (rotation_sensor * positions_test_follow_org).colwise() + translation_sensor;
 
         {
-            ERL_BLOCK_TIMER_MSG_TIME("sdf_mapping.Test", test_dt);
-            test_success = sdf_map->Test(
+            const ERL_BLOCK_TIMER_MSG_TIME("sdf_mapping.Test", test_dt);
+            test_success = GetPrediction(
                 positions_test_follow,
                 sdf_pred_follow,
                 gradients_follow,
@@ -299,6 +365,29 @@ protected:
                 "{} unique GPs used for {} test points",
                 gp_index_map.size(),
                 cluster_indices.size());
+        }
+
+        if (test_success && surf_map_supports_mesh &&
+            std::find(geometries.begin(), geometries.end(), mesh_surf) != geometries.end()) {
+            surf_map->GetMesh(true, mesh_surf_vertices, mesh_surf_faces);
+            Super::ConvertToOpen3dMesh(mesh_surf, mesh_surf_vertices, mesh_surf_faces);
+
+            // Too slow, not suitable for online mesh extraction
+            // Vector3 boundary_size;
+            // boundary_size[0] = map_max[0] - map_min[0];
+            // boundary_size[1] = map_max[1] - map_min[1];
+            // boundary_size[2] = map_max[2] - map_min[2];
+            // std::vector<Vector3> face_normals;
+            // sdf_map->GetMesh(
+            //     boundary_size,
+            //     Matrix3::Identity(),
+            //     Vector3::Zero(),
+            //     options->test_res_grid,
+            //     0.0,
+            //     mesh_surf_vertices,
+            //     mesh_surf_faces,
+            //     face_normals);
+            // Super::ConvertToOpen3dMesh(mesh_surf, mesh_surf_vertices, mesh_surf_faces);
         }
     }
 
@@ -351,8 +440,7 @@ protected:
         if (test_success) { test_fps = 1000.0 / test_dt; }
         if (gui_dt > 0) { gui_fps = 1000.0 / gui_dt; }
 
-        fps_data.col(wp_idx / options->seq_stride - 1) << surf_map_update_fps, sdf_map_update_fps,
-            test_fps, gui_fps;
+        fps_data.col(frame_idx - 1) << surf_map_update_fps, sdf_map_update_fps, test_fps, gui_fps;
 
         ranges_img_texts.clear();
         ranges_img_texts.push_back(fmt::format("frame {}", wp_idx));
@@ -366,19 +454,17 @@ protected:
 
     void
     VisualizePrediction() override {
-        cv::Mat img_sdf =
-            ConvertVectorToImage(options->test_xs, options->test_ys, sdf_pred_follow, true);
+        const long xs = options->test_follow_map_xs;
+        const long ys = options->test_follow_map_ys;
+        cv::Mat img_sdf = ConvertVectorToImage(xs, ys, sdf_pred_follow, true);
         ConvertToVoxelGrid(img_sdf, positions_test_follow, voxel_grid_pred);
         cv::Mat img_sdf_sign = ConvertVectorToImage<Dtype>(
-            options->test_xs,
-            options->test_ys,
+            xs,
+            ys,
             (sdf_pred_follow.array() > 0.0).template cast<Dtype>(),
             true);
-        cv::Mat img_cluster_indices = ConvertVectorToImage<Dtype>(
-            options->test_xs,
-            options->test_ys,
-            cluster_indices.template cast<Dtype>(),
-            true);
+        cv::Mat img_cluster_indices =
+            ConvertVectorToImage<Dtype>(xs, ys, cluster_indices.template cast<Dtype>(), true);
 
         Dtype resize_scale = options->image_resize_scale;
         resize_scale = std::min(resize_scale, 1920.0f / static_cast<Dtype>(img_sdf.cols));
@@ -441,8 +527,6 @@ protected:
 
     bool
     UpdateSurfaceMap() {
-        LoadData();
-
         if (!mapping_uses_points) {
             ERL_BLOCK_TIMER_MSG_TIME("surf_map.Update", surf_map_update_dt);
             // are_points: false, are_local: true
@@ -473,5 +557,43 @@ protected:
         const double time_budget_us = 1e6 / sdf_map_setting->update_hz;  // us
         sdf_map_updated = sdf_map->UpdateGpSdf(time_budget_us - surf_map_update_dt * 1000);
         return sdf_map_updated;
+    }
+
+    void
+    TestGrid(const Matrix3X &grid_positions) override {
+        VectorX pred_sdf;
+        Matrix3X pred_grads;
+        Matrix4X pred_vars;
+        Matrix6X pred_covars;
+        {
+            const ERL_BLOCK_TIMER_MSG("sdf_map.Test grid");
+            ERL_ASSERT(GetPrediction(grid_positions, pred_sdf, pred_grads, pred_vars, pred_covars));
+        }
+
+        std::filesystem::path file = test_output_folder / "test_grid_positions.bin";
+        ERL_INFO("Saving test grid positions to {}", file.string());
+        ERL_ASSERT(erl::common::SaveEigenMatrixToBinaryFile<Dtype>(file, grid_positions));
+
+        file = test_output_folder / "test_grid_sdf.bin";
+        ERL_INFO("Saving test grid sdf to {}", file.string());
+        ERL_ASSERT(erl::common::SaveEigenMatrixToBinaryFile<Dtype>(file, pred_sdf));
+
+        if (pred_grads.cols() > 0) {
+            file = test_output_folder / "test_grid_gradients.bin";
+            ERL_INFO("Saving test grid gradients to {}", file.string());
+            ERL_ASSERT(erl::common::SaveEigenMatrixToBinaryFile<Dtype>(file, pred_grads));
+        }
+
+        if (pred_vars.cols() > 0) {
+            file = test_output_folder / "test_grid_variances.bin";
+            ERL_INFO("Saving test grid variances to {}", file.string());
+            ERL_ASSERT(erl::common::SaveEigenMatrixToBinaryFile<Dtype>(file, pred_vars));
+        }
+
+        if (pred_covars.cols() > 0) {
+            file = test_output_folder / "test_grid_covariances.bin";
+            ERL_INFO("Saving test grid covariances to {}", file.string());
+            ERL_ASSERT(erl::common::SaveEigenMatrixToBinaryFile<Dtype>(file, pred_covars));
+        }
     }
 };

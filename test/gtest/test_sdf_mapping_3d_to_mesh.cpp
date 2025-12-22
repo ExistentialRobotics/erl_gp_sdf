@@ -250,7 +250,7 @@ struct ToMeshImpl {
             return;
         }
 
-        erl::common::GridMapInfo3D<Dtype> grid_map_info(
+        const erl::common::GridMapInfo3D<Dtype> grid_map_info(
             Vector3(options.x_min, options.y_min, options.z_min),
             Vector3(options.x_max, options.y_max, options.z_max),
             Vector3(options.grid_resolution, options.grid_resolution, options.grid_resolution),
