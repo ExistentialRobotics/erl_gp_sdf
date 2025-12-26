@@ -156,7 +156,7 @@ namespace erl::gp_sdf {
         if (!m_gps_to_load_data_.empty()) { LoadSurfaceData(); }
 
         ERL_TRACY_FRAME_MARK_END();
-        return true;
+        return !m_gps_to_load_data_.empty();  // return true if we loaded any data
     }
 
     template<typename Dtype, int Dim>

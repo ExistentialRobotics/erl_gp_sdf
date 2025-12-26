@@ -17,8 +17,10 @@ using GpOccSurfaceMapping = erl::gp_sdf::GpOccSurfaceMapping<Dtype, 2>;
 template<typename Dtype>
 struct TestGpOccSurfaceMapping2D : public TestSurfMapping2D<Dtype, GpOccSurfaceMapping<Dtype>> {
     using Super = TestSurfMapping2D<Dtype, GpOccSurfaceMapping<Dtype>>;
+
     using typename Super::Matrix2X;
     using typename Super::OptionType;
+    using typename Super::Vector2;
 
     using Super::cur_traj;
     using Super::grid_map_info;
@@ -104,6 +106,19 @@ protected:
 
         cv::imshow(window_name, img_canvas);
         cv::imwrite(img_dir / fmt::format("{:04d}.png", img_cnt++), img_canvas);
+    }
+
+    void
+    TestGrid(const Matrix2X & /*grid_points*/) override {}
+
+    std::pair<std::vector<Vector2>, std::vector<Eigen::Vector2i>>
+    GetBuiltMesh() override {
+        return {};
+    }
+
+    std::pair<std::vector<Vector2>, std::vector<Eigen::Vector2i>>
+    ExtractMesh() override {
+        return {};
     }
 };
 

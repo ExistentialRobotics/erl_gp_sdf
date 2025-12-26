@@ -11,6 +11,7 @@ struct TestBayesianHilbertSurfaceMapping2D
 
     using typename Super::Matrix2X;
     using typename Super::OptionType;
+    using typename Super::Vector2;
     using typename Super::VectorX;
 
     using Super::cur_traj;
@@ -23,7 +24,6 @@ struct TestBayesianHilbertSurfaceMapping2D
     using Super::surf_map;
     using Super::surf_map_setting;
     using Super::surface_points_cv;
-    using Super::test_output_folder;
     using Super::update_map_fps;
     using Super::update_pred_fps;
     using Super::update_vis_fps;
@@ -42,6 +42,7 @@ struct TestBayesianHilbertSurfaceMapping2D
     cv::Mat img_logodd;
     cv::Mat img_prob_occ;
     cv::Mat img_grad_norms;
+    cv::Mat img_final;
 
     cv::Mat mat_iter_cnt;
     cv::Mat mat_logodd;
@@ -145,91 +146,12 @@ protected:
         // draw tree
         quadtree_drawer->DrawLeaves(img_tree);
         cv::cvtColor(img_tree, img_tree, cv::COLOR_BGRA2BGR);  // BGR
-        Eigen::Map<const Matrix2X> traj(cur_traj[0].data(), 2, cur_traj.size());
+        const Eigen::Map<const Matrix2X> traj(cur_traj[0].data(), 2, cur_traj.size());
         DrawTrajectoryInplace<Dtype>(img_tree, traj, grid_map_info, black, 2, true);
-
         // draw sensor observation
         for (const auto &px: surface_points_cv) {
             cv::drawMarker(img_tree, px, red, cv::MARKER_CROSS, 10, 2);
         }
-
-        // draw the iteration count
-        Eigen::VectorXi iter_cnt = Eigen::VectorXi::Zero(prob_occupied.size());
-        auto tree = quadtree.get();
-        uint32_t bhm_depth = surf_map_setting->bhm_depth;
-        const auto &local_bhms = surf_map->GetLocalBhms();
-        for (long j = 0; j < grid_points.cols(); ++j) {
-            erl::geometry::QuadtreeKey key;
-            if (!tree->CoordToKeyChecked(grid_points.col(j), bhm_depth, key)) { continue; }
-            if (!local_bhms.contains(key)) { continue; }
-            iter_cnt[j] = local_bhms.at(key)->bhm.GetIterationCount();
-        }
-        mat_iter_cnt = cv::Mat(rows, cols, CV_32SC1, iter_cnt.data());
-        cv::normalize(mat_iter_cnt, mat_iter_cnt, 0, 255, cv::NORM_MINMAX);
-        mat_iter_cnt.convertTo(img_iter_cnt, CV_8UC1);
-        cv::applyColorMap(img_iter_cnt, img_iter_cnt, cv::COLORMAP_JET);
-        cv::flip(img_iter_cnt, img_iter_cnt, 0);
-        DrawTrajectoryInplace<Dtype>(img_iter_cnt, traj, grid_map_info, white, 2, true);
-        for (const auto &px: surface_points_cv) {
-            cv::drawMarker(img_iter_cnt, px, white, cv::MARKER_CROSS, 10, 2);
-        }
-        for (const auto &[key, bhm]: local_bhms) {
-            const auto &boundary = bhm->bhm.GetMapBoundary();
-            Eigen::Vector2i px1 = grid_map_info->MeterToPixelForPoints(boundary.min());
-            Eigen::Vector2i px2 = grid_map_info->MeterToPixelForPoints(boundary.max());
-            const cv::Point p1(px1[0], px1[1]);
-            const cv::Point p2(px2[0], px2[1]);
-            cv::rectangle(img_iter_cnt, p1, p2, black, 2);
-        }
-
-        // draw the log odds
-        const int type = sizeof(Dtype) == 4 ? CV_32FC1 : CV_64FC1;
-        mat_logodd = cv::Mat(rows, cols, type, logodd_values.data());
-        cv::normalize(mat_logodd, mat_logodd, 0, 255, cv::NORM_MINMAX);
-        mat_logodd.convertTo(img_logodd, CV_8UC1);
-        cv::applyColorMap(img_logodd, img_logodd, cv::COLORMAP_JET);
-        cv::flip(img_logodd, img_logodd, 0);
-        DrawTrajectoryInplace<Dtype>(img_logodd, traj, grid_map_info, white, 2, true);
-        for (const auto &px: surface_points_cv) {
-            cv::drawMarker(img_logodd, px, white, cv::MARKER_CROSS, 10, 2);
-        }
-
-        // draw the occupancy probability
-        mat_prob_occ = cv::Mat(rows, cols, type, prob_occupied.data());
-        cv::normalize(mat_prob_occ, mat_prob_occ, 0, 255, cv::NORM_MINMAX);
-        mat_prob_occ.convertTo(img_prob_occ, CV_8UC1);
-        cv::applyColorMap(img_prob_occ, img_prob_occ, cv::COLORMAP_JET);
-        cv::flip(img_prob_occ, img_prob_occ, 0);
-        DrawTrajectoryInplace<Dtype>(img_prob_occ, traj, grid_map_info, white, 2, true);
-        for (const auto &px: surface_points_cv) {
-            cv::drawMarker(img_prob_occ, px, white, cv::MARKER_CROSS, 10, 2);
-        }
-
-        // draw the gradient
-        VectorX gradient_norms = gradients.colwise().norm();
-        mat_grad_norms = cv::Mat(rows, cols, type, gradient_norms.data());
-        cv::normalize(mat_grad_norms, mat_grad_norms, 0, 255, cv::NORM_MINMAX);
-        mat_grad_norms.convertTo(img_grad_norms, CV_8UC1);
-        cv::applyColorMap(img_grad_norms, img_grad_norms, cv::COLORMAP_JET);
-        cv::flip(img_grad_norms, img_grad_norms, 0);
-        DrawTrajectoryInplace<Dtype>(img_grad_norms, traj, grid_map_info, white, 2, true);
-        for (const auto &px: surface_points_cv) {
-            cv::drawMarker(img_grad_norms, px, white, cv::MARKER_CROSS, 10, 2);
-        }
-        //// draw the surface normals
-        const auto &surf_data_buffer = surf_map->GetSurfaceDataBuffer();
-        for (auto &[key, local_bhm]: local_bhms) {
-            for (auto &[grid_idx, surf_idx]: local_bhm->surface_indices) {
-                const auto &surf = surf_data_buffer[surf_idx];
-                Eigen::Vector2i px1 = grid_map_info->MeterToPixelForPoints(surf.position);
-                Eigen::Vector2i px2 =
-                    grid_map_info->MeterToPixelForPoints(surf.position + surf.normal);
-                const cv::Point p1(px1[0], px1[1]);
-                const cv::Point p2(px2[0], px2[1]);
-                cv::arrowedLine(img_grad_norms, p1, p2, white, 2, cv::LINE_AA);
-            }
-        }
-
         // draw fps
         cv::putText(
             img_tree,
@@ -256,6 +178,115 @@ protected:
             cv::Scalar(0, 255, 0, 255),
             2);
 
+        // draw the iteration count
+        Eigen::VectorXi iter_cnt = Eigen::VectorXi::Zero(prob_occupied.size());
+        auto tree = quadtree.get();
+        const uint32_t bhm_depth = surf_map_setting->bhm_depth;
+        const auto &local_bhms = surf_map->GetLocalBhms();
+        for (long j = 0; j < grid_points.cols(); ++j) {
+            erl::geometry::QuadtreeKey key;
+            if (!tree->CoordToKeyChecked(grid_points.col(j), bhm_depth, key)) { continue; }
+            if (!local_bhms.contains(key)) { continue; }
+            iter_cnt[j] = local_bhms.at(key)->bhm.GetIterationCount();
+        }
+        mat_iter_cnt = cv::Mat(rows, cols, CV_32SC1, iter_cnt.data());
+        cv::normalize(mat_iter_cnt, mat_iter_cnt, 0, 255, cv::NORM_MINMAX);
+        mat_iter_cnt.convertTo(img_iter_cnt, CV_8UC1);
+        cv::applyColorMap(img_iter_cnt, img_iter_cnt, cv::COLORMAP_JET);
+        cv::flip(img_iter_cnt, img_iter_cnt, 0);
+        DrawTrajectoryInplace<Dtype>(img_iter_cnt, traj, grid_map_info, white, 2, true);
+        for (const auto &px: surface_points_cv) {
+            cv::drawMarker(img_iter_cnt, px, white, cv::MARKER_CROSS, 10, 2);
+        }
+        for (const auto &[key, bhm]: local_bhms) {
+            const auto &boundary = bhm->bhm.GetMapBoundary();
+            Eigen::Vector2i px1 = grid_map_info->MeterToPixelForPoints(boundary.min());
+            Eigen::Vector2i px2 = grid_map_info->MeterToPixelForPoints(boundary.max());
+            const cv::Point p1(px1[0], px1[1]);
+            const cv::Point p2(px2[0], px2[1]);
+            cv::rectangle(img_iter_cnt, p1, p2, black, 2);
+        }
+        cv::putText(
+            img_iter_cnt,
+            "Iter Count",
+            cv::Point(10, 30),
+            cv::FONT_HERSHEY_SIMPLEX,
+            1,
+            white,
+            2);
+
+        // draw the log odds
+        const int type = sizeof(Dtype) == 4 ? CV_32FC1 : CV_64FC1;
+        mat_logodd = cv::Mat(rows, cols, type, logodd_values.data());
+        cv::normalize(mat_logodd, mat_logodd, 0, 255, cv::NORM_MINMAX);
+        mat_logodd.convertTo(img_logodd, CV_8UC1);
+        cv::applyColorMap(img_logodd, img_logodd, cv::COLORMAP_JET);
+        cv::flip(img_logodd, img_logodd, 0);
+        DrawTrajectoryInplace<Dtype>(img_logodd, traj, grid_map_info, white, 2, true);
+        for (const auto &px: surface_points_cv) {
+            cv::drawMarker(img_logodd, px, white, cv::MARKER_CROSS, 10, 2);
+        }
+        cv::putText(
+            img_logodd,
+            "Log Odds",
+            cv::Point(10, 30),
+            cv::FONT_HERSHEY_SIMPLEX,
+            1,
+            black,
+            2);
+
+        // draw the occupancy probability
+        mat_prob_occ = cv::Mat(rows, cols, type, prob_occupied.data());
+        cv::normalize(mat_prob_occ, mat_prob_occ, 0, 255, cv::NORM_MINMAX);
+        mat_prob_occ.convertTo(img_prob_occ, CV_8UC1);
+        cv::applyColorMap(img_prob_occ, img_prob_occ, cv::COLORMAP_JET);
+        cv::flip(img_prob_occ, img_prob_occ, 0);
+        DrawTrajectoryInplace<Dtype>(img_prob_occ, traj, grid_map_info, white, 2, true);
+        for (const auto &px: surface_points_cv) {
+            cv::drawMarker(img_prob_occ, px, white, cv::MARKER_CROSS, 10, 2);
+        }
+        cv::putText(
+            img_prob_occ,
+            "Prob Occupied",
+            cv::Point(10, 30),
+            cv::FONT_HERSHEY_SIMPLEX,
+            1,
+            white,
+            2);
+
+        // draw the gradient
+        VectorX gradient_norms = gradients.colwise().norm();
+        mat_grad_norms = cv::Mat(rows, cols, type, gradient_norms.data());
+        cv::normalize(mat_grad_norms, mat_grad_norms, 0, 255, cv::NORM_MINMAX);
+        mat_grad_norms.convertTo(img_grad_norms, CV_8UC1);
+        cv::applyColorMap(img_grad_norms, img_grad_norms, cv::COLORMAP_JET);
+        cv::flip(img_grad_norms, img_grad_norms, 0);
+        DrawTrajectoryInplace<Dtype>(img_grad_norms, traj, grid_map_info, white, 2, true);
+        for (const auto &px: surface_points_cv) {
+            cv::drawMarker(img_grad_norms, px, white, cv::MARKER_CROSS, 10, 2);
+        }
+        //// draw the surface normals
+        const auto &surf_data_buffer = surf_map->GetSurfaceDataBuffer();
+        for (auto &[key, local_bhm]: local_bhms) {
+            for (auto &[grid_idx, surf_idx]: local_bhm->surface_indices) {
+                const auto &surf = surf_data_buffer[surf_idx];
+                Eigen::Vector2i px1 = grid_map_info->MeterToPixelForPoints(surf.position);
+                Eigen::Vector2i px2 =
+                    grid_map_info->MeterToPixelForPoints(surf.position + surf.normal);
+                const cv::Point p1(px1[0], px1[1]);
+                const cv::Point p2(px2[0], px2[1]);
+                cv::arrowedLine(img_grad_norms, p1, p2, white, 2, cv::LINE_AA);
+            }
+        }
+        cv::putText(
+            img_grad_norms,
+            "Grad Norms",
+            cv::Point(10, 30),
+            cv::FONT_HERSHEY_SIMPLEX,
+            1,
+            white,
+            2);
+
         // 2 x 3 grid
         img_canvas.setTo(cv::Scalar(128, 128, 128, 255));
         img_tree.copyTo(img_canvas(cv::Rect(0, 0, cols, rows)));
@@ -278,7 +309,30 @@ protected:
     }
 
     void
-    TestGrid(const Matrix2X &grid_positions) override {
+    ShowFinalResults() override {
+        Super::ShowFinalResults();
+
+        if (prob_occupied.size() == 0) { UpdatePrediction(); }
+
+        const int rows = img_tree.rows;
+        const int cols = img_tree.cols;
+        const int type = sizeof(Dtype) == 4 ? CV_32FC1 : CV_64FC1;
+        img_final = cv::Mat(rows, cols, type, prob_occupied.data());
+        cv::normalize(img_final, img_final, 0, 255, cv::NORM_MINMAX);
+        img_final.convertTo(img_final, CV_8UC1);
+        cv::applyColorMap(img_final, img_final, cv::COLORMAP_JET);
+        cv::flip(img_final, img_final, 0);
+
+        const std::string filepath = img_dir / "final_result.png";
+        cv::imwrite(filepath, img_final);
+        if (options->visualize) {
+            cv::imshow("final_result", img_final);
+            cv::waitKey(1);
+        }
+    }
+
+    void
+    TestGrid(const Matrix2X &grid_points) override {
         const ERL_BLOCK_TIMER_MSG("TestGrid");
 
         VectorX pred_logodds;
@@ -286,7 +340,7 @@ protected:
         Matrix2X pred_gradients;
 
         surf_map->Predict(
-            grid_positions,
+            grid_points,
             true /*logodd*/,
             true /*compute_free_space*/,
             true /*compute_gradient*/,
@@ -296,29 +350,65 @@ protected:
             pred_in_free_space,
             pred_gradients);
 
-        std::filesystem::path file = test_output_folder / "test_grid_positions.bin";
-        ERL_INFO("Saving test grid positions to {}", file.string());
-        ERL_ASSERT(erl::common::SaveEigenMatrixToBinaryFile<Dtype>(file, grid_positions));
+        std::filesystem::path file = options->output_dir / "test_grid_points.bin";
+        ERL_INFO("Saving test grid points to {}", file.string());
+        ERL_ASSERT(erl::common::SaveEigenMatrixToBinaryFile<Dtype>(file, grid_points));
 
-        file = test_output_folder / "test_grid_logodds.bin";
+        file = options->output_dir / "test_grid_logodds.bin";
         ERL_INFO("Saving test grid logodds to {}", file.string());
         ERL_ASSERT(erl::common::SaveEigenMatrixToBinaryFile<Dtype>(file, pred_logodds));
 
-        file = test_output_folder / "test_grid_in_free_space.bin";
+        file = options->output_dir / "test_grid_in_free_space.bin";
         ERL_INFO("Saving test grid in_free_space to {}", file.string());
         ERL_ASSERT(erl::common::SaveEigenMatrixToBinaryFile<bool>(file, pred_in_free_space));
 
-        file = test_output_folder / "test_grid_gradients.bin";
+        file = options->output_dir / "test_grid_gradients.bin";
         ERL_INFO("Saving test grid gradients to {}", file.string());
         ERL_ASSERT(erl::common::SaveEigenMatrixToBinaryFile<Dtype>(file, pred_gradients));
+    }
+
+    std::pair<std::vector<Vector2>, std::vector<Eigen::Vector2i>>
+    GetBuiltMesh() override {
+        std::pair<std::vector<Vector2>, std::vector<Eigen::Vector2i>> mesh_data;
+        if (surf_map_setting->update_map.method != 2) { return mesh_data; }
+        surf_map->GetMesh(false, mesh_data.first, mesh_data.second);
+
+        const cv::Mat img_mesh = this->VisualizeMesh(mesh_data.first, mesh_data.second, img_final);
+        const std::string filepath = img_dir / "built_mesh.png";
+        cv::imwrite(filepath, img_mesh);
+
+        if (options->visualize) {
+            cv::imshow("built_mesh", img_mesh);
+            cv::waitKey(1);
+        }
+
+        return mesh_data;
+    }
+
+    std::pair<std::vector<Vector2>, std::vector<Eigen::Vector2i>>
+    ExtractMesh() override {
+        std::pair<std::vector<Vector2>, std::vector<Eigen::Vector2i>> mesh_data;
+        if (surf_map_setting->update_map.method != 2) { return mesh_data; }
+        surf_map->GetMesh(options->extract_mesh_res, mesh_data.first, mesh_data.second);
+
+        const cv::Mat img_mesh = this->VisualizeMesh(mesh_data.first, mesh_data.second, img_final);
+        const std::string filepath = img_dir / "extracted_mesh.png";
+        cv::imwrite(filepath, img_mesh);
+
+        if (options->visualize) {
+            cv::imshow("extracted_mesh", img_mesh);
+            cv::waitKey(1);
+        }
+
+        return mesh_data;
     }
 };
 
 // Update FPS:
 // Gazebo Room: 350 fps (float)
 
-int g_argc = 0;
-char **g_argv = nullptr;
+static int g_argc = 0;
+static char **g_argv = nullptr;
 
 TEST(SurfMapping, BayesianHilbert2Dd) {
     TestBayesianHilbertSurfaceMapping2D<double> test(g_argc, g_argv);
@@ -335,6 +425,5 @@ main(int argc, char *argv[]) {
     testing::InitGoogleTest(&argc, argv);
     g_argc = argc;
     g_argv = argv;
-    erl::common::SetGlobalRandomSeed(0);
     return RUN_ALL_TESTS();
 }

@@ -51,7 +51,6 @@ struct TestSurfMapping3D : public TestMapping3D<Dtype, SurfaceMappingType> {
     using Super::rotation_sensor;
     using Super::scaling;
     using Super::surf_data_buffer;
-    using Super::test_output_folder;
     using Super::translation_frame;
     using Super::translation_sensor;
     using Super::unused_surf_data_indices;
@@ -102,7 +101,7 @@ protected:
             surf_map_setting->FromYamlFile(options->surf_map_config_file),
             "Failed to load surf_map_config_file: {}",
             options->surf_map_config_file);
-        surf_map_setting->AsYamlFile(test_output_folder / "config.yaml");
+        surf_map_setting->AsYamlFile(options->output_dir / "config.yaml");
 
         ERL_INFO("Surface mapping config: {}", options->surf_map_config_file);
         std::cout << surf_map_setting->AsYamlString() << std::endl;
@@ -159,7 +158,7 @@ protected:
     std::string
     GetBinFileName() override {
         std::string bin_file = fmt::format("surf_mapping_3d_{}.bin", type_name<Dtype>());
-        bin_file = test_output_folder / bin_file;
+        bin_file = options->output_dir / bin_file;
         return bin_file;
     }
 

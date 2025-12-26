@@ -236,6 +236,10 @@ struct TestSdfMapping2D : public TestMapping2D<Dtype, erl::gp_sdf::GpSdfMapping<
     using Super::grid_map_info;
     using Super::img_canvas;
     using Super::img_dir;
+    using Super::map_max;
+    using Super::map_min;
+    using Super::map_rotation;
+    using Super::map_translation;
     using Super::mapping_uses_points;
     using Super::max_wp_idx;
     using Super::quadtree;
@@ -243,10 +247,12 @@ struct TestSdfMapping2D : public TestMapping2D<Dtype, erl::gp_sdf::GpSdfMapping<
     using Super::rotation;
     using Super::scaling;
     using Super::t_span;
-    using Super::test_output_folder;
     using Super::train_ranges;
+    using Super::train_world_points;
     using Super::traj_t;
     using Super::translation;
+    using Super::update_pred_fps;
+    using Super::update_vis_fps;
     using Super::window_name;
     using Super::wp_idx;
 
@@ -271,11 +277,13 @@ struct TestSdfMapping2D : public TestMapping2D<Dtype, erl::gp_sdf::GpSdfMapping<
     std::vector<double> var_grad_x_values;
     std::vector<double> var_grad_y_values;
     cv::Mat img_scene;
+    cv::Mat img_final;
     cv::Scalar color_trajectory{0, 0, 0, 255};
     cv::Scalar color_surf_point{0, 255, 125, 255};
     cv::Scalar color_normal_vec{0, 0, 255, 255};
     cv::Scalar color_text{0, 255, 0, 255};
     Matrix2X grid_points;
+    bool surf_map_supports_mesh = false;
 
     // test data
     VectorX sdf_pred_follow{1};
@@ -320,14 +328,14 @@ protected:
             surf_map_setting->FromYamlFile(options->surf_map_config_file),
             "Failed to load surf_map_config_file: {}",
             options->surf_map_config_file);
-        surf_map_setting->AsYamlFile(test_output_folder / "surf_map.yaml");
+        surf_map_setting->AsYamlFile(options->output_dir / "surf_map.yaml");
 
         sdf_map_setting = std::make_shared<SdfMapSetting>();
         ERL_ASSERTM(
             sdf_map_setting->FromYamlFile(options->sdf_map_config_file),
             "Failed to load sdf_map_config_file: {}",
             options->sdf_map_config_file);
-        sdf_map_setting->AsYamlFile(test_output_folder / "sdf_map.yaml");
+        sdf_map_setting->AsYamlFile(options->output_dir / "sdf_map.yaml");
 
         ERL_INFO("Surface mapping config: {}", options->surf_map_config_file);
         std::cout << surf_map_setting->AsYamlString() << std::endl;
@@ -352,6 +360,15 @@ protected:
         sdf_gradient_pred_whole_map.resize(2, grid_points.cols());
         sdf_var_pred_whole_map.resize(3, grid_points.cols());
         sdf_covariances_pred_whole_map.resize(3, grid_points.cols());
+
+        try {
+            std::vector<Vector2> vertices;
+            std::vector<Eigen::Vector2i> faces;
+            surf_map_supports_mesh = surf_map->GetMesh(true, vertices, faces);
+        } catch (std::exception &e) {
+            ERL_WARN("Surface mapping does not support mesh extraction: {}", e.what());
+            surf_map_supports_mesh = false;
+        }
     }
 
     void
@@ -395,15 +412,15 @@ protected:
         var_grad_x_values.reserve(max_wp_idx);
         var_grad_y_values.reserve(max_wp_idx);
 
-        grid_points = grid_map_info->GenerateMeterCoordinates(true);
+        grid_points = grid_map_info->GenerateMeterCoordinates(false);
     }
 
     bool
     UpdateSurfaceMap() {
-        if (Super::mapping_uses_points) {
+        if (mapping_uses_points) {
             ERL_BLOCK_TIMER_MSG_TIME("surf_map.Update", surf_map_update_dt);
             // are_points: true, are_local: false
-            return surf_map->Update(rotation, translation, Super::train_world_points, true, false);
+            return surf_map->Update(rotation, translation, train_world_points, true, false);
         }
 
         {
@@ -418,13 +435,11 @@ protected:
         ERL_BLOCK_TIMER_MSG_TIME("sdf_map.Update", sdf_map_update_dt);
 
         surf_map_updated = UpdateSurfaceMap();
-        ERL_WARN_COND(!surf_map_updated, "Sdf mapping update failed");
-        if (!surf_map_updated) { return false; }
 
         const double time_budget_us = 1e6 / sdf_map_setting->update_hz;  // us
         sdf_map_updated = sdf_map->UpdateGpSdf(time_budget_us - surf_map_update_dt * 1000);
-        ERL_WARN_COND(!sdf_map_updated, "Sdf mapping update failed");
-        return sdf_map_updated;
+
+        return surf_map_updated || sdf_map_updated;
     }
 
     bool
@@ -575,7 +590,7 @@ protected:
             kThickness);
         cv::putText(
             img_scene,
-            fmt::format("sdf_map.Test: {:.2f} fps", Super::update_pred_fps),
+            fmt::format("sdf_map.Test: {:.2f} fps", update_pred_fps),
             cv::Point(10, 45),
             kFontFace,
             kFontScale,
@@ -583,7 +598,7 @@ protected:
             kThickness);
         cv::putText(
             img_scene,
-            fmt::format("GUI: {:.2f} fps", Super::update_vis_fps),
+            fmt::format("GUI: {:.2f} fps", update_vis_fps),
             cv::Point(10, 60),
             kFontFace,
             kFontScale,
@@ -782,7 +797,7 @@ protected:
         if (!options->visualize) { return; }
 
         const auto t0 = std::chrono::high_resolution_clock::now();
-        bool success = sdf_map->Test(
+        const bool success = sdf_map->Test(
             grid_points,
             sdf_pred_whole_map,
             sdf_gradient_pred_whole_map,
@@ -820,51 +835,49 @@ protected:
                 true,
                 gp_cnt < 100);  // draw only the first 100 GPs' bounding boxes
         }
-        cv::imshow(window_name + ": GPs", img_gp);
+        cv::imshow("GPs", img_gp);
         cv::imwrite(img_dir / "gps.png", img_gp);
 
         // draw SDF map
         cv::Mat img_sdf(
-            grid_map_info->Width(),
             grid_map_info->Height(),
+            grid_map_info->Width(),
             sizeof(Dtype) == 4 ? CV_32FC1 : CV_64FC1,
             sdf_pred_whole_map.data());
-        img_sdf = img_sdf.t();
         cv::normalize(img_sdf, img_sdf, 0, 255, cv::NORM_MINMAX, CV_8UC1);
         cv::flip(img_sdf, img_sdf, 0);
         cv::applyColorMap(img_sdf, img_sdf, cv::COLORMAP_JET);
+        img_sdf.copyTo(img_final);
         cv::cvtColor(img_sdf, img_sdf, cv::COLOR_BGR2BGRA);
         cv::addWeighted(img_sdf, 0.5, img_scene, 0.5, 0.0, img_sdf);
-        cv::imshow(window_name + ": sdf", img_sdf);
+        cv::imshow("sdf", img_sdf);
         cv::imwrite(img_dir / "sdf.png", img_sdf);
 
         // convert to binary image: 0 for negative, 255 for positive
         Eigen::VectorXi sdf_sign = (sdf_pred_whole_map.array() >= 0).template cast<int>();
         cv::Mat img_sign(
-            grid_map_info->Width(),
             grid_map_info->Height(),
+            grid_map_info->Width(),
             CV_32SC1,
             sdf_sign.data());
-        img_sign = img_sign.t();
         cv::normalize(img_sign, img_sign, 0, 255, cv::NORM_MINMAX, CV_8UC1);
         cv::flip(img_sign, img_sign, 0);  // flip along y axis
-        cv::imshow(window_name + ": sdf sign", img_sign);
+        cv::imshow("sdf sign", img_sign);
         cv::imwrite(img_dir / "sdf_sign.png", img_sign);
 
         // draw SDF variance map
         VectorX sdf_variances = sdf_var_pred_whole_map.row(0).transpose();
         cv::Mat img_sdf_variance(
-            grid_map_info->Width(),
             grid_map_info->Height(),
+            grid_map_info->Width(),
             sizeof(Dtype) == 4 ? CV_32FC1 : CV_64FC1,
             sdf_variances.data());
-        img_sdf_variance = img_sdf_variance.t();
         cv::normalize(img_sdf_variance, img_sdf_variance, 0, 255, cv::NORM_MINMAX, CV_8UC1);
         cv::flip(img_sdf_variance, img_sdf_variance, 0);
         cv::applyColorMap(img_sdf_variance, img_sdf_variance, cv::COLORMAP_JET);
         cv::cvtColor(img_sdf_variance, img_sdf_variance, cv::COLOR_BGR2BGRA);
         cv::addWeighted(img_sdf_variance, 0.5, img_scene, 0.5, 0.0, img_sdf_variance);
-        cv::imshow(window_name + ": sdf variance", img_sdf_variance);
+        cv::imshow("sdf variance", img_sdf_variance);
         cv::imwrite(img_dir / "sdf_variance.png", img_sdf_variance);
 
         // show
@@ -878,7 +891,7 @@ protected:
         InitSceneImg();
 
         OpenCvUserData<SurfMap, SdfMap, QuadtreeDrawer> data;
-        data.window_name = window_name + ": interactive";
+        data.window_name = "interactive";
         data.img = img_scene;
         data.drawer = quadtree_drawer.get();
         data.surf_map = surf_map.get();
@@ -889,13 +902,13 @@ protected:
             data.window_name,
             OpenCvMouseCallback<Dtype, SurfMap, SdfMap, QuadtreeDrawer>,
             &data);
-        while (cv::waitKey(0) != 27) {}  // wait for the ESC key
+        while (cv::waitKey(0) != 27 && cv::waitKey(0) != 'q') {}  // wait for ESC/q key
     }
 
     std::string
     GetBinFileName() override {
         std::string bin_file = fmt::format("sdf_mapping_2d_{}.bin", type_name<Dtype>());
-        bin_file = test_output_folder / bin_file;
+        bin_file = options->output_dir / bin_file;
         return bin_file;
     }
 
@@ -907,40 +920,154 @@ protected:
     }
 
     void
-    TestGrid(const Matrix2X &grid_positions) override {
+    TestGrid(const Matrix2X &points) override {
         VectorX pred_sdf;
         Matrix2X pred_grads;
         Matrix3X pred_vars;
         Matrix3X pred_covars;
         {
             const ERL_BLOCK_TIMER_MSG("sdf_map.Test grid");
-            ERL_ASSERT(sdf_map->Test(grid_positions, pred_sdf, pred_grads, pred_vars, pred_covars));
+            ERL_ASSERT(sdf_map->Test(points, pred_sdf, pred_grads, pred_vars, pred_covars));
         }
 
-        std::filesystem::path file = test_output_folder / "test_grid_positions.bin";
-        ERL_INFO("Saving test grid positions to {}", file.string());
-        ERL_ASSERT(erl::common::SaveEigenMatrixToBinaryFile<Dtype>(file, grid_positions));
+        std::filesystem::path file = options->output_dir / "test_grid_points.bin";
+        ERL_INFO("Saving test grid points to {}", file.string());
+        ERL_ASSERT(erl::common::SaveEigenMatrixToBinaryFile<Dtype>(file, points));
 
-        file = test_output_folder / "test_grid_sdf.bin";
+        file = options->output_dir / "test_grid_sdf.bin";
         ERL_INFO("Saving test grid sdf to {}", file.string());
         ERL_ASSERT(erl::common::SaveEigenMatrixToBinaryFile<Dtype>(file, pred_sdf));
 
+        Eigen::Vector2i grid_shape;
+        const Dtype res = options->test_res_grid;
+        grid_shape[0] = static_cast<int>(std::ceil(options->test_grid_size[0] / res));
+        grid_shape[1] = static_cast<int>(std::ceil(options->test_grid_size[1] / res));
+
+        cv::Mat img_sdf(
+            grid_shape[1],  // height
+            grid_shape[0],  // width
+            sizeof(Dtype) == 4 ? CV_32FC1 : CV_64FC1,
+            pred_sdf.data());
+        cv::flip(img_sdf, img_sdf, 0);
+        cv::normalize(img_sdf, img_sdf, 0, 255, cv::NORM_MINMAX, CV_8UC1);
+        cv::applyColorMap(img_sdf, img_sdf, cv::COLORMAP_JET);
+        cv::imwrite(img_dir / "test_grid_sdf.png", img_sdf);
+        if (options->visualize) {
+            cv::imshow("test grid sdf", img_sdf);
+            cv::waitKey(1);
+        }
+
         if (pred_grads.cols() > 0) {
-            file = test_output_folder / "test_grid_gradients.bin";
+            file = options->output_dir / "test_grid_gradients.bin";
             ERL_INFO("Saving test grid gradients to {}", file.string());
             ERL_ASSERT(erl::common::SaveEigenMatrixToBinaryFile<Dtype>(file, pred_grads));
+
+            cv::Mat img_grad(
+                grid_shape[1],
+                grid_shape[0],
+                sizeof(Dtype) == 4 ? CV_32FC2 : CV_64FC2,
+                pred_grads.data());
+            cv::flip(img_grad, img_grad, 0);
+            img_grad *= 255;  // scale to [0, 255]
+            std::vector<cv::Mat> grad_channels(2);
+            cv::split(img_grad, grad_channels);
+            grad_channels[0].convertTo(grad_channels[0], CV_8UC1);
+            grad_channels[1].convertTo(grad_channels[1], CV_8UC1);
+            cv::imwrite(img_dir / "test_grid_grad_x.png", grad_channels[0]);
+            cv::imwrite(img_dir / "test_grid_grad_y.png", grad_channels[1]);
+            grad_channels.push_back(cv::Mat::zeros(img_grad.size(), CV_8UC1));
+            cv::Mat img_grad_color;
+            cv::merge(grad_channels, img_grad_color);
+            cv::imwrite(img_dir / "test_grid_grad_xy.png", img_grad_color);
+            if (options->visualize) {
+                cv::imshow("test grid grad x", grad_channels[0]);
+                cv::imshow("test grid grad y", grad_channels[1]);
+                cv::imshow("test grid grad xy", img_grad_color);
+                cv::waitKey(1);
+            }
         }
 
         if (pred_vars.cols() > 0) {
-            file = test_output_folder / "test_grid_variances.bin";
+            file = options->output_dir / "test_grid_variances.bin";
             ERL_INFO("Saving test grid variances to {}", file.string());
             ERL_ASSERT(erl::common::SaveEigenMatrixToBinaryFile<Dtype>(file, pred_vars));
+
+            ERL_INFO(
+                "max variance sdf: {}, grad_x: {}, grad_y: {}",
+                pred_vars.row(0).maxCoeff(),
+                pred_vars.row(1).maxCoeff(),
+                pred_vars.row(2).maxCoeff());
+
+            cv::Mat img_var(
+                grid_shape[1],  // height
+                grid_shape[0],  // width
+                sizeof(Dtype) == 4 ? CV_32FC3 : CV_64FC3,
+                pred_vars.data());
+            cv::flip(img_var, img_var, 0);
+            std::vector<cv::Mat> var_channels(3);
+            cv::split(img_var, var_channels);
+            // visualize var(sdf)
+            cv::normalize(var_channels[0], var_channels[0], 0, 255, cv::NORM_MINMAX, CV_8UC1);
+            cv::applyColorMap(var_channels[0], var_channels[0], cv::COLORMAP_JET);
+            cv::imwrite(img_dir / "test_grid_var_sdf.png", var_channels[0]);
+            if (options->visualize) {
+                cv::imshow("test grid var sdf", var_channels[0]);
+                cv::waitKey(1);
+            }
         }
 
         if (pred_covars.cols() > 0) {
-            file = test_output_folder / "test_grid_covariances.bin";
+            file = options->output_dir / "test_grid_covariances.bin";
             ERL_INFO("Saving test grid covariances to {}", file.string());
             ERL_ASSERT(erl::common::SaveEigenMatrixToBinaryFile<Dtype>(file, pred_covars));
         }
+    }
+
+    std::pair<std::vector<Vector2>, std::vector<Eigen::Vector2i>>
+    GetBuiltMesh() override {
+        std::pair<std::vector<Vector2>, std::vector<Eigen::Vector2i>> mesh_data;
+        if (!surf_map_supports_mesh) { return mesh_data; }
+        surf_map->GetMesh(false, mesh_data.first, mesh_data.second);
+
+        const cv::Mat img_mesh = this->VisualizeMesh(mesh_data.first, mesh_data.second, img_final);
+        const std::string filepath = img_dir / "built_mesh.png";
+        cv::imwrite(filepath, img_mesh);
+
+        if (options->visualize) {
+            cv::imshow("built_mesh", img_mesh);
+            cv::waitKey(1);
+        }
+
+        return mesh_data;
+    }
+
+    std::pair<std::vector<Vector2>, std::vector<Eigen::Vector2i>>
+    ExtractMesh() override {
+        std::pair<std::vector<Vector2>, std::vector<Eigen::Vector2i>> mesh_data;
+        if (surf_map_supports_mesh) {
+            surf_map->GetMesh(options->extract_mesh_res, mesh_data.first, mesh_data.second);
+        } else {
+            std::vector<Vector2> face_normals;
+            sdf_map->GetMesh(
+                map_max - map_min,
+                map_rotation,
+                map_translation,
+                options->extract_mesh_res,
+                0.0f,
+                mesh_data.first,
+                mesh_data.second,
+                face_normals);
+        }
+
+        const cv::Mat img_mesh = this->VisualizeMesh(mesh_data.first, mesh_data.second, img_final);
+        const std::string filepath = img_dir / "extracted_mesh.png";
+        cv::imwrite(filepath, img_mesh);
+
+        if (options->visualize) {
+            cv::imshow("extracted_mesh", img_mesh);
+            cv::waitKey(1);
+        }
+
+        return mesh_data;
     }
 };

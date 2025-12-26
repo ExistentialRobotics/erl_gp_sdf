@@ -18,7 +18,10 @@ template<typename Dtype>
 struct TestGpOccSurfaceMapping3D : public TestSurfMapping3D<Dtype, GpOccSurfaceMapping3D<Dtype>> {
 
     using Super = TestSurfMapping3D<Dtype, GpOccSurfaceMapping3D<Dtype>>;
+
+    using typename Super::Matrix3X;
     using typename Super::OptionType;
+    using typename Super::Vector3;
 
     TestGpOccSurfaceMapping3D(int argc, char *argv[])
         : Super(argc, argv, std::make_shared<OptionType>()) {}
@@ -32,6 +35,19 @@ protected:
 
     void
     UpdatePredictionAtPosition() override {}
+
+    void
+    TestGrid(const Matrix3X & /*grid_points*/) override {}
+
+    std::pair<std::vector<Vector3>, std::vector<Eigen::Vector3i>>
+    GetBuiltMesh() override {
+        return {};
+    }
+
+    std::pair<std::vector<Vector3>, std::vector<Eigen::Vector3i>>
+    ExtractMesh() override {
+        return {};
+    }
 };
 
 int g_argc = 0;

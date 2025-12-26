@@ -32,11 +32,10 @@ protected:
             in_free_space,
             gradients);
         cv::Mat prob_occupied_img(
-            this->grid_map_info->Shape(0),
-            this->grid_map_info->Shape(1),
+            this->grid_map_info->Shape(1),  // height(y)
+            this->grid_map_info->Shape(0),  // width(x)
             sizeof(Dtype) == 4 ? CV_32FC1 : CV_64FC1,
             prob_occupied.data());
-        prob_occupied_img = prob_occupied_img.t();
         cv::flip(prob_occupied_img, prob_occupied_img, 0);
         cv::normalize(prob_occupied_img, prob_occupied_img, 0, 255, cv::NORM_MINMAX);
         prob_occupied_img.convertTo(prob_occupied_img, CV_8UC1);

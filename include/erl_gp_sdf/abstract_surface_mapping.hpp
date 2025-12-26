@@ -172,9 +172,20 @@ namespace erl::gp_sdf {
          * @param online If true, generate the mesh faster but with lower quality.
          * @param vertices vector to store the vertices of the mesh.
          * @param faces vector to store the faces of the mesh.
+         * @return true if the mesh is successfully generated.
          */
-        virtual void
+        virtual bool
         GetMesh(bool online, std::vector<VectorD> &vertices, std::vector<Face> &faces);
+
+        /**
+         * Get the mesh representation of the surface mapping with the given resolution.
+         * @param resolution the resolution of the mesh.
+         * @param vertices vector to store the vertices of the mesh.
+         * @param faces vector to store the faces of the mesh.
+         * @return true if the mesh is successfully generated.
+         */
+        virtual bool
+        GetMesh(Dtype resolution, std::vector<VectorD> &vertices, std::vector<Face> &faces);
 
         /**
          * Get the boundary of the map.

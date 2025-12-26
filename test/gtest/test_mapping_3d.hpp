@@ -52,7 +52,7 @@ struct OptionsForTestMapping3D : public erl::common::Yamlable<OptionsForTestMapp
     using Matrix3 = Eigen::Matrix3<Dtype>;
 
     uint64_t random_seed = 0;
-
+    std::filesystem::path output_dir;
     DataSetType dataset_type = DataSetType::CowAndLady;
     std::string cow_and_lady_dir;
     std::string newer_college_dir;
@@ -81,8 +81,11 @@ struct OptionsForTestMapping3D : public erl::common::Yamlable<OptionsForTestMapp
         "-line_set_surf_normals",
         "-line_set_clusters",
     };
+    Dtype image_resize_scale = 10;                     // image resize scale
+    Dtype surf_normal_scale = 0.25;                    // surface normal visualization scale
     long test_batch_size = 200000;                     // test batch size
     Dtype test_res_grid = 0.05;                        // test resolution for the grid
+    bool test_grid_from_dataset = true;                // test the grid from the dataset
     Vector3 test_grid_size = Vector3::Zero();          // test grid size, 0 means auto
     Vector3 test_grid_center = Vector3::Zero();        // test grid center, 0 means auto
     Matrix3 test_grid_rotation = Matrix3::Identity();  // test grid rotation
@@ -97,10 +100,11 @@ struct OptionsForTestMapping3D : public erl::common::Yamlable<OptionsForTestMapp
     Dtype test_res_follow_map = 0.02;                  // test resolution for the follow map
     long test_follow_map_xs = 150;                     // num of x for testing of the follow map
     long test_follow_map_ys = 100;                     // num of y for testing of the follow map
-    Dtype image_resize_scale = 10;                     // image resize scale
-    Dtype surf_normal_scale = 0.25;                    // surface normal visualization scale
+    bool test_io = false;                              // test serialization and deserialization
+    bool extract_mesh = false;                         // extract mesh after mapping
+    Dtype extract_mesh_res = 0.03;                     // resolution for mesh extraction
+    bool save_built_mesh = true;                       // save the built mesh during mapping
     bool save_images = false;
-    bool test_io = false;
     bool hold = false;
 
     std::string mapping_bin_file;
@@ -109,6 +113,7 @@ struct OptionsForTestMapping3D : public erl::common::Yamlable<OptionsForTestMapp
     ERL_REFLECT_SCHEMA(
         OptionsForTestMapping3D,
         ERL_REFLECT_MEMBER(OptionsForTestMapping3D, random_seed),
+        ERL_REFLECT_MEMBER(OptionsForTestMapping3D, output_dir),
         ERL_REFLECT_MEMBER(OptionsForTestMapping3D, dataset_type),
         ERL_REFLECT_MEMBER(OptionsForTestMapping3D, cow_and_lady_dir),
         ERL_REFLECT_MEMBER(OptionsForTestMapping3D, newer_college_dir),
@@ -130,8 +135,11 @@ struct OptionsForTestMapping3D : public erl::common::Yamlable<OptionsForTestMapp
         ERL_REFLECT_MEMBER(OptionsForTestMapping3D, vis_stride),
         ERL_REFLECT_MEMBER(OptionsForTestMapping3D, pcd_stride),
         ERL_REFLECT_MEMBER(OptionsForTestMapping3D, show_geometries),
+        ERL_REFLECT_MEMBER(OptionsForTestMapping3D, image_resize_scale),
+        ERL_REFLECT_MEMBER(OptionsForTestMapping3D, surf_normal_scale),
         ERL_REFLECT_MEMBER(OptionsForTestMapping3D, test_batch_size),
         ERL_REFLECT_MEMBER(OptionsForTestMapping3D, test_res_grid),
+        ERL_REFLECT_MEMBER(OptionsForTestMapping3D, test_grid_from_dataset),
         ERL_REFLECT_MEMBER(OptionsForTestMapping3D, test_grid_size),
         ERL_REFLECT_MEMBER(OptionsForTestMapping3D, test_grid_center),
         ERL_REFLECT_MEMBER(OptionsForTestMapping3D, test_grid_rotation),
@@ -146,10 +154,11 @@ struct OptionsForTestMapping3D : public erl::common::Yamlable<OptionsForTestMapp
         ERL_REFLECT_MEMBER(OptionsForTestMapping3D, test_res_follow_map),
         ERL_REFLECT_MEMBER(OptionsForTestMapping3D, test_follow_map_xs),
         ERL_REFLECT_MEMBER(OptionsForTestMapping3D, test_follow_map_ys),
-        ERL_REFLECT_MEMBER(OptionsForTestMapping3D, image_resize_scale),
-        ERL_REFLECT_MEMBER(OptionsForTestMapping3D, surf_normal_scale),
-        ERL_REFLECT_MEMBER(OptionsForTestMapping3D, save_images),
         ERL_REFLECT_MEMBER(OptionsForTestMapping3D, test_io),
+        ERL_REFLECT_MEMBER(OptionsForTestMapping3D, extract_mesh),
+        ERL_REFLECT_MEMBER(OptionsForTestMapping3D, extract_mesh_res),
+        ERL_REFLECT_MEMBER(OptionsForTestMapping3D, save_built_mesh),
+        ERL_REFLECT_MEMBER(OptionsForTestMapping3D, save_images),
         ERL_REFLECT_MEMBER(OptionsForTestMapping3D, hold),
         ERL_REFLECT_MEMBER(OptionsForTestMapping3D, mapping_bin_file),
         ERL_REFLECT_MEMBER(OptionsForTestMapping3D, load_mapping_bin));
@@ -158,7 +167,7 @@ struct OptionsForTestMapping3D : public erl::common::Yamlable<OptionsForTestMapp
     PostDeserialization() override {
         if (scan_stride.size() > 0) {
             ERL_ASSERT_LE(scan_stride.size(), 2);
-            for (long i = 0; i < scan_stride.size(); ++i) { ERL_ASSERT_POS_GT(scan_stride[i], 0); }
+            ERL_ASSERT((scan_stride.array() >= 0).all());
         }
 
         if (show_geometries.size() == 1) {
@@ -307,9 +316,11 @@ struct TestMapping3D {
 
     // test data
 
-    Vector3 map_min, map_max;
-    Matrix3 grid_rotation = Matrix3::Identity();
-    Vector3 grid_translation = Vector3::Zero();
+    Vector3 map_min;
+    Vector3 map_max;
+    Vector3 map_size;
+    Matrix3 map_rotation = Matrix3::Identity();
+    Vector3 map_translation = Vector3::Zero();
     Vector3 position_test;
     Matrix3X positions_test_follow_org;
     Matrix3X positions_test_follow;
@@ -319,7 +330,6 @@ struct TestMapping3D {
 
     // output folders
 
-    std::filesystem::path test_output_folder;
     std::filesystem::path img_dir;
 
     // logging
@@ -367,7 +377,7 @@ public:
         }
 
         if (options->load_mapping_bin) {
-            ReadMappingBin(*mapping);
+            ReadMappingBin(*mapping, options->mapping_bin_file);
             animation_ended = true;
             visualizer->Show();
         } else {
@@ -376,58 +386,40 @@ public:
             if (options->test_io) { TestIo(); }
 
             erl::common::SaveEigenMatrixToTextFile<double>(
-                test_output_folder / "fps.csv",
+                options->output_dir / "fps.csv",
                 fps_data,
                 erl::common::EigenTextFormat::kCsvFmt);
 
             if (!pcd_surf_points->IsEmpty()) {
                 open3d::io::WritePointCloud(
-                    test_output_folder / "surf_points.ply",
+                    options->output_dir / "surf_points.ply",
                     *pcd_surf_points);
+            }
+
+            if (!mesh_surf->IsEmpty()) {
+                open3d::io::WriteTriangleMesh(options->output_dir / "online_mesh.ply", *mesh_surf);
             }
         }
 
         if (options->test_grid_at_end) {
-            Vector3 max = options->test_grid_size.array() * 0.5f;
-            const Vector3 min = -max;
-            Eigen::Vector3i grid_shape;
-            const Dtype res = options->test_res_grid;
-            grid_shape[0] = static_cast<int>(std::ceil((max[0] - min[0]) / res));
-            grid_shape[1] = static_cast<int>(std::ceil((max[1] - min[1]) / res));
-            grid_shape[2] = static_cast<int>(std::ceil((max[2] - min[2]) / res));
-            const Vector3 resolution = Vector3::Constant(res);
-            max = min.array() + grid_shape.cast<Dtype>().array() * resolution.array();
-            ERL_INFO(
-                "Grid size: [{}], resolution: [{}], shape: [{}], min: [{}], max: [{}]",
-                options->test_grid_size.transpose(),
-                resolution.transpose(),
-                grid_shape.transpose(),
-                min.transpose(),
-                max.transpose());
-            Matrix3X positions = erl::common::CalculateMeterCoordinates<Dtype, int, 3, true, true>(
-                grid_shape,
-                min,
-                max,
-                resolution);
-            ERL_INFO(
-                "Grid rotation:\n{}\nGrid center: [{}]",
-                options->test_grid_rotation,
-                options->test_grid_center.transpose());
-            ERL_INFO(
-                "Before transform, positions min: [{}], max: [{}]",
-                positions.rowwise().minCoeff().transpose(),
-                positions.rowwise().maxCoeff().transpose());
-            positions =
-                (options->test_grid_rotation * positions).colwise() + options->test_grid_center;
-            ERL_INFO(
-                "After transform, positions min: [{}], max: [{}]",
-                positions.rowwise().minCoeff().transpose(),
-                positions.rowwise().maxCoeff().transpose());
-            if (positions.cols() > 0) {
-                TestGrid(positions);
+            const Matrix3X grid_points = GenerateTestGrid();
+            if (grid_points.cols() > 0) {
+                TestGrid(grid_points);
             } else {
                 ERL_WARN("No positions to test the grid at the end.");
             }
+        }
+
+        if (options->save_built_mesh) {
+            const auto [vertices, faces] = GetBuiltMesh();
+            const std::string filepath = options->output_dir / "built_mesh.ply";
+            WriteMesh(vertices, faces, filepath);
+        }
+
+        if (options->extract_mesh) {
+            const auto [vertices, faces] = ExtractMesh();
+            const std::string filepath = options->output_dir / "extracted_mesh.ply";
+            WriteMesh(vertices, faces, filepath);
         }
     }
 
@@ -435,10 +427,10 @@ protected:
     virtual void
     Init() {
         vis_setting = std::make_shared<Open3dVisualizerWrapper::Setting>();
-
         PrepareDataset();
         PrepareOutputFolders();
         PrepareVisualizer();
+        options->AsYamlFile(options->output_dir / "config.yaml");
     }
 
 #pragma region dataset_prep
@@ -469,8 +461,14 @@ protected:
             gt_surface_points.col(i) = pcd->points_[i].cast<Dtype>();
         }
         // test data
-        map_min = cow_and_lady->GetMapMin().cast<Dtype>();
-        map_max = cow_and_lady->GetMapMax().cast<Dtype>();
+        map_min = CowAndLady::kSceneBoundingBoxMin.cast<Dtype>();
+        map_max = CowAndLady::kSceneBoundingBoxMax.cast<Dtype>();
+        map_size = map_max - map_min;
+        // test grid
+        if (options->test_grid_from_dataset) {
+            options->test_grid_size = map_size;
+            options->test_grid_center = (map_min + map_max) * 0.5f;
+        }
     }
 
     void
@@ -523,6 +521,11 @@ protected:
         // test data
         map_min = mesh->GetMinBound().template cast<Dtype>();
         map_max = mesh->GetMaxBound().template cast<Dtype>();
+        map_size = map_max - map_min;
+        if (options->test_grid_from_dataset) {
+            options->test_grid_size = map_size;
+            options->test_grid_center = (map_min + map_max) * 0.5f;
+        }
     }
 
     void
@@ -563,8 +566,9 @@ protected:
             box_translation,
             box_rotation,
             box_size);
-        grid_rotation = box_rotation.cast<Dtype>();
-        grid_translation = box_translation.cast<Dtype>();
+        map_size = box_size.cast<Dtype>();
+        map_rotation = box_rotation.cast<Dtype>();
+        map_translation = box_translation.cast<Dtype>();
 
         ERL_INFO(
             "rotation: \n{}, \n"
@@ -573,8 +577,13 @@ protected:
             box_translation.transpose(),
             box_size.transpose());
 
-        map_max = box_size.cast<Dtype>() / 2;
+        map_max = map_size / 2;
         map_min = -map_max;
+        if (options->test_grid_from_dataset) {
+            options->test_grid_size = map_size;
+            options->test_grid_center = map_translation;
+            options->test_grid_rotation = map_rotation;
+        }
     }
 
     void
@@ -607,6 +616,11 @@ protected:
         // test data
         map_min = replica_rgbd->GetMapMin().cast<Dtype>();
         map_max = replica_rgbd->GetMapMax().cast<Dtype>();
+        map_size = map_max - map_min;
+        if (options->test_grid_from_dataset) {
+            options->test_grid_size = map_size;
+            options->test_grid_center = (map_min + map_max) * 0.5f;
+        }
     }
 
     virtual void
@@ -684,13 +698,9 @@ protected:
         positions_test_whole_map.topRows(2) =
             grid_map_info.GenerateMeterCoordinates(false).template cast<Dtype>();
         positions_test_whole_map =
-            (grid_rotation * positions_test_whole_map).colwise() + grid_translation;
+            (map_rotation * positions_test_whole_map).colwise() + map_translation;
 
         cluster_indices.resize(positions_test_follow_org.cols());
-
-        if (options->test_grid_size == Vector3::Zero()) {
-            options->test_grid_size = map_max - map_min;
-        }
     }
 
 #pragma endregion
@@ -700,8 +710,8 @@ protected:
     void
     PrepareOutputFolders() {
         GTEST_PREPARE_OUTPUT_DIR();
-        test_output_folder = test_output_dir;
-        img_dir = test_output_folder / "images";
+        if (options->output_dir.empty()) { options->output_dir = test_output_dir; }
+        img_dir = options->output_dir / "images";
         std::filesystem::create_directory(img_dir);
         vis_setting->window_name = test_info->name();
     }
@@ -1352,9 +1362,9 @@ protected:
     }
 
     void
-    ReadMappingBin(MappingType &mapping_read) {
+    ReadMappingBin(MappingType &mapping_read, std::string bin_file = "") {
         const ERL_BLOCK_TIMER_MSG("ReadMappingBin");
-        std::string bin_file = GetBinFileName();
+        if (bin_file.empty()) { bin_file = GetBinFileName(); }
         using namespace erl::common::serialization;
         ERL_ASSERTM(
             Serialization<MappingType>::Read(bin_file, &mapping_read),
@@ -1372,6 +1382,91 @@ protected:
 
 #pragma endregion
 
+    Matrix3X
+    GenerateTestGrid() {
+        Vector3 max = options->test_grid_size.array() * 0.5f;
+        const Vector3 min = -max;
+        Eigen::Vector3i grid_shape;
+        const Dtype res = options->test_res_grid;
+        grid_shape[0] = static_cast<int>(std::ceil((max[0] - min[0]) / res));
+        grid_shape[1] = static_cast<int>(std::ceil((max[1] - min[1]) / res));
+        grid_shape[2] = static_cast<int>(std::ceil((max[2] - min[2]) / res));
+        const Vector3 resolution = Vector3::Constant(res);
+        max = min.array() + grid_shape.cast<Dtype>().array() * resolution.array();
+        ERL_INFO(
+            "Grid size: [{}], resolution: [{}], shape: [{}], min: [{}], max: [{}]",
+            options->test_grid_size.transpose(),
+            resolution.transpose(),
+            grid_shape.transpose(),
+            min.transpose(),
+            max.transpose());
+        Matrix3X positions = erl::common::CalculateMeterCoordinates<Dtype, int, 3, true, true>(
+            grid_shape,
+            min,
+            max,
+            resolution);
+        ERL_INFO(
+            "Grid rotation:\n{}\nGrid center: [{}]",
+            options->test_grid_rotation,
+            options->test_grid_center.transpose());
+        ERL_INFO(
+            "Before transform, positions min: [{}], max: [{}]",
+            positions.rowwise().minCoeff().transpose(),
+            positions.rowwise().maxCoeff().transpose());
+        positions = (options->test_grid_rotation * positions).colwise() + options->test_grid_center;
+        ERL_INFO(
+            "After transform, positions min: [{}], max: [{}]",
+            positions.rowwise().minCoeff().transpose(),
+            positions.rowwise().maxCoeff().transpose());
+        return positions;
+    }
+
     virtual void
-    TestGrid(const Matrix3X & /*grid_positions*/) {}
+    TestGrid(const Matrix3X & /*grid_points*/) = 0;
+
+    virtual std::pair<std::vector<Vector3>, std::vector<Eigen::Vector3i>>
+    GetBuiltMesh() = 0;
+
+    virtual std::pair<std::vector<Vector3>, std::vector<Eigen::Vector3i>>
+    ExtractMesh() = 0;
+
+    static void
+    WriteMesh(
+        const std::vector<Vector3> &vertices,
+        const std::vector<Eigen::Vector3i> &faces,
+        const std::string &filepath) {
+
+        if (vertices.empty()) {
+            ERL_WARN("No vertices to write to mesh: {}", filepath);
+            return;
+        }
+
+        if (faces.empty()) {
+            ERL_WARN("No faces to write to mesh: {}", filepath);
+            return;
+        }
+
+        open3d::geometry::TriangleMesh mesh;
+        mesh.vertices_.reserve(vertices.size());
+        for (const auto &v: vertices) { mesh.vertices_.emplace_back(v[0], v[1], v[2]); }
+        mesh.triangles_ = faces;
+        mesh.ComputeVertexNormals();
+
+        constexpr bool write_ascii = false;
+        constexpr bool compressed = false;
+        constexpr bool write_vertex_normals = true;
+        constexpr bool write_vertex_colors = false;
+        constexpr bool write_triangle_uvs = false;
+        constexpr bool print_progress = false;
+
+        open3d::io::WriteTriangleMeshToPLY(
+            filepath,
+            mesh,
+            write_ascii,
+            compressed,
+            write_vertex_normals,
+            write_vertex_colors,
+            write_triangle_uvs,
+            print_progress);
+    }
 };

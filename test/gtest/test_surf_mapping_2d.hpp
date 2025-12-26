@@ -33,7 +33,6 @@ struct TestSurfMapping2D : public TestMapping2D<Dtype, SurfMapType> {
     using Super::quadtree;
     using Super::rotation;
     using Super::scaling;
-    using Super::test_output_folder;
     using Super::translation;
 
     std::shared_ptr<SurfMapSetting> surf_map_setting = nullptr;
@@ -57,7 +56,7 @@ protected:
             surf_map_setting->FromYamlFile(options->surf_map_config_file),
             "Failed to load surf_map_config_file: {}",
             options->surf_map_config_file);
-        surf_map_setting->AsYamlFile(test_output_folder / "surf_map.yaml");
+        surf_map_setting->AsYamlFile(options->output_dir / "surf_map.yaml");
 
         // create mappings
         surf_map = std::make_shared<SurfMap>(surf_map_setting);
@@ -69,7 +68,7 @@ protected:
         Super::Init();
 
         // other
-        fps_data.resize(3, (max_wp_idx + options->seq_stride - 1) / options->seq_stride);
+        fps_data.setConstant(3, Super::GetNumOfFrames(), 0.0);
     }
 
     bool
@@ -92,7 +91,7 @@ protected:
     std::string
     GetBinFileName() override {
         std::string bin_file = fmt::format("surf_map_2d_{}.bin", type_name<Dtype>());
-        bin_file = Super::test_output_folder / bin_file;
+        bin_file = options->output_dir / bin_file;
         return bin_file;
     }
 

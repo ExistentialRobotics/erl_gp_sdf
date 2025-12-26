@@ -275,6 +275,8 @@ namespace erl::gp_sdf {
         if (any_update) {
             const ERL_BLOCK_TIMER_MSG("bhm update map points");
             UpdateMapPoints(sensor_origin_s, points_s);
+        } else {
+            m_changed_clusters_.clear();
         }
         return any_update;
     }
@@ -576,7 +578,7 @@ namespace erl::gp_sdf {
     }
 
     template<typename Dtype, int Dim>
-    void
+    bool
     BayesianHilbertSurfaceMapping<Dtype, Dim>::GetMesh(
         const bool online,
         std::vector<VectorD> &vertices,
@@ -586,7 +588,7 @@ namespace erl::gp_sdf {
                 "GetMesh is only supported when update_map.method == 2 (i.e., using marching "
                 "squares/cubes). Current method: {}",
                 m_setting_->update_map.method);
-            return;
+            return false;
         }
 
         if (!online) { RunMarchingQueue(true); }  // get the latest surface voxels
@@ -595,6 +597,7 @@ namespace erl::gp_sdf {
 
         vertices.clear();
         faces.clear();
+        absl::flat_hash_map<VectorD, int> vertex_map;
         absl::flat_hash_map<GridIndex, int> edge_to_vertex_map;
         edge_to_vertex_map.reserve(64);
         for (const auto &[key, bhm_ptr]: m_key_bhm_dict_) {
@@ -611,8 +614,11 @@ namespace erl::gp_sdf {
                 }
                 // scale back
                 for (int dim = 0; dim < Dim; ++dim) { position[dim] /= m_setting_->scaling; }
-                edge_to_vertex_map[edge_idx] = static_cast<int>(vertices.size());
-                vertices.push_back(position);
+                // get the global vertex index
+                const auto [it, inserted] =
+                    vertex_map.try_emplace(position, static_cast<int>(vertex_map.size()));
+                if (inserted) { vertices.push_back(position); }
+                edge_to_vertex_map[edge_idx] = it->second;
             }
             for (const auto &[voxel_idx, voxel]: local_bhm.surf_voxels) {
                 if (!voxel.good) { continue; }
@@ -624,6 +630,239 @@ namespace erl::gp_sdf {
                 }
             }
         }
+        return true;
+    }
+
+    template<typename Dtype, int Dim>
+    bool
+    BayesianHilbertSurfaceMapping<Dtype, Dim>::GetMesh(
+        Dtype resolution,
+        std::vector<VectorD> &vertices,
+        std::vector<Face> &faces) {
+        if (m_setting_->update_map.method != 2) {
+            ERL_WARN(
+                "GetMesh is only supported when update_map.method == 2 (i.e., using marching "
+                "squares/cubes). Current method: {}",
+                m_setting_->update_map.method);
+            return false;
+        }
+
+        const ERL_BLOCK_TIMER_MSG("get mesh with resolution");
+
+        using Index = long;
+        const Dtype map_size = m_bhm_node_size_;
+        const Eigen::Vector<Index, Dim> grid_shape = Eigen::Vector<Index, Dim>::Constant(
+            static_cast<long>(std::ceil(map_size / resolution)));
+        const VectorD grid_resolution =
+            VectorD::Constant(map_size / static_cast<Dtype>(grid_shape[0]));
+        const VectorD grid_max = VectorD::Constant(m_half_bhm_node_size_);
+        const VectorD grid_min = -grid_max;
+
+        constexpr bool row_major = true;
+        const MatrixDX vertex_positions_org =
+            common::CalculateMeterCoordinates<Dtype, Index, Dim, row_major, false>(
+                grid_shape,
+                grid_min,
+                grid_max,
+                grid_resolution);
+        const Eigen::Vector<Index, Dim> vertex_strides =
+            row_major ? common::ComputeCStrides<Index, Dim>(grid_shape.array() + 1, 1)
+                      : common::ComputeFStrides<Index, Dim>(grid_shape.array() + 1, 1);
+        const Eigen::Matrix<Index, Dim, Eigen::Dynamic> grid_coords =
+            common::CalculateGridCoordinates<Index, Dim, row_major>(grid_shape);
+
+        const std::size_t num_local_bhms = m_key_bhm_positions_.size();
+        const long num_voxels = grid_shape.prod();
+
+        constexpr long n_verts_per_voxel = (1 << Dim);
+
+        struct MarchingData {
+            bool active = false;
+            typename LocalBhm::SurfaceVoxelMap voxels;
+            SurfaceDataMap mesh_vertices;
+        };
+
+        std::vector<MarchingData> marching_data_vec(num_local_bhms);
+
+        // process each local bhm
+
+#pragma omp parallel for default(none) schedule(dynamic) \
+    shared(num_local_bhms,                               \
+               vertex_positions_org,                     \
+               grid_coords,                              \
+               vertex_strides,                           \
+               num_voxels,                               \
+               marching_data_vec)
+        for (std::size_t i = 0; i < num_local_bhms; ++i) {
+            const auto &[key, local_bhm_center] = m_key_bhm_positions_[i];
+            const auto local_bhm = m_key_bhm_dict_.at(key);
+            if (local_bhm == nullptr || !local_bhm->active) { continue; }
+
+            // predict log-odds at all vertex coordinates
+            MatrixDX vertex_positions = vertex_positions_org.colwise() + local_bhm_center;
+            VectorX log_odds;
+            MatrixDX gradients;
+            local_bhm->bhm.Predict(
+                vertex_positions,
+                true,                                      // logodd,
+                m_setting_->local_bhm->faster_prediction,  // faster,
+                false,                                     // compute_gradient,
+                false,                                     // gradient_with_sigmoid,
+                false,                                     // parallel,
+                log_odds,
+                gradients);
+
+            MarchingData &data = marching_data_vec[i];
+            data.active = true;
+
+            std::array<Dtype, n_verts_per_voxel> vertex_values;  // NOLINT(*-pro-type-member-init)
+            Eigen::Vector<Index, Dim> vertex_coords;
+            GridIndex voxel_coords;
+            GridIndex edge_coords;
+            voxel_coords[Dim] = 0;
+
+            // check each voxel
+            for (long voxel_idx = 0; voxel_idx < num_voxels; ++voxel_idx) {
+                voxel_coords.template head<Dim>() = grid_coords.col(voxel_idx);
+                // collect vertex values
+                for (long v = 0; v < n_verts_per_voxel; ++v) {
+                    const int *vertex_code = MC::GetVertexCode(v);
+                    for (int d = 0; d < Dim; ++d) {
+                        vertex_coords[d] = voxel_coords[d] + vertex_code[d];
+                    }
+                    const int vertex_index = vertex_coords.dot(vertex_strides);
+                    vertex_values[v] = log_odds[vertex_index];
+                }
+
+                // determine voxel configuration
+                const int voxel_cfg = MC::CalculateVertexConfigIndex(
+                    vertex_values.data(),
+                    local_bhm->surface_log_odds);
+                const int *unique_edge_indices = MC::GetUniqueEdgeIndices(voxel_cfg);
+                if (unique_edge_indices == nullptr) { continue; }
+
+                using Voxel = typename LocalBhm::Voxel;
+                auto [voxel_it, voxel_inserted] = data.voxels.try_emplace(voxel_coords, Voxel());
+                ERL_ASSERT(voxel_inserted);
+                Voxel &voxel = voxel_it->second;
+                voxel.surf_config = voxel_cfg;
+                voxel.good = true;
+
+                // process edges
+                int col = 0;
+                while (unique_edge_indices[col] != -1) {
+                    const int edge_idx = unique_edge_indices[col++];
+                    const int *edge_code = MC::GetEdgeCode(edge_idx);
+                    for (int d = 0; d < Dim; ++d) {
+                        edge_coords[d] = voxel_coords[d] + edge_code[d];
+                    }
+                    edge_coords[Dim] = edge_code[Dim];  // edge direction
+                    voxel.edges.emplace_back(edge_coords);
+
+                    auto [it, inserted] = data.mesh_vertices.try_emplace(edge_coords, SurfData());
+                    if (!inserted) { continue; }
+
+                    SurfData &surf_data = it->second;
+
+                    // interpolate vertex position
+                    const Eigen::Vector<Index, Dim> v1_coords = edge_coords.template head<Dim>();
+                    Eigen::Vector<Index, Dim> v2_coords = v1_coords;
+                    ++v2_coords[edge_coords[Dim] - 1];
+
+                    const int v1_index = v1_coords.dot(vertex_strides);
+                    const int v2_index = v2_coords.dot(vertex_strides);
+                    const Dtype val1 = log_odds[v1_index];
+                    const Dtype val2 = log_odds[v2_index];
+                    const Dtype val_diff = val1 - val2;
+                    const auto v1 = vertex_positions.col(v1_index);
+                    const auto v2 = vertex_positions.col(v2_index);
+                    if (std::abs(val_diff) >= 1e-6f) {
+                        const Dtype t = (val1 - local_bhm->surface_log_odds) / val_diff;
+                        surf_data.position = v1 + t * (v2 - v1);
+                    } else {
+                        surf_data.position = 0.5f * (v1 + v2);
+                    }
+                    local_bhm->bhm.Predict(
+                        surf_data.position,
+                        true,                                      // logodd,
+                        m_setting_->local_bhm->faster_prediction,  // faster,
+                        true,                                      // compute_normal,
+                        false,                                     // with_sigmoid,
+                        surf_data.var_position,
+                        surf_data.normal);
+                }
+
+                // collect faces
+                const int *vertex_indices = MC::GetVertexIndices(voxel_cfg);
+                while (*vertex_indices != -1) {
+                    Face face;
+                    for (int d = 0; d < Dim; ++d) { face[d] = vertex_indices[d]; }
+                    vertex_indices += Dim;
+                    voxel.faces.emplace_back(face);
+                }
+            }
+        }
+
+        KeyLongMap key_to_bhm_idx_map;
+        key_to_bhm_idx_map.reserve(num_local_bhms);
+        for (std::size_t i = 0; i < num_local_bhms; ++i) {
+            if (!marching_data_vec[i].active) { continue; }
+            const Key &key = m_key_bhm_positions_[i].first;
+            key_to_bhm_idx_map[key] = static_cast<long>(i);
+        }
+
+        // collect all mesh data
+        const typename Key::KeyType offset = 1 << (m_tree_->GetTreeDepth() - m_setting_->bhm_depth);
+        auto get_unique_vertex = [&](Key key, GridIndex edge_idx, const VectorD &position) {
+            bool has_duplicate = false;
+            for (int d = 0; d < Dim; ++d) {
+                if (edge_idx[d] == grid_shape[d]) {
+                    has_duplicate = true;
+                    key[d] += offset;
+                    edge_idx[d] = 0;
+                }
+            }
+            if (!has_duplicate) { return position; }
+            const auto it = key_to_bhm_idx_map.find(key);
+            if (it == key_to_bhm_idx_map.end()) { return position; }
+            auto &data = marching_data_vec[it->second];
+            if (!data.active || data.mesh_vertices.empty()) { return position; }
+            const auto surf_it = data.mesh_vertices.find(edge_idx);
+            if (surf_it == data.mesh_vertices.end()) { return position; }
+            return surf_it->second.position;
+        };
+
+        vertices.clear();
+        faces.clear();
+        absl::flat_hash_map<VectorD, int> vertex_map;
+        absl::flat_hash_map<GridIndex, int> edge_to_vertex_map;
+        edge_to_vertex_map.reserve(64);
+        for (std::size_t i = 0; i < num_local_bhms; ++i) {
+            const auto &data = marching_data_vec[i];
+            if (!data.active || data.mesh_vertices.empty()) { continue; }
+            edge_to_vertex_map.clear();  // edge_idx is local, vertex_idx is global
+            const Key &key = m_key_bhm_positions_[i].first;
+            for (const auto &[edge_idx, surf_data]: data.mesh_vertices) {
+                VectorD position = get_unique_vertex(key, edge_idx, surf_data.position);
+                // scale back
+                for (int dim = 0; dim < Dim; ++dim) { position[dim] /= m_setting_->scaling; }
+                // get the global vertex index
+                const auto [it, inserted] =
+                    vertex_map.try_emplace(position, static_cast<int>(vertex_map.size()));
+                if (inserted) { vertices.push_back(position); }
+                edge_to_vertex_map[edge_idx] = it->second;
+            }
+            for (const auto &[voxel_idx, voxel]: data.voxels) {
+                if (!voxel.good) { continue; }
+                for (Face face: voxel.faces) {
+                    for (int d = 0; d < Dim; ++d) {
+                        face[d] = edge_to_vertex_map.at(CHECKED_AT(voxel.edges, face[d]));
+                    }
+                    faces.push_back(face);
+                }
+            }
+        }
+        return true;
     }
 
     template<typename Dtype, int Dim>
@@ -1889,14 +2128,14 @@ namespace erl::gp_sdf {
                 continue;
             }
             voxel.good = true;
-            const bool config_changed = (voxel.surf_config != new_surf_cfg);
-            GridIndex edge_coords;
-            if (config_changed) {
+            // const bool config_changed = (voxel.surf_config != new_surf_cfg);
+            if (voxel.surf_config != new_surf_cfg) {
                 voxel.edges.clear();
                 int col = 0;
                 while (unique_edge_indices[col] != -1) {
                     const int edge_index = unique_edge_indices[col++];
                     const int *edge_code = MC::GetEdgeCode(edge_index);
+                    GridIndex edge_coords;
                     for (int dim = 0; dim <= Dim; ++dim) {
                         edge_coords[dim] = voxel_coords[dim] + edge_code[dim];
                     }
@@ -1913,13 +2152,15 @@ namespace erl::gp_sdf {
             }
             voxel.surf_config = new_surf_cfg;  // update the surface configuration
             // interpolate edges
-            int col = 0;
-            while (unique_edge_indices[col] != -1) {
-                const int edge_index = unique_edge_indices[col++];
-                const int *edge_code = MC::GetEdgeCode(edge_index);
-                for (int dim = 0; dim <= Dim; ++dim) {
-                    edge_coords[dim] = voxel_coords[dim] + edge_code[dim];
-                }
+            // int col = 0;
+            // while (unique_edge_indices[col] != -1) {
+            for (const GridIndex &edge_coords: voxel.edges) {
+                // const int edge_index = unique_edge_indices[col++];
+                // const int *edge_code = MC::GetEdgeCode(edge_index);
+                // for (int dim = 0; dim <= Dim; ++dim) {
+                //     edge_coords[dim] = voxel_coords[dim] + edge_code[dim];
+                // }
+
                 // check if interpolation for the edge exists
                 auto [it, inserted] = query_results.try_emplace(edge_coords, SurfData());
                 if (!inserted) { continue; }  // interpolation for the edge exists.
@@ -2049,7 +2290,7 @@ namespace erl::gp_sdf {
         // for duplicates, we pick the one on the min boundary if it exists.
         bool has_duplicate = false;
         const int surf_grid_size = m_setting_->local_bhm->surface_grid_size;
-        const uint32_t offset = 1 << (m_setting_->tree->tree_depth - m_setting_->bhm_depth);
+        const typename Key::KeyType offset = 1 << (m_tree_->GetTreeDepth() - m_setting_->bhm_depth);
         for (int dim = 0; dim < Dim; ++dim) {
             if (edge_idx[dim] == surf_grid_size) {
                 has_duplicate = true;

@@ -396,8 +396,12 @@ namespace erl::gp_sdf {
             const Key &key,
             std::vector<std::size_t> &surface_data_indices) const override;
 
-        void
+        bool
         GetMesh(bool online, std::vector<VectorD> &vertices, std::vector<Face> &faces) override;
+
+        bool
+        GetMesh(Dtype resolution, std::vector<VectorD> &vertices, std::vector<Face> &faces)
+            override;
 
         [[nodiscard]] Aabb
         GetMapBoundary() const override;

@@ -12,6 +12,9 @@
 #include "erl_geometry/occupancy_quadtree_drawer.hpp"
 #include "erl_geometry/ucsd_fah_2d.hpp"
 
+#include <open3d/geometry/LineSet.h>
+#include <open3d/io/LineSetIO.h>
+
 enum class DataSetType {
     GazeboRoom2D = 1,
     HouseExpoLidar2D = 2,
@@ -33,13 +36,14 @@ struct OptionsForTestMapping2D : public erl::common::Yamlable<OptionsForTestMapp
 
     using Vector2 = Eigen::Vector2<Dtype>;
 
+    uint64_t random_seed = 0;
+    std::filesystem::path output_dir;
     DataSetType dataset_type = DataSetType::GazeboRoom2D;
     std::string gazebo_dir = kDataDir / "gazebo";
     std::string house_expo_map_file = kDataDir / "house_expo_room_1451.json";
     std::string house_expo_traj_file = kDataDir / "house_expo_room_1451.csv";
     std::string ucsd_fah_2d_file = kDataDir / "ucsd_fah_2d.dat";
-    std::string mapping_bin_file;
-    bool load_mapping_bin = false;
+
     bool visualize = false;
     bool test_io = false;
     bool hold = false;
@@ -50,23 +54,33 @@ struct OptionsForTestMapping2D : public erl::common::Yamlable<OptionsForTestMapp
     long end_wp_idx = -1;
     long seq_stride = 1;
     long vis_stride = 1;
+    bool exhausting = false;
     Dtype map_resolution = 0.025;
     Dtype surf_normal_scale = 0.35;
-    bool test_grid_at_end = false;
+
     Dtype test_res_grid = 0.025;
+    bool test_grid_from_dataset = false;
     Vector2 test_grid_size = Vector2::Zero();
     Vector2 test_grid_center = Vector2::Zero();
-    Dtype test_grid_rotation = 0.0;
+    Dtype test_grid_rotation = 0;
+    bool test_grid_at_end = false;
+
+    bool extract_mesh = false;
+    Dtype extract_mesh_res = 0.03;
+    bool save_built_mesh = true;
+
+    std::string mapping_bin_file;
+    bool load_mapping_bin = false;
 
     ERL_REFLECT_SCHEMA(
         OptionsForTestMapping2D,
+        ERL_REFLECT_MEMBER(OptionsForTestMapping2D, random_seed),
+        ERL_REFLECT_MEMBER(OptionsForTestMapping2D, output_dir),
         ERL_REFLECT_MEMBER(OptionsForTestMapping2D, dataset_type),
         ERL_REFLECT_MEMBER(OptionsForTestMapping2D, gazebo_dir),
         ERL_REFLECT_MEMBER(OptionsForTestMapping2D, house_expo_map_file),
         ERL_REFLECT_MEMBER(OptionsForTestMapping2D, house_expo_traj_file),
         ERL_REFLECT_MEMBER(OptionsForTestMapping2D, ucsd_fah_2d_file),
-        ERL_REFLECT_MEMBER(OptionsForTestMapping2D, mapping_bin_file),
-        ERL_REFLECT_MEMBER(OptionsForTestMapping2D, load_mapping_bin),
         ERL_REFLECT_MEMBER(OptionsForTestMapping2D, visualize),
         ERL_REFLECT_MEMBER(OptionsForTestMapping2D, test_io),
         ERL_REFLECT_MEMBER(OptionsForTestMapping2D, hold),
@@ -77,13 +91,20 @@ struct OptionsForTestMapping2D : public erl::common::Yamlable<OptionsForTestMapp
         ERL_REFLECT_MEMBER(OptionsForTestMapping2D, end_wp_idx),
         ERL_REFLECT_MEMBER(OptionsForTestMapping2D, seq_stride),
         ERL_REFLECT_MEMBER(OptionsForTestMapping2D, vis_stride),
+        ERL_REFLECT_MEMBER(OptionsForTestMapping2D, exhausting),
         ERL_REFLECT_MEMBER(OptionsForTestMapping2D, map_resolution),
         ERL_REFLECT_MEMBER(OptionsForTestMapping2D, surf_normal_scale),
-        ERL_REFLECT_MEMBER(OptionsForTestMapping2D, test_grid_at_end),
         ERL_REFLECT_MEMBER(OptionsForTestMapping2D, test_res_grid),
+        ERL_REFLECT_MEMBER(OptionsForTestMapping2D, test_grid_from_dataset),
         ERL_REFLECT_MEMBER(OptionsForTestMapping2D, test_grid_size),
         ERL_REFLECT_MEMBER(OptionsForTestMapping2D, test_grid_center),
-        ERL_REFLECT_MEMBER(OptionsForTestMapping2D, test_grid_rotation));
+        ERL_REFLECT_MEMBER(OptionsForTestMapping2D, test_grid_rotation),
+        ERL_REFLECT_MEMBER(OptionsForTestMapping2D, test_grid_at_end),
+        ERL_REFLECT_MEMBER(OptionsForTestMapping2D, extract_mesh),
+        ERL_REFLECT_MEMBER(OptionsForTestMapping2D, extract_mesh_res),
+        ERL_REFLECT_MEMBER(OptionsForTestMapping2D, save_built_mesh),
+        ERL_REFLECT_MEMBER(OptionsForTestMapping2D, mapping_bin_file),
+        ERL_REFLECT_MEMBER(OptionsForTestMapping2D, load_mapping_bin));
 
     bool
     PostDeserialization() override {
@@ -158,7 +179,10 @@ struct TestMapping2D {
     Vector2 translation;
     double t_span = 100;
     double traj_t = 0;
-    Vector2 map_min, map_max;
+    Vector2 map_min;
+    Vector2 map_max;
+    Vector2 map_translation;
+    Matrix2 map_rotation;
     std::vector<cv::Point2i> surface_points_cv;
     std::vector<Vector2> cur_traj;
 
@@ -177,7 +201,6 @@ struct TestMapping2D {
 
     // output folders
 
-    std::filesystem::path test_output_folder;
     std::filesystem::path img_dir;
     std::filesystem::path video_path;
 
@@ -203,8 +226,16 @@ public:
         char *argv[],
         std::shared_ptr<OptionsForTestMapping2D<Dtype>> options_in)
         : options(std::move(options_in)) {
-        options->FromCommandLine(argc, argv);
+        ERL_ASSERT(options->FromCommandLine(argc, argv));
+        erl::common::SetGlobalRandomSeed(options->random_seed);
     }
+
+    TestMapping2D(const TestMapping2D &) = delete;
+    TestMapping2D &
+    operator=(const TestMapping2D &) = delete;
+    TestMapping2D(TestMapping2D &&) = delete;
+    TestMapping2D &
+    operator=(TestMapping2D &&) = delete;
 
     virtual ~TestMapping2D() = default;
 
@@ -213,7 +244,7 @@ public:
         Init();
 
         if (options->load_mapping_bin) {
-            ReadSdfMappingBin(*mapping);
+            ReadMappingBin(*mapping, options->mapping_bin_file);
         } else {
             if (options->test_io) { TestIo(); }
 
@@ -272,7 +303,7 @@ public:
             }
 
             erl::common::SaveEigenMatrixToTextFile<double>(
-                test_output_folder / "fps.csv",
+                options->output_dir / "fps.csv",
                 fps_data,
                 erl::common::EigenTextFormat::kCsvFmt);
 
@@ -281,60 +312,54 @@ public:
                 ERL_INFO("Saved video to {}.", video_path.c_str());
             }
 
+            if (options->exhausting) {
+                // clear frame data
+                train_frame_points = Matrix2X();
+                train_world_points = Matrix2X();
+                train_ranges = VectorX();
+
+                while (update_map()) {
+                    update_pred();
+                    update_vis();
+                }
+            }
+
             if (options->test_io) { TestIo(); }
         }
 
+        ShowFinalResults();
+
         if (options->test_grid_at_end) {
-            Vector2 max = options->test_grid_size.array() * 0.5f;
-            Vector2 min = -max;
-            Eigen::Vector2i grid_shape;
-            const Dtype res = options->test_res_grid;
-            grid_shape[0] = static_cast<int>(std::ceil((max[0] - min[0]) / res));
-            grid_shape[1] = static_cast<int>(std::ceil((max[1] - min[1]) / res));
-            const Vector2 resolution = Vector2::Constant(res);
-            max = min.array() + grid_shape.cast<Dtype>().array() * resolution.array();
-            ERL_INFO(
-                "Grid size: [{}], resolution: [{}], shape: [{}], min: [{}], max: [{}]",
-                options->test_grid_size.transpose(),
-                resolution.transpose(),
-                grid_shape.transpose(),
-                min.transpose(),
-                max.transpose());
-            Matrix2X positions = erl::common::CalculateMeterCoordinates<Dtype, int, 2, true, true>(
-                grid_shape,
-                min,
-                max,
-                resolution);
-            ERL_INFO(
-                "Grid rotation: {:.2f} rad, center: [{}]",
-                options->test_grid_rotation,
-                options->test_grid_center.transpose());
-            ERL_INFO(
-                "Before transform, positions min: [{}], max: [{}]",
-                positions.rowwise().minCoeff().transpose(),
-                positions.rowwise().maxCoeff().transpose());
-            Matrix2 rot = Eigen::Rotation2D<Dtype>(options->test_grid_rotation).toRotationMatrix();
-            positions = (rot * positions).colwise() + options->test_grid_center;
-            ERL_INFO(
-                "After transform, positions min: [{}], max: [{}]",
-                positions.rowwise().minCoeff().transpose(),
-                positions.rowwise().maxCoeff().transpose());
-            if (positions.cols() > 0) {
-                TestGrid(positions);
+            const Matrix2X grid_points = GenerateTestGrid();
+            if (grid_points.cols() > 0) {
+                TestGrid(grid_points);
             } else {
                 ERL_WARN("No positions to test the grid at the end.");
             }
         }
 
-        ShowFinalResults();
-        if (options->interactive) { Interactive(); }
+        if (options->save_built_mesh) {
+            const auto [vertices, faces] = GetBuiltMesh();
+            const std::string filepath = options->output_dir / "built_mesh.ply";
+            WriteMesh(vertices, faces, filepath);
+        }
 
-        if (options->visualize && options->hold) {
-            std::cout << "Press any key to exit." << std::endl;
-            cv::waitKey(0);
+        if (options->extract_mesh) {
+            const auto [vertices, faces] = ExtractMesh();
+            const std::string filepath = options->output_dir / "extracted_mesh.ply";
+            WriteMesh(vertices, faces, filepath);
+        }
+
+        if (options->interactive) {
+            Interactive();
         } else {
-            constexpr double wait_time = 10.0;
-            cv::waitKey(wait_time * 1000);  // wait for 10 seconds
+            if (options->visualize && options->hold) {
+                std::cout << "Press any key to exit." << std::endl;
+                cv::waitKey(0);
+            } else {
+                constexpr double wait_time = 10.0;
+                cv::waitKey(wait_time * 1000);  // wait for 10 seconds
+            }
         }
     }
 
@@ -344,6 +369,7 @@ protected:
         PrepareDataset();
         PrepareOutputFolders();
         PrepareVisualization();
+        options->AsYamlFile(options->output_dir / "config.yaml");
     }
 
     virtual bool
@@ -374,6 +400,11 @@ protected:
         // test data
         map_min = GazeboRoom2D::kMapMin.cast<Dtype>();
         map_max = GazeboRoom2D::kMapMax.cast<Dtype>();
+        if (options->test_grid_from_dataset) {
+            options->test_grid_size = GazeboRoom2D::kOrientedBoundingBoxSize.cast<Dtype>();
+            options->test_grid_center = GazeboRoom2D::kOrientedBoundingBoxCenter.cast<Dtype>();
+            options->test_grid_rotation = GazeboRoom2D::kOrientedBoundingBoxRotationAngle;
+        }
     }
 
     void
@@ -401,6 +432,10 @@ protected:
                       ->vertices.rowwise()
                       .maxCoeff()
                       .cast<Dtype>();
+        if (options->test_grid_from_dataset) {
+            options->test_grid_size = map_max - map_min;
+            options->test_grid_center = (map_min + map_max) * 0.5f;
+        }
     }
 
     void
@@ -414,6 +449,10 @@ protected:
         // test data
         map_min = UcsdFah2D::kMapMin.cast<Dtype>();
         map_max = UcsdFah2D::kMapMax.cast<Dtype>();
+        if (options->test_grid_from_dataset) {
+            options->test_grid_size = map_max - map_min;
+            options->test_grid_center = (map_min + map_max) * 0.5f;
+        }
     }
 
     void
@@ -433,10 +472,6 @@ protected:
         }
 
         max_wp_idx = (options->end_wp_idx == -1) ? max_wp_idx : options->end_wp_idx;
-
-        if (options->test_grid_size == Vector2::Zero()) {
-            options->test_grid_size = map_max - map_min;
-        }
     }
 
 #pragma endregion
@@ -444,9 +479,9 @@ protected:
     virtual void
     PrepareOutputFolders() {
         GTEST_PREPARE_OUTPUT_DIR();
-        test_output_folder = test_output_dir;
-        img_dir = test_output_folder / "images";
-        video_path = test_output_folder / "mapping.avi";
+        if (options->output_dir.empty()) { options->output_dir = test_output_dir; }
+        img_dir = options->output_dir / "images";
+        video_path = options->output_dir / "mapping.avi";
         std::filesystem::create_directory(img_dir);
         window_name = test_info->name();
     }
@@ -506,7 +541,7 @@ protected:
 
     void
     LoadData() {
-        ERL_BLOCK_TIMER_MSG("data loading");
+        const ERL_BLOCK_TIMER_MSG("data loading");
         switch (dataset_type) {
             case DataSetType::GazeboRoom2D:
                 LoadDataFromGazeboRoom2D();
@@ -543,6 +578,11 @@ protected:
         cur_traj.emplace_back(translation);
     }
 
+    [[nodiscard]] long
+    GetNumOfFrames() const {
+        return (max_wp_idx - options->start_wp_idx + options->seq_stride - 1) / options->seq_stride;
+    }
+
 #pragma endregion
 
 #pragma region test_io
@@ -555,7 +595,7 @@ protected:
 
     void
     WriteSdfMappingBin() {
-        ERL_BLOCK_TIMER_MSG("WriteMappingBin");
+        const ERL_BLOCK_TIMER_MSG("WriteMappingBin");
         std::string bin_file = GetBinFileName();
         using namespace erl::common::serialization;
         ERL_ASSERTM(
@@ -565,9 +605,9 @@ protected:
     }
 
     void
-    ReadSdfMappingBin(MappingType &mapping_read) {
-        ERL_BLOCK_TIMER_MSG("ReadMappingBin");
-        std::string bin_file = GetBinFileName();
+    ReadMappingBin(MappingType &mapping_read, std::string bin_file = "") {
+        const ERL_BLOCK_TIMER_MSG("ReadMappingBin");
+        if (bin_file.empty()) { bin_file = GetBinFileName(); }
         using namespace erl::common::serialization;
         ERL_ASSERTM(
             Serialization<MappingType>::Read(bin_file, &mapping_read),
@@ -577,14 +617,106 @@ protected:
 
     void
     TestIo(MappingType &mapping_read) {
-        ERL_BLOCK_TIMER_MSG("IO");
+        const ERL_BLOCK_TIMER_MSG("Test IO");
         WriteSdfMappingBin();
-        ReadSdfMappingBin(mapping_read);
+        ReadMappingBin(mapping_read);
         ERL_ASSERT(*mapping == mapping_read);
     }
 
 #pragma endregion
 
+    Matrix2X
+    GenerateTestGrid() {
+        Vector2 max = options->test_grid_size.array() * 0.5f;
+        Vector2 min = -max;
+        Eigen::Vector2i grid_shape;
+        const Dtype res = options->test_res_grid;
+        grid_shape[0] = static_cast<int>(std::ceil(options->test_grid_size[0] / res));
+        grid_shape[1] = static_cast<int>(std::ceil(options->test_grid_size[1] / res));
+        const Vector2 resolution = Vector2::Constant(res);
+        max = min.array() + grid_shape.cast<Dtype>().array() * resolution.array();
+        ERL_INFO(
+            "Grid size: [{}], resolution: [{}], shape: [{}], min: [{}], max: [{}]",
+            options->test_grid_size.transpose(),
+            resolution.transpose(),
+            grid_shape.transpose(),
+            min.transpose(),
+            max.transpose());
+        constexpr bool row_major = false;
+        constexpr bool grid_coords = true;
+        Matrix2X positions =
+            erl::common::CalculateMeterCoordinates<Dtype, int, 2, row_major, grid_coords>(
+                grid_shape,
+                min,
+                max,
+                resolution);
+        ERL_INFO(
+            "Grid rotation: {:.2f} rad, center: [{}]",
+            options->test_grid_rotation,
+            options->test_grid_center.transpose());
+        ERL_INFO(
+            "Before transform, positions min: [{}], max: [{}]",
+            positions.rowwise().minCoeff().transpose(),
+            positions.rowwise().maxCoeff().transpose());
+        Matrix2 rot = Eigen::Rotation2D<Dtype>(options->test_grid_rotation).toRotationMatrix();
+        positions = (rot * positions).colwise() + options->test_grid_center;
+        ERL_INFO(
+            "After transform, positions min: [{}], max: [{}]",
+            positions.rowwise().minCoeff().transpose(),
+            positions.rowwise().maxCoeff().transpose());
+        return positions;
+    }
+
     virtual void
-    TestGrid(const Matrix2X & /*grid_positions*/) {}
+    TestGrid(const Matrix2X & /*grid_positions*/) = 0;
+
+    virtual std::pair<std::vector<Vector2>, std::vector<Eigen::Vector2i>>
+    GetBuiltMesh() = 0;
+
+    virtual std::pair<std::vector<Vector2>, std::vector<Eigen::Vector2i>>
+    ExtractMesh() = 0;
+
+    static void
+    WriteMesh(
+        const std::vector<Vector2> &vertices,
+        const std::vector<Eigen::Vector2i> &faces,
+        const std::string &filepath) {
+
+        open3d::geometry::LineSet line_set;
+        line_set.points_.reserve(vertices.size());
+        for (const auto &v: vertices) { line_set.points_.emplace_back(v[0], v[1], 0.0); }
+        line_set.lines_ = faces;
+
+        open3d::io::WriteLineSetToPLY(filepath, line_set);
+    }
+
+    cv::Mat
+    VisualizeMesh(
+        const std::vector<Vector2> &vertices,
+        const std::vector<Eigen::Vector2i> &faces,
+        const cv::Mat &img_init) {
+
+        Eigen::Matrix2Xi lines_to_vertices = Eigen::Map<const Eigen::Matrix2Xi>(
+            faces.data()->data(),
+            2,
+            static_cast<long>(faces.size()));
+        Eigen::Matrix2Xi objects_to_lines;
+        erl::geometry::MarchingSquares::SortLinesToObjects(lines_to_vertices, objects_to_lines);
+
+        std::vector<std::vector<cv::Point2i>> contours(objects_to_lines.cols());
+        for (long i = 0; i < objects_to_lines.cols(); ++i) {
+            const Eigen::Vector2i &lines = objects_to_lines.col(i);
+            std::vector<cv::Point2i> &contour = contours[i];
+            contour.reserve(lines[1] - lines[0]);
+            for (long j = lines[0]; j < lines[1]; ++j) {
+                const int k = lines_to_vertices(0, j);
+                const Vector2 &v = vertices[k];
+                Eigen::Vector2i pt = grid_map_info->MeterToPixelForPoint(v);
+                contour.emplace_back(pt[0], pt[1]);
+            }
+        }
+        cv::Mat mat = img_init.clone();
+        cv::polylines(mat, contours, false, cv::Scalar(255, 255, 255), 2);
+        return mat;
+    }
 };

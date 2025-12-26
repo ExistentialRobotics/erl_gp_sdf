@@ -48,7 +48,6 @@ struct TestBayesianHilbertSurfaceMapping3D
     using Super::surf_map;
     using Super::surf_map_setting;
     using Super::test_dt;
-    using Super::test_output_folder;
     using Super::test_success;
     using Super::translation_sensor;
     using Super::vis_setting;
@@ -104,7 +103,7 @@ struct TestBayesianHilbertSurfaceMapping3D
             .SetAxisLabelX("log odd value")
             .SetAxisLabelY("Frequency");
         cv::Mat img = fig.ToCvMat();
-        cv::imwrite(test_output_folder / "gt_surface_points_logodd_hist.png", img);
+        cv::imwrite(options->output_dir / "gt_surface_points_logodd_hist.png", img);
         cv::imshow("log_odd_value histogram (gt pcd)", img);
         cv::waitKey(0);
 
@@ -122,7 +121,7 @@ struct TestBayesianHilbertSurfaceMapping3D
             pcd_surf_points->colors_.push_back(color_map.GetColor((v - min) / (max - min)));
         }
         open3d::io::WritePointCloud(
-            test_output_folder / "gt_surface_points_logodd.ply",
+            options->output_dir / "gt_surface_points_logodd.ply",
             *pcd_surf_points);
         visualizer->Reset();
         visualizer->AddGeometries({pcd_surf_points});
@@ -178,7 +177,7 @@ struct TestBayesianHilbertSurfaceMapping3D
             .SetAxisLabelX("log odd value")
             .SetAxisLabelY("Frequency");
         img = fig.ToCvMat();
-        cv::imwrite(test_output_folder / "local_bhm_surface_points_logodd_hist.png", img);
+        cv::imwrite(options->output_dir / "local_bhm_surface_points_logodd_hist.png", img);
         cv::imshow("log_odd_value histogram (local bhm)", img);
         cv::waitKey(0);
 
@@ -188,7 +187,7 @@ struct TestBayesianHilbertSurfaceMapping3D
             pcd_surf_points->colors_.push_back(color_map.GetColor((v - min) / (max - min)));
         }
         open3d::io::WritePointCloud(
-            test_output_folder / "local_bhm_surface_logodd.ply",
+            options->output_dir / "local_bhm_surface_logodd.ply",
             *pcd_surf_points);
         visualizer->Reset();
         visualizer->AddGeometries({pcd_surf_points});
@@ -209,7 +208,7 @@ struct TestBayesianHilbertSurfaceMapping3D
                 static_cast<double>(max_unused_ray_count - min_unused_ray_count)));
         }
         open3d::io::WritePointCloud(
-            test_output_folder / "local_bhm_surface_unused_ray_count.ply",
+            options->output_dir / "local_bhm_surface_unused_ray_count.ply",
             *pcd_surf_points);
         visualizer->Reset();
         visualizer->AddGeometries({pcd_surf_points});
@@ -270,9 +269,13 @@ struct TestBayesianHilbertSurfaceMapping3D
         }
         visualizer->Show();
 
-        ERL_INFO("Writing point clouds to {}", test_output_folder);
-        open3d::io::WritePointCloud(test_output_folder / "surface_points.ply", *pcd_surf_points);
-        open3d::io::WritePointCloud(test_output_folder / "observed_points.ply", *pcd_obs);
+        std::filesystem::path file = options->output_dir / "surface_points.ply";
+        ERL_INFO("Writing point clouds to {}", file);
+        open3d::io::WritePointCloud(file, *pcd_surf_points);
+
+        file = options->output_dir / "observed_points.ply";
+        ERL_INFO("Writing point clouds to {}", file);
+        open3d::io::WritePointCloud(file, *pcd_obs);
 
         if (surf_map_setting->update_map.method == 2) {
             std::vector<Vector3> vertices;
@@ -280,7 +283,8 @@ struct TestBayesianHilbertSurfaceMapping3D
             surf_map->GetMesh(false, vertices, faces);
             auto mesh = std::make_shared<open3d::geometry::TriangleMesh>();
             Super::ConvertToOpen3dMesh(mesh, vertices, faces);
-            open3d::io::WriteTriangleMesh(test_output_folder / "surface_mesh.ply", *mesh);
+            file = options->output_dir / "surface_mesh.ply";
+            open3d::io::WriteTriangleMesh(file, *mesh);
 
             visualizer->Reset();
             visualizer->AddGeometries({mesh});
@@ -303,7 +307,8 @@ struct TestBayesianHilbertSurfaceMapping3D
                     surf_map->ResetMarchingResults();
                     surf_map->GetMesh(false, vertices, faces);
                     Super::ConvertToOpen3dMesh(mesh, vertices, faces);
-                    open3d::io::WriteTriangleMesh(test_output_folder / "surface_mesh.ply", *mesh);
+                    std::filesystem::path mesh_file = options->output_dir / "surface_mesh_iso.ply";
+                    open3d::io::WriteTriangleMesh(mesh_file, *mesh);
                     vis->UpdateGeometry(mesh);
                     return true;
                 });
@@ -507,7 +512,7 @@ protected:
     }
 
     void
-    TestGrid(const Matrix3X &grid_positions) override {
+    TestGrid(const Matrix3X &grid_points) override {
         const ERL_BLOCK_TIMER_MSG("TestGrid");
 
         VectorX pred_logodds;
@@ -515,7 +520,7 @@ protected:
         Matrix3X pred_gradients;
 
         GetPrediction(
-            grid_positions,
+            grid_points,
             true /*logodd*/,
             true /*compute_free_space*/,
             true /*compute_gradient*/,
@@ -525,21 +530,37 @@ protected:
             pred_in_free_space,
             pred_gradients);
 
-        std::filesystem::path file = test_output_folder / "test_grid_positions.bin";
-        ERL_INFO("Saving test grid positions to {}", file.string());
-        ERL_ASSERT(erl::common::SaveEigenMatrixToBinaryFile<Dtype>(file, grid_positions));
+        std::filesystem::path file = options->output_dir / "test_grid_points.bin";
+        ERL_INFO("Saving test grid points to {}", file.string());
+        ERL_ASSERT(erl::common::SaveEigenMatrixToBinaryFile<Dtype>(file, grid_points));
 
-        file = test_output_folder / "test_grid_logodds.bin";
+        file = options->output_dir / "test_grid_logodds.bin";
         ERL_INFO("Saving test grid logodds to {}", file.string());
         ERL_ASSERT(erl::common::SaveEigenMatrixToBinaryFile<Dtype>(file, pred_logodds));
 
-        file = test_output_folder / "test_grid_in_free_space.bin";
+        file = options->output_dir / "test_grid_in_free_space.bin";
         ERL_INFO("Saving test grid in_free_space to {}", file.string());
         ERL_ASSERT(erl::common::SaveEigenMatrixToBinaryFile<bool>(file, pred_in_free_space));
 
-        file = test_output_folder / "test_grid_gradients.bin";
+        file = options->output_dir / "test_grid_gradients.bin";
         ERL_INFO("Saving test grid gradients to {}", file.string());
         ERL_ASSERT(erl::common::SaveEigenMatrixToBinaryFile<Dtype>(file, pred_gradients));
+    }
+
+    std::pair<std::vector<Vector3>, std::vector<Eigen::Vector3i>>
+    GetBuiltMesh() override {
+        std::pair<std::vector<Vector3>, std::vector<Eigen::Vector3i>> mesh_data;
+        if (surf_map_setting->update_map.method != 2) { return mesh_data; }
+        surf_map->GetMesh(false, mesh_data.first, mesh_data.second);
+        return mesh_data;
+    }
+
+    std::pair<std::vector<Vector3>, std::vector<Eigen::Vector3i>>
+    ExtractMesh() override {
+        std::pair<std::vector<Vector3>, std::vector<Eigen::Vector3i>> mesh_data;
+        if (surf_map_setting->update_map.method != 2) { return mesh_data; }
+        surf_map->GetMesh(options->extract_mesh_res, mesh_data.first, mesh_data.second);
+        return mesh_data;
     }
 };
 

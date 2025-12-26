@@ -69,8 +69,9 @@ struct TestSdfMapping3D : public TestMapping3D<Dtype, erl::gp_sdf::GpSdfMapping<
     using Super::line_set_clusters_map;
     using Super::line_set_surf_normals;
     using Super::line_set_traj;
-    using Super::map_max;
-    using Super::map_min;
+    using Super::map_rotation;
+    using Super::map_size;
+    using Super::map_translation;
     using Super::mapping;
     using Super::mapping_uses_points;
     using Super::max_wp_idx;
@@ -92,7 +93,6 @@ struct TestSdfMapping3D : public TestMapping3D<Dtype, erl::gp_sdf::GpSdfMapping<
     using Super::rotation_sensor;
     using Super::scaling;
     using Super::surf_data_buffer;
-    using Super::test_output_folder;
     using Super::translation_frame;
     using Super::translation_sensor;
     using Super::unused_surf_data_indices;
@@ -103,10 +103,6 @@ struct TestSdfMapping3D : public TestMapping3D<Dtype, erl::gp_sdf::GpSdfMapping<
     using Super::whole_map_ys;
     using Super::wp_idx;
 
-    // bring in base class methods
-
-    using Super::LoadData;
-
     std::shared_ptr<OptionType> options = std::make_shared<OptionType>();
 
     std::shared_ptr<SurfaceMappingSetting> surf_map_setting = nullptr;
@@ -116,7 +112,7 @@ struct TestSdfMapping3D : public TestMapping3D<Dtype, erl::gp_sdf::GpSdfMapping<
 
     // open3d visualization
     std::shared_ptr<open3d::geometry::TriangleMesh> mesh_sdf_sphere = nullptr;
-    bool surf_map_supports_mesh = true;
+    bool surf_map_supports_mesh = false;
 
     // test data
     VectorX sdf_pred_follow;
@@ -158,14 +154,14 @@ protected:
             surf_map_setting->FromYamlFile(options->surf_map_config_file),
             "Failed to load surf_map_config_file: {}",
             options->surf_map_config_file);
-        surf_map_setting->AsYamlFile(test_output_folder / "surf_mapping.yaml");
+        surf_map_setting->AsYamlFile(options->output_dir / "surf_mapping.yaml");
 
         sdf_map_setting = std::make_shared<SdfMappingSetting>();
         ERL_ASSERTM(
             sdf_map_setting->FromYamlFile(options->sdf_map_config_file),
             "Failed to load sdf_map_config_file: {}",
             options->sdf_map_config_file);
-        sdf_map_setting->AsYamlFile(test_output_folder / "sdf_mapping.yaml");
+        sdf_map_setting->AsYamlFile(options->output_dir / "sdf_mapping.yaml");
 
         ERL_INFO("Surface mapping config: {}", options->surf_map_config_file);
         std::cout << surf_map_setting->AsYamlString() << std::endl;
@@ -197,7 +193,7 @@ protected:
         fps_data.setConstant(4, Super::GetNumOfFrames(), 0.0);
 
         try {
-            surf_map->GetMesh(true, mesh_surf_vertices, mesh_surf_faces);
+            surf_map_supports_mesh = surf_map->GetMesh(true, mesh_surf_vertices, mesh_surf_faces);
         } catch (std::exception &e) {
             ERL_WARN("Surface mapping does not support mesh extraction: {}", e.what());
             surf_map_supports_mesh = false;
@@ -327,9 +323,9 @@ protected:
         cv::imshow("sdf_sign_whole_map", img_sdf_sign);
         cv::imshow("surf_mapping_sign_whole_map", img_surf_mapping_sign);
 
-        cv::imwrite(test_output_folder / "sdf_whole_map.png", img_sdf);
-        cv::imwrite(test_output_folder / "sdf_sign_whole_map.png", img_sdf_sign);
-        cv::imwrite(test_output_folder / "surf_mapping_sign_whole_map.png", img_surf_mapping_sign);
+        cv::imwrite(options->output_dir / "sdf_whole_map.png", img_sdf);
+        cv::imwrite(options->output_dir / "sdf_sign_whole_map.png", img_sdf_sign);
+        cv::imwrite(options->output_dir / "surf_mapping_sign_whole_map.png", img_surf_mapping_sign);
 
         cv::waitKey(1);
     }
@@ -511,7 +507,7 @@ protected:
     std::string
     GetBinFileName() override {
         std::string bin_file = fmt::format("sdf_mapping_3d_{}.bin", type_name<Dtype>());
-        bin_file = test_output_folder / bin_file;
+        bin_file = options->output_dir / bin_file;
         return bin_file;
     }
 
@@ -560,40 +556,71 @@ protected:
     }
 
     void
-    TestGrid(const Matrix3X &grid_positions) override {
+    TestGrid(const Matrix3X &grid_points) override {
         VectorX pred_sdf;
         Matrix3X pred_grads;
         Matrix4X pred_vars;
         Matrix6X pred_covars;
         {
             const ERL_BLOCK_TIMER_MSG("sdf_map.Test grid");
-            ERL_ASSERT(GetPrediction(grid_positions, pred_sdf, pred_grads, pred_vars, pred_covars));
+            ERL_ASSERT(GetPrediction(grid_points, pred_sdf, pred_grads, pred_vars, pred_covars));
         }
 
-        std::filesystem::path file = test_output_folder / "test_grid_positions.bin";
-        ERL_INFO("Saving test grid positions to {}", file.string());
-        ERL_ASSERT(erl::common::SaveEigenMatrixToBinaryFile<Dtype>(file, grid_positions));
+        std::filesystem::path file = options->output_dir / "test_grid_points.bin";
+        ERL_INFO("Saving test grid points to {}", file.string());
+        ERL_ASSERT(erl::common::SaveEigenMatrixToBinaryFile<Dtype>(file, grid_points));
 
-        file = test_output_folder / "test_grid_sdf.bin";
+        file = options->output_dir / "test_grid_sdf.bin";
         ERL_INFO("Saving test grid sdf to {}", file.string());
         ERL_ASSERT(erl::common::SaveEigenMatrixToBinaryFile<Dtype>(file, pred_sdf));
 
         if (pred_grads.cols() > 0) {
-            file = test_output_folder / "test_grid_gradients.bin";
+            file = options->output_dir / "test_grid_gradients.bin";
             ERL_INFO("Saving test grid gradients to {}", file.string());
             ERL_ASSERT(erl::common::SaveEigenMatrixToBinaryFile<Dtype>(file, pred_grads));
         }
 
         if (pred_vars.cols() > 0) {
-            file = test_output_folder / "test_grid_variances.bin";
+            file = options->output_dir / "test_grid_variances.bin";
             ERL_INFO("Saving test grid variances to {}", file.string());
             ERL_ASSERT(erl::common::SaveEigenMatrixToBinaryFile<Dtype>(file, pred_vars));
         }
 
         if (pred_covars.cols() > 0) {
-            file = test_output_folder / "test_grid_covariances.bin";
+            file = options->output_dir / "test_grid_covariances.bin";
             ERL_INFO("Saving test grid covariances to {}", file.string());
             ERL_ASSERT(erl::common::SaveEigenMatrixToBinaryFile<Dtype>(file, pred_covars));
         }
+    }
+
+    std::pair<std::vector<Vector3>, std::vector<Eigen::Vector3i>>
+    GetBuiltMesh() override {
+        std::pair<std::vector<Vector3>, std::vector<Eigen::Vector3i>> mesh_data;
+        if (!surf_map_supports_mesh) { return mesh_data; }
+        surf_map->GetMesh(false, mesh_data.first, mesh_data.second);
+        return mesh_data;
+    }
+
+    std::pair<std::vector<Vector3>, std::vector<Eigen::Vector3i>>
+    ExtractMesh() override {
+        std::pair<std::vector<Vector3>, std::vector<Eigen::Vector3i>> mesh_data;
+
+        ERL_INFO("Extracting mesh with resolution {}", options->extract_mesh_res);
+        if (surf_map_supports_mesh) {
+            surf_map->GetMesh(options->extract_mesh_res, mesh_data.first, mesh_data.second);
+        } else {
+            std::vector<Vector3> face_normals;
+            sdf_map->GetMesh(
+                map_size,
+                map_rotation,
+                map_translation,
+                options->extract_mesh_res,
+                0.0f,
+                mesh_data.first,
+                mesh_data.second,
+                face_normals);
+        }
+
+        return mesh_data;
     }
 };
