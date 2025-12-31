@@ -330,7 +330,10 @@ public:
         ShowFinalResults();
 
         if (options->test_grid_at_end) {
-            const Matrix2X grid_points = GenerateTestGrid();
+            const auto [grid_shape, grid_points] = GenerateTestGrid();
+            const auto file = options->output_dir / "test_grid_shape.txt";
+            ERL_INFO("Saving test grid shape to {}", file);
+            erl::common::SaveEigenMatrixToTextFile<int>(file, grid_shape);
             if (grid_points.cols() > 0) {
                 TestGrid(grid_points);
             } else {
@@ -369,7 +372,9 @@ protected:
         PrepareDataset();
         PrepareOutputFolders();
         PrepareVisualization();
-        options->AsYamlFile(options->output_dir / "config.yaml");
+        if (!options->load_mapping_bin) {
+            options->AsYamlFile(options->output_dir / "config.yaml");
+        }
     }
 
     virtual bool
@@ -482,7 +487,7 @@ protected:
         if (options->output_dir.empty()) { options->output_dir = test_output_dir; }
         img_dir = options->output_dir / "images";
         video_path = options->output_dir / "mapping.avi";
-        std::filesystem::create_directory(img_dir);
+        std::filesystem::create_directories(img_dir);
         window_name = test_info->name();
     }
 
@@ -625,7 +630,7 @@ protected:
 
 #pragma endregion
 
-    Matrix2X
+    std::pair<Eigen::Vector2i, Matrix2X>
     GenerateTestGrid() {
         Vector2 max = options->test_grid_size.array() * 0.5f;
         Vector2 min = -max;
@@ -664,7 +669,7 @@ protected:
             "After transform, positions min: [{}], max: [{}]",
             positions.rowwise().minCoeff().transpose(),
             positions.rowwise().maxCoeff().transpose());
-        return positions;
+        return {grid_shape, positions};
     }
 
     virtual void

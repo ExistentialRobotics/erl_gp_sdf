@@ -85,6 +85,8 @@ namespace erl::gp_sdf {
         SdfGaussianProcess &
         operator=(SdfGaussianProcess &&other) noexcept;
 
+        ~SdfGaussianProcess() = default;
+
         void
         Activate();
 

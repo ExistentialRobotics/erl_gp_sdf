@@ -328,20 +328,24 @@ protected:
             surf_map_setting->FromYamlFile(options->surf_map_config_file),
             "Failed to load surf_map_config_file: {}",
             options->surf_map_config_file);
-        surf_map_setting->AsYamlFile(options->output_dir / "surf_map.yaml");
 
         sdf_map_setting = std::make_shared<SdfMapSetting>();
         ERL_ASSERTM(
             sdf_map_setting->FromYamlFile(options->sdf_map_config_file),
             "Failed to load sdf_map_config_file: {}",
             options->sdf_map_config_file);
-        sdf_map_setting->AsYamlFile(options->output_dir / "sdf_map.yaml");
 
-        ERL_INFO("Surface mapping config: {}", options->surf_map_config_file);
-        std::cout << surf_map_setting->AsYamlString() << std::endl;
+        if (!options->load_mapping_bin) {
+            std::filesystem::create_directories(options->output_dir);
+            surf_map_setting->AsYamlFile(options->output_dir / "surf_map.yaml");
+            sdf_map_setting->AsYamlFile(options->output_dir / "sdf_map.yaml");
 
-        ERL_INFO("SDF mapping config: {}", options->sdf_map_config_file);
-        std::cout << sdf_map_setting->AsYamlString() << std::endl;
+            ERL_INFO("Surface mapping config: {}", options->surf_map_config_file);
+            std::cout << surf_map_setting->AsYamlString() << std::endl;
+
+            ERL_INFO("SDF mapping config: {}", options->sdf_map_config_file);
+            std::cout << sdf_map_setting->AsYamlString() << std::endl;
+        }
 
         // create mappings
         surf_map = std::make_shared<SurfMap>(surf_map_setting);

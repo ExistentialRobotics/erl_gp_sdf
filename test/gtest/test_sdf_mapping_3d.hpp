@@ -154,20 +154,24 @@ protected:
             surf_map_setting->FromYamlFile(options->surf_map_config_file),
             "Failed to load surf_map_config_file: {}",
             options->surf_map_config_file);
-        surf_map_setting->AsYamlFile(options->output_dir / "surf_mapping.yaml");
 
         sdf_map_setting = std::make_shared<SdfMappingSetting>();
         ERL_ASSERTM(
             sdf_map_setting->FromYamlFile(options->sdf_map_config_file),
             "Failed to load sdf_map_config_file: {}",
             options->sdf_map_config_file);
-        sdf_map_setting->AsYamlFile(options->output_dir / "sdf_mapping.yaml");
 
-        ERL_INFO("Surface mapping config: {}", options->surf_map_config_file);
-        std::cout << surf_map_setting->AsYamlString() << std::endl;
+        if (!options->load_mapping_bin) {
+            std::filesystem::create_directories(options->output_dir);
+            surf_map_setting->AsYamlFile(options->output_dir / "surf_mapping.yaml");
+            sdf_map_setting->AsYamlFile(options->output_dir / "sdf_mapping.yaml");
 
-        ERL_INFO("SDF mapping config: {}", options->sdf_map_config_file);
-        std::cout << sdf_map_setting->AsYamlString() << std::endl;
+            ERL_INFO("Surface mapping config: {}", options->surf_map_config_file);
+            std::cout << surf_map_setting->AsYamlString() << std::endl;
+
+            ERL_INFO("SDF mapping config: {}", options->sdf_map_config_file);
+            std::cout << sdf_map_setting->AsYamlString() << std::endl;
+        }
 
         // create mappings
         surf_map = std::make_shared<SurfaceMapping>(surf_map_setting);
@@ -288,10 +292,11 @@ protected:
             sdf_pred_whole_map.maxCoeff());
 
         cv::Mat img_sdf =
-            ConvertVectorToImage(whole_map_xs, whole_map_ys, sdf_pred_whole_map, true);
+            ConvertVectorToImage<Dtype>(whole_map_xs, whole_map_ys, sdf_pred_whole_map, true);
 
         VectorX signs = (sdf_pred_whole_map.array() >= 0.0f).template cast<Dtype>();
-        cv::Mat img_sdf_sign = ConvertVectorToImage(whole_map_xs, whole_map_ys, signs, false);
+        cv::Mat img_sdf_sign =
+            ConvertVectorToImage<Dtype>(whole_map_xs, whole_map_ys, signs, false, 0, 1);
 
         ConvertToVoxelGrid(img_sdf, positions_test_whole_map, voxel_grid_pred);
         visualizer->GetVisualizer()->UpdateGeometry(voxel_grid_pred);
@@ -302,7 +307,9 @@ protected:
             whole_map_xs,
             whole_map_ys,
             in_free_space.cast<Dtype>(),
-            false);
+            false,
+            0,
+            1);
 
         Dtype resize_scale = options->image_resize_scale;
         resize_scale =

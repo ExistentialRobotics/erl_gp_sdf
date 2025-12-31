@@ -1438,7 +1438,7 @@ namespace erl::gp_sdf {
                     continue;
                 }
                 if (use_smallest) {
-                    indexed_metrics.emplace_back(cnt, gp_idx, fs(0, cnt));  // distance
+                    indexed_metrics.emplace_back(cnt, gp_idx, std::abs(fs(0, cnt)));  // distance
                     ++cnt;
                     continue;
                 }

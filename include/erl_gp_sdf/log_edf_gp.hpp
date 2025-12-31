@@ -20,17 +20,25 @@ namespace erl::gp_sdf {
         struct Setting : public common::Yamlable<Setting, typename Super::Setting> {
             Dtype log_lambda = 40.0f;         // log-edf parameter
             Dtype duplicate_epsilon = 1e-5f;  // epsilon for duplicate detection
+            bool use_exp_bias = false;  // whether to use a bias term in exp for numerical stability
 
             ERL_REFLECT_SCHEMA(
                 Setting,
                 ERL_REFLECT_MEMBER(Setting, log_lambda),
-                ERL_REFLECT_MEMBER(Setting, duplicate_epsilon));
+                ERL_REFLECT_MEMBER(Setting, duplicate_epsilon),
+                ERL_REFLECT_MEMBER(Setting, use_exp_bias));
+
+            bool
+            PostDeserialization() override;
         };
 
-        struct TestResult : Super::TestResult {
+        struct TestResult final : Super::TestResult {
+            Dtype exp_bias = 0.0;
+
             TestResult(
                 const LogEdfGaussianProcess *gp,
                 const Eigen::Ref<const MatrixX> &mat_x_test,
+                Dtype exp_bias,
                 bool will_predict_gradient);
 
             void
@@ -85,16 +93,19 @@ namespace erl::gp_sdf {
 
     protected:
         std::shared_ptr<Setting> m_setting_ = nullptr;
+        bool m_use_matern32_ = false;
 
     public:
         explicit LogEdfGaussianProcess(std::shared_ptr<Setting> setting);
 
         LogEdfGaussianProcess(const LogEdfGaussianProcess &other) = default;
-        LogEdfGaussianProcess(LogEdfGaussianProcess &&other) = default;
+        LogEdfGaussianProcess(LogEdfGaussianProcess &&other) noexcept = default;
         LogEdfGaussianProcess &
         operator=(const LogEdfGaussianProcess &other) = default;
         LogEdfGaussianProcess &
-        operator=(LogEdfGaussianProcess &&other) = default;
+        operator=(LogEdfGaussianProcess &&other) noexcept = default;
+
+        ~LogEdfGaussianProcess() override = default;
 
         [[nodiscard]] std::size_t
         GetMemoryUsage() const override;
@@ -123,6 +134,7 @@ namespace erl::gp_sdf {
 
             // We are going to modify the buffer. Lock it here to prevent buffer swaps.
             auto lock = this->GetBufferLock();
+            (void) lock;
 
             this->Reset(max_num_samples, Dim, load_normals ? Dim + 1 : 1);
             if (!data_sorted) {

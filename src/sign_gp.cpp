@@ -9,7 +9,7 @@ namespace erl::gp_sdf {
         const SignGaussianProcess *gp,
         const Eigen::Ref<const MatrixX> &mat_x_test,
         bool will_predict_gradient)
-        : Super::TestResult(gp, mat_x_test, will_predict_gradient) {}
+        : Super::TestResult(gp, mat_x_test, 0.0, will_predict_gradient) {}
 
     template<typename Dtype>
     void

@@ -313,9 +313,10 @@ namespace erl::gp_sdf {
         // compute edf
         Dtype edf = 0.0f;
         Dtype &sdf = f[0];
-        auto edf_result = *std::reinterpret_pointer_cast<typename EdfGp::TestResult>(
+        using Result = typename EdfGp::TestResult;
+        auto result = std::reinterpret_pointer_cast<Result>(
             edf_gp->Test(test_position, compute_gradient || use_normal_gp));
-        edf_result.GetMean(0, 0, edf);
+        result->GetMean(0, 0, edf);
         if (!std::isfinite(edf)) {  // invalid sdf
             ERL_DEBUG("edf is not finite at position [{}].", test_position.transpose());
             var[0] = 1e6f;  // set a large variance if sdf is invalid
@@ -346,12 +347,12 @@ namespace erl::gp_sdf {
             }
             case SignMethod::kNormalGp: {
                 auto normal = f.template tail<Dim>();
-                if (!edf_result.template GetGradientD<Dim>(0, 0, sdf_gradient.data())) {
+                if (!result->template GetGradientD<Dim>(0, 0, sdf_gradient.data())) {
                     ERL_DEBUG("Failed to predict gradient.");
                     var[0] = 1e6f;
                     return false;
                 }
-                for (long i = 1; i <= Dim; ++i) { edf_result.GetMean(0, i, normal[i - 1]); }
+                for (long i = 1; i <= Dim; ++i) { result->GetMean(0, i, normal[i - 1]); }
                 sign = sdf_gradient.dot(normal);
                 sdf_gradient_computed = true;
                 break;
@@ -371,7 +372,7 @@ namespace erl::gp_sdf {
 
         // compute sdf gradient
         if (compute_gradient && !sdf_gradient_computed) {
-            if (!edf_result.template GetGradientD<Dim>(0, 0, sdf_gradient.data())) {
+            if (!result->template GetGradientD<Dim>(0, 0, sdf_gradient.data())) {
                 ERL_DEBUG("Failed to predict gradient.");
                 var[0] = 1e6f;
                 return false;
@@ -386,9 +387,9 @@ namespace erl::gp_sdf {
         // compute covariance if compute_covariance is true
         Dtype &var_sdf = var[0];
         if (use_gp_covariance) {
-            edf_result.GetMeanVariance(0, var_sdf);
-            if (compute_gradient_variance) { edf_result.GetGradientVariance(0, var.data() + 1); }
-            if (compute_covariance) { edf_result.GetCovariance(0, covariance.data()); }
+            result->GetMeanVariance(0, var_sdf);
+            if (compute_gradient_variance) { result->GetGradientVariance(0, var.data() + 1); }
+            if (compute_covariance) { result->GetCovariance(0, covariance.data()); }
         } else {
             EstimateVariance(
                 test_position,

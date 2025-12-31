@@ -402,8 +402,11 @@ public:
         }
 
         if (options->test_grid_at_end) {
-            const Matrix3X grid_points = GenerateTestGrid();
+            const auto [grid_shape, grid_points] = GenerateTestGrid();
             if (grid_points.cols() > 0) {
+                const auto file = options->output_dir / "test_grid_shape.txt";
+                ERL_INFO("Saving test grid shape to {}", file);
+                erl::common::SaveEigenMatrixToTextFile<int>(file, grid_shape);
                 TestGrid(grid_points);
             } else {
                 ERL_WARN("No positions to test the grid at the end.");
@@ -430,7 +433,9 @@ protected:
         PrepareDataset();
         PrepareOutputFolders();
         PrepareVisualizer();
-        options->AsYamlFile(options->output_dir / "config.yaml");
+        if (!options->load_mapping_bin) {
+            options->AsYamlFile(options->output_dir / "config.yaml");
+        }
     }
 
 #pragma region dataset_prep
@@ -712,7 +717,7 @@ protected:
         GTEST_PREPARE_OUTPUT_DIR();
         if (options->output_dir.empty()) { options->output_dir = test_output_dir; }
         img_dir = options->output_dir / "images";
-        std::filesystem::create_directory(img_dir);
+        std::filesystem::create_directories(img_dir);
         vis_setting->window_name = test_info->name();
     }
 
@@ -1073,8 +1078,9 @@ protected:
         const cv::Scalar kTextColor = {255, 255, 255, 255};
 
         Dtype resize_scale = options->image_resize_scale;
-        resize_scale = std::min(resize_scale, 1000.0f / static_cast<Dtype>(ranges_img.cols));
-        resize_scale = std::min(resize_scale, 1000.0f / static_cast<Dtype>(ranges_img.rows));
+        resize_scale = std::min(resize_scale, 1280.0f / static_cast<Dtype>(ranges_img.cols));
+        resize_scale = std::min(resize_scale, 1280.0f / static_cast<Dtype>(ranges_img.rows));
+        resize_scale = std::max<Dtype>(resize_scale, 1.0f);
         cv::Mat ranges_img_resize;
         cv::resize(ranges_img, ranges_img_resize, cv::Size(), resize_scale, resize_scale);
         int y = 30;
@@ -1382,7 +1388,7 @@ protected:
 
 #pragma endregion
 
-    Matrix3X
+    std::pair<Eigen::Vector3i, Matrix3X>
     GenerateTestGrid() {
         Vector3 max = options->test_grid_size.array() * 0.5f;
         const Vector3 min = -max;
@@ -1400,11 +1406,14 @@ protected:
             grid_shape.transpose(),
             min.transpose(),
             max.transpose());
-        Matrix3X positions = erl::common::CalculateMeterCoordinates<Dtype, int, 3, true, true>(
-            grid_shape,
-            min,
-            max,
-            resolution);
+        constexpr bool row_major = false;
+        constexpr bool grid_coords = true;
+        Matrix3X positions =
+            erl::common::CalculateMeterCoordinates<Dtype, int, 3, row_major, grid_coords>(
+                grid_shape,
+                min,
+                max,
+                resolution);
         ERL_INFO(
             "Grid rotation:\n{}\nGrid center: [{}]",
             options->test_grid_rotation,
@@ -1418,7 +1427,7 @@ protected:
             "After transform, positions min: [{}], max: [{}]",
             positions.rowwise().minCoeff().transpose(),
             positions.rowwise().maxCoeff().transpose());
-        return positions;
+        return {grid_shape, positions};
     }
 
     virtual void
