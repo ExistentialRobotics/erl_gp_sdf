@@ -161,18 +161,6 @@ protected:
             "Failed to load sdf_map_config_file: {}",
             options->sdf_map_config_file);
 
-        if (!options->load_mapping_bin) {
-            std::filesystem::create_directories(options->output_dir);
-            surf_map_setting->AsYamlFile(options->output_dir / "surf_mapping.yaml");
-            sdf_map_setting->AsYamlFile(options->output_dir / "sdf_mapping.yaml");
-
-            ERL_INFO("Surface mapping config: {}", options->surf_map_config_file);
-            std::cout << surf_map_setting->AsYamlString() << std::endl;
-
-            ERL_INFO("SDF mapping config: {}", options->sdf_map_config_file);
-            std::cout << sdf_map_setting->AsYamlString() << std::endl;
-        }
-
         // create mappings
         surf_map = std::make_shared<SurfaceMapping>(surf_map_setting);
         sdf_map = std::make_shared<SdfMapping>(sdf_map_setting, surf_map);
@@ -184,6 +172,18 @@ protected:
 
         // base init
         Super::Init();
+
+        // save config
+        if (!options->load_mapping_bin) {
+            surf_map_setting->AsYamlFile(options->output_dir / "surf_mapping.yaml");
+            sdf_map_setting->AsYamlFile(options->output_dir / "sdf_mapping.yaml");
+
+            ERL_INFO("Surface mapping config: {}", options->surf_map_config_file);
+            std::cout << surf_map_setting->AsYamlString() << std::endl;
+
+            ERL_INFO("SDF mapping config: {}", options->sdf_map_config_file);
+            std::cout << sdf_map_setting->AsYamlString() << std::endl;
+        }
 
         // other
         sdf_pred_follow.resize(positions_test_follow_org.cols());
@@ -396,6 +396,8 @@ protected:
 
     void
     UpdatePredictionAtPosition() override {
+        const ERL_BLOCK_TIMER_MSG("UpdatePredictionAtPosition");
+
         position_test[0] = vis_setting->x;
         position_test[1] = vis_setting->y;
         position_test[2] = vis_setting->z;
@@ -429,7 +431,8 @@ protected:
             pcd_cluster_samples->Clear();
             auto &buf = gp->edf_gp->GetTrainBuffer();
             for (long i = 0; i < buf.num_samples; ++i) {
-                pcd_cluster_samples->points_.emplace_back(buf.x.col(i).template cast<double>());
+                Eigen::Vector3d p = buf.x.col(i).template cast<double>() / scaling;
+                pcd_cluster_samples->points_.emplace_back(p);
             }
             pcd_cluster_samples->PaintUniformColor({1.0, 0.5, 0.0});  // orange
             vis->UpdateGeometry(pcd_cluster_samples);
@@ -551,14 +554,15 @@ protected:
 
     bool
     UpdateMap() override {
-        ERL_BLOCK_TIMER_MSG_TIME("sdf_map.Update", sdf_map_update_dt);
-
         surf_map_updated = UpdateSurfaceMap();
         ERL_WARN_COND(!surf_map_updated, "Sdf mapping update failed");
         if (!surf_map_updated) { return false; }
 
-        const double time_budget_us = 1e6 / sdf_map_setting->update_hz;  // us
-        sdf_map_updated = sdf_map->UpdateGpSdf(time_budget_us - surf_map_update_dt * 1000);
+        {
+            const ERL_BLOCK_TIMER_MSG_TIME("sdf_map.Update", sdf_map_update_dt);
+            const double time_budget_us = 1e6 / sdf_map_setting->update_hz;  // us
+            sdf_map_updated = sdf_map->UpdateGpSdf(time_budget_us - surf_map_update_dt * 1000);
+        }
         return sdf_map_updated;
     }
 

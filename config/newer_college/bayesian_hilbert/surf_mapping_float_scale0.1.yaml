@@ -1,0 +1,47 @@
+__base__: ../../common/bayesian_hilbert_surf_mapping_float.yaml
+local_bhm:
+    bhm:
+        min_distance: 0.06
+        max_distance: 4.0
+        sampling_area_scale: 3
+        free_points_per_meter: 5.5
+        init_mu: 5.0
+        sparse_zero_threshold: 0.001
+    kernel_type: erl::covariance::RadialBiasFunction<float, 3>
+    kernel:
+        x_dim: 3
+        scale: 0.012
+    min_dataset_size: 50
+    min_dataset_hit_size: 20
+    max_dataset_size: 200
+    hit_point_buffer_size: 512
+    ray_buffer_size: 2048
+    surface_grid_size: 7
+ray_selector:
+    azimuth_min: -3.1415926535897931
+    azimuth_max: 3.1415926535897931
+    elevation_min: -0.7853981633974483
+    elevation_max: 0.78539816339744830
+    num_azimuth_angles: 1024
+    num_elevation_angles: 128
+    transform:
+        - [ 1, 0, 0, 0 ]
+        - [ 0, 1, 0, 0 ]
+        - [ 0, 0, 1, 0 ]
+tree:
+    tree_depth: 10
+    resolution: 0.07
+    log_odd_min: -10
+    log_odd_max: 100
+    log_odd_hit: 0.85
+    log_odd_miss: -0.2
+    log_odd_occ_threshold: 25
+update_map:
+    method: 2
+    max_update_dist: 2.3
+    max_num_bhm: 1000
+    max_num_voxels: 20000
+bhm_depth: 9
+scaling: 0.1
+hinged_grid_size: 9
+bhm_test_margin: 0.04

@@ -43,16 +43,34 @@ ERL_REFLECT_ENUM_SCHEMA(
 ERL_PARSE_ENUM(DataSetType, 4);
 
 template<typename Dtype>
+struct GridDef : public erl::common::Yamlable<GridDef<Dtype>> {
+    using Vector3 = Eigen::Vector3<Dtype>;
+    using Vector4 = Eigen::Vector4<Dtype>;
+
+    Vector3 size = Vector3::Zero();           // grid size, 0 means auto
+    Vector3 center = Vector3::Zero();         // grid center, 0 means auto
+    Vector4 rotation = {1.0, 0.0, 0.0, 0.0};  // grid rotation (quaternion: w,x,y,z)
+
+    ERL_REFLECT_SCHEMA(
+        GridDef,
+        ERL_REFLECT_MEMBER(GridDef, size),
+        ERL_REFLECT_MEMBER(GridDef, center),
+        ERL_REFLECT_MEMBER(GridDef, rotation));
+};
+
+template<typename Dtype>
 struct OptionsForTestMapping3D : public erl::common::Yamlable<OptionsForTestMapping3D<Dtype>> {
     inline static const std::filesystem::path kProjectRootDir = ERL_GP_SDF_ROOT_DIR;
     inline static const std::filesystem::path kDataDir = kProjectRootDir / "data";
     inline static const std::filesystem::path kConfigDir = kProjectRootDir / "config";
 
     using Vector3 = Eigen::Vector3<Dtype>;
+    using Vector4 = Eigen::Vector4<Dtype>;
     using Matrix3 = Eigen::Matrix3<Dtype>;
 
     uint64_t random_seed = 0;
     std::filesystem::path output_dir;
+    bool add_datetime_to_output_dir = true;
     DataSetType dataset_type = DataSetType::CowAndLady;
     std::string cow_and_lady_dir;
     std::string newer_college_dir;
@@ -73,7 +91,7 @@ struct OptionsForTestMapping3D : public erl::common::Yamlable<OptionsForTestMapp
     Eigen::VectorXl scan_stride;          // linear scan stride or per axis scan stride
     bool random_scan_downsample = false;  // use random downsample the scan points
     long vis_stride = 1;                  // visualization stride
-    std::size_t pcd_stride = 10;          // stride of pcd for visualization
+    long pcd_stride = 10;                 // stride of pcd for visualization
     std::vector<std::string> show_geometries = {
         "all",
         "-pcd_obs",
@@ -81,29 +99,28 @@ struct OptionsForTestMapping3D : public erl::common::Yamlable<OptionsForTestMapp
         "-line_set_surf_normals",
         "-line_set_clusters",
     };
-    Dtype image_resize_scale = 10;                     // image resize scale
-    Dtype surf_normal_scale = 0.25;                    // surface normal visualization scale
-    long test_batch_size = 200000;                     // test batch size
-    Dtype test_res_grid = 0.05;                        // test resolution for the grid
-    bool test_grid_from_dataset = true;                // test the grid from the dataset
-    Vector3 test_grid_size = Vector3::Zero();          // test grid size, 0 means auto
-    Vector3 test_grid_center = Vector3::Zero();        // test grid center, 0 means auto
-    Matrix3 test_grid_rotation = Matrix3::Identity();  // test grid rotation
-    bool test_grid_at_end = false;                     // test the grid at the end
-    Dtype test_res_whole_map = 0.02;                   // test resolution for the whole map
-    Dtype test_whole_map_x_min = 0.0f;                 // x min for testing of the whole map
-    Dtype test_whole_map_x_max = 0.0f;                 // x max for testing of the whole map
-    Dtype test_whole_map_y_min = 0.0f;                 // y min for testing of the whole map
-    Dtype test_whole_map_y_max = 0.0f;                 // y max for testing of the whole map
-    Dtype test_whole_map_z = 0.0;                      // test z for the whole map
-    bool test_whole_map_at_end = false;                // test the whole map at the end
-    Dtype test_res_follow_map = 0.02;                  // test resolution for the follow map
-    long test_follow_map_xs = 150;                     // num of x for testing of the follow map
-    long test_follow_map_ys = 100;                     // num of y for testing of the follow map
-    bool test_io = false;                              // test serialization and deserialization
-    bool extract_mesh = false;                         // extract mesh after mapping
-    Dtype extract_mesh_res = 0.03;                     // resolution for mesh extraction
-    bool save_built_mesh = true;                       // save the built mesh during mapping
+    Dtype image_resize_scale = 10;        // image resize scale
+    Dtype surf_normal_scale = 0.25;       // surface normal visualization scale
+    long test_batch_size = 200000;        // test batch size
+    Dtype test_res_grid = 0.05;           // test resolution for the grid
+    GridDef<Dtype> test_grid_def;         // test grid definition
+    bool test_grid_from_dataset = true;   // test the grid from the dataset (overwrite CLI def)
+    std::string test_grid_def_yaml_file;  // test grid definition file (overwrite other grid def)
+    bool test_grid_at_end = false;        // test the grid at the end
+    Dtype test_res_whole_map = 0.02;      // test resolution for the whole map
+    Dtype test_whole_map_x_min = 0.0f;    // x min for testing of the whole map
+    Dtype test_whole_map_x_max = 0.0f;    // x max for testing of the whole map
+    Dtype test_whole_map_y_min = 0.0f;    // y min for testing of the whole map
+    Dtype test_whole_map_y_max = 0.0f;    // y max for testing of the whole map
+    Dtype test_whole_map_z = 0.0;         // test z for the whole map
+    bool test_whole_map_at_end = false;   // test the whole map at the end
+    Dtype test_res_follow_map = 0.02;     // test resolution for the follow map
+    long test_follow_map_xs = 150;        // num of x for testing of the follow map
+    long test_follow_map_ys = 100;        // num of y for testing of the follow map
+    bool test_io = false;                 // test serialization and deserialization
+    bool extract_mesh = false;            // extract mesh after mapping
+    Dtype extract_mesh_res = 0.03;        // resolution for mesh extraction
+    bool save_built_mesh = true;          // save the built mesh during mapping
     bool save_images = false;
     bool hold = false;
 
@@ -114,6 +131,7 @@ struct OptionsForTestMapping3D : public erl::common::Yamlable<OptionsForTestMapp
         OptionsForTestMapping3D,
         ERL_REFLECT_MEMBER(OptionsForTestMapping3D, random_seed),
         ERL_REFLECT_MEMBER(OptionsForTestMapping3D, output_dir),
+        ERL_REFLECT_MEMBER(OptionsForTestMapping3D, add_datetime_to_output_dir),
         ERL_REFLECT_MEMBER(OptionsForTestMapping3D, dataset_type),
         ERL_REFLECT_MEMBER(OptionsForTestMapping3D, cow_and_lady_dir),
         ERL_REFLECT_MEMBER(OptionsForTestMapping3D, newer_college_dir),
@@ -139,10 +157,9 @@ struct OptionsForTestMapping3D : public erl::common::Yamlable<OptionsForTestMapp
         ERL_REFLECT_MEMBER(OptionsForTestMapping3D, surf_normal_scale),
         ERL_REFLECT_MEMBER(OptionsForTestMapping3D, test_batch_size),
         ERL_REFLECT_MEMBER(OptionsForTestMapping3D, test_res_grid),
+        ERL_REFLECT_MEMBER(OptionsForTestMapping3D, test_grid_def),
         ERL_REFLECT_MEMBER(OptionsForTestMapping3D, test_grid_from_dataset),
-        ERL_REFLECT_MEMBER(OptionsForTestMapping3D, test_grid_size),
-        ERL_REFLECT_MEMBER(OptionsForTestMapping3D, test_grid_center),
-        ERL_REFLECT_MEMBER(OptionsForTestMapping3D, test_grid_rotation),
+        ERL_REFLECT_MEMBER(OptionsForTestMapping3D, test_grid_def_yaml_file),
         ERL_REFLECT_MEMBER(OptionsForTestMapping3D, test_grid_at_end),
         ERL_REFLECT_MEMBER(OptionsForTestMapping3D, test_res_whole_map),
         ERL_REFLECT_MEMBER(OptionsForTestMapping3D, test_whole_map_x_min),
@@ -263,6 +280,9 @@ struct TestMapping3D {
     bool raw_data_is_row_major = false;
     MatrixX frame_ranges;
     Matrix3X frame_points;
+    bool frame_points_in_sensor_frame = true;
+    Dtype vis_range_min = 0.0f;
+    Dtype vis_range_max = std::numeric_limits<Dtype>::max();
 
     // sensor
 
@@ -376,14 +396,15 @@ public:
             visualizer->SetViewStatus(options->o3d_view_status_file);
         }
 
+        int wait_time_seconds = -1;
+        if (options->hold) { wait_time_seconds = 5; }
         if (options->load_mapping_bin) {
             ReadMappingBin(*mapping, options->mapping_bin_file);
             animation_ended = true;
-            visualizer->Show();
+            visualizer->Show(wait_time_seconds);
         } else {
             if (options->test_io) { TestIo(); }
-            visualizer->Show();
-            if (options->test_io) { TestIo(); }
+            visualizer->Show(wait_time_seconds);
 
             erl::common::SaveEigenMatrixToTextFile<double>(
                 options->output_dir / "fps.csv",
@@ -466,13 +487,13 @@ protected:
             gt_surface_points.col(i) = pcd->points_[i].cast<Dtype>();
         }
         // test data
-        map_min = CowAndLady::kSceneBoundingBoxMin.cast<Dtype>();
-        map_max = CowAndLady::kSceneBoundingBoxMax.cast<Dtype>();
+        map_min = CowAndLady::kSceneBoundingBox1Min.cast<Dtype>();
+        map_max = CowAndLady::kSceneBoundingBox1Max.cast<Dtype>();
         map_size = map_max - map_min;
         // test grid
         if (options->test_grid_from_dataset) {
-            options->test_grid_size = map_size;
-            options->test_grid_center = (map_min + map_max) * 0.5f;
+            options->test_grid_def.size = map_size;
+            options->test_grid_def.center = (map_min + map_max) * 0.5f;
         }
     }
 
@@ -528,8 +549,8 @@ protected:
         map_max = mesh->GetMaxBound().template cast<Dtype>();
         map_size = map_max - map_min;
         if (options->test_grid_from_dataset) {
-            options->test_grid_size = map_size;
-            options->test_grid_center = (map_min + map_max) * 0.5f;
+            options->test_grid_def.size = map_size;
+            options->test_grid_def.center = (map_min + map_max) * 0.5f;
         }
     }
 
@@ -562,15 +583,9 @@ protected:
             gt_surface_points.col(i) = pcd->points_[i].cast<Dtype>();
         }
         // test data
-        Eigen::Matrix3d box_rotation;
-        Eigen::Vector3d box_translation;
-        Eigen::Vector3d box_size;
-        erl::geometry::GetOrientedBoundingBoxWithAxisUp(
-            newer_college->GetGroundTruthMesh()->GetMinimalOrientedBoundingBox(),
-            2,
-            box_translation,
-            box_rotation,
-            box_size);
+        const Eigen::Matrix3d &box_rotation = NewerCollege::kOrientedBoundingBoxRotation;
+        const Eigen::Vector3d &box_translation = NewerCollege::kOrientedBoundingBoxTranslation;
+        const Eigen::Vector3d &box_size = NewerCollege::kOrientedBoundingBoxSize;
         map_size = box_size.cast<Dtype>();
         map_rotation = box_rotation.cast<Dtype>();
         map_translation = box_translation.cast<Dtype>();
@@ -585,9 +600,9 @@ protected:
         map_max = map_size / 2;
         map_min = -map_max;
         if (options->test_grid_from_dataset) {
-            options->test_grid_size = map_size;
-            options->test_grid_center = map_translation;
-            options->test_grid_rotation = map_rotation;
+            options->test_grid_def.size = map_size;
+            options->test_grid_def.center = map_translation;
+            options->test_grid_def.rotation = Eigen::Quaternion<Dtype>(map_rotation).coeffs();
         }
     }
 
@@ -623,8 +638,8 @@ protected:
         map_max = replica_rgbd->GetMapMax().cast<Dtype>();
         map_size = map_max - map_min;
         if (options->test_grid_from_dataset) {
-            options->test_grid_size = map_size;
-            options->test_grid_center = (map_min + map_max) * 0.5f;
+            options->test_grid_def.size = map_size;
+            options->test_grid_def.center = (map_min + map_max) * 0.5f;
         }
     }
 
@@ -650,6 +665,14 @@ protected:
                 break;
             default:
                 ERL_FATAL("Unsupported dataset type.");
+        }
+
+        if (!options->test_grid_def_yaml_file.empty()) {
+            ASSERT_TRUE(options->test_grid_def.FromYamlFile(options->test_grid_def_yaml_file));
+            ERL_INFO(
+                "Test grid definition loaded from file {}: \n{}",
+                options->test_grid_def_yaml_file,
+                options->test_grid_def.AsYamlString());
         }
 
         wp_idx = std::max(options->start_wp_idx, 0l);
@@ -716,6 +739,14 @@ protected:
     PrepareOutputFolders() {
         GTEST_PREPARE_OUTPUT_DIR();
         if (options->output_dir.empty()) { options->output_dir = test_output_dir; }
+        std::filesystem::create_directories(options->output_dir);
+        if (options->add_datetime_to_output_dir) {
+            const auto latest_dir = options->output_dir / "latest";
+            options->output_dir /= erl::common::Logging::GetTimeStamp();
+            options->add_datetime_to_output_dir = false;  // to avoid adding multiple times
+            if (std::filesystem::exists(latest_dir)) { std::filesystem::remove(latest_dir); }
+            std::filesystem::create_symlink(options->output_dir, latest_dir);
+        }
         img_dir = options->output_dir / "images";
         std::filesystem::create_directories(img_dir);
         vis_setting->window_name = test_info->name();
@@ -730,9 +761,15 @@ protected:
         vis_setting->mesh_show_back_face = false;
         vis_setting->translate_step =
             options->dataset_type == DataSetType::NewerCollege ? 0.1 : 0.01;
-        vis_setting->x = (options->test_whole_map_x_min + options->test_whole_map_x_max) / 2;
-        vis_setting->y = (options->test_whole_map_y_min + options->test_whole_map_y_max) / 2;
-        vis_setting->z = options->test_whole_map_z;
+        if (options->test_whole_map_at_end) {
+            vis_setting->x = (options->test_whole_map_x_min + options->test_whole_map_x_max) / 2;
+            vis_setting->y = (options->test_whole_map_y_min + options->test_whole_map_y_max) / 2;
+            vis_setting->z = options->test_whole_map_z;
+        } else {
+            vis_setting->x = options->test_grid_def.center[0];
+            vis_setting->y = options->test_grid_def.center[1];
+            vis_setting->z = options->test_grid_def.center[2];
+        }
         visualizer = std::make_shared<Open3dVisualizerWrapper>(vis_setting);
 
         switch (options->dataset_type) {
@@ -1103,12 +1140,21 @@ protected:
         if (std::find(geometries.begin(), geometries.end(), pcd_obs) != geometries.end()) {
             pcd_obs->points_.clear();
             pcd_obs->colors_.clear();
-            const auto &hit_points = range_sensor_frame->GetHitPointsWorld();
+            const auto &hit_points = frame_points;
             const auto n_points =
-                (hit_points.size() + options->pcd_stride - 1) / options->pcd_stride;
+                (hit_points.cols() + options->pcd_stride - 1) / options->pcd_stride;
             pcd_obs->points_.reserve(n_points);
-            for (std::size_t i = 0; i < hit_points.size(); i += options->pcd_stride) {
-                pcd_obs->points_.emplace_back(hit_points[i].template cast<double>());
+            for (long i = 0; i < hit_points.cols(); i += options->pcd_stride) {
+                Vector3 point = hit_points.col(i);
+                if (frame_points_in_sensor_frame) {
+                    const Dtype dist = point.norm() * scaling;
+                    if (dist < vis_range_min || dist > vis_range_max) { continue; }
+                    point = rotation_frame * point + translation_frame;
+                } else {
+                    const Dtype dist = (point - translation_sensor).norm() * scaling;
+                    if (dist < vis_range_min || dist > vis_range_max) { continue; }
+                }
+                pcd_obs->points_.emplace_back(point.template cast<double>());
             }
             pcd_obs->PaintUniformColor({0.0, 1.0, 0.0});  // green
             visualizer->GetVisualizer()->UpdateGeometry(pcd_obs);
@@ -1191,10 +1237,11 @@ protected:
     }
 
     void
-    UpdateClusterBox(const uint64_t cluster_key, const Eigen::Vector3d &cluster_position) {
+    UpdateClusterBox(const uint64_t cluster_key, Eigen::Vector3d cluster_position) {
         auto [it, inserted] = line_set_clusters_map.try_emplace(cluster_key, LineSetInfo());
         if (!inserted) { return; }
 
+        cluster_position /= scaling;
         auto box = line_set_cluster_box;
         box.Translate(cluster_position);
         for (std::size_t i = 0; i < box.points_.size(); ++i) {
@@ -1306,6 +1353,7 @@ protected:
                     UpdateVisualization();
                 }
             }
+            if (options->test_io) { TestIo(); }
             if (options->test_whole_map_at_end) {
                 UpdateWholeMapPrediction();
             } else {
@@ -1383,6 +1431,7 @@ protected:
         const ERL_BLOCK_TIMER_MSG("TestIo");
         WriteMappingBin();
         ReadMappingBin(mapping_read);
+        ERL_INFO("Verifying mapping read from file...");
         ERL_ASSERT(*mapping == mapping_read);
     }
 
@@ -1390,7 +1439,7 @@ protected:
 
     std::pair<Eigen::Vector3i, Matrix3X>
     GenerateTestGrid() {
-        Vector3 max = options->test_grid_size.array() * 0.5f;
+        Vector3 max = options->test_grid_def.size.array() * 0.5f;
         const Vector3 min = -max;
         Eigen::Vector3i grid_shape;
         const Dtype res = options->test_res_grid;
@@ -1401,7 +1450,7 @@ protected:
         max = min.array() + grid_shape.cast<Dtype>().array() * resolution.array();
         ERL_INFO(
             "Grid size: [{}], resolution: [{}], shape: [{}], min: [{}], max: [{}]",
-            options->test_grid_size.transpose(),
+            options->test_grid_def.size.transpose(),
             resolution.transpose(),
             grid_shape.transpose(),
             min.transpose(),
@@ -1414,15 +1463,19 @@ protected:
                 min,
                 max,
                 resolution);
+        const Matrix3 rotation = Eigen::Quaternion<Dtype>(
+                                     options->test_grid_def.rotation[0],
+                                     options->test_grid_def.rotation.template tail<3>())
+                                     .toRotationMatrix();
         ERL_INFO(
             "Grid rotation:\n{}\nGrid center: [{}]",
-            options->test_grid_rotation,
-            options->test_grid_center.transpose());
+            rotation,
+            options->test_grid_def.center.transpose());
         ERL_INFO(
             "Before transform, positions min: [{}], max: [{}]",
             positions.rowwise().minCoeff().transpose(),
             positions.rowwise().maxCoeff().transpose());
-        positions = (options->test_grid_rotation * positions).colwise() + options->test_grid_center;
+        positions = (rotation * positions).colwise() + options->test_grid_def.center;
         ERL_INFO(
             "After transform, positions min: [{}], max: [{}]",
             positions.rowwise().minCoeff().transpose(),

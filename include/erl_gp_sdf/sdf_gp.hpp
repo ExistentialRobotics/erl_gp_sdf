@@ -60,13 +60,14 @@ namespace erl::gp_sdf {
         using VectorX = Eigen::VectorX<Dtype>;
 
         std::shared_ptr<Setting> setting = nullptr;
-        bool active = false;                     // true if the GP is active
-        long time_stamp = 0;                     // last update timestamp
-        long buf_outdated_count = 10000;         // C1: num of times buffer marked outdated
-        std::atomic_long gp_outdated_count = 0;  // C2: num of times GP marked outdated
-        std::atomic_long query_count = 0;        // C3: num of times queried
-        bool use_normal_gp = false;              // true if normal gp is used for sign prediction
-        VectorD position{};                      // center position of the GP
+        bool active = false;                       // true if the GP is active
+        std::atomic_bool buf_ever_loaded = false;  // true if the buffer is ever loaded
+        long time_stamp = 0;                       // last update timestamp
+        long buf_outdated_count = 10000;           // C1: num of times buffer marked outdated
+        std::atomic_long gp_outdated_count = 0;    // C2: num of times GP marked outdated
+        std::atomic_long query_count = 0;          // C3: num of times queried
+        bool use_normal_gp = false;                // true if normal gp is used for sign prediction
+        VectorD position{};                        // center position of the GP
         std::atomic<std::array<Dtype, Dim>> running_mean_position{};  // mean pos of training data
         Dtype running_num_samples = 0;              // number of training data accumulated
         Dtype half_size = 0;                        // half-size of the GP area

@@ -56,15 +56,16 @@ namespace erl::gp_sdf {
                 ERL_REFLECT_MEMBER(QueuePriority, query_weight_for_retrain));
         };
 
-        TestQuery test_query;                 // parameters used by Test.
-        QueuePriority queue_priority;         // parameters for GP loading and retrain priority.
-        uint32_t num_threads = 64;            // number of threads for testing.
-        long min_num_gps_to_update = 256;     // min number of GPs to trigger an update.
-        Dtype update_hz = 20.0f;              // update frequency in Hz.
-        Dtype sensor_noise = 0.01f;           // sensor noise for surface data.
-        Dtype gp_sdf_area_scale = 4.0f;       // ratio between GP area and cluster area
-        Dtype max_valid_gradient_var = 0.1f;  // max gradient variance valid for training.
-        Dtype invalid_position_var = 2.0f;    // position var when > max_valid_gradient_var.
+        TestQuery test_query;              // parameters used by Test.
+        QueuePriority queue_priority;      // parameters for GP loading and retrain priority.
+        uint32_t num_threads = 64;         // number of threads for testing.
+        long min_num_gps_to_update = 256;  // min number of GPs to trigger an update.
+        bool new_gp_load_data_immediately = true;  // if true, new GPs load data immediately.
+        Dtype update_hz = 20.0f;                   // update frequency in Hz.
+        Dtype sensor_noise = 0.01f;                // sensor noise for surface data.
+        Dtype gp_sdf_area_scale = 4.0f;            // ratio between GP area and cluster area
+        Dtype max_valid_gradient_var = 0.1f;       // max gradient variance valid for training.
+        Dtype invalid_position_var = 2.0f;         // position var when > max_valid_gradient_var.
         std::shared_ptr<SdfGpSetting> sdf_gp = std::make_shared<SdfGpSetting>();
 
         ERL_REFLECT_SCHEMA(
@@ -73,6 +74,7 @@ namespace erl::gp_sdf {
             ERL_REFLECT_MEMBER(GpSdfMappingSetting, queue_priority),
             ERL_REFLECT_MEMBER(GpSdfMappingSetting, num_threads),
             ERL_REFLECT_MEMBER(GpSdfMappingSetting, min_num_gps_to_update),
+            ERL_REFLECT_MEMBER(GpSdfMappingSetting, new_gp_load_data_immediately),
             ERL_REFLECT_MEMBER(GpSdfMappingSetting, update_hz),
             ERL_REFLECT_MEMBER(GpSdfMappingSetting, sensor_noise),
             ERL_REFLECT_MEMBER(GpSdfMappingSetting, gp_sdf_area_scale),

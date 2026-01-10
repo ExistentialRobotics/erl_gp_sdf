@@ -105,6 +105,8 @@ namespace erl::gp_sdf {
                 Dtype surface_step_size = 0.01f;
                 // whether to update neighboring BHMs of the current local BHM
                 bool include_neighbor_bhm = true;
+                // maximum distance from sensor position for updating local BHMs
+                Dtype max_update_dist = 1000.0f;
                 // maximum number of local Bayesian Hilbert maps to update in one iteration
                 int max_num_bhm = 2800;
                 // maximum number of points to update, used when method=1
@@ -125,6 +127,7 @@ namespace erl::gp_sdf {
                     ERL_REFLECT_MEMBER(UpdateMap, surface_bad_abs_logodd),
                     ERL_REFLECT_MEMBER(UpdateMap, surface_step_size),
                     ERL_REFLECT_MEMBER(UpdateMap, include_neighbor_bhm),
+                    ERL_REFLECT_MEMBER(UpdateMap, max_update_dist),
                     ERL_REFLECT_MEMBER(UpdateMap, max_num_bhm),
                     ERL_REFLECT_MEMBER(UpdateMap, max_num_points),
                     ERL_REFLECT_MEMBER(UpdateMap, max_adjust_tries),
@@ -219,7 +222,7 @@ namespace erl::gp_sdf {
         mutable std::shared_ptr<Kdtree> m_bhm_kdtree_ = nullptr;
         mutable bool m_bhm_kdtree_needs_update_ = true;
         MatrixDX m_hinged_points_;
-        std::vector<std::pair<Key, VectorD>> m_key_bhm_positions_;  // key -> center
+        std::vector<std::pair<Key, std::shared_ptr<LocalBhm>>> m_key_bhm_vec_;  // key -> local_bhm
         KeyBhmMap m_key_bhm_dict_;
         SurfDataManager m_surf_data_manager_;
         KeySet m_changed_clusters_;                     // keys of the changed clusters
@@ -370,6 +373,9 @@ namespace erl::gp_sdf {
         [[nodiscard]] const KeySet &
         GetChangedClusters() const override;
 
+        void
+        ClearChangedClusters() override;
+
         [[nodiscard]] KeySet
         GetAllClusters() const override;
 
@@ -395,6 +401,9 @@ namespace erl::gp_sdf {
         CollectSurfaceDataFromCluster(
             const Key &key,
             std::vector<std::size_t> &surface_data_indices) const override;
+
+        void
+        FlushSurfaceDataCache() override;
 
         bool
         GetMesh(bool online, std::vector<VectorD> &vertices, std::vector<Face> &faces) override;
@@ -431,7 +440,7 @@ namespace erl::gp_sdf {
         void
         GenerateWeightAddress();
 
-        std::pair<typename KeyBhmMap::iterator, bool>
+        std::shared_ptr<LocalBhm>
         CreateBhm(const Key &key);
 
         void

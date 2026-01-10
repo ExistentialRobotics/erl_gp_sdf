@@ -101,7 +101,7 @@ namespace erl::gp_sdf {
                 if (update_occupancy) {
                     const TreeNode *node = tree->Search(m_it1_->first);
                     if (node == nullptr || !tree->IsNodeOccupied(node)) {
-                        m_it1_++;
+                        ++m_it1_;
                         continue;
                     }
                 }
@@ -229,7 +229,8 @@ namespace erl::gp_sdf {
         }
 
         {
-            auto lock_guard = this->GetLockGuard();  // CRITICAL SECTION
+            const auto lock_guard = this->GetLockGuard();  // CRITICAL SECTION
+            (void) lock_guard;
             if (m_setting_->update_occupancy) { UpdateOccupancy(); }
             if (m_setting_->surface_resolution <= 0) {
                 UpdateMapPoints0();
@@ -277,6 +278,12 @@ namespace erl::gp_sdf {
     const typename GpOccSurfaceMapping<Dtype, Dim>::KeySet &
     GpOccSurfaceMapping<Dtype, Dim>::GetChangedClusters() const {
         return m_changed_keys_;
+    }
+
+    template<typename Dtype, int Dim>
+    void
+    GpOccSurfaceMapping<Dtype, Dim>::ClearChangedClusters() {
+        m_changed_keys_.clear();
     }
 
     template<typename Dtype, int Dim>

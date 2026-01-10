@@ -28,7 +28,7 @@ namespace erl::gp_sdf {
         long ray_buffer_size = -1;             // <=0 means no limit
         long surface_grid_size = 5;            // size of the surface grid
         Dtype surface_log_odds = 0.0f;         // log-odds value for the surface points
-        long surface_log_odds_init_count = 1;  // initial number of log-odds sample count
+        Dtype surface_log_odds_lr = 0.7f;      // learning rate for the surface log-odds
         long surface_log_odds_num_points = 1;  // # samples to estimate the surface log-odds
         Dtype surface_log_odds_min = -20.0f;   // minimum log-odds value for the surface points
         Dtype surface_log_odds_max = 20.0f;    // maximum log-odds value for the surface points
@@ -51,7 +51,7 @@ namespace erl::gp_sdf {
             ERL_REFLECT_MEMBER(LocalBayesianHilbertMapSetting, ray_buffer_size),
             ERL_REFLECT_MEMBER(LocalBayesianHilbertMapSetting, surface_grid_size),
             ERL_REFLECT_MEMBER(LocalBayesianHilbertMapSetting, surface_log_odds),
-            ERL_REFLECT_MEMBER(LocalBayesianHilbertMapSetting, surface_log_odds_init_count),
+            ERL_REFLECT_MEMBER(LocalBayesianHilbertMapSetting, surface_log_odds_lr),
             ERL_REFLECT_MEMBER(LocalBayesianHilbertMapSetting, surface_log_odds_num_points),
             ERL_REFLECT_MEMBER(LocalBayesianHilbertMapSetting, surface_log_odds_min),
             ERL_REFLECT_MEMBER(LocalBayesianHilbertMapSetting, surface_log_odds_max),
@@ -125,12 +125,14 @@ namespace erl::gp_sdf {
 
         using SurfaceVoxelMap = absl::flat_hash_map<GridIndex, Voxel>;
 
+        std::size_t id = 0;                          // unique ID of the local map
         std::shared_ptr<Setting> setting = nullptr;  // settings for the local map
         Aabb tracked_surface_boundary;               // boundary of the surface to track
         VectorD tracked_surface_resolution;          // resolution of the tracked surface
         BayesianHilbertMap bhm;                      // local Bayesian Hilbert map
         SurfaceIndexMap surface_indices;             // grid/edge index -> buffer index
         SurfaceVoxelMap surf_voxels;                 // surface voxels
+        std::size_t num_faces = 0;                   // number of faces in the surface voxels
         long dataset_hit_size = 0;                   // number of hit points in the dataset
         long dataset_size = 0;                       // number of dataset points
         MatrixDX dataset_points;                     // [Dim, N] dataset points
@@ -148,6 +150,7 @@ namespace erl::gp_sdf {
         uint64_t log_odds_count = 1;         // number of log-odds samples
 
         LocalBayesianHilbertMap(
+            std::size_t id_,
             std::shared_ptr<Setting> setting_,
             MatrixDX hinged_points,
             Aabb map_boundary,
@@ -165,6 +168,8 @@ namespace erl::gp_sdf {
          * @param sensor_position Sensor position in the world frame.
          * @param points Point cloud in the world frame, observed at the sensor position.
          * sensor_position is not used if points has no data.
+         * @param collect_rays_only If true, only collect rays from the observation and the ray
+         * buffer, do not generate the dataset.
          * @param point_indices indices of the points used to generate the dataset. If empty, all
          * points are used. Used indices will be moved to the back of the vector if sampling
          * is necessary.
@@ -173,15 +178,31 @@ namespace erl::gp_sdf {
         GenerateDataset(
             const Eigen::Ref<const VectorD> &sensor_position,
             const Eigen::Ref<const MatrixDX> &points,
+            bool collect_rays_only,
             std::vector<long> &point_indices);
 
         bool
         UpdateSurface(const Eigen::Ref<const MatrixDX> &points, bool update_surface_voxels);
 
+        /**
+         * @brief Update the local Bayesian Hilbert map with a point cloud from sensor observation.
+         * @param sensor_origin The origin of the sensor.
+         * @param points The point cloud in the world frame. If empty, only the cached rays will be
+         * used.
+         * @param collect_rays_only If true, only collect rays from the observation and the ray
+         * buffer, do not update the map.
+         * @param update_surface_voxels If true, update the surface voxels with the new surface
+         * points. Ignored if collect_rays_only is true.
+         * @param point_indices Indices of the points used to generate the dataset. If empty, all
+         * points are used. Used indices will be moved to the back of the vector if sampling
+         * is necessary.
+         * @return True if the map was updated, false otherwise.
+         */
         bool
         Update(
             const Eigen::Ref<const VectorD> &sensor_origin,
             const Eigen::Ref<const MatrixDX> &points,
+            bool collect_rays_only,
             bool update_surface_voxels,
             std::vector<long> &point_indices);
 

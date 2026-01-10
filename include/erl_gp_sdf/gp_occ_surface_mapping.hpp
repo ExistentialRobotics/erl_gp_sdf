@@ -271,6 +271,9 @@ namespace erl::gp_sdf {
         [[nodiscard]] const KeySet &
         GetChangedClusters() const override;
 
+        void
+        ClearChangedClusters() override;
+
         [[nodiscard]] KeySet
         GetAllClusters() const override;
 
@@ -296,6 +299,9 @@ namespace erl::gp_sdf {
         CollectSurfaceDataFromCluster(
             const Key &key,
             std::vector<std::size_t> &surface_data_indices) const override;
+
+        void
+        FlushSurfaceDataCache() override {}
 
         [[nodiscard]] Aabb
         GetMapBoundary() const override;

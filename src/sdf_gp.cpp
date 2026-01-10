@@ -263,7 +263,10 @@ namespace erl::gp_sdf {
             running_mean_position.store(mean_pos);
         }
         gp_outdated_count += buf_outdated_count;
-        buf_outdated_count = 0;
+        if (loaded) {
+            buf_outdated_count = 0;
+            buf_ever_loaded.store(true);
+        }
         return loaded;
     }
 
@@ -452,6 +455,13 @@ namespace erl::gp_sdf {
                 },
             },
             {
+                "buf_ever_loaded",
+                [](const SdfGaussianProcess *gp, std::ostream &s) -> bool {
+                    s << gp->buf_ever_loaded.load();
+                    return s.good();
+                },
+            },
+            {
                 "time_stamp",
                 [](const SdfGaussianProcess *gp, std::ostream &s) -> bool {
                     s.write(
@@ -557,6 +567,15 @@ namespace erl::gp_sdf {
                 "active",
                 [](SdfGaussianProcess *gp, std::istream &s) -> bool {
                     s >> gp->active;
+                    return s.good();
+                },
+            },
+            {
+                "buf_ever_loaded",
+                [](SdfGaussianProcess *gp, std::istream &s) -> bool {
+                    bool loaded = false;
+                    s >> loaded;
+                    gp->buf_ever_loaded.store(loaded);
                     return s.good();
                 },
             },

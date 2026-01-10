@@ -72,15 +72,22 @@ namespace erl::gp_sdf {
                     if (!std::isfinite(grad[j])) { return false; }  // invalid gradient
                 }
                 if (y_index != 0) { return true; }
-                Dtype max_abs_comp = 0.0f;
-                for (long j = 0; j < Dim; ++j) {
-                    if (std::abs(grad[j]) > max_abs_comp) { max_abs_comp = std::abs(grad[j]); }
-                }
                 Dtype norm = 0.0f;
-                for (long j = 0; j < Dim; ++j) {
-                    grad[j] /= max_abs_comp;  // normalize to avoid zero division
-                    if (!std::isfinite(grad[j])) { return false; }  // invalid gradient
-                    norm += grad[j] * grad[j];
+                if (exp_bias == 0.0f) {
+                    Dtype max_abs_comp = 0.0f;
+                    for (long j = 0; j < Dim; ++j) {
+                        if (std::abs(grad[j]) > max_abs_comp) { max_abs_comp = std::abs(grad[j]); }
+                    }
+                    for (long j = 0; j < Dim; ++j) {
+                        grad[j] /= max_abs_comp;  // normalize to avoid zero division
+                        if (!std::isfinite(grad[j])) { return false; }  // invalid gradient
+                        norm += grad[j] * grad[j];
+                    }
+                } else {
+                    for (long j = 0; j < Dim; ++j) {
+                        if (!std::isfinite(grad[j])) { return false; }  // invalid gradient
+                        norm += grad[j] * grad[j];
+                    }
                 }
                 norm = -std::sqrt(norm);
                 for (long j = 0; j < Dim; ++j) {

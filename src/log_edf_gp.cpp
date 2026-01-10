@@ -10,18 +10,18 @@ namespace erl::gp_sdf {
     static Dtype
     GetEdfWithMatern32(Dtype f_log_gpis, Dtype a, Dtype exp_bias) {
         // f_log_gpis = std::min(std::abs(f_log_gpis), static_cast<Dtype>(1.0));
-        // return a * (std::log(f_log_gpis) - exp_bias);
         f_log_gpis = std::log(std::abs(f_log_gpis)) - exp_bias;
         return std::abs(a * f_log_gpis);
+        // return std::max(a * f_log_gpis, static_cast<Dtype>(0.0));
     }
 
     template<typename Dtype>
     static Dtype
     GetEdfWithRbf(Dtype f_log_gpis, Dtype a, Dtype exp_bias) {
         // f_log_gpis = std::min(std::abs(f_log_gpis), static_cast<Dtype>(1.0));
-        // return std::sqrt(a * (std::log(f_log_gpis) - exp_bias));
         f_log_gpis = std::log(std::abs(f_log_gpis)) - exp_bias;
-        return std::sqrt(std::abs(a * f_log_gpis));
+        return std::sqrt(std::abs(a * f_log_gpis));  // a bit better
+        // return std::sqrt(std::max(a * f_log_gpis, static_cast<Dtype>(0.0)));
     }
 
     template<typename Dtype>

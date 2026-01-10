@@ -101,10 +101,6 @@ protected:
             surf_map_setting->FromYamlFile(options->surf_map_config_file),
             "Failed to load surf_map_config_file: {}",
             options->surf_map_config_file);
-        surf_map_setting->AsYamlFile(options->output_dir / "config.yaml");
-
-        ERL_INFO("Surface mapping config: {}", options->surf_map_config_file);
-        std::cout << surf_map_setting->AsYamlString() << std::endl;
 
         // create mapping
         surf_map = std::make_shared<SurfaceMapping>(surf_map_setting);
@@ -116,6 +112,13 @@ protected:
 
         // base init
         Super::Init();
+
+        // save config
+        if (!options->load_mapping_bin) {
+            surf_map_setting->AsYamlFile(options->output_dir / "surf_mapping.yaml");
+            ERL_INFO("Surface mapping config: {}", options->surf_map_config_file);
+            std::cout << surf_map_setting->AsYamlString() << std::endl;
+        }
 
         // other
         prob_occupied_follow.resize(positions_test_follow_org.cols());
@@ -180,6 +183,7 @@ protected:
         for (long i = 0; i < frame_points.cols(); ++i) {
             frame_points.col(i) = rotation_frame * frame_points.col(i) + translation_frame;
         }
+        this->frame_points_in_sensor_frame = false;  // frame_points are now in world frame
 
         {
             ERL_BLOCK_TIMER_MSG_TIME("surf_map.Update", surf_map_update_dt);

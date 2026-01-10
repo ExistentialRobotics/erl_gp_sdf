@@ -117,10 +117,13 @@ namespace erl::gp_sdf {
         // temporary data for parallelism and test
         KdTreePtr m_kdtree_surf_data_ = nullptr;  // for loading surface data
         std::vector<std::vector<std::size_t>> m_surf_data_indices_;
-        std::vector<std::vector<std::pair<Dtype, std::size_t>>> m_surf_data_dist_indices_{};
+        std::vector<std::vector<std::pair<Dtype, std::size_t>>> m_surf_data_dist_indices_;
+        std::vector<std::size_t> m_gp_load_data_cnt_;         // counts of GPs that load data
         KeySet m_clusters_to_collect_data_;                   // stores clusters to collect data
         KeySet m_clusters_to_load_data_;                      // stores clusters to update
-        std::vector<GpPtr> m_gps_to_load_data_;               // GPs to load surface data
+        std::vector<KeySet> m_key_sets_;                      // for multi-threading
+        std::vector<KeyVector> m_key_vectors_;                // for multi-threading
+        std::vector<KeyGpPair> m_gps_to_load_data_;           // GPs to load surface data
         std::vector<std::pair<long, GpPtr>> m_gps_to_train_;  // GPs to train, [priority, gp]
         std::vector<GpPtr> m_candidate_gps_;                  // for test
         KdTreePtr m_kdtree_candidate_gps_ = nullptr;          // for test to search candidate GPs
@@ -211,10 +214,35 @@ namespace erl::gp_sdf {
 
     private:
         void
+        InitMultiThreading();
+
+        Dtype
+        GetDataCollectionRadius() const;
+
+        Dtype
+        GetDataCollectionAabbHalfSize() const;
+
+        /**
+         * Collect clusters that have changed in the surface mapping. m_clusters_to_load_data_ will
+         * be updated.
+         */
+        void
         CollectChangedClusters();
 
+        /**
+         * Update the load data queue based on the clusters in m_clusters_to_load_data_.
+         */
         void
         UpdateLoadDataQueue();
+
+        /**
+         * Consume the load data queue within the given time budget.
+         * @param time_budget_us Time budget in microseconds.
+         * @param ignore_budget If true, ignore the time budget and load data for all GPs in the
+         * queue.
+         */
+        void
+        RunLoadDataQueue(double time_budget_us, bool ignore_budget);
 
         // Load surface data to the GPs in m_gps_to_load_data_
         void

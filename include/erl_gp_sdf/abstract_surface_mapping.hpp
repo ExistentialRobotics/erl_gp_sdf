@@ -116,6 +116,9 @@ namespace erl::gp_sdf {
         [[nodiscard]] virtual const KeySet &
         GetChangedClusters() const = 0;
 
+        virtual void
+        ClearChangedClusters() = 0;
+
         /**
          * Get clusters.
          * @return a collection of all cluster keys.
@@ -166,6 +169,15 @@ namespace erl::gp_sdf {
         CollectSurfaceDataFromCluster(
             const Key &key,
             std::vector<std::size_t> &surface_data_indices) const = 0;
+
+        /**
+         * Flush surface data that is in cache. This is used to ensure that the surface mapping
+         * is up-to-date. The derived class may use some caching mechanism to speed up the
+         * mapping process, such as a priority queue of clusters to be updated. So, this method
+         * is used to trigger the update of all clusters in the queue.
+         */
+        virtual void
+        FlushSurfaceDataCache() = 0;
 
         /**
          * Get the mesh representation of the surface mapping.

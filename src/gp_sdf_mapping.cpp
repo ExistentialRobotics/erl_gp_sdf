@@ -69,17 +69,7 @@ namespace erl::gp_sdf {
         ERL_ASSERTM(m_surface_mapping_ != nullptr, "surface_mapping is nullptr.");
         ERL_ASSERTM(m_setting_->gp_sdf_area_scale > 1, "GP area scale must be greater than 1.");
 
-        // do it on the main thread only
-#pragma omp parallel default(none)
-#pragma omp critical
-        {
-            if (omp_get_thread_num() == 0) {
-                m_surf_data_indices_.resize(omp_get_num_threads());
-                m_surf_data_dist_indices_.resize(omp_get_num_threads());
-                for (auto &indices: m_surf_data_indices_) { indices.reserve(512); }
-                for (auto &indices: m_surf_data_dist_indices_) { indices.reserve(512); }
-            }
-        }
+        InitMultiThreading();
     }
 
     template<typename Dtype, int Dim>
@@ -133,27 +123,9 @@ namespace erl::gp_sdf {
         CollectChangedClusters();
         UpdateLoadDataQueue();
 
-        // train GPs if we still have time
         const auto dt = timer.Elapsed<double, std::micro>();
         time_budget_us -= dt;
-        auto max_num_gps =
-            static_cast<long>(std::floor(time_budget_us / m_load_surf_data_time_us_));
-        max_num_gps = std::max(max_num_gps, m_setting_->min_num_gps_to_update);
-        ERL_DEBUG(
-            "time_budget: {:.2f} us, per_gp_time: {:.2f} us, max_num_gps: {}.",
-            time_budget_us,
-            m_load_surf_data_time_us_,
-            max_num_gps);
-        m_gps_to_load_data_.clear();
-        while (!m_load_data_queue_.empty() &&
-               m_gps_to_load_data_.size() < static_cast<std::size_t>(max_num_gps)) {
-            auto pair = m_load_data_queue_.top().key_gp_pair;
-            m_load_data_queue_.pop();
-            m_queue_keys_.erase(pair.first);
-            if (!pair.second->active) { continue; }  // skip inactive GP
-            m_gps_to_load_data_.emplace_back(pair.second);
-        }
-        if (!m_gps_to_load_data_.empty()) { LoadSurfaceData(); }
+        RunLoadDataQueue(time_budget_us, false);
 
         ERL_TRACY_FRAME_MARK_END();
         return !m_gps_to_load_data_.empty();  // return true if we loaded any data
@@ -166,15 +138,7 @@ namespace erl::gp_sdf {
         const auto lock = GetLockGuard();
         (void) lock;
 
-        m_gps_to_load_data_.clear();
-        for (auto &[key, handle]: m_queue_keys_) {
-            auto gp = (*handle).key_gp_pair.second;
-            if (!gp->active) { continue; }  // skip inactive GP
-            m_gps_to_load_data_.emplace_back(gp);
-        }
-        m_queue_keys_.clear();
-        m_load_data_queue_.clear();
-        if (!m_gps_to_load_data_.empty()) { LoadSurfaceData(); }
+        RunLoadDataQueue(0, true);  // load all data
 
         m_gps_to_train_.clear();
         for (auto &[key, gp]: m_gp_map_) {
@@ -700,7 +664,12 @@ namespace erl::gp_sdf {
         using namespace common;
         using namespace common::serialization;
 
-        const_cast<GpSdfMapping *>(this)->TrainAllGps();  // NOLINT(*-pro-type-const-cast)
+        m_surface_mapping_->FlushSurfaceDataCache();
+        auto *mutable_this = const_cast<GpSdfMapping *>(this);  // NOLINT(*-pro-type-const-cast)
+        mutable_this->CollectChangedClusters();
+        mutable_this->UpdateLoadDataQueue();
+        mutable_this->TrainAllGps();
+        m_surface_mapping_->ClearChangedClusters();
 
         static const TokenWriteFunctionPairs<GpSdfMapping> token_function_pairs = {
             {
@@ -857,7 +826,9 @@ namespace erl::gp_sdf {
                 },
             },
         };
-        return ReadTokens(stream, this, token_function_pairs);
+        const bool success = ReadTokens(stream, this, token_function_pairs);
+        if (success) { InitMultiThreading(); }
+        return success;
     }
 
     template<typename Dtype, int Dim>
@@ -890,12 +861,38 @@ namespace erl::gp_sdf {
             if (key != other_key) { return false; }
             if ((*handle).priority != (*other_handle).priority) { return false; }
         }
-        // when m_cluster_queue_keys_ is the same, m_cluster_queue_ is the same
+        // when m_cluster_queue_keys_ is the same, m_cluster_queue_ is the same.
+        // No need to compare the following temporary data:
         // m_clusters_to_train_, m_candidate_gps_, m_kdtree_candidate_gps_, m_map_boundary_,
-        // m_query_to_gps_, m_in_free_space_, m_test_buffer and m_query_used_gps_ are temporary
-        // data.
+        // m_query_to_gps_, m_in_free_space_, m_test_buffer and m_query_used_gps_.
         if (m_train_gp_time_us_ != other.m_train_gp_time_us_) { return false; }
         return true;
+    }
+
+    template<typename Dtype, int Dim>
+    void
+    GpSdfMapping<Dtype, Dim>::InitMultiThreading() {
+        m_surf_data_indices_.resize(m_setting_->num_threads);
+        m_surf_data_dist_indices_.resize(m_setting_->num_threads);
+        m_gp_load_data_cnt_.resize(m_setting_->num_threads);
+        m_key_sets_.resize(m_setting_->num_threads);
+        m_key_vectors_.resize(m_setting_->num_threads);
+        for (auto &indices: m_surf_data_indices_) { indices.reserve(512); }
+        for (auto &indices: m_surf_data_dist_indices_) { indices.reserve(512); }
+    }
+
+    template<typename Dtype, int Dim>
+    Dtype
+    GpSdfMapping<Dtype, Dim>::GetDataCollectionRadius() const {
+        const Dtype cluster_size = m_surface_mapping_->GetClusterSize();
+        return cluster_size * m_setting_->gp_sdf_area_scale * 0.707f;
+    }
+
+    template<typename Dtype, int Dim>
+    Dtype
+    GpSdfMapping<Dtype, Dim>::GetDataCollectionAabbHalfSize() const {
+        const Dtype cluster_size = m_surface_mapping_->GetClusterSize();
+        return cluster_size * m_setting_->gp_sdf_area_scale * 0.5f;
     }
 
     template<typename Dtype, int Dim>
@@ -903,29 +900,44 @@ namespace erl::gp_sdf {
     GpSdfMapping<Dtype, Dim>::CollectChangedClusters() {
         const ERL_BLOCK_TIMER_MSG("CollectChangedClusters");
 
-        const Dtype cluster_size = m_surface_mapping_->GetClusterSize();
-        const Dtype area_half_size = cluster_size * m_setting_->gp_sdf_area_scale * 0.5f;
+        const Dtype radius = GetDataCollectionRadius();
 
         // CRITICAL SECTION: access m_surface_mapping_
         const auto surface_mapping_lock = m_surface_mapping_->GetLockGuard();
         (void) surface_mapping_lock;
         const KeySet &changed_clusters = m_surface_mapping_->GetChangedClusters();
-        m_clusters_to_load_data_ = changed_clusters;
-        m_clusters_to_collect_data_ = changed_clusters;
-        for (const auto &cluster_key: changed_clusters) {
-            const Aabb area(m_surface_mapping_->GetClusterCenter(cluster_key), area_half_size);
-            m_surface_mapping_->IterateClustersInAabb(area, [&](const Key &key) {
-                m_clusters_to_load_data_.insert(key);
+        if (changed_clusters.empty()) {
+            m_clusters_to_load_data_.clear();
+            return;
+        }
 
-                if (m_clusters_to_collect_data_.insert(key).second) {
-                    const Aabb area2(m_surface_mapping_->GetClusterCenter(key), area_half_size);
-                    m_surface_mapping_->IterateClustersInAabb(area2, [this](const Key &key2) {
-                        m_clusters_to_collect_data_.insert(key2);
-                        return true;
-                    });
-                }
+        m_clusters_to_load_data_ = changed_clusters;
+        const KeyVector keys(changed_clusters.begin(), changed_clusters.end());
+
+        ERL_INFO("Collecting neighboring clusters for {} changed clusters.", keys.size());
+
+        for (auto &key_set: m_key_sets_) { key_set = changed_clusters; }
+
+#pragma omp parallel for default(none) shared(keys, changed_clusters, radius)
+        for (const auto &cluster_key: keys) {
+            auto &key_set = m_key_sets_[omp_get_thread_num()];
+            auto &key_vec = m_key_vectors_[omp_get_thread_num()];
+            const Aabb area(m_surface_mapping_->GetClusterCenter(cluster_key), radius);
+            m_surface_mapping_->IterateClustersInAabb(area, [&](const Key &key) {
+                // m_clusters_to_load_data_.insert(key);
+                if (!key_set.insert(key).second) { return; }  // already included
+                key_vec.push_back(key);
             });
         }
+
+        // merge results from all threads
+        m_clusters_to_load_data_ = m_key_sets_[0];
+        m_key_vectors_[0].clear();
+        for (auto &key_vec: m_key_vectors_) {
+            m_clusters_to_load_data_.insert(key_vec.begin(), key_vec.end());
+            key_vec.clear();
+        }
+        ERL_INFO("Total {} clusters to load data.", m_clusters_to_load_data_.size());
     }
 
     template<typename Dtype, int Dim>
@@ -933,8 +945,7 @@ namespace erl::gp_sdf {
     GpSdfMapping<Dtype, Dim>::UpdateLoadDataQueue() {
         const ERL_BLOCK_TIMER_MSG("UpdateLoadDataQueue");
 
-        const Dtype cluster_size = m_surface_mapping_->GetClusterSize();
-        const Dtype area_half_size = cluster_size * m_setting_->gp_sdf_area_scale * 0.5f;
+        const Dtype area_half_size = GetDataCollectionAabbHalfSize();
         const auto max_c1 = static_cast<Dtype>(m_setting_->queue_priority.max_buf_outdated_count);
         const Dtype alpha = m_setting_->queue_priority.distance_weight;
         const Dtype beta = m_setting_->queue_priority.query_weight_for_loading;
@@ -943,6 +954,8 @@ namespace erl::gp_sdf {
         (void) lock;
 
         const VectorD sensor_pos = m_surface_mapping_->GetLastSensorPosition();
+        KeyVector &keys = m_key_vectors_[0];
+        keys.clear();
         for (const auto &cluster_key: m_clusters_to_load_data_) {
             auto [it, inserted] = m_gp_map_.try_emplace(cluster_key, nullptr);
             auto &gp = it->second;
@@ -958,6 +971,10 @@ namespace erl::gp_sdf {
                 gp->position = gp_center;
                 gp->SetMeanPosition(gp_center);
                 gp->half_size = area_half_size;
+                if (m_setting_->new_gp_load_data_immediately) {
+                    keys.push_back(cluster_key);
+                    continue;
+                }
             } else {
                 gp->Activate();
                 gp->MarkBufferOutdated();
@@ -979,6 +996,65 @@ namespace erl::gp_sdf {
 
     template<typename Dtype, int Dim>
     void
+    GpSdfMapping<Dtype, Dim>::RunLoadDataQueue(
+        const double time_budget_us,
+        const bool ignore_budget) {
+
+        if (m_load_data_queue_.empty()) {
+            ERL_INFO("Load data queue is empty.");
+            return;
+        }
+
+        m_clusters_to_collect_data_.clear();
+        m_gps_to_load_data_.clear();
+        m_clusters_to_collect_data_.reserve(m_queue_keys_.size());
+        m_gps_to_load_data_.reserve(m_queue_keys_.size());
+
+        if (m_setting_->new_gp_load_data_immediately) {
+            for (const auto &key: m_key_vectors_[0]) {
+                const auto &pair = std::make_pair(key, m_gp_map_.at(key));
+                m_clusters_to_collect_data_.insert(key);
+                m_gps_to_load_data_.emplace_back(pair);
+            }
+        }
+
+        if (ignore_budget) {
+            ERL_DEBUG("Ignoring time budget, loading data for all GPs in the queue.");
+            for (const auto &[key, handle]: m_queue_keys_) {
+                const auto &pair = (*handle).key_gp_pair;
+                if (!pair.second->active) { continue; }  // skip inactive GP
+                m_clusters_to_collect_data_.insert(key);
+                m_gps_to_load_data_.emplace_back(pair);
+            }
+            m_queue_keys_.clear();
+            m_load_data_queue_.clear();
+        } else {
+            auto max_num_gps =
+                static_cast<long>(std::floor(time_budget_us / m_load_surf_data_time_us_));
+            max_num_gps = std::max(max_num_gps, m_setting_->min_num_gps_to_update);
+
+            ERL_DEBUG(
+                "time_budget: {:.2f} us, per_gp_time: {:.2f} us, max_num_gps: {}.",
+                time_budget_us,
+                m_load_surf_data_time_us_,
+                max_num_gps);
+
+            while (!m_load_data_queue_.empty() &&
+                   m_gps_to_load_data_.size() < static_cast<std::size_t>(max_num_gps)) {
+                auto pair = m_load_data_queue_.top().key_gp_pair;
+                m_load_data_queue_.pop();
+                m_queue_keys_.erase(pair.first);
+                if (!pair.second->active) { continue; }  // skip inactive GP
+                m_clusters_to_collect_data_.insert(pair.first);
+                m_gps_to_load_data_.emplace_back(pair);
+            }
+        }
+
+        if (!m_gps_to_load_data_.empty()) { LoadSurfaceData(); }
+    }
+
+    template<typename Dtype, int Dim>
+    void
     GpSdfMapping<Dtype, Dim>::LoadSurfaceData() {
         const ERL_BLOCK_TIMER_MSG("LoadSurfaceData");
 
@@ -993,34 +1069,66 @@ namespace erl::gp_sdf {
 
         const auto t0 = std::chrono::high_resolution_clock::now();
 
-        const KeyVector clusters_to_load_data_vec(
-            m_clusters_to_load_data_.begin(),
-            m_clusters_to_load_data_.end());
-        for (auto &indices: m_surf_data_indices_) { indices.clear(); }
-#pragma omp parallel for default(none) shared(clusters_to_load_data_vec)
-        for (const auto &cluster_key: clusters_to_load_data_vec) {
-            const int thread_idx = omp_get_thread_num();
-            auto &indices = m_surf_data_indices_[thread_idx];
-            (void) m_surface_mapping_->CollectSurfaceDataFromCluster(cluster_key, indices);
+        {
+            // we need to include the neighboring clusters' data as well
+            KeyVector &keys = m_key_vectors_[0];
+            keys.clear();
+            keys.reserve(m_clusters_to_collect_data_.size() * 2);
+            keys.insert(
+                keys.end(),
+                m_clusters_to_collect_data_.begin(),
+                m_clusters_to_collect_data_.end());
+            const Dtype radius = GetDataCollectionRadius();
+            for (std::size_t i = 0, n_keys = keys.size(); i < n_keys; ++i) {
+                const auto &cluster_key = keys[i];
+                const Aabb area(m_surface_mapping_->GetClusterCenter(cluster_key), radius);
+                m_surface_mapping_->IterateClustersInAabb(area, [&](const Key &key) {
+                    if (!m_clusters_to_collect_data_.insert(key).second) { return; }
+                    keys.push_back(key);  // new neighboring cluster
+                });
+            }
+
+            // collect surface data indices from the clusters
+            for (auto &indices: m_surf_data_indices_) { indices.clear(); }
+#pragma omp parallel for default(none) shared(keys)
+            for (const auto &cluster_key: keys) {
+                const int thread_idx = omp_get_thread_num();
+                auto &indices = m_surf_data_indices_[thread_idx];
+                (void) m_surface_mapping_->CollectSurfaceDataFromCluster(cluster_key, indices);
+            }
+
+            keys.clear();
         }
 
+        // build kdtree for surface data points
         std::size_t n_points = 0;
-        for (const auto &indices: m_surf_data_indices_) { n_points += indices.size(); }
-        if (n_points == 0) { return; }
-
-        m_surf_data_indices_[0].reserve(n_points);
-        for (std::size_t i = 1; i < m_surf_data_indices_.size(); ++i) {
-            auto &indices = m_surf_data_indices_[i];
-            auto &indices0 = m_surf_data_indices_[0];
-            indices0.insert(indices0.end(), indices.begin(), indices.end());
-            indices.clear();
+        std::vector<std::size_t> start_indices;
+        start_indices.reserve(m_surf_data_indices_.size() + 1);
+        for (const auto &indices: m_surf_data_indices_) {
+            start_indices.push_back(n_points);
+            n_points += indices.size();
         }
-
+        if (n_points == 0) { return; }
+        start_indices.emplace_back(n_points);
         MatrixDX surface_points(Dim, n_points);
-        const auto &buffer = m_surface_mapping_->GetSurfaceDataBuffer();
-        long idx = 0;
-        for (const auto &point_idx: m_surf_data_indices_[0]) {
-            surface_points.col(idx++) = buffer[point_idx].position;
+        m_surf_data_indices_[0].resize(n_points);  // for indexing in LoadSurfaceDataThread
+#pragma omp parallel for default(none) shared(surface_points, start_indices)
+        for (std::size_t i = 0; i < m_surf_data_indices_.size(); ++i) {
+            const auto &buffer = m_surface_mapping_->GetSurfaceDataBuffer();
+            const auto &indices = m_surf_data_indices_[i];
+            if (i == 0) {
+                const long end_idx = static_cast<long>(start_indices[1]);
+                for (long idx = 0; idx < end_idx; ++idx) {
+                    const std::size_t &point_idx = indices[idx];
+                    surface_points.col(idx) = buffer[point_idx].position;
+                }
+            } else {
+                long idx = static_cast<long>(start_indices[i]);
+                for (const auto &point_idx: indices) {
+                    surface_points.col(idx) = buffer[point_idx].position;
+                    m_surf_data_indices_[0][idx++] = point_idx;
+                }
+            }
         }
         m_kdtree_surf_data_ = std::make_shared<KdTree>(std::move(surface_points));
 
@@ -1044,6 +1152,15 @@ namespace erl::gp_sdf {
         time /= static_cast<double>(n);
 
         m_load_surf_data_time_us_ = m_load_surf_data_time_us_ * 0.4f + time * 0.6f;
+
+        const std::size_t n_surf_data_loaded =
+            std::accumulate(m_gp_load_data_cnt_.begin(), m_gp_load_data_cnt_.end(), 0ul);
+        const Dtype ratio = static_cast<Dtype>(n_surf_data_loaded) / static_cast<Dtype>(n);
+        ERL_INFO(
+            "Loaded surface data for {} / {} GPs ({:.2f}%).",
+            n_surf_data_loaded,
+            n,
+            ratio * 100.0f);
     }
 
     template<typename Dtype, int Dim>
@@ -1055,8 +1172,7 @@ namespace erl::gp_sdf {
 
         ERL_TRACY_SET_THREAD_NAME(fmt::format("{}:{}", __PRETTY_FUNCTION__, thread_idx).c_str());
 
-        const Dtype cluster_size = m_surface_mapping_->GetClusterSize();
-        const Dtype radius = cluster_size * m_setting_->gp_sdf_area_scale * 0.707f;
+        const Dtype radius = GetDataCollectionRadius();
         auto sdf_gp_setting = m_setting_->sdf_gp;
         long max_k = std::max(
             sdf_gp_setting->sign_gp->max_num_samples,
@@ -1065,8 +1181,10 @@ namespace erl::gp_sdf {
         std::vector<long> indices;
         std::vector<Dtype> dists;
         auto &data_indices = m_surf_data_dist_indices_[thread_idx];
+        auto &load_data_cnt = m_gp_load_data_cnt_[thread_idx];
+        load_data_cnt = 0;
         for (std::size_t i = start_idx; i < end_idx; ++i) {
-            auto &gp = CHECKED_AT(m_gps_to_load_data_, i);
+            auto &gp = CHECKED_AT(m_gps_to_load_data_, i).second;
             ERL_DEBUG_ASSERT(gp->active, "GP is not active");
 
             // collect surface data in the area
@@ -1092,6 +1210,7 @@ namespace erl::gp_sdf {
                     m_setting_->invalid_position_var)) {
                 gp->Deactivate();
             }
+            ++load_data_cnt;
         }
     }
 
@@ -1237,7 +1356,7 @@ namespace erl::gp_sdf {
                     // search for clusters in the area
                     if (auto it = m_gp_map_.find(cluster_key); it != m_gp_map_.end()) {
                         const auto &gp = it->second;
-                        if (!gp->active) { return; }
+                        if (!gp->active || !gp->buf_ever_loaded.load()) { return; }
                         m_candidate_gps_.emplace_back(gp);
                     }
                 });
@@ -1413,7 +1532,7 @@ namespace erl::gp_sdf {
             used_gps.fill(nullptr);
 
             const std::vector<GpPtr> &gps = m_query_to_gps_[i];  // pre-sorted by distance
-            if (gps.empty()) { continue; }  // no GPs found for this query position
+            if (gps.empty()) { continue; }
 
             // test GPs
             const VectorD test_position = m_test_buffer_.positions->col(i);
@@ -1452,7 +1571,9 @@ namespace erl::gp_sdf {
                 }
                 if (!need_weighted_sum) { break; }
             }
-            if (indexed_metrics.empty()) { continue; }
+            if (indexed_metrics.empty()) {  //
+                continue;
+            }
 
             if (use_smallest && indexed_metrics.size() > 1) {
                 std::sort(

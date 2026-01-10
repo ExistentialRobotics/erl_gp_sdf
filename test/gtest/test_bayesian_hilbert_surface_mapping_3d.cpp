@@ -65,6 +65,10 @@ struct TestBayesianHilbertSurfaceMapping3D
     Run() override {
         Super::Run();
 
+        this->vis_range_min = this->surf_map_setting->local_bhm->bhm->min_distance;
+        this->vis_range_max = this->surf_map_setting->local_bhm->bhm->max_distance;
+        const int wait_time_seconds = options->hold ? 0 : 5;
+
         // analyze the map after the animation ends
 
         VectorX log_odd_values;
@@ -105,7 +109,7 @@ struct TestBayesianHilbertSurfaceMapping3D
         cv::Mat img = fig.ToCvMat();
         cv::imwrite(options->output_dir / "gt_surface_points_logodd_hist.png", img);
         cv::imshow("log_odd_value histogram (gt pcd)", img);
-        cv::waitKey(0);
+        cv::waitKey(1000 * wait_time_seconds);
 
         // visualize the log-odd on the ground truth surface points
         pcd_surf_points->points_.clear();
@@ -128,7 +132,7 @@ struct TestBayesianHilbertSurfaceMapping3D
         if (!options->o3d_view_status_file.empty()) {
             visualizer->SetViewStatus(options->o3d_view_status_file);
         }
-        visualizer->Show();
+        visualizer->Show(wait_time_seconds);
 
         // check the surf_log_odds of local BHMs
         // check the number of unused rays
@@ -179,7 +183,7 @@ struct TestBayesianHilbertSurfaceMapping3D
         img = fig.ToCvMat();
         cv::imwrite(options->output_dir / "local_bhm_surface_points_logodd_hist.png", img);
         cv::imshow("log_odd_value histogram (local bhm)", img);
-        cv::waitKey(0);
+        cv::waitKey(1000 * wait_time_seconds);
 
         pcd_surf_points->colors_.reserve(log_odds.size());
         for (auto v: log_odds) {
@@ -194,7 +198,7 @@ struct TestBayesianHilbertSurfaceMapping3D
         if (!options->o3d_view_status_file.empty()) {
             visualizer->SetViewStatus(options->o3d_view_status_file);
         }
-        visualizer->Show();
+        visualizer->Show(wait_time_seconds);
 
         // visualize the number of unused rays of local BHMs
         ERL_INFO(
@@ -215,7 +219,7 @@ struct TestBayesianHilbertSurfaceMapping3D
         if (!options->o3d_view_status_file.empty()) {
             visualizer->SetViewStatus(options->o3d_view_status_file);
         }
-        visualizer->Show();
+        visualizer->Show(wait_time_seconds);
 
         // visualize the local BHMs
         auto o3d_line_set = std::make_shared<open3d::geometry::LineSet>();
@@ -250,7 +254,7 @@ struct TestBayesianHilbertSurfaceMapping3D
         if (!options->o3d_view_status_file.empty()) {
             visualizer->SetViewStatus(options->o3d_view_status_file);
         }
-        visualizer->Show();
+        visualizer->Show(wait_time_seconds);
 
         auto drawer_setting = std::make_shared<typename OctreeDrawer::Setting>();
         drawer_setting->scaling = 1.0f / surf_map_setting->scaling;  // inverse scaling
@@ -267,7 +271,7 @@ struct TestBayesianHilbertSurfaceMapping3D
         if (!options->o3d_view_status_file.empty()) {
             visualizer->SetViewStatus(options->o3d_view_status_file);
         }
-        visualizer->Show();
+        visualizer->Show(wait_time_seconds);
 
         std::filesystem::path file = options->output_dir / "surface_points.ply";
         ERL_INFO("Writing point clouds to {}", file);
@@ -307,7 +311,8 @@ struct TestBayesianHilbertSurfaceMapping3D
                     surf_map->ResetMarchingResults();
                     surf_map->GetMesh(false, vertices, faces);
                     Super::ConvertToOpen3dMesh(mesh, vertices, faces);
-                    std::filesystem::path mesh_file = options->output_dir / "surface_mesh_iso.ply";
+                    const std::filesystem::path mesh_file =
+                        options->output_dir / "surface_mesh_iso.ply";
                     open3d::io::WriteTriangleMesh(mesh_file, *mesh);
                     vis->UpdateGeometry(mesh);
                     return true;
@@ -315,7 +320,7 @@ struct TestBayesianHilbertSurfaceMapping3D
             visualizer->GetSetting()->x = surf_map_setting->local_bhm->surface_log_odds;
             ERL_INFO(
                 "Press left/right arrow keys to change the iso_value and regenerate the mesh.");
-            visualizer->Show();
+            visualizer->Show(wait_time_seconds);
         }
     }
 
@@ -448,18 +453,20 @@ protected:
         positions_test_follow =
             (rotation_sensor * positions_test_follow_org).colwise() + translation_sensor;
 
-        const ERL_BLOCK_TIMER_MSG_TIME("surf_map.Test", test_dt);
-        GetPrediction(
-            positions_test_follow,
-            false /*logodd*/,
-            true /*compute_free_space*/,
-            false /*compute_gradient*/,
-            false /*gradient_with_sigmoid*/,
-            true /*parallel*/,
-            prob_occupied_follow,
-            in_free_space_follow,
-            gradient_follow);
-        test_success = true;
+        {
+            const ERL_BLOCK_TIMER_MSG_TIME("surf_map.Test", test_dt);
+            GetPrediction(
+                positions_test_follow,
+                false /*logodd*/,
+                true /*compute_free_space*/,
+                false /*compute_gradient*/,
+                false /*gradient_with_sigmoid*/,
+                true /*parallel*/,
+                prob_occupied_follow,
+                in_free_space_follow,
+                gradient_follow);
+            test_success = true;
+        }
 
         if (std::find(geometries.begin(), geometries.end(), mesh_surf) != geometries.end()) {
             surf_map->GetMesh(true, mesh_surf_vertices, mesh_surf_faces);

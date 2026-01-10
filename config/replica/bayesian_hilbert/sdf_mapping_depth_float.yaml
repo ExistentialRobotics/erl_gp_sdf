@@ -5,10 +5,10 @@ test_query:
     max_num_retrain_gps: 100
 update_hz: 10
 min_num_gps_to_update: 256
-gp_sdf_area_scale: 4  # should not be too small
+gp_sdf_area_scale: 4 # should not be too small
 sdf_gp:
     sign_method: "external"
     edf_gp:
-        kernel_type: erl::covariance::Matern32<float, 3>
+        kernel_type: erl::covariance::RadialBiasFunction<float, 3>
         log_lambda: 40
         max_num_samples: 128

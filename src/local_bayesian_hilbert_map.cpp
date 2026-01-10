@@ -86,12 +86,14 @@ namespace erl::gp_sdf {
 
     template<typename Dtype, int Dim>
     LocalBayesianHilbertMap<Dtype, Dim>::LocalBayesianHilbertMap(
+        const std::size_t id_,
         std::shared_ptr<LocalBayesianHilbertMapSetting<Dtype>> setting_,
         MatrixDX hinged_points,
         Aabb map_boundary,
         uint64_t seed,
         Aabb track_surface_boundary_)
-        : setting(std::move(setting_)),
+        : id(id_),
+          setting(std::move(setting_)),
           tracked_surface_boundary(std::move(track_surface_boundary_)),
           tracked_surface_resolution(
               tracked_surface_boundary.sizes().array() /
@@ -114,7 +116,6 @@ namespace erl::gp_sdf {
             dataset_labels.resize(setting->max_dataset_size);
         }
         surface_log_odds = setting->surface_log_odds;
-        log_odds_count = setting->surface_log_odds_init_count;
     }
 
     template<typename Dtype, int Dim>
@@ -122,6 +123,7 @@ namespace erl::gp_sdf {
     LocalBayesianHilbertMap<Dtype, Dim>::GenerateDataset(
         const Eigen::Ref<const VectorD> &sensor_position,
         const Eigen::Ref<const MatrixDX> &points,
+        const bool collect_rays_only,
         std::vector<long> &point_indices) {
 
         hit_indices.clear();
@@ -137,11 +139,32 @@ namespace erl::gp_sdf {
                 setting->bhm->max_distance,
                 setting->bhm->free_sampling_margin,
                 setting->bhm->free_points_per_meter,
-                max_used_ray_count * 5,
+                max_used_ray_count * 2,
                 bhm.GetRandomGenerator(),
                 // output
                 hit_indices,       // cleared inside
                 ray_info_buffer);  // append to the buffer
+        }
+
+        if (collect_rays_only) {
+            // only collect rays, do not generate dataset
+            if (setting->ray_buffer_size > 0) {
+                // move rays to the ring buffer.
+                // we will re-use them in the next update.
+                if (ray_info_buffer.size() + ray_info_ring_buffer.Size() >
+                    ray_info_ring_buffer.Capacity()) {
+                    ray_info_ring_buffer.PopAll(ray_info_buffer);
+                    std::shuffle(
+                        ray_info_buffer.begin(),
+                        ray_info_buffer.end(),
+                        bhm.GetRandomGenerator());
+                    ray_info_buffer.resize(ray_info_ring_buffer.Capacity());
+                }
+                ray_info_ring_buffer.PushRange(ray_info_buffer.begin(), ray_info_buffer.end());
+                ray_info_buffer.clear();
+                unused_ray_count = std::min(unused_ray_count, setting->ray_buffer_size);
+            }
+            return;
         }
 
         // move rays from the ring buffer to the ray info buffer
@@ -156,84 +179,72 @@ namespace erl::gp_sdf {
             total_num_free_points += ray.num_free_points;
         }
         const long max_dataset_size = setting->max_dataset_size;
+        const long min_dataset_size = setting->min_dataset_size;
+        const long min_dataset_hit_size = setting->min_dataset_hit_size;
         const long max_num_points = total_num_free_points + total_num_hit_points;
         const bool limit_exceeded = max_dataset_size > 0 && max_num_points > max_dataset_size;
+        const bool below_min_size =
+            max_num_points < min_dataset_size || total_num_hit_points < min_dataset_hit_size;
         long num_hit_to_sample = 0;
         long num_free_to_sample = 0;
         if (limit_exceeded) {
             num_hit_to_sample = max_dataset_size * total_num_hit_points / max_num_points;
             num_free_to_sample = max_dataset_size * total_num_free_points / max_num_points;
+        } else if (below_min_size) {
+            // impossible to reach the minimum dataset size, skip sampling
+            num_hit_to_sample = 0;
+            num_free_to_sample = 0;
         } else {
             num_hit_to_sample = total_num_hit_points;
             num_free_to_sample = total_num_free_points;
         }
 
         // generate the dataset from the rays
-        MatrixDX *dataset_points_ptr = &dataset_points;
-        VectorX *dataset_labels_ptr = &dataset_labels;
-        long n_points = 0;
-        MatrixDX extra_points;
-        VectorX extra_labels;
-        const bool combine =
-            (dataset_size > 0) && ((dataset_size < setting->min_dataset_size) ||
-                                   (dataset_hit_size < setting->min_dataset_hit_size));
-        // previous dataset was too small. combine it with new points.
-        if (combine) {
-            dataset_points_ptr = &extra_points;
-            dataset_labels_ptr = &extra_labels;
+        std::size_t n_rays_used = 0;
+        if (num_hit_to_sample > 0 && num_free_to_sample > 0) {
+            n_rays_used = geometry::OccupancyMap<Dtype, Dim>::GenerateSamples(
+                // input
+                ray_info_buffer,
+                bhm.GetRandomGenerator(),
+                limit_exceeded,
+                num_hit_to_sample,
+                num_free_to_sample,
+                // output
+                dataset_hit_size,
+                dataset_size,
+                dataset_points,
+                dataset_labels);
+            max_used_ray_count = std::max(max_used_ray_count, n_rays_used);
+            unused_ray_count = static_cast<long>(ray_info_buffer.size() - n_rays_used);
         }
-
-        const std::size_t n_rays_used = geometry::OccupancyMap<Dtype, Dim>::GenerateSamples(
-            // input
-            ray_info_buffer,
-            bhm.GetRandomGenerator(),
-            limit_exceeded,
-            num_hit_to_sample,
-            num_free_to_sample,
-            // output
-            num_hit_to_sample,
-            n_points,
-            *dataset_points_ptr,
-            *dataset_labels_ptr);
-        max_used_ray_count = std::max(max_used_ray_count, n_rays_used);
-        unused_ray_count = static_cast<long>(ray_info_buffer.size() - n_rays_used);
 
         if (points.cols() == 0) {                      // no new points, only use cached rays
             ray_info_buffer.resize(unused_ray_count);  // remove used rays (exhausting mode)
         }
 
-        // combine extra points if needed
-        if (combine && n_points > 0) {
-            // n_points <= max_dataset_size
-            // dataset_size >= 0 && dataset_size < setting->min_dataset_size
-            long new_dataset_size = dataset_size + n_points;
-            if (max_dataset_size > 0 && new_dataset_size > max_dataset_size) {
-                dataset_size = max_dataset_size - n_points;
-                dataset_hit_size = dataset_labels.head(dataset_size).sum();
-                new_dataset_size = max_dataset_size;
+        const std::size_t size = ray_info_buffer.size();
+        std::size_t j = size - 1;
+        for (std::size_t i = size - n_rays_used; i <= j && i < size;) {
+            if (!ray_info_buffer[i].hit_flag) {
+                std::swap(ray_info_buffer[i], ray_info_buffer[j]);
+                --j;
+                continue;
             }
-            if (dataset_points.cols() < new_dataset_size) {
-                dataset_points.conservativeResize(Dim, new_dataset_size);
-                dataset_labels.conservativeResize(new_dataset_size);
-            }
-            dataset_points.block(0, dataset_size, Dim, n_points) = extra_points.leftCols(n_points);
-            dataset_labels.segment(dataset_size, n_points) = extra_labels.head(n_points);
-            dataset_hit_size += extra_labels.head(n_points).sum();
-            dataset_size = new_dataset_size;
-        } else if (n_points > 0) {
-            dataset_size = n_points;
-            dataset_hit_size = num_hit_to_sample;
-        } else {
-            dataset_size = 0;
-            dataset_hit_size = 0;
+            ++i;
         }
+        ray_info_buffer.resize(j + 1);  // remove used pass-through rays
 
         if (setting->ray_buffer_size > 0) {
             // move rays to the ring buffer.
             // we will re-use them in the next update.
             if (ray_info_buffer.size() > ray_info_ring_buffer.Capacity()) {
-                // used rays are at the back of the buffer and removed
-                // only when the buffer has no space to fit them.
+                // scheme1: used rays are at the back of the buffer and removed
+                // scheme2: randomly remove rays
+                // we use scheme2 to avoid biasing the rays kept in the buffer
+                std::shuffle(
+                    ray_info_buffer.begin(),
+                    ray_info_buffer.end(),
+                    bhm.GetRandomGenerator());
                 ray_info_buffer.resize(ray_info_ring_buffer.Capacity());
             }
             ray_info_ring_buffer.PushRange(ray_info_buffer.begin(), ray_info_buffer.end());
@@ -333,7 +344,9 @@ namespace erl::gp_sdf {
         updated = true;
         const Dtype valid_surf_log_odds_max = 10.0f * setting->surface_log_odds_max;
         const Dtype valid_surf_log_odds_min = -valid_surf_log_odds_max;
-        surface_log_odds *= static_cast<Dtype>(log_odds_count);
+        // surface_log_odds *= static_cast<Dtype>(log_odds_count);
+        Dtype new_surface_log_odds = 0;
+        long n_valid_count = 0;
         for (long i = 0; i < n_hit_points; ++i) {
             std::size_t idx1 = hit_point_distribution(bhm.GetRandomGenerator());
             idx1 %= (hit_point_buffer.size() - i);
@@ -353,10 +366,18 @@ namespace erl::gp_sdf {
             if (log_odd < valid_surf_log_odds_min || log_odd > valid_surf_log_odds_max) {
                 continue;  // skip outliers
             }
-            surface_log_odds += log_odd;
+            // surface_log_odds += log_odd;
+            // ++log_odds_count;
+            new_surface_log_odds += log_odd;
+            ++n_valid_count;
         }
-        log_odds_count += n_hit_points;
-        surface_log_odds /= static_cast<Dtype>(log_odds_count);
+        if (n_valid_count == 0) { return updated; }  // failed to get new surface log-odds
+        new_surface_log_odds /= static_cast<Dtype>(n_valid_count);  // average log-odds
+        const Dtype t = setting->surface_log_odds_lr;               // learning rate
+        surface_log_odds = t * new_surface_log_odds + (1 - t) * surface_log_odds;
+        log_odds_count += n_valid_count;  // update sample count (just for record)
+        // surface_log_odds /= static_cast<Dtype>(n_hit_points);
+        // surface_log_odds /= static_cast<Dtype>(log_odds_count);
 
         if (setting->hit_point_buffer_size > 0) {
             // move hit points to the ring buffer.
@@ -364,6 +385,10 @@ namespace erl::gp_sdf {
             if (hit_point_buffer.size() > hit_point_ring_buffer.Capacity()) {
                 // used hit points are at the back of the buffer and removed only when the buffer
                 // has no space to fit them.
+                std::shuffle(
+                    hit_point_buffer.begin(),
+                    hit_point_buffer.end(),
+                    bhm.GetRandomGenerator());
                 hit_point_buffer.resize(hit_point_ring_buffer.Capacity());
             }
             hit_point_ring_buffer.PushRange(hit_point_buffer.begin(), hit_point_buffer.end());
@@ -386,15 +411,34 @@ namespace erl::gp_sdf {
     LocalBayesianHilbertMap<Dtype, Dim>::Update(
         const Eigen::Ref<const VectorD> &sensor_origin,
         const Eigen::Ref<const MatrixDX> &points,
+        const bool collect_rays_only,
         const bool update_surface_voxels,
         std::vector<long> &point_indices) {
 
-        active = true;  // assume the map is valid first
-        GenerateDataset(sensor_origin, points, point_indices);
+        GenerateDataset(sensor_origin, points, collect_rays_only, point_indices);
+
+        if (collect_rays_only && setting->auto_surface_log_odds) {
+            for (const auto &index: hit_indices) {
+                hit_point_buffer.emplace_back(points.col(index));
+            }
+            if (setting->hit_point_buffer_size > 0) {
+                // move hit points to the ring buffer.
+                // we will re-use them in the next update.
+                if (hit_point_buffer.size() > hit_point_ring_buffer.Capacity()) {
+                    // used hit points are at the back of the buffer and removed only when the
+                    // buffer has no space to fit them.
+                    hit_point_buffer.resize(hit_point_ring_buffer.Capacity());
+                }
+                hit_point_ring_buffer.PushRange(hit_point_buffer.begin(), hit_point_buffer.end());
+                hit_point_buffer.clear();
+            }
+            return false;
+        }
 
         bool updated = false;
         if (dataset_size >= setting->min_dataset_size &&
             dataset_hit_size >= setting->min_dataset_hit_size) {
+            active = true;  // map will be updated, set active to true
             updated = true;
             bhm.RunExpectationMaximization(dataset_points, dataset_labels, dataset_size);
         }
@@ -541,6 +585,7 @@ namespace erl::gp_sdf {
                     return s.good();
                 },
             },
+            // num_faces can be computed from surf_voxels.
             {
                 "dataset_hit_size",
                 [](const LocalBayesianHilbertMap *self, std::ostream &s) {
@@ -711,6 +756,7 @@ namespace erl::gp_sdf {
                         return s.good();
                     }
                     self->surf_voxels.reserve(n_voxels);
+                    self->num_faces = 0;
                     for (std::size_t i = 0; i < n_voxels; ++i) {
                         GridIndex index;
                         s.read(reinterpret_cast<char *>(&index), sizeof(index));
@@ -720,6 +766,7 @@ namespace erl::gp_sdf {
                             return false;
                         }
                         if (!it->second.Read(s)) { return false; }
+                        self->num_faces += it->second.faces.size();
                     }
                     return s.good();
                 },
@@ -868,6 +915,7 @@ namespace erl::gp_sdf {
         if (setting != nullptr && (other.setting == nullptr || *setting != *other.setting)) {
             return false;
         }
+        if (id != other.id) { return false; }
         if (tracked_surface_boundary != other.tracked_surface_boundary) { return false; }
         if (bhm != other.bhm) { return false; }
         if (surface_indices != other.surface_indices) { return false; }

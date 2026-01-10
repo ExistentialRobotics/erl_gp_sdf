@@ -4,20 +4,25 @@ verify_ssl = true
 name = "pypi"
 
 [packages]
-tqdm = "*"
-python-ffmpeg = "*"
 matplotlib = "*"
-vedo = "*"
 numpy = "*"
-dash = "*"
-plotly = "*"
 opencv-python = "*"
-pyyaml = "*"
-screeninfo = "*"
-scipy = "*"
-pycryptodomex = "*"
+open3d = "*"
+pyglet = "*"
+pymeshlab = "*"
 pyside6 = "*"
-torch = "*"
+python-ffmpeg = "*"
+pyyaml = "*"
+rtree = "*"
+"ruamel.yaml" = "*"
+scipy = "*"
+shapely = "*"
+tqdm = "*"
+transforms3d = "*"
+trimesh = "*"
+vedo = "*"
+
+# pip install --no-build-isolation git+https://github.com/facebookresearch/pytorch3d.git@f5f6b78e70e0a1b70f3be9a09b5b001e9b3a7a03
 
 [dev-packages]
 
