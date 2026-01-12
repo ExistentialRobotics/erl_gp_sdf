@@ -161,5 +161,5 @@ done
 
 ## Acknowledgements
 
-This work was supported by the Ministry of Trade, Industry and Energy (MOTIE), Korea, under the Strategic Technology
+We gratefully acknowledge support from the [ARL DCIST CRA](https://www.dcist-cra.org/) and the Ministry of Trade, Industry and Energy (MOTIE), Korea, under the Strategic Technology
 Development Program, supervised by the Korea Institute for Advancement of Technology (KIAT) [Grant No. P0026052].
