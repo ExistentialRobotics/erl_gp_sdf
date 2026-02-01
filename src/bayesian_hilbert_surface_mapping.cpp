@@ -75,7 +75,18 @@ namespace erl::gp_sdf {
         const typename Setting::UpdateMap &update_map_setting = m_setting_->update_map;
         auto max_num_bhm = static_cast<std::size_t>(update_map_setting.max_num_bhm);
 
-        if (points.cols() == 0) {
+        if (m_setting_->filter_points && points_s.cols() > 0) {
+            long idx = 0;
+            for (long i = 0; i < points_s.cols(); ++i) {
+                const Dtype z = points_s(2, i);
+                if (z < m_setting_->filter_points_min_z_world) { continue; }
+                if (z > m_setting_->filter_points_max_z_world) { continue; }
+                points_s.col(idx++) = points_s.col(i);
+            }
+            points_s.conservativeResize(Dim, idx);
+        }
+
+        if (points_s.cols() == 0) {
             // pick some local BHMs to update
             max_num_bhm = std::min(max_num_bhm, m_key_bhm_vec_.size());
             std::size_t cnt = 0;

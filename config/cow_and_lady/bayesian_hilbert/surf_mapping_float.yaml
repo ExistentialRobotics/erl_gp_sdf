@@ -4,13 +4,13 @@ local_bhm:
         min_distance: 0.2
         max_distance: 4.0
         sampling_area_scale: 2.5
-        free_points_per_meter: 7.5
+        free_points_per_meter: 12.0 # 7.5
         init_mu: 5.0
         free_sampling_margin: 0.001
     kernel_type: erl::covariance::RadialBiasFunction<float, 3>
     kernel:
         x_dim: 3
-        scale: 0.011
+        scale: 0.013 # 0.011
     min_dataset_size: 20
     min_dataset_hit_size: 10
     max_dataset_size: 200
@@ -25,12 +25,12 @@ ray_selector:
     num_azimuth_angles: 640
     num_elevation_angles: 480
     transform: # transform from optical frame to camera frame
-        - [ 0, 0, 1, 0 ]
-        - [ -1, 0, 0, 0 ]
-        - [ 0, -1, 0, 0 ]
+        - [0, 0, 1, 0]
+        - [-1, 0, 0, 0]
+        - [0, -1, 0, 0]
 tree:
     tree_depth: 8
-    resolution: 0.05  #0.07
+    resolution: 0.05
     log_odd_min: -10
     log_odd_max: 50
     log_odd_hit: 0.9
@@ -43,5 +43,5 @@ update_map:
     max_num_voxels: 20000
 bhm_depth: 7
 scaling: 1.0
-hinged_grid_size: 7 #8 #9 #7
+hinged_grid_size: 7
 bhm_test_margin: 0.03

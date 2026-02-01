@@ -118,14 +118,14 @@ namespace erl::gp_sdf {
 
     template<typename Dtype, int Dim>
     void
-    SdfGaussianProcess<Dtype, Dim>::MarkBufferOutdated() {
-        ++buf_outdated_count;
+    SdfGaussianProcess<Dtype, Dim>::MarkBufferOutdated(const long max_count) {
+        buf_outdated_count = std::min(buf_outdated_count + 1, max_count);
     }
 
     template<typename Dtype, int Dim>
     void
-    SdfGaussianProcess<Dtype, Dim>::MarkGpOutdated() {
-        ++gp_outdated_count;
+    SdfGaussianProcess<Dtype, Dim>::MarkGpOutdated(const long count) {
+        gp_outdated_count += count;
     }
 
     template<typename Dtype, int Dim>
@@ -262,7 +262,7 @@ namespace erl::gp_sdf {
             }
             running_mean_position.store(mean_pos);
         }
-        gp_outdated_count += buf_outdated_count;
+        MarkGpOutdated(buf_outdated_count);
         if (loaded) {
             buf_outdated_count = 0;
             buf_ever_loaded.store(true);

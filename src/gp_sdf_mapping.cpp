@@ -977,7 +977,7 @@ namespace erl::gp_sdf {
                 }
             } else {
                 gp->Activate();
-                gp->MarkBufferOutdated();
+                gp->MarkBufferOutdated(max_c1);
                 priority = gp->GetLoadingPriority(beta);
             }
             // add the cluster to the queue

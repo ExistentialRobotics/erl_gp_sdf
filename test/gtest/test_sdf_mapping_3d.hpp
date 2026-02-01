@@ -544,6 +544,7 @@ protected:
         for (long i = 0; i < frame_points.cols(); ++i) {
             frame_points.col(i) = rotation_frame * frame_points.col(i) + translation_frame;
         }
+        this->frame_points_in_sensor_frame = false;  // frame_points are now in world frame
 
         {
             ERL_BLOCK_TIMER_MSG_TIME("surf_map.Update", surf_map_update_dt);

@@ -1,4 +1,4 @@
-__base__: ../common/bayesian_hilbert_surf_mapping_float.yaml
+__base__: ../../common/bayesian_hilbert_surf_mapping_float.yaml
 local_bhm:
     bhm:
         min_distance: 0.0
@@ -26,6 +26,7 @@ ray_selector:
         - [ 1, 0, 0 ]
         - [ 0, 1, 0 ]
 tree:
+    tree_depth: 7
     resolution: 0.4
     log_odd_min: -5
     log_odd_max: 30
@@ -36,7 +37,7 @@ update_map:
     method: 2
     max_num_bhm: 2000
     max_num_voxels: 8000
+bhm_depth: 6
 scaling: 1.0
 hinged_grid_size: 9
 bhm_test_margin: 0.1
-unknown_log_odds: 100.0

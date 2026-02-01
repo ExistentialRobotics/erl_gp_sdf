@@ -95,10 +95,10 @@ namespace erl::gp_sdf {
         Deactivate();
 
         void
-        MarkBufferOutdated();
+        MarkBufferOutdated(long max_count = 10000);
 
         void
-        MarkGpOutdated();
+        MarkGpOutdated(long count = 1);
 
         void
         MarkQueried();

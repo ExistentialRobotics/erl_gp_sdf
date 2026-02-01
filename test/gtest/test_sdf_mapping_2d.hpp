@@ -13,6 +13,7 @@ template<typename Dtype>
 void
 DrawSdf(cv::Mat &img, const int x, const int y, Dtype sdf, Dtype resolution) {
     const auto radius = static_cast<int>(std::abs(sdf) / resolution);
+    if (radius < 0) { return; }
     cv::Mat circle_layer(img.rows, img.cols, CV_8UC4, cv::Scalar(0));
     cv::Mat circle_mask(img.rows, img.cols, CV_8UC1, cv::Scalar(0));
     cv::circle(circle_mask, cv::Point2i(x, y), radius, cv::Scalar(255), cv::FILLED);
@@ -30,6 +31,7 @@ DrawSdfVariance(
     const Dtype sdf_variance,
     const Dtype resolution) {
     const auto radius = static_cast<int>((std::sqrt(sdf_variance) + std::abs(sdf)) / resolution);
+    if (radius < 0) { return; }
     cv::circle(img, cv::Point2i(x, y), radius, cv::Scalar(0, 0, 255, 25), 1);
 }
 
@@ -335,18 +337,6 @@ protected:
             "Failed to load sdf_map_config_file: {}",
             options->sdf_map_config_file);
 
-        if (!options->load_mapping_bin) {
-            std::filesystem::create_directories(options->output_dir);
-            surf_map_setting->AsYamlFile(options->output_dir / "surf_map.yaml");
-            sdf_map_setting->AsYamlFile(options->output_dir / "sdf_map.yaml");
-
-            ERL_INFO("Surface mapping config: {}", options->surf_map_config_file);
-            std::cout << surf_map_setting->AsYamlString() << std::endl;
-
-            ERL_INFO("SDF mapping config: {}", options->sdf_map_config_file);
-            std::cout << sdf_map_setting->AsYamlString() << std::endl;
-        }
-
         // create mappings
         surf_map = std::make_shared<SurfMap>(surf_map_setting);
         sdf_map = std::make_shared<SdfMap>(sdf_map_setting, surf_map);
@@ -358,6 +348,19 @@ protected:
 
         // base init
         Super::Init();
+
+        // save configs
+        if (!options->load_mapping_bin) {
+            std::filesystem::create_directories(options->output_dir);
+            surf_map_setting->AsYamlFile(options->output_dir / "surf_map.yaml");
+            sdf_map_setting->AsYamlFile(options->output_dir / "sdf_map.yaml");
+
+            ERL_INFO("Surface mapping config: {}", options->surf_map_config_file);
+            std::cout << surf_map_setting->AsYamlString() << std::endl;
+
+            ERL_INFO("SDF mapping config: {}", options->sdf_map_config_file);
+            std::cout << sdf_map_setting->AsYamlString() << std::endl;
+        }
 
         // other
         sdf_pred_whole_map.resize(grid_points.cols());
@@ -944,8 +947,8 @@ protected:
 
         Eigen::Vector2i grid_shape;
         const Dtype res = options->test_res_grid;
-        grid_shape[0] = static_cast<int>(std::ceil(options->test_grid_size[0] / res));
-        grid_shape[1] = static_cast<int>(std::ceil(options->test_grid_size[1] / res));
+        grid_shape[0] = static_cast<int>(std::ceil(options->test_grid_def.size[0] / res));
+        grid_shape[1] = static_cast<int>(std::ceil(options->test_grid_def.size[1] / res));
 
         cv::Mat img_sdf(
             grid_shape[1],  // height

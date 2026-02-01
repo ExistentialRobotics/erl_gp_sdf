@@ -13,6 +13,7 @@
 #include "erl_geometry/newer_college.hpp"
 #include "erl_geometry/open3d_helper.hpp"
 #include "erl_geometry/open3d_visualizer_wrapper.hpp"
+#include "erl_geometry/range_sensor_noise.hpp"
 #include "erl_geometry/replica_rgbd.hpp"
 #include "erl_geometry/trajectory.hpp"
 #include "erl_gp_sdf/surface_data_manager.hpp"
@@ -80,14 +81,16 @@ struct OptionsForTestMapping3D : public erl::common::Yamlable<OptionsForTestMapp
     std::string traj_file = kDataDir / "replica-hotel-0-traj.txt";  // trajectory file
     std::string o3d_view_status_file;
     bool add_sensor_noise = false;
+    std::string sensor_noise_type = "gaussian";  // "gaussian" or "axial"
     Dtype sensor_noise_std = 0.01f;
+    Dtype sensor_noise_axial_scale = 0.0025f;  // for depth camera axial noise
 
     std::string sensor_frame_type = type_name<erl::geometry::LidarFrame3D<Dtype>>();
     std::string sensor_frame_config_file = kConfigDir / "sensors" / "lidar_frame_3d_360.yaml";
     long start_wp_idx = 0;
     long end_wp_idx = -1;  // -1 means all waypoints
     long seq_stride = 1;
-    bool exhausting = false;              // update until cached data is exhausted
+    long num_final_iterations = -1;       // update for extra iterations at the end
     Eigen::VectorXl scan_stride;          // linear scan stride or per axis scan stride
     bool random_scan_downsample = false;  // use random downsample the scan points
     long vis_stride = 1;                  // visualization stride
@@ -141,13 +144,15 @@ struct OptionsForTestMapping3D : public erl::common::Yamlable<OptionsForTestMapp
         ERL_REFLECT_MEMBER(OptionsForTestMapping3D, traj_file),
         ERL_REFLECT_MEMBER(OptionsForTestMapping3D, o3d_view_status_file),
         ERL_REFLECT_MEMBER(OptionsForTestMapping3D, add_sensor_noise),
+        ERL_REFLECT_MEMBER(OptionsForTestMapping3D, sensor_noise_type),
         ERL_REFLECT_MEMBER(OptionsForTestMapping3D, sensor_noise_std),
+        ERL_REFLECT_MEMBER(OptionsForTestMapping3D, sensor_noise_axial_scale),
         ERL_REFLECT_MEMBER(OptionsForTestMapping3D, sensor_frame_type),
         ERL_REFLECT_MEMBER(OptionsForTestMapping3D, sensor_frame_config_file),
         ERL_REFLECT_MEMBER(OptionsForTestMapping3D, start_wp_idx),
         ERL_REFLECT_MEMBER(OptionsForTestMapping3D, end_wp_idx),
         ERL_REFLECT_MEMBER(OptionsForTestMapping3D, seq_stride),
-        ERL_REFLECT_MEMBER(OptionsForTestMapping3D, exhausting),
+        ERL_REFLECT_MEMBER(OptionsForTestMapping3D, num_final_iterations),
         ERL_REFLECT_MEMBER(OptionsForTestMapping3D, scan_stride),
         ERL_REFLECT_MEMBER(OptionsForTestMapping3D, random_scan_downsample),
         ERL_REFLECT_MEMBER(OptionsForTestMapping3D, vis_stride),
@@ -397,7 +402,6 @@ public:
         }
 
         int wait_time_seconds = -1;
-        if (options->hold) { wait_time_seconds = 5; }
         if (options->load_mapping_bin) {
             ReadMappingBin(*mapping, options->mapping_bin_file);
             animation_ended = true;
@@ -1044,21 +1048,13 @@ protected:
     void
     AddSensorNoise() {
         if (!options->add_sensor_noise) { return; }
-        const long n_cols = frame_ranges.cols();
-        std::vector<uint64_t> random_seeds(n_cols);
-        for (long i = 0; i < n_cols; ++i) { random_seeds[i] = erl::common::g_random_engine(); }
 
-#pragma omp parallel for default(none) shared(random_seeds, n_cols)
-        for (long v = 0; v < n_cols; ++v) {
-            std::mt19937_64 generator(random_seeds[v]);
-            std::normal_distribution<Dtype> distribution(0, options->sensor_noise_std);
-            for (long u = 0; u < frame_ranges.rows(); ++u) {
-                Dtype &r = frame_ranges(u, v);
-                if (r <= 0) { continue; }
-                r += distribution(generator);
-                if (r < 0) { r = 0; }
-            }
-        }
+        erl::geometry::AddRangeSensorNoise(
+            frame_ranges.data(),
+            frame_ranges.size(),
+            options->sensor_noise_type == "axial",
+            options->sensor_noise_std,
+            options->sensor_noise_axial_scale);
     }
 
     void
@@ -1343,12 +1339,13 @@ protected:
 
         if (wp_idx >= max_wp_idx) {  // end of animation
             animation_ended = true;
-            if (options->exhausting) {
+            if (options->num_final_iterations > 0) {
                 // clear frame data
                 frame_points = Matrix3X();
                 frame_ranges = MatrixX();
-
-                while (UpdateMap()) {
+                long num_iterations = 0;
+                while (num_iterations < options->num_final_iterations && UpdateMap()) {
+                    ++num_iterations;
                     UpdateFollowingMapPrediction();
                     UpdateVisualization();
                 }
@@ -1465,7 +1462,9 @@ protected:
                 resolution);
         const Matrix3 rotation = Eigen::Quaternion<Dtype>(
                                      options->test_grid_def.rotation[0],
-                                     options->test_grid_def.rotation.template tail<3>())
+                                     options->test_grid_def.rotation[1],
+                                     options->test_grid_def.rotation[2],
+                                     options->test_grid_def.rotation[3])
                                      .toRotationMatrix();
         ERL_INFO(
             "Grid rotation:\n{}\nGrid center: [{}]",

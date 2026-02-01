@@ -1,0 +1,534 @@
+<!DOCTYPE html>
+<html>
+
+<head>
+    <meta charset="utf-8">
+    <meta name="description" content="Learning Scene-Level Signed Directional Distance Function for Aerial Autonomy">
+    <meta name="keywords" content="SDDF, Neural Implicit Representation, Aerial Robotics, Trajectory Optimization">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>SDDF: Scene-Level Signed Directional Distance Function</title>
+
+    <link href="https://fonts.googleapis.com/css?family=Google+Sans|Noto+Sans|Castoro" rel="stylesheet">
+
+    <link rel="stylesheet" href="./static/css/bulma.min.css">
+    <link rel="stylesheet" href="./static/css/bulma-carousel.min.css">
+    <link rel="stylesheet" href="./static/css/bulma-slider.min.css">
+    <link rel="stylesheet" href="./static/css/fontawesome.all.min.css">
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/jpswalsh/academicons@1/css/academicons.min.css">
+    <link rel="stylesheet" href="./static/css/index.css">
+
+    <script src="https://ajax.googleapis.com/ajax/libs/jquery/3.5.1/jquery.min.js"></script>
+    <script defer src="./static/js/fontawesome.all.min.js"></script>
+    <script src="./static/js/bulma-carousel.min.js"></script>
+    <script src="./static/js/bulma-slider.min.js"></script>
+    <script src="./static/js/index.js"></script>
+
+    <!-- MathJax 3 for LaTeX support -->
+    <script>
+        MathJax = {
+            tex: {
+                inlineMath: [['$', '$'], ['\\(', '\\)']],
+                displayMath: [['$$', '$$'], ['\\[', '\\]']],
+                processEscapes: true,
+                processEnvironments: true
+            },
+            options: {
+                skipHtmlTags: ['script', 'noscript', 'style', 'textarea', 'pre']
+            }
+        };
+    </script>
+    <script src="https://cdn.jsdelivr.net/npm/mathjax@3/es5/tex-mml-chtml.js" id="MathJax-script" async></script>
+</head>
+
+<body>
+
+    <nav class="navbar" role="navigation" aria-label="main navigation">
+        <div class="navbar-brand">
+            <a role="button" class="navbar-burger" aria-label="menu" aria-expanded="false">
+                <span aria-hidden="true"></span>
+                <span aria-hidden="true"></span>
+                <span aria-hidden="true"></span>
+            </a>
+        </div>
+        <div class="navbar-menu">
+            <div class="navbar-start" style="flex-grow: 1; justify-content: center;">
+                <a class="navbar-item" href="https://daizhirui.github.io/">
+                    <span class="icon">
+                        <i class="fas fa-home"></i>
+                    </span>
+                    <span>Home</span>
+                </a>
+                <a class="navbar-item" href="https://daizhirui.github.io/pages/research.html">
+                    <span class="icon">
+                        <i class="fas fa-book"></i>
+                    </span>
+                    <span>More Research</span>
+                </a>
+            </div>
+        </div>
+    </nav>
+
+
+    <section class="hero">
+        <div class="hero-body">
+            <div class="container is-max-desktop">
+                <div class="columns is-centered">
+                    <div class="column has-text-centered">
+                        <h1 class="title is-1 publication-title">Real-Time Learning of Signed Distance Function via
+                            Kernel Regression with Uncertainty Quantification</h1>
+                        <div class="is-size-5 publication-authors">
+                            <span class="author-block">
+                                <a href="https://daizhirui.github.io/">Zhirui Dai</a><sup>1</sup>,
+                            </span>
+                            <span class="author-block">
+                                <a href="#">Tianxing Fan</a><sup>1</sup>,
+                            </span>
+                            <span class="author-block">
+                                <a href="#">Mani Amani</a><sup>1</sup>,
+                            </span>
+                            <span class="author-block">
+                                <a href="#">Jaemin Seo</a><sup>2</sup>,
+                            </span>
+                            <span class="author-block">
+                                <a href="#">Ki Myung Brian Lee</a><sup>1</sup>,
+                            </span>
+                        </div>
+                        <div class="is-size-5 publication-authors">
+                            <span class="author-block">
+                                <a href="#">Ki Myung Brian Lee</a><sup>1</sup>,
+                            </span>
+                            <span class="author-block">
+                                <a href="#">Hyondong Oh</a><sup>2</sup>,
+                            </span>
+                            <span class="author-block">
+                                <a href="https://natanaso.github.io/">Nikolay Atanasov</a><sup>1</sup>
+                            </span>
+                        </div>
+
+                        <div class="is-size-5 publication-authors">
+                            <span class="author-block"><sup>1</sup><a
+                                    href="https://existentialrobotics.org/">Existential Robotics Lab</a>,
+                                University of California San Diego</span>
+                        </div>
+
+                        <div class="is-size-5 publication-authors">
+                            <span class="author-block"><sup>2</sup>
+                                <a href="https://me.kaist.ac.kr/eng/main/main.html">
+                                    Department of Mechanical Engineering</a>,
+                                Korea Advanced Institute of Science and Technology (KAIST)
+                            </span>
+                        </div>
+
+                        <div class="column has-text-centered">
+                            <div class="publication-links">
+                                <!-- PDF Link. -->
+                                <span class="link-block">
+                                    <a href="https://daizhirui.github.io/ref/Dai_GP_SDF_2025.pdf"
+                                        class="external-link button is-normal is-rounded is-dark">
+                                        <span class="icon">
+                                            <i class="fas fa-file-pdf"></i>
+                                        </span>
+                                        <span>Paper</span>
+                                    </a>
+                                </span>
+                                <!-- <span class="link-block">
+                                    <a href="https://arxiv.org/abs/2503.20066"
+                                        class="external-link button is-normal is-rounded is-dark">
+                                        <span class="icon">
+                                            <i class="ai ai-arxiv"></i>
+                                        </span>
+                                        <span>arXiv</span>
+                                    </a>
+                                </span> -->
+                                <!-- <span class="link-block">
+                                    <a href="#BibTeX" class="external-link button is-normal is-rounded is-dark">
+                                        <span class="icon">
+                                            <i class="fas fa-quote-left"></i>
+                                        </span>
+                                        <span>BibTeX</span>
+                                    </a>
+                                </span> -->
+                                <!-- Code Link. -->
+                                <span class="link-block">
+                                    <a href="https://github.com/ExistentialRobotics/erl_gp_sdf"
+                                        class="external-link button is-normal is-rounded is-dark">
+                                        <span class="icon">
+                                            <i class="fab fa-github"></i>
+                                        </span>
+                                        <span>Code</span>
+                                    </a>
+                                </span>
+                                <!-- Video Link. -->
+                                <!-- <span class="link-block">
+                                    <a href="#" class="external-link button is-normal is-rounded is-dark">
+                                        <span class="icon">
+                                            <i class="fas fa-video"></i>
+                                        </span>
+                                        <span>Video</span>
+                                    </a>
+                                </span> -->
+                            </div>
+
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <section class="hero teaser">
+        <div class="container is-max-desktop">
+            <div class="hero-body">
+                <div class="columns is-centered">
+                    <img src="static/images/fah-5.png" style="height: 300px">
+                    <img src="static/images/fah-2-o3d.png" style="height: 300px">
+                </div>
+                <p class="is-size-6" style="text-align: justify;">
+                    An example of 3D SDF mapping using the proposed Kernel-SDF method. Left: Visualization of the
+                    learned SDF as a heatmap, where warmer colors indicate higher SDF values (free space) and cooler
+                    colors indicate lower SDF values (occupied space), as well as the voxels (colored by height) that
+                    indicate the locations where local BHMs and GPs are instantiated. Right: The online mesh
+                    reconstructed in real-time from the surface estimation front-end of Kernel-SDF.
+                </p>
+            </div>
+        </div>
+        <div class="container is-max-desktop">
+            <div class="hero-body" style="text-align: justify;">
+                <strong>Abstract:</strong> Accurate and efficient environment representation is crucial for robotic
+                applications such as navigation, path planning, and manipulation. Signed distance function (SDF) has
+                emerged as a powerful representation due to its ability to encode obstacle boundaries and provide
+                distance information, useful for collision checking in motion planning and safety constraint
+                specification in autonomous navigation. However, existing SDF learning methods face significant
+                limitations: voxel-based approaches suffer from fixed resolution constraint and lack uncertainty
+                quantification, neural network methods require high computational cost for training, and existing
+                Gaussian process (GP) based methods struggle with scalability, sign estimation, and inconsistent
+                uncertainty quantification. In this letter, we propose <strong>Kernel-SDF</strong>, which uses kernel
+                regression to learn SDF with uncertainty quantification in real-time. Our approach consists of a surface
+                estimation front-end that handles sensor noise and dynamic environment changes by using kernel
+                regression in Hilbert space to learn the surface as a continuous occupancy field, and a back-end that
+                learns accurate SDF using GPs, i.e., kernel regression in the functional space. Our method provides
+                accurate SDF estimates, gradient predictions, uncertainty quantification, and online mesh construction
+                at real-time rates. Evaluation results show that <strong>Kernel-SDF achieves superior accuracy compared
+                    to existing methods and outstanding real-time performance, making it suitable for various robotic
+                    applications requiring reliable environment representation with uncertainty awareness.</strong>
+            </div>
+        </div>
+    </section>
+
+    <section class="section">
+        <h2 class="title is-3 has-text-centered">Methodoogy</h2>
+
+        <div class="content">
+            <div class="container is-max-desktop">
+                <h3 class="title is-4">Overview</h3>
+                <div class="content is-full">
+                    <img src="static/images/method_overview.png" alt="Method Overview"
+                        style="max-width: 90%; height: auto; display: block; margin: 0 auto;">
+                </div>
+                <div class="content" style="text-align: justify;">
+                    Our method consists of a surface estimation front-end and an SDF prediction back-end. The front-end
+                    estimates surface points and normals from sensor observations using Bayesian Hilbert Map (BHM) and
+                    marching squares/cubes algorithm. The estimated surface points are then used as training data for
+                    the
+                    GPs in the back-end. The back-end learns the SDF using multiple GPs, which predict the SDF and its
+                    gradient with uncertainty quantification computed via softmin-based fusion.
+                </div>
+            </div>
+        </div>
+
+        <div class="content">
+            <div class="container is-max-desktop">
+                <h3 class="title is-4">SDF Prediction Back-End</h3>
+                <div class="columns is-vcentered">
+                    <div class="column is-half">
+                        <img src="static/images/log_sdf_regression_udf_pred.png" alt="GP SDF Back-End"
+                            style="max-width: 100%; height: auto; display: block; margin: 0 auto;">
+                    </div>
+                    <div class="column is-half" style="text-align: justify;">
+                        <p>
+                            The SDF prediction back-end uses multiple GPs to learn the SDF from the surface points
+                            estimated by the front-end. Each GP is associated with a voxel in a hierarchical tree that
+                            partitions the space.
+                        </p>
+                        <p>
+                            Given a set of surface points $\mathcal{D}_\text{surf}=\{ \mathbf{x}_i, \sigma^2_i
+                            \}_{i=1}^{N}$, where $\sigma^2_i$ is the uncertainty of the surface point $\mathbf{x}_i$
+                            estimated by the front-end, we can train the corresponding GP for predicting the shortest
+                            distance $|d(\mathbf{x})|$ by regressing a surrogate function $f$, which should be
+                            monotonically decreasing with respect to the distance $|d(\mathbf{x})|$ to the nearest
+                            surface point, such that $f\rightarrow 0$ as $|d(\mathbf{x})| \rightarrow \infty$ and $f
+                            \rightarrow 1$ as $|d(\mathbf{x})|\rightarrow 0$, which is consistent with zero-mean prior
+                            GP regression that as the query point goes far away from the training set, the posterior
+                            mean goes to zero. With the trained GP, we can predict the unsigned distance
+                            $|d(\mathbf{x}_\ast)|=r(\hat{f})$, where $r(\cdot)$ is the inverse function of the surrogate
+                            function $f(\cdot)$. The sign of the SDF can be determined by querying the occupancy
+                            probability from the front-end BHM at the query point $\mathbf{x}_\ast$.
+                        </p>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <div class="content">
+            <div class="container is-max-desktop">
+                <h3 class="title is-4">Surface Estimation Front-End</h3>
+                <div class="columns is-vcentered">
+                    <div class="column is-half" style="text-align: justify;">
+                        <p>
+                            The role of the surface estimation front-end is to provide reliable estimates of on-surface
+                            points, their uncertainty, and optionally the corresponding normals. We use the Bayesian
+                            Hilbert map (BHM) for this purpose, although other front-ends may also be used.
+                        </p>
+                        <p>
+                            Given a dataset $\mathcal{D}_\text{BHM}=\{ \mathbf{x}_k, y_k \}_{k=1}^{K}$ is generated from
+                            the sensor measurement $\mathcal{S}_t=(\mathbf{R}_t, \mathbf{o}_t, \mathcal{P}_t)$ by
+                            sampling occupied samples as $(\mathbf{R}_t\mathbf{p}_i+\mathbf{o}_t, 1)$ and free-space
+                            samples as $(\lambda \mathbf{R}_t \mathbf{p}_i + \mathbf{o}_t, 0)$ for $\lambda \sim
+                            \mathcal{U}(0, 1)$ and $\forall \mathbf{p}_i \in \mathcal{P}_t$. We can update the BHM with
+                            an Expectation-Maximization algorithm, which enables incremental updates of the BHM. Hence,
+                            the BHMs can filter out sensor noise by combining multiple noisy measurements over time and
+                            adapt to dynamic changes in the environment.
+                        </p>
+                    </div>
+                    <div class="column is-half">
+                        <img src="static/images/bhm-gazebo-2d-prob-occupied.gif" alt="BHM"
+                            style="max-width: 75%; height: auto; display: block; margin: 0 auto;">
+                    </div>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <section class="section">
+        <h2 class="title is-3 has-text-centered">High-quality Mesh Reconstruction</h2>
+        <div class="content">
+            <h3 class="title is-4">Replica Dataset with Simulated Depth Sensor Noise</h3>
+            <!-- <details open> -->
+            <!-- <summary class="has-text-centered title is-5" style="cursor: pointer;">Click to view comparison
+                    (Ground Truth, Ours, FIESTA)</summary> -->
+            <div class="container is-max-desktop">
+                <div class="columns is-centered">
+                    <div class="column is-one-third">
+                        <img src="static/images/mesh_comp/replica_room1/G.T..png" alt="Ground Truth"
+                            style="max-width: 100%; height: auto; display: block; margin: 0 auto;">
+                        <p class="has-text-centered is-size-6">Ground Truth</p>
+                    </div>
+                    <div class="column is-one-third">
+                        <img src="static/images/mesh_comp/replica_room1/Ours.png" alt="Ours"
+                            style="max-width: 100%; height: auto; display: block; margin: 0 auto;">
+                        <p class="has-text-centered is-size-6">Ours</p>
+                    </div>
+                    <div class="column is-one-third">
+                        <img src="static/images/mesh_comp/replica_room1/FIESTA.png" alt="FIESTA"
+                            style="max-width: 100%; height: auto; display: block; margin: 0 auto;">
+                        <p class="has-text-centered is-size-6">FIESTA</p>
+                    </div>
+                </div>
+                <div class="columns is-centered">
+                    <div class="column is-one-third">
+                        <img src="static/images/mesh_comp/replica_room1/Voxblox.png" alt="Voxblox"
+                            style="max-width: 100%; height: auto; display: block; margin: 0 auto;">
+                        <p class="has-text-centered is-size-6">Voxblox</p>
+                    </div>
+                    <div class="column is-one-third">
+                        <img src="static/images/mesh_comp/replica_room1/iSDF.png" alt="iSDF"
+                            style="max-width: 100%; height: auto; display: block; margin: 0 auto;">
+                        <p class="has-text-centered is-size-6">iSDF</p>
+                    </div>
+                    <div class="column is-one-third">
+                        <img src="static/images/mesh_comp/replica_room1/VDB-GPDF.png" alt="VDB-GPDF"
+                            style="max-width: 100%; height: auto; display: block; margin: 0 auto;">
+                        <p class="has-text-centered is-size-6">VDB-GPDF</p>
+                    </div>
+                </div>
+            </div>
+            <!-- </details> -->
+
+            <h3 class="title is-4">Cow in Cow and Lady Dataset</h3>
+            <div class="container is-max-desktop">
+                <div class="columns is-centered">
+                    <div class="column is-one-third">
+                        <img src="static/images/mesh_comp/cow/G.T..png" alt="Ground Truth"
+                            style="max-width: 100%; height: auto; display: block; margin: 0 auto;">
+                        <p class="has-text-centered is-size-6">Ground Truth</p>
+                    </div>
+                    <div class="column is-one-third">
+                        <img src="static/images/mesh_comp/cow/Ours.png" alt="Ours"
+                            style="max-width: 100%; height: auto; display: block; margin: 0 auto;">
+                        <p class="has-text-centered is-size-6">Ours</p>
+                    </div>
+                    <div class="column is-one-third">
+                        <img src="static/images/mesh_comp/cow/FIESTA.png" alt="FIESTA"
+                            style="max-width: 100%; height: auto; display: block; margin: 0 auto;">
+                        <p class="has-text-centered is-size-6">FIESTA</p>
+                    </div>
+                </div>
+                <div class="columns is-centered">
+                    <div class="column is-one-third">
+                        <img src="static/images/mesh_comp/cow/Voxblox.png" alt="Voxblox"
+                            style="max-width: 100%; height: auto; display: block; margin: 0 auto;">
+                        <p class="has-text-centered is-size-6">Voxblox</p>
+                    </div>
+                    <div class="column is-one-third">
+                        <img src="static/images/mesh_comp/cow/iSDF.png" alt="iSDF"
+                            style="max-width: 100%; height: auto; display: block; margin: 0 auto;">
+                        <p class="has-text-centered is-size-6">iSDF</p>
+                    </div>
+                    <div class="column is-one-third">
+                        <img src="static/images/mesh_comp/cow/VDB-GPDF.png" alt="VDB-GPDF"
+                            style="max-width: 100%; height: auto; display: block; margin: 0 auto;">
+                        <p class="has-text-centered is-size-6">VDB-GPDF</p>
+                    </div>
+                </div>
+            </div>
+
+            <h3 class="title is-4">Newer College Dataset</h3>
+            <div class="container is-max-desktop">
+                <div class="columns is-centered">
+                    <div class="column is-one-third">
+                        <img src="static/images/mesh_comp/newer_college/G.T..png" alt="Ground Truth"
+                            style="max-width: 100%; height: auto; display: block; margin: 0 auto;">
+                        <p class="has-text-centered is-size-6">Ground Truth</p>
+                    </div>
+                    <div class="column is-one-third">
+                        <img src="static/images/mesh_comp/newer_college/Ours.png" alt="Ours"
+                            style="max-width: 100%; height: auto; display: block; margin: 0 auto;">
+                        <p class="has-text-centered is-size-6">Ours</p>
+                    </div>
+                    <div class="column is-one-third">
+                        <img src="static/images/mesh_comp/newer_college/FIESTA.png" alt="FIESTA"
+                            style="max-width: 100%; height: auto; display: block; margin: 0 auto;">
+                        <p class="has-text-centered is-size-6">FIESTA</p>
+                    </div>
+                </div>
+                <div class="columns is-centered">
+                    <div class="column is-one-third">
+                        <img src="static/images/mesh_comp/newer_college/Voxblox.png" alt="Voxblox"
+                            style="max-width: 100%; height: auto; display: block; margin: 0 auto;">
+                        <p class="has-text-centered is-size-6">Voxblox</p>
+                    </div>
+                    <div class="column is-one-third">
+                        <img src="static/images/mesh_comp/newer_college/iSDF.png" alt="iSDF"
+                            style="max-width: 100%; height: auto; display: block; margin: 0 auto;">
+                        <p class="has-text-centered is-size-6">iSDF</p>
+                    </div>
+                    <div class="column is-one-third">
+                        <img src="static/images/mesh_comp/newer_college/VDB-GPDF.png" alt="VDB-GPDF"
+                            style="max-width: 100%; height: auto; display: block; margin: 0 auto;">
+                        <p class="has-text-centered is-size-6">VDB-GPDF</p>
+                    </div>
+                </div>
+            </div>
+    </section>
+
+    <section class="section">
+        <h2 class="title is-3 has-text-centered">Robust to Sensor Noise</h2>
+        <div class="columns is-vcentered">
+            <div class="column is-half">
+                <img src="static/images/sensor_noise_ablation/curves-mesh_metrics.png"
+                    alt="Mesh Quality vs. Sensor Noise"
+                    style="max-width: 100%; height: auto; display: block; margin: 0 auto;">
+            </div>
+            <div class="column is-half">
+                <img src="static/images/sensor_noise_ablation/curves-sdf_metrics.png"
+                    alt="SDF Accuracy vs. Sensor Noise"
+                    style="max-width: 100%; height: auto; display: block; margin: 0 auto;">
+            </div>
+        </div>
+    </section>"
+
+    <section class="section">
+        <h2 class="title is-3 has-text-centered">SDF Prediction with Consistent Uncertainty Quantification</h2>
+
+        <div class="container is-max-desktop">
+            <div class="columns is-centered">
+                <div class="column is-one-third">
+                    <img src="static/images/sdf_var_consistency/pred_sdf_slice.png" alt="SDF Prediction Slice"
+                        style="max-width: 100%; height: auto; display: block; margin: 0 auto;">
+                    <p class="has-text-centered is-size-6">SDF Prediction</p>
+                </div>
+                <div class="column is-one-third">
+                    <img src="static/images/sdf_var_consistency/sdf_error_slice.png" alt="SDF Error Slice"
+                        style="max-width: 100%; height: auto; display: block; margin: 0 auto;">
+                    <p class="has-text-centered is-size-6">SDF Error</p>
+                </div>
+                <div class="column is-one-third">
+                    <img src="static/images/sdf_var_consistency/sdf_uncertainty_slice.png" alt="SDF Uncertainty Slice"
+                        style="max-width: 100%; height: auto; display: block; margin: 0 auto;">
+                    <p class="has-text-centered is-size-6">SDF Uncertainty</p>
+                </div>
+            </div>
+        </div>
+    </section>
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+    <section class="section">
+        <div class="container is-max-desktop">
+            <div class="content has-text-centered">
+                <h2 class="title is-3">Acknowledgement</h2>
+                <p class="is-size-6" style="text-align: justify;">
+                    We gratefully acknowledge support from <a href="https://www.dcist-cra.org/">ARL DCIST CRA</a> and
+                    the Ministry of Trade, Industry and Energy (MOTIE), Korea, under the Strategic Technology
+                    Development Program, supervised by the Korea Institute for Advancement of Technology (KIAT) [Grant
+                    No. P0026052].
+                </p>
+            </div>
+        </div>
+    </section>
+
+    <footer class="footer">
+        <div class="container">
+            <div class="content has-text-centered">
+                <a class="icon-link" href="https://natanaso.github.io/ref/Dai_SDDF_RSS25.pdf">
+                    <i class="fas fa-file-pdf"></i>
+                </a>
+                <a class="icon-link" href="#" class="external-link">
+                    <i class="fab fa-github"></i>
+                </a>
+            </div>
+            <div class="columns is-centered">
+                <div class="column is-8">
+                    <div class="content">
+
+                        <p>
+                            This website is licensed under a <a rel="license"
+                                href="http://creativecommons.org/licenses/by-sa/4.0/">Creative
+                                Commons Attribution-ShareAlike 4.0 International License</a>.
+                        </p>
+                        <p>
+                            This webpage template is from <a
+                                href="https://github.com/nerfies/nerfies.github.io">Nerfies</a>. We
+                            sincerely thank the developers for open-sourcing this template.
+                        </p>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </footer>
+</body>
+
+</html>

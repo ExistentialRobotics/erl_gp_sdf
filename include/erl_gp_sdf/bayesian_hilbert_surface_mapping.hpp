@@ -144,6 +144,15 @@ namespace erl::gp_sdf {
             UpdateTree update_tree;
             UpdateMap update_map;
 
+            // if true, filter the points before updating the map. This is only valid when
+            // convert_scan_to_points is true.
+            bool filter_points = false;
+            // minimum z value of the points in the world frame to be kept. This is only valid when
+            // filter_points is true.
+            float filter_points_min_z_world = -0.2f;
+            // maximum z value of the points in the world frame to be kept. This is only valid when
+            // filter_points is true.
+            float filter_points_max_z_world = 10000.0f;
             // scaling factor for the map
             Dtype scaling = 1.0f;
             // tree depth for the local Bayesian Hilbert map
@@ -176,6 +185,9 @@ namespace erl::gp_sdf {
                 ERL_REFLECT_MEMBER(Setting, tree),
                 ERL_REFLECT_MEMBER(Setting, update_tree),
                 ERL_REFLECT_MEMBER(Setting, update_map),
+                ERL_REFLECT_MEMBER(Setting, filter_points),
+                ERL_REFLECT_MEMBER(Setting, filter_points_min_z_world),
+                ERL_REFLECT_MEMBER(Setting, filter_points_max_z_world),
                 ERL_REFLECT_MEMBER(Setting, scaling),
                 ERL_REFLECT_MEMBER(Setting, bhm_depth),
                 ERL_REFLECT_MEMBER(Setting, weight_sync),

@@ -1,3 +1,5 @@
+*.code-workspace
+scripts
 compile_definitions.hpp
 trash
 trial

@@ -11,4 +11,4 @@ sdf_gp:
     edf_gp:
         kernel_type: erl::covariance::RadialBiasFunction<float, 3>
         log_lambda: 250
-        max_num_samples: 128
+        max_num_samples: 192

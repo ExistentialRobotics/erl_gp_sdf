@@ -25,9 +25,9 @@ ray_selector:
     num_azimuth_angles: 600
     num_elevation_angles: 340
     transform: # transform from optical frame to camera frame
-        - [ 0, 0, 1, 0 ]
-        - [ -1, 0, 0, 0 ]
-        - [ 0, -1, 0, 0 ]
+        - [0, 0, 1, 0]
+        - [-1, 0, 0, 0]
+        - [0, -1, 0, 0]
 tree:
     tree_depth: 8
     resolution: 0.08
@@ -43,4 +43,4 @@ update_map:
 bhm_depth: 7
 scaling: 1.0
 hinged_grid_size: 7 # 7 # 9
-bhm_test_margin: 0.04
+bhm_test_margin: 0.025

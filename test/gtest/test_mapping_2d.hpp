@@ -29,6 +29,21 @@ ERL_REFLECT_ENUM_SCHEMA(
 ERL_PARSE_ENUM(DataSetType, 3);
 
 template<typename Dtype>
+struct GridDef : public erl::common::Yamlable<GridDef<Dtype>> {
+    using Vector2 = Eigen::Vector2<Dtype>;
+
+    Vector2 size = Vector2::Zero();    // grid size, 0 means auto
+    Vector2 center = Vector2::Zero();  // grid center, 0 means auto
+    Dtype rotation = 0;                // grid rotation (radian)
+
+    ERL_REFLECT_SCHEMA(
+        GridDef,
+        ERL_REFLECT_MEMBER(GridDef, size),
+        ERL_REFLECT_MEMBER(GridDef, center),
+        ERL_REFLECT_MEMBER(GridDef, rotation));
+};
+
+template<typename Dtype>
 struct OptionsForTestMapping2D : public erl::common::Yamlable<OptionsForTestMapping2D<Dtype>> {
     inline static const std::filesystem::path kProjectRootDir = ERL_GP_SDF_ROOT_DIR;
     inline static const std::filesystem::path kDataDir = kProjectRootDir / "data";
@@ -38,6 +53,7 @@ struct OptionsForTestMapping2D : public erl::common::Yamlable<OptionsForTestMapp
 
     uint64_t random_seed = 0;
     std::filesystem::path output_dir;
+    bool add_datetime_to_output_dir = true;
     DataSetType dataset_type = DataSetType::GazeboRoom2D;
     std::string gazebo_dir = kDataDir / "gazebo";
     std::string house_expo_map_file = kDataDir / "house_expo_room_1451.json";
@@ -54,15 +70,14 @@ struct OptionsForTestMapping2D : public erl::common::Yamlable<OptionsForTestMapp
     long end_wp_idx = -1;
     long seq_stride = 1;
     long vis_stride = 1;
-    bool exhausting = false;
+    long num_final_iterations = -1;
     Dtype map_resolution = 0.025;
     Dtype surf_normal_scale = 0.35;
 
     Dtype test_res_grid = 0.025;
+    GridDef<Dtype> test_grid_def;
     bool test_grid_from_dataset = false;
-    Vector2 test_grid_size = Vector2::Zero();
-    Vector2 test_grid_center = Vector2::Zero();
-    Dtype test_grid_rotation = 0;
+    std::string test_grid_def_yaml_file;
     bool test_grid_at_end = false;
 
     bool extract_mesh = false;
@@ -76,6 +91,7 @@ struct OptionsForTestMapping2D : public erl::common::Yamlable<OptionsForTestMapp
         OptionsForTestMapping2D,
         ERL_REFLECT_MEMBER(OptionsForTestMapping2D, random_seed),
         ERL_REFLECT_MEMBER(OptionsForTestMapping2D, output_dir),
+        ERL_REFLECT_MEMBER(OptionsForTestMapping2D, add_datetime_to_output_dir),
         ERL_REFLECT_MEMBER(OptionsForTestMapping2D, dataset_type),
         ERL_REFLECT_MEMBER(OptionsForTestMapping2D, gazebo_dir),
         ERL_REFLECT_MEMBER(OptionsForTestMapping2D, house_expo_map_file),
@@ -91,14 +107,13 @@ struct OptionsForTestMapping2D : public erl::common::Yamlable<OptionsForTestMapp
         ERL_REFLECT_MEMBER(OptionsForTestMapping2D, end_wp_idx),
         ERL_REFLECT_MEMBER(OptionsForTestMapping2D, seq_stride),
         ERL_REFLECT_MEMBER(OptionsForTestMapping2D, vis_stride),
-        ERL_REFLECT_MEMBER(OptionsForTestMapping2D, exhausting),
+        ERL_REFLECT_MEMBER(OptionsForTestMapping2D, num_final_iterations),
         ERL_REFLECT_MEMBER(OptionsForTestMapping2D, map_resolution),
         ERL_REFLECT_MEMBER(OptionsForTestMapping2D, surf_normal_scale),
         ERL_REFLECT_MEMBER(OptionsForTestMapping2D, test_res_grid),
+        ERL_REFLECT_MEMBER(OptionsForTestMapping2D, test_grid_def),
         ERL_REFLECT_MEMBER(OptionsForTestMapping2D, test_grid_from_dataset),
-        ERL_REFLECT_MEMBER(OptionsForTestMapping2D, test_grid_size),
-        ERL_REFLECT_MEMBER(OptionsForTestMapping2D, test_grid_center),
-        ERL_REFLECT_MEMBER(OptionsForTestMapping2D, test_grid_rotation),
+        ERL_REFLECT_MEMBER(OptionsForTestMapping2D, test_grid_def_yaml_file),
         ERL_REFLECT_MEMBER(OptionsForTestMapping2D, test_grid_at_end),
         ERL_REFLECT_MEMBER(OptionsForTestMapping2D, extract_mesh),
         ERL_REFLECT_MEMBER(OptionsForTestMapping2D, extract_mesh_res),
@@ -312,13 +327,15 @@ public:
                 ERL_INFO("Saved video to {}.", video_path.c_str());
             }
 
-            if (options->exhausting) {
+            if (options->num_final_iterations > 0) {
                 // clear frame data
                 train_frame_points = Matrix2X();
                 train_world_points = Matrix2X();
                 train_ranges = VectorX();
 
-                while (update_map()) {
+                long num_iterations = 0;
+                while (num_iterations < options->num_final_iterations && update_map()) {
+                    ++num_iterations;
                     update_pred();
                     update_vis();
                 }
@@ -406,9 +423,9 @@ protected:
         map_min = GazeboRoom2D::kMapMin.cast<Dtype>();
         map_max = GazeboRoom2D::kMapMax.cast<Dtype>();
         if (options->test_grid_from_dataset) {
-            options->test_grid_size = GazeboRoom2D::kOrientedBoundingBoxSize.cast<Dtype>();
-            options->test_grid_center = GazeboRoom2D::kOrientedBoundingBoxCenter.cast<Dtype>();
-            options->test_grid_rotation = GazeboRoom2D::kOrientedBoundingBoxRotationAngle;
+            options->test_grid_def.size = GazeboRoom2D::kOrientedBoundingBoxSize.cast<Dtype>();
+            options->test_grid_def.center = GazeboRoom2D::kOrientedBoundingBoxCenter.cast<Dtype>();
+            options->test_grid_def.rotation = GazeboRoom2D::kOrientedBoundingBoxRotationAngle;
         }
     }
 
@@ -438,8 +455,8 @@ protected:
                       .maxCoeff()
                       .cast<Dtype>();
         if (options->test_grid_from_dataset) {
-            options->test_grid_size = map_max - map_min;
-            options->test_grid_center = (map_min + map_max) * 0.5f;
+            options->test_grid_def.size = map_max - map_min;
+            options->test_grid_def.center = (map_min + map_max) * 0.5f;
         }
     }
 
@@ -455,8 +472,8 @@ protected:
         map_min = UcsdFah2D::kMapMin.cast<Dtype>();
         map_max = UcsdFah2D::kMapMax.cast<Dtype>();
         if (options->test_grid_from_dataset) {
-            options->test_grid_size = map_max - map_min;
-            options->test_grid_center = (map_min + map_max) * 0.5f;
+            options->test_grid_def.size = map_max - map_min;
+            options->test_grid_def.center = (map_min + map_max) * 0.5f;
         }
     }
 
@@ -485,6 +502,14 @@ protected:
     PrepareOutputFolders() {
         GTEST_PREPARE_OUTPUT_DIR();
         if (options->output_dir.empty()) { options->output_dir = test_output_dir; }
+        std::filesystem::create_directories(options->output_dir);
+        if (options->add_datetime_to_output_dir) {
+            const auto latest_dir = options->output_dir / "latest";
+            options->output_dir /= erl::common::Logging::GetTimeStamp();
+            options->add_datetime_to_output_dir = false;  // to avoid adding multiple times
+            if (std::filesystem::exists(latest_dir)) { std::filesystem::remove(latest_dir); }
+            std::filesystem::create_symlink(options->output_dir.filename(), latest_dir);
+        }
         img_dir = options->output_dir / "images";
         video_path = options->output_dir / "mapping.avi";
         std::filesystem::create_directories(img_dir);
@@ -632,17 +657,17 @@ protected:
 
     std::pair<Eigen::Vector2i, Matrix2X>
     GenerateTestGrid() {
-        Vector2 max = options->test_grid_size.array() * 0.5f;
+        Vector2 max = options->test_grid_def.size.array() * 0.5f;
         Vector2 min = -max;
         Eigen::Vector2i grid_shape;
         const Dtype res = options->test_res_grid;
-        grid_shape[0] = static_cast<int>(std::ceil(options->test_grid_size[0] / res));
-        grid_shape[1] = static_cast<int>(std::ceil(options->test_grid_size[1] / res));
+        grid_shape[0] = static_cast<int>(std::ceil(options->test_grid_def.size[0] / res));
+        grid_shape[1] = static_cast<int>(std::ceil(options->test_grid_def.size[1] / res));
         const Vector2 resolution = Vector2::Constant(res);
         max = min.array() + grid_shape.cast<Dtype>().array() * resolution.array();
         ERL_INFO(
             "Grid size: [{}], resolution: [{}], shape: [{}], min: [{}], max: [{}]",
-            options->test_grid_size.transpose(),
+            options->test_grid_def.size.transpose(),
             resolution.transpose(),
             grid_shape.transpose(),
             min.transpose(),
@@ -657,14 +682,14 @@ protected:
                 resolution);
         ERL_INFO(
             "Grid rotation: {:.2f} rad, center: [{}]",
-            options->test_grid_rotation,
-            options->test_grid_center.transpose());
+            options->test_grid_def.rotation,
+            options->test_grid_def.center.transpose());
         ERL_INFO(
             "Before transform, positions min: [{}], max: [{}]",
             positions.rowwise().minCoeff().transpose(),
             positions.rowwise().maxCoeff().transpose());
-        Matrix2 rot = Eigen::Rotation2D<Dtype>(options->test_grid_rotation).toRotationMatrix();
-        positions = (rot * positions).colwise() + options->test_grid_center;
+        Matrix2 rot = Eigen::Rotation2D<Dtype>(options->test_grid_def.rotation).toRotationMatrix();
+        positions = (rot * positions).colwise() + options->test_grid_def.center;
         ERL_INFO(
             "After transform, positions min: [{}], max: [{}]",
             positions.rowwise().minCoeff().transpose(),

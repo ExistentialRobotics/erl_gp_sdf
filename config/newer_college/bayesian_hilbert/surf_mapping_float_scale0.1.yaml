@@ -3,20 +3,20 @@ local_bhm:
     bhm:
         min_distance: 0.06
         max_distance: 4.0
-        sampling_area_scale: 3
-        free_points_per_meter: 5.5
+        sampling_area_scale: 2.5
+        free_points_per_meter: 7
         init_mu: 5.0
         sparse_zero_threshold: 0.001
     kernel_type: erl::covariance::RadialBiasFunction<float, 3>
     kernel:
         x_dim: 3
-        scale: 0.012
+        scale: 0.011
     min_dataset_size: 50
     min_dataset_hit_size: 20
     max_dataset_size: 200
     hit_point_buffer_size: 512
     ray_buffer_size: 2048
-    surface_grid_size: 7
+    surface_grid_size: 10
 ray_selector:
     azimuth_min: -3.1415926535897931
     azimuth_max: 3.1415926535897931
@@ -25,9 +25,9 @@ ray_selector:
     num_azimuth_angles: 1024
     num_elevation_angles: 128
     transform:
-        - [ 1, 0, 0, 0 ]
-        - [ 0, 1, 0, 0 ]
-        - [ 0, 0, 1, 0 ]
+        - [1, 0, 0, 0]
+        - [0, 1, 0, 0]
+        - [0, 0, 1, 0]
 tree:
     tree_depth: 10
     resolution: 0.07
