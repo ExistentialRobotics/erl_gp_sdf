@@ -302,11 +302,11 @@
     <section class="section">
         <h2 class="title is-3 has-text-centered">High-quality Mesh Reconstruction</h2>
         <div class="content">
-            <h3 class="title is-4">Replica Dataset with Simulated Depth Sensor Noise</h3>
             <!-- <details open> -->
             <!-- <summary class="has-text-centered title is-5" style="cursor: pointer;">Click to view comparison
                     (Ground Truth, Ours, FIESTA)</summary> -->
             <div class="container is-max-desktop">
+                <h3 class="title is-4">Replica Dataset with Simulated Depth Sensor Noise</h3>
                 <div class="columns is-centered">
                     <div class="column is-one-third">
                         <img src="static/images/mesh_comp/replica_room1/G.T..png" alt="Ground Truth"
@@ -344,8 +344,8 @@
             </div>
             <!-- </details> -->
 
-            <h3 class="title is-4">Cow in Cow and Lady Dataset</h3>
             <div class="container is-max-desktop">
+                <h3 class="title is-4">The Cow in Cow and Lady Dataset</h3>
                 <div class="columns is-centered">
                     <div class="column is-one-third">
                         <img src="static/images/mesh_comp/cow/G.T..png" alt="Ground Truth"
@@ -382,8 +382,8 @@
                 </div>
             </div>
 
-            <h3 class="title is-4">Newer College Dataset</h3>
             <div class="container is-max-desktop">
+                <h3 class="title is-4">Newer College Dataset</h3>
                 <div class="columns is-centered">
                     <div class="column is-one-third">
                         <img src="static/images/mesh_comp/newer_college/G.T..png" alt="Ground Truth"
@@ -423,19 +423,21 @@
 
     <section class="section">
         <h2 class="title is-3 has-text-centered">Robust to Sensor Noise</h2>
-        <div class="columns is-vcentered">
-            <div class="column is-half">
-                <img src="static/images/sensor_noise_ablation/curves-mesh_metrics.png"
-                    alt="Mesh Quality vs. Sensor Noise"
-                    style="max-width: 100%; height: auto; display: block; margin: 0 auto;">
-            </div>
-            <div class="column is-half">
-                <img src="static/images/sensor_noise_ablation/curves-sdf_metrics.png"
-                    alt="SDF Accuracy vs. Sensor Noise"
-                    style="max-width: 100%; height: auto; display: block; margin: 0 auto;">
+        <div class="container is-max-desktop">
+            <div class="columns is-vcentered">
+                <div class="column is-half">
+                    <img src="static/images/sensor_noise_ablation/curves-mesh_metrics.png"
+                        alt="Mesh Quality vs. Sensor Noise"
+                        style="max-width: 100%; height: auto; display: block; margin: 0 auto;">
+                </div>
+                <div class="column is-half">
+                    <img src="static/images/sensor_noise_ablation/curves-sdf_metrics.png"
+                        alt="SDF Accuracy vs. Sensor Noise"
+                        style="max-width: 100%; height: auto; display: block; margin: 0 auto;">
+                </div>
             </div>
         </div>
-    </section>"
+    </section>
 
     <section class="section">
         <h2 class="title is-3 has-text-centered">SDF Prediction with Consistent Uncertainty Quantification</h2>
