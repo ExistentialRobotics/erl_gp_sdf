@@ -96,10 +96,20 @@ namespace erl::gp_sdf {
 
         /**
          * Get the size of the cluster.
-         * @return the size of the cluster.
+         * @return the metric size of the cluster.
          */
         [[nodiscard]] virtual Dtype
         GetClusterSize() const = 0;
+
+        /**
+         * Get the key size of the cluster, which is the key index difference
+         * between two adjacent clusters in the same axis. For example, if the
+         * cluster key size is 4, then the cluster is at level 2 in the octree
+         * or quadtree.
+         * @return the discrete (key) size of the cluster
+         */
+        [[nodiscard]] virtual long
+        GetClusterKeySize() const = 0;
 
         /**
          * Get the center of the cluster.

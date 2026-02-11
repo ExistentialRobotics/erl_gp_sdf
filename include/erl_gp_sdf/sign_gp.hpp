@@ -33,11 +33,13 @@ namespace erl::gp_sdf {
         explicit SignGaussianProcess(std::shared_ptr<Setting> setting);
 
         SignGaussianProcess(const SignGaussianProcess &other) = default;
-        SignGaussianProcess(SignGaussianProcess &&other) = default;
+        SignGaussianProcess(SignGaussianProcess &&other) noexcept = default;
         SignGaussianProcess &
         operator=(const SignGaussianProcess &other) = default;
         SignGaussianProcess &
-        operator=(SignGaussianProcess &&other) = default;
+        operator=(SignGaussianProcess &&other) noexcept = default;
+
+        ~SignGaussianProcess() override = default;
 
         [[nodiscard]] std::size_t
         GetMemoryUsage() const override;
@@ -63,6 +65,8 @@ namespace erl::gp_sdf {
 
             // We are going to modify the buffer. Lock it here to prevent buffer swaps.
             auto lock = this->GetBufferLock();
+            (void) lock;
+
             this->Reset(max_num_samples, Dim, 1);
 
             if (!data_sorted) {

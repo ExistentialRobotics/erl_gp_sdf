@@ -492,6 +492,12 @@ namespace erl::gp_sdf {
     }
 
     template<typename Dtype, int Dim>
+    long
+    BayesianHilbertSurfaceMapping<Dtype, Dim>::GetClusterKeySize() const {
+        return 1L << (m_setting_->tree->tree_depth - m_setting_->bhm_depth);
+    }
+
+    template<typename Dtype, int Dim>
     typename BayesianHilbertSurfaceMapping<Dtype, Dim>::VectorD
     BayesianHilbertSurfaceMapping<Dtype, Dim>::GetClusterCenter(const Key &key) const {
         return m_tree_->KeyToCoord(key, m_setting_->bhm_depth);
@@ -2269,6 +2275,8 @@ namespace erl::gp_sdf {
                     false /* gradient_with_sigmoid */,
                     surf_data.var_position,  // use this field to store logodd temporarily
                     surf_data.normal);
+                // Dtype norm_sq = surf_data.normal.squaredNorm();
+                // Dtype norm = std::sqrt(norm_sq);
                 Dtype norm = surf_data.normal.norm();
                 if (norm < 1.0e-10f) {
                     surf_data.normal.setZero();
@@ -2279,6 +2287,7 @@ namespace erl::gp_sdf {
                 surf_data.normal /= -norm;
                 surf_data.var_position =
                     std::min(var_scale * std::abs(surf_data.var_position - surf_log_odds), var_max);
+                // surf_data.var_position = 4 / norm_sq;
                 surf_data.var_normal = surf_data.var_position;
             }
         }

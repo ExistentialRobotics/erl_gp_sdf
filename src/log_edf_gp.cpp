@@ -34,11 +34,6 @@ namespace erl::gp_sdf {
             "log_lambda must be positive, but got {}.",
             log_lambda);
         ERL_ASSERTM_RETURN(
-            duplicate_epsilon >= 0.0f,
-            false,
-            "duplicate_epsilon must be non-negative, but got {}.",
-            duplicate_epsilon);
-        ERL_ASSERTM_RETURN(
             this->kernel != nullptr,
             false,
             "setting->kernel should not be nullptr.");
@@ -354,6 +349,11 @@ namespace erl::gp_sdf {
         const Eigen::Ref<const MatrixX> &mat_x_test,
         bool predict_gradient) const {
         if (m_setting_->use_exp_bias) {
+            // Dtype d = (mat_x_test.col(0) - this->m_buf_train_.x.col(0)).squaredNorm();
+            // for (long i = 1; i < this->m_buf_train_.x.cols(); ++i) {
+            //     Dtype dist = (mat_x_test.col(0) - this->m_buf_train_.x.col(i)).squaredNorm();
+            //     if (dist < d) { d = dist; }
+            // }
             Dtype d = (mat_x_test.col(0) - this->m_buf_train_.x.col(0)).squaredNorm();
             if (m_use_matern32_) { d = std::sqrt(d); }
             const Dtype exp_bias = m_setting_->log_lambda * d;

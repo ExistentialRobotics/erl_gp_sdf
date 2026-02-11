@@ -379,6 +379,9 @@ namespace erl::gp_sdf {
         [[nodiscard]] Dtype
         GetClusterSize() const override;
 
+        [[nodiscard]] long
+        GetClusterKeySize() const override;
+
         [[nodiscard]] VectorD
         GetClusterCenter(const Key &key) const override;
 

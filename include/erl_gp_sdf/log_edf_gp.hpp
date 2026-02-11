@@ -18,14 +18,12 @@ namespace erl::gp_sdf {
         using MatrixX = Eigen::MatrixX<Dtype>;
 
         struct Setting : public common::Yamlable<Setting, typename Super::Setting> {
-            Dtype log_lambda = 40.0f;         // log-edf parameter
-            Dtype duplicate_epsilon = 1e-5f;  // epsilon for duplicate detection
-            bool use_exp_bias = false;  // whether to use a bias term in exp for numerical stability
+            Dtype log_lambda = 40.0f;   // log-edf parameter
+            bool use_exp_bias = true;  // whether to use a bias term in exp for numerical stability
 
             ERL_REFLECT_SCHEMA(
                 Setting,
                 ERL_REFLECT_MEMBER(Setting, log_lambda),
-                ERL_REFLECT_MEMBER(Setting, duplicate_epsilon),
                 ERL_REFLECT_MEMBER(Setting, use_exp_bias));
 
             bool
@@ -154,18 +152,9 @@ namespace erl::gp_sdf {
             long count = 0;
             typename Super::TrainBuf &buf = this->m_buf_loading_;
 
-            absl::flat_hash_set<Eigen::Vector<long, Dim>> unique_points;
-            unique_points.reserve(max_num_samples);
-            Eigen::Vector<long, Dim> point;
-            const auto &duplicate_epsilon = m_setting_->duplicate_epsilon;
-
             for (auto &[distance, surface_data_index]: surface_data_indices) {
                 auto &surf_data = surface_data_vec[surface_data_index];
                 if (surf_data.var_position >= 1.0e6f) { continue; }  // skip invalid position
-                if (duplicate_epsilon > 0) {
-                    point = (surf_data.position.array() / duplicate_epsilon).template cast<long>();
-                    if (!unique_points.insert(point).second) { continue; }  // skip duplicate points
-                }
 
                 if (offset_distance == 0.0f) {
                     buf.x.col(count) = surf_data.position;

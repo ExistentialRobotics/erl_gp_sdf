@@ -267,6 +267,11 @@ namespace erl::gp_sdf {
     GpOccSurfaceMapping<Dtype, Dim>::GetClusterSize() const {
         return m_tree_->GetNodeSize(m_setting_->cluster_depth);
     }
+ template<typename Dtype, int Dim>
+    long
+    GpOccSurfaceMapping<Dtype, Dim>::GetClusterKeySize() const {
+        return 1L << (m_setting_->tree->tree_depth - m_setting_->cluster_depth);
+    }
 
     template<typename Dtype, int Dim>
     typename GpOccSurfaceMapping<Dtype, Dim>::VectorD

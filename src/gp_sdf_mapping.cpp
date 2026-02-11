@@ -872,12 +872,12 @@ namespace erl::gp_sdf {
     template<typename Dtype, int Dim>
     void
     GpSdfMapping<Dtype, Dim>::InitMultiThreading() {
-        m_surf_data_indices_.resize(m_setting_->num_threads);
+        // m_surf_data_indices_.resize(m_setting_->num_threads);
         m_surf_data_dist_indices_.resize(m_setting_->num_threads);
         m_gp_load_data_cnt_.resize(m_setting_->num_threads);
         m_key_sets_.resize(m_setting_->num_threads);
         m_key_vectors_.resize(m_setting_->num_threads);
-        for (auto &indices: m_surf_data_indices_) { indices.reserve(512); }
+        // for (auto &indices: m_surf_data_indices_) { indices.reserve(512); }
         for (auto &indices: m_surf_data_dist_indices_) { indices.reserve(512); }
     }
 
@@ -903,39 +903,48 @@ namespace erl::gp_sdf {
         const Dtype radius = GetDataCollectionRadius();
 
         // CRITICAL SECTION: access m_surface_mapping_
+        auto t0 = std::chrono::high_resolution_clock::now();
         const auto surface_mapping_lock = m_surface_mapping_->GetLockGuard();
         (void) surface_mapping_lock;
+        auto t1 = std::chrono::high_resolution_clock::now();
+        const double lock_time_us =
+            std::chrono::duration_cast<std::chrono::microseconds>(t1 - t0).count();
+        ERL_INFO("Locked surface mapping in {:.2f} ms.", lock_time_us * 1e-3);
+
         const KeySet &changed_clusters = m_surface_mapping_->GetChangedClusters();
         if (changed_clusters.empty()) {
             m_clusters_to_load_data_.clear();
             return;
         }
 
-        m_clusters_to_load_data_ = changed_clusters;
         const KeyVector keys(changed_clusters.begin(), changed_clusters.end());
 
         ERL_INFO("Collecting neighboring clusters for {} changed clusters.", keys.size());
 
-        for (auto &key_set: m_key_sets_) { key_set = changed_clusters; }
-
+        {
+            const ERL_BLOCK_TIMER_MSG("Find neighboring clusters");
+            for (auto &key_set: m_key_sets_) { key_set = changed_clusters; }
 #pragma omp parallel for default(none) shared(keys, changed_clusters, radius)
-        for (const auto &cluster_key: keys) {
-            auto &key_set = m_key_sets_[omp_get_thread_num()];
-            auto &key_vec = m_key_vectors_[omp_get_thread_num()];
-            const Aabb area(m_surface_mapping_->GetClusterCenter(cluster_key), radius);
-            m_surface_mapping_->IterateClustersInAabb(area, [&](const Key &key) {
-                // m_clusters_to_load_data_.insert(key);
-                if (!key_set.insert(key).second) { return; }  // already included
-                key_vec.push_back(key);
-            });
+            for (const auto &cluster_key: keys) {
+                auto &key_set = m_key_sets_[omp_get_thread_num()];
+                auto &key_vec = m_key_vectors_[omp_get_thread_num()];
+                const Aabb area(m_surface_mapping_->GetClusterCenter(cluster_key), radius);
+                m_surface_mapping_->IterateClustersInAabb(area, [&](const Key &key) {
+                    if (!key_set.insert(key).second) { return; }  // already included
+                    key_vec.push_back(key);
+                });
+            }
         }
 
         // merge results from all threads
-        m_clusters_to_load_data_ = m_key_sets_[0];
-        m_key_vectors_[0].clear();
-        for (auto &key_vec: m_key_vectors_) {
-            m_clusters_to_load_data_.insert(key_vec.begin(), key_vec.end());
-            key_vec.clear();
+        {
+            const ERL_BLOCK_TIMER_MSG("Merge neighboring clusters");
+            m_clusters_to_load_data_ = m_key_sets_[0];
+            m_key_vectors_[0].clear();
+            for (auto &key_vec: m_key_vectors_) {
+                m_clusters_to_load_data_.insert(key_vec.begin(), key_vec.end());
+                key_vec.clear();
+            }
         }
         ERL_INFO("Total {} clusters to load data.", m_clusters_to_load_data_.size());
     }
@@ -1055,6 +1064,49 @@ namespace erl::gp_sdf {
 
     template<typename Dtype, int Dim>
     void
+    GpSdfMapping<Dtype, Dim>::PrepareNeighborClusterOffsets() {
+        const auto n_key_offsets = static_cast<long>(std::ceil(m_setting_->gp_sdf_area_scale));
+        if (m_neighbor_offsets_.size() == static_cast<std::size_t>(n_key_offsets)) {
+            // already prepared
+            return;
+        }
+        m_neighbor_offsets_.resize(n_key_offsets);
+        for (auto &neighbor_offsets: m_neighbor_offsets_) { neighbor_offsets.clear(); }
+
+        const long key_offset = m_surface_mapping_->GetClusterKeySize();
+        for (long x = -n_key_offsets; x <= n_key_offsets; ++x) {
+            const long abs_x = std::abs(x);
+            const long offset_x = x * key_offset;
+
+            for (long y = -n_key_offsets; y <= n_key_offsets; ++y) {
+                const long abs_y = std::abs(y);
+                const long offset_y = y * key_offset;
+
+                long idx = std::max(abs_x, abs_y);
+                if constexpr (Dim == 2) {
+                    idx -= 1;
+                    if (idx < 0) { continue; }  // skip the center cluster
+                    auto &offsets = CHECKED_AT(m_neighbor_offsets_, idx);
+                    offsets.emplace_back();
+                    offsets.back()[0] = offset_x;
+                    offsets.back()[1] = offset_y;
+                } else {
+                    for (long z = -n_key_offsets; z <= n_key_offsets; ++z) {
+                        idx = std::max(idx, std::abs(z)) - 1;
+                        if (idx < 0) { continue; }  // skip the center cluster
+                        auto &offsets = CHECKED_AT(m_neighbor_offsets_, idx);
+                        offsets.emplace_back();
+                        offsets.back()[0] = offset_x;
+                        offsets.back()[1] = offset_y;
+                        offsets.back()[2] = z * key_offset;
+                    }
+                }
+            }
+        }
+    }
+
+    template<typename Dtype, int Dim>
+    void
     GpSdfMapping<Dtype, Dim>::LoadSurfaceData() {
         const ERL_BLOCK_TIMER_MSG("LoadSurfaceData");
 
@@ -1069,68 +1121,74 @@ namespace erl::gp_sdf {
 
         const auto t0 = std::chrono::high_resolution_clock::now();
 
-        {
-            // we need to include the neighboring clusters' data as well
-            KeyVector &keys = m_key_vectors_[0];
-            keys.clear();
-            keys.reserve(m_clusters_to_collect_data_.size() * 2);
-            keys.insert(
-                keys.end(),
-                m_clusters_to_collect_data_.begin(),
-                m_clusters_to_collect_data_.end());
-            const Dtype radius = GetDataCollectionRadius();
-            for (std::size_t i = 0, n_keys = keys.size(); i < n_keys; ++i) {
-                const auto &cluster_key = keys[i];
-                const Aabb area(m_surface_mapping_->GetClusterCenter(cluster_key), radius);
-                m_surface_mapping_->IterateClustersInAabb(area, [&](const Key &key) {
-                    if (!m_clusters_to_collect_data_.insert(key).second) { return; }
-                    keys.push_back(key);  // new neighboring cluster
-                });
-            }
+        // {
+        //     const ERL_BLOCK_TIMER_MSG("CollectSurfaceData");
+        //     // we need to include the neighboring clusters' data as well
+        //     KeyVector &keys = m_key_vectors_[0];
+        //     keys.clear();
+        //     keys.reserve(m_clusters_to_collect_data_.size() * 2);
+        //     keys.insert(
+        //         keys.end(),
+        //         m_clusters_to_collect_data_.begin(),
+        //         m_clusters_to_collect_data_.end());
+        //     const Dtype radius = GetDataCollectionRadius();
+        //     for (std::size_t i = 0, n_keys = keys.size(); i < n_keys; ++i) {
+        //         const auto &cluster_key = keys[i];
+        //         const Aabb area(m_surface_mapping_->GetClusterCenter(cluster_key), radius);
+        //         m_surface_mapping_->IterateClustersInAabb(area, [&](const Key &key) {
+        //             if (!m_clusters_to_collect_data_.insert(key).second) { return; }
+        //             keys.push_back(key);  // new neighboring cluster
+        //         });
+        //     }
+        //
+        //     // collect surface data indices from the clusters
+        //     for (auto &indices: m_surf_data_indices_) { indices.clear(); }
+        // #pragma omp parallel for default(none) shared(keys)
+        //     for (const auto &cluster_key: keys) {
+        //         const int thread_idx = omp_get_thread_num();
+        //         auto &indices = m_surf_data_indices_[thread_idx];
+        //         (void) m_surface_mapping_->CollectSurfaceDataFromCluster(cluster_key, indices);
+        //     }
+        //
+        //     keys.clear();
+        // }
+        //
+        // // build kdtree for surface data points
+        // {
+        //     const ERL_BLOCK_TIMER_MSG("BuildKdTreeForSurfaceData");
+        //     std::size_t n_points = 0;
+        //     std::vector<std::size_t> start_indices;
+        //     start_indices.reserve(m_surf_data_indices_.size() + 1);
+        //     for (const auto &indices: m_surf_data_indices_) {
+        //         start_indices.push_back(n_points);
+        //         n_points += indices.size();
+        //     }
+        //     if (n_points == 0) { return; }
+        //     start_indices.emplace_back(n_points);
+        //     MatrixDX surface_points(Dim, n_points);
+        //     m_surf_data_indices_[0].resize(n_points);  // for indexing in LoadSurfaceDataThread
+        // #pragma omp parallel for default(none) shared(surface_points, start_indices)
+        //     for (std::size_t i = 0; i < m_surf_data_indices_.size(); ++i) {
+        //         const auto &buffer = m_surface_mapping_->GetSurfaceDataBuffer();
+        //         const auto &indices = m_surf_data_indices_[i];
+        //         if (i == 0) {
+        //             const long end_idx = static_cast<long>(start_indices[1]);
+        //             for (long idx = 0; idx < end_idx; ++idx) {
+        //                 const std::size_t &point_idx = indices[idx];
+        //                 surface_points.col(idx) = buffer[point_idx].position;
+        //             }
+        //         } else {
+        //             long idx = static_cast<long>(start_indices[i]);
+        //             for (const auto &point_idx: indices) {
+        //                 surface_points.col(idx) = buffer[point_idx].position;
+        //                 m_surf_data_indices_[0][idx++] = point_idx;
+        //             }
+        //         }
+        //     }
+        //     m_kdtree_surf_data_ = std::make_shared<KdTree>(std::move(surface_points));
+        // }
 
-            // collect surface data indices from the clusters
-            for (auto &indices: m_surf_data_indices_) { indices.clear(); }
-#pragma omp parallel for default(none) shared(keys)
-            for (const auto &cluster_key: keys) {
-                const int thread_idx = omp_get_thread_num();
-                auto &indices = m_surf_data_indices_[thread_idx];
-                (void) m_surface_mapping_->CollectSurfaceDataFromCluster(cluster_key, indices);
-            }
-
-            keys.clear();
-        }
-
-        // build kdtree for surface data points
-        std::size_t n_points = 0;
-        std::vector<std::size_t> start_indices;
-        start_indices.reserve(m_surf_data_indices_.size() + 1);
-        for (const auto &indices: m_surf_data_indices_) {
-            start_indices.push_back(n_points);
-            n_points += indices.size();
-        }
-        if (n_points == 0) { return; }
-        start_indices.emplace_back(n_points);
-        MatrixDX surface_points(Dim, n_points);
-        m_surf_data_indices_[0].resize(n_points);  // for indexing in LoadSurfaceDataThread
-#pragma omp parallel for default(none) shared(surface_points, start_indices)
-        for (std::size_t i = 0; i < m_surf_data_indices_.size(); ++i) {
-            const auto &buffer = m_surface_mapping_->GetSurfaceDataBuffer();
-            const auto &indices = m_surf_data_indices_[i];
-            if (i == 0) {
-                const long end_idx = static_cast<long>(start_indices[1]);
-                for (long idx = 0; idx < end_idx; ++idx) {
-                    const std::size_t &point_idx = indices[idx];
-                    surface_points.col(idx) = buffer[point_idx].position;
-                }
-            } else {
-                long idx = static_cast<long>(start_indices[i]);
-                for (const auto &point_idx: indices) {
-                    surface_points.col(idx) = buffer[point_idx].position;
-                    m_surf_data_indices_[0][idx++] = point_idx;
-                }
-            }
-        }
-        m_kdtree_surf_data_ = std::make_shared<KdTree>(std::move(surface_points));
+        PrepareNeighborClusterOffsets();
 
         const uint32_t n_threads = m_setting_->num_threads;
         std::vector<std::thread> threads;
@@ -1172,46 +1230,118 @@ namespace erl::gp_sdf {
 
         ERL_TRACY_SET_THREAD_NAME(fmt::format("{}:{}", __PRETTY_FUNCTION__, thread_idx).c_str());
 
-        const Dtype radius = GetDataCollectionRadius();
+        const auto &surf_data_buffer = m_surface_mapping_->GetSurfaceDataBuffer();
+        auto &dist_indices = m_surf_data_dist_indices_[thread_idx];
+        std::vector<std::size_t> indices;
         auto sdf_gp_setting = m_setting_->sdf_gp;
-        long max_k = std::max(
+        const long max_k = std::max(
             sdf_gp_setting->sign_gp->max_num_samples,
             sdf_gp_setting->edf_gp->max_num_samples);
-        max_k = static_cast<long>(1.5f * static_cast<float>(max_k));
-        std::vector<long> indices;
-        std::vector<Dtype> dists;
-        auto &data_indices = m_surf_data_dist_indices_[thread_idx];
+        // we will filter by distance later, so collect more neighbors
+        const long max_k_neighbor = static_cast<long>(max_k * 1.5);
         auto &load_data_cnt = m_gp_load_data_cnt_[thread_idx];
         load_data_cnt = 0;
+
+        // New Implementation:
         for (std::size_t i = start_idx; i < end_idx; ++i) {
-            auto &gp = CHECKED_AT(m_gps_to_load_data_, i).second;
-            ERL_DEBUG_ASSERT(gp->active, "GP is not active");
+            auto &[key, gp] = CHECKED_AT(m_gps_to_load_data_, i);
 
-            // collect surface data in the area
-            const long k =
-                m_kdtree_surf_data_->RadiusKnn(max_k, gp->position, radius, indices, dists);
+            indices.clear();
 
-            if (k == 0) {          // no surface data in the area
-                gp->Deactivate();  // deactivate the GP if there is no training data
+            m_surface_mapping_->CollectSurfaceDataFromCluster(key, indices);
+            auto neighbor_key_offsets = m_neighbor_offsets_.begin();
+            while (indices.size() < static_cast<std::size_t>(max_k_neighbor) &&
+                   neighbor_key_offsets != m_neighbor_offsets_.end()) {
+                // for (const auto &neighbor_key_offsets: m_neighbor_offsets_) {
+                Key neighbor_key;
+                for (const auto &offset: *neighbor_key_offsets) {
+                    // for (const auto &offset: neighbor_key_offsets) {
+                    bool valid = true;
+                    for (int dim = 0; dim < Dim; ++dim) {
+                        const long coord = static_cast<long>(key[dim]) + offset[dim];
+                        if (coord < 0) {
+                            valid = false;
+                            break;
+                        }
+                        neighbor_key[dim] = static_cast<typename Key::KeyType>(coord);
+                    }
+                    if (!valid) { continue; }
+                    m_surface_mapping_->CollectSurfaceDataFromCluster(neighbor_key, indices);
+                }
+                ++neighbor_key_offsets;  // expand to farther neighbors if not enough data
+            }
+            if (indices.empty()) {  // no surface data in the area
+                gp->Deactivate();   // deactivate the GP if there is no training data
                 continue;
             }
-            data_indices.clear();
-            data_indices.reserve(k);
-            const auto &indices0 = m_surf_data_indices_[0];
-            for (long j = 0; j < k; ++j) {
-                data_indices.emplace_back(dists[j], indices0[indices[j]]);
+
+            dist_indices.clear();
+            dist_indices.reserve(indices.size());
+            const Dtype radius = GetDataCollectionRadius();
+            const Dtype radius_squared = radius * radius;
+            for (const auto &idx: indices) {
+                const auto &point = surf_data_buffer[idx];
+                if (point.var_position >= 1e6f) { continue; }  // skip invalid points
+                const Dtype dist = (point.position - gp->position).squaredNorm();
+                if (dist > radius_squared) { continue; }  // skip points outside the radius
+                dist_indices.emplace_back(dist, idx);
+            }
+            if (dist_indices.size() > static_cast<std::size_t>(max_k)) {
+                // keep only the closest max_k points
+                std::nth_element(
+                    dist_indices.begin(),
+                    dist_indices.begin() + max_k,
+                    dist_indices.end(),
+                    [](const auto &a, const auto &b) { return a.first < b.first; });
             }
             if (!gp->LoadSurfaceData(
-                    data_indices,
-                    m_surface_mapping_->GetSurfaceDataBuffer(),
+                    dist_indices,
+                    surf_data_buffer,
                     true,
                     m_setting_->sensor_noise,
                     m_setting_->max_valid_gradient_var,
                     m_setting_->invalid_position_var)) {
                 gp->Deactivate();
+            } else {
+                load_data_cnt++;
             }
-            ++load_data_cnt;
         }
+
+        // OLD Implementation:
+
+        // const Dtype radius = GetDataCollectionRadius();
+        // std::vector<long> indices;
+        // std::vector<Dtype> dists;
+        // auto &dist_indices = m_surf_data_dist_indices_[thread_idx];
+        // for (std::size_t i = start_idx; i < end_idx; ++i) {
+        //     auto &gp = CHECKED_AT(m_gps_to_load_data_, i).second;
+        //     ERL_DEBUG_ASSERT(gp->active, "GP is not active");
+        //
+        //     // collect surface data in the area
+        //     const long k =
+        //         m_kdtree_surf_data_->RadiusKnn(max_k, gp->position, radius, indices, dists);
+        //
+        //     if (k == 0) {          // no surface data in the area
+        //         gp->Deactivate();  // deactivate the GP if there is no training data
+        //         continue;
+        //     }
+        //     dist_indices.clear();
+        //     dist_indices.reserve(k);
+        //     const auto &indices0 = m_surf_data_indices_[0];
+        //     for (long j = 0; j < k; ++j) {
+        //         dist_indices.emplace_back(dists[j], indices0[indices[j]]);
+        //     }
+        //     if (!gp->LoadSurfaceData(
+        //             dist_indices,
+        //             m_surface_mapping_->GetSurfaceDataBuffer(),
+        //             true,
+        //             m_setting_->sensor_noise,
+        //             m_setting_->max_valid_gradient_var,
+        //             m_setting_->invalid_position_var)) {
+        //         gp->Deactivate();
+        //     }
+        //     ++load_data_cnt;
+        // }
     }
 
     template<typename Dtype, int Dim>
@@ -1632,6 +1762,7 @@ namespace erl::gp_sdf {
                 if (compute_covariance) { m_test_buffer_.covariances->col(i) = covariances.col(0); }
                 used_gps[0] = gps[indexed_metrics[0].gp_idx];
             }
+            ERL_ASSERTM(std::isfinite(distance_out), "Invalid distance output: {}", distance_out);
         }
     }
 

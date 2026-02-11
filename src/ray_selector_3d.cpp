@@ -40,15 +40,21 @@ namespace erl::gp_sdf {
             p.normalize();
             Dtype azimuth, elevation;
             DirectionToAzimuthElevation<Dtype>(p, azimuth, elevation);
-            azimuth = std::max(azimuth_min, std::min(azimuth, azimuth_max));
-            elevation = std::max(elevation_min, std::min(elevation, elevation_max));
+
             auto coord = coords.col(i);
+            coord[0] = -1;
+            coord[1] = -1;
+
+            if (azimuth < azimuth_min || azimuth > azimuth_max) { continue; }
+            if (elevation < elevation_min || elevation > elevation_max) { continue; }
+
             coord[0] = MeterToGrid<Dtype, long>(azimuth, azimuth_min, m_azimuth_res_);
             coord[1] = MeterToGrid<Dtype, long>(elevation, elevation_min, m_elevation_res_);
         }
 
         for (long i = 0; i < coords.cols(); ++i) {
             auto coord = coords.col(i);
+            if (coord[0] == -1 || coord[1] == -1) { continue; }
             m_ray_indices_(coord[0], coord[1]).push_back(i);
         }
     }
