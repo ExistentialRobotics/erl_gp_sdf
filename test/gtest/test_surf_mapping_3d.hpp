@@ -174,7 +174,7 @@ protected:
     bool
     UpdateMap() override {
         if (!mapping_uses_points) {
-            ERL_BLOCK_TIMER_MSG_TIME("surf_map.Update", surf_map_update_dt);
+            ERL_BLOCK_TIMER_MSG_TIME("[App] SurfMap.Update", surf_map_update_dt);
             return surf_map->Update(rotation_frame, translation_frame, frame_ranges, false, true);
         }
 
@@ -186,7 +186,7 @@ protected:
         this->frame_points_in_sensor_frame = false;  // frame_points are now in world frame
 
         {
-            ERL_BLOCK_TIMER_MSG_TIME("surf_map.Update", surf_map_update_dt);
+            ERL_BLOCK_TIMER_MSG_TIME("[App] SurfMap.Update", surf_map_update_dt);
             return surf_map->Update(rotation_frame, translation_frame, frame_points, true, false);
         }
     }

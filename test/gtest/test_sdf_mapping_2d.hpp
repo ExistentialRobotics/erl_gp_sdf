@@ -425,13 +425,13 @@ protected:
     bool
     UpdateSurfaceMap() {
         if (mapping_uses_points) {
-            ERL_BLOCK_TIMER_MSG_TIME("surf_map.Update", surf_map_update_dt);
+            ERL_BLOCK_TIMER_MSG_TIME("[App] SurfMap.Update", surf_map_update_dt);
             // are_points: true, are_local: false
             return surf_map->Update(rotation, translation, train_world_points, true, false);
         }
 
         {
-            ERL_BLOCK_TIMER_MSG_TIME("surf_map.Update", surf_map_update_dt);
+            ERL_BLOCK_TIMER_MSG_TIME("[App] SurfMap.Update", surf_map_update_dt);
             // are_points: false, are_local: true
             return surf_map->Update(rotation, translation, train_ranges, false, true);
         }
@@ -581,7 +581,7 @@ protected:
         constexpr int kThickness = 1;
         cv::putText(
             img_scene,
-            fmt::format("surf_map.Update: {:.2f} fps", surf_map_update_fps),
+            fmt::format("SurfMap.Update: {:.2f} fps", surf_map_update_fps),
             cv::Point(10, 15),
             kFontFace,
             kFontScale,
@@ -589,7 +589,7 @@ protected:
             kThickness);
         cv::putText(
             img_scene,
-            fmt::format("sdf_map.Update: {:.2f} fps", sdf_map_update_fps),
+            fmt::format("SdfMap.Update: {:.2f} fps", sdf_map_update_fps),
             cv::Point(10, 30),
             kFontFace,
             kFontScale,
@@ -597,7 +597,7 @@ protected:
             kThickness);
         cv::putText(
             img_scene,
-            fmt::format("sdf_map.Test: {:.2f} fps", update_pred_fps),
+            fmt::format("SdfMap.Test: {:.2f} fps", update_pred_fps),
             cv::Point(10, 45),
             kFontFace,
             kFontScale,

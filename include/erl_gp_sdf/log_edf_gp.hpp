@@ -4,8 +4,6 @@
 
 #include "erl_gaussian_process/noisy_input_gp.hpp"
 
-#include <absl/container/flat_hash_set.h>
-
 #include <utility>
 
 namespace erl::gp_sdf {
@@ -18,7 +16,7 @@ namespace erl::gp_sdf {
         using MatrixX = Eigen::MatrixX<Dtype>;
 
         struct Setting : public common::Yamlable<Setting, typename Super::Setting> {
-            Dtype log_lambda = 40.0f;   // log-edf parameter
+            Dtype log_lambda = 40.0f;  // log-edf parameter
             bool use_exp_bias = true;  // whether to use a bias term in exp for numerical stability
 
             ERL_REFLECT_SCHEMA(

@@ -343,7 +343,7 @@ protected:
             (rotation_sensor * positions_test_follow_org).colwise() + translation_sensor;
 
         {
-            const ERL_BLOCK_TIMER_MSG_TIME("sdf_mapping.Test", test_dt);
+            const ERL_BLOCK_TIMER_MSG_TIME("[App] SdfMap.Test", test_dt);
             test_success = GetPrediction(
                 positions_test_follow,
                 sdf_pred_follow,
@@ -534,7 +534,7 @@ protected:
     bool
     UpdateSurfaceMap() {
         if (!mapping_uses_points) {
-            ERL_BLOCK_TIMER_MSG_TIME("surf_map.Update", surf_map_update_dt);
+            ERL_BLOCK_TIMER_MSG_TIME("[App] SurfMap.Update", surf_map_update_dt);
             // are_points: false, are_local: true
             return surf_map->Update(rotation_frame, translation_frame, frame_ranges, false, true);
         }
@@ -547,7 +547,7 @@ protected:
         this->frame_points_in_sensor_frame = false;  // frame_points are now in world frame
 
         {
-            ERL_BLOCK_TIMER_MSG_TIME("surf_map.Update", surf_map_update_dt);
+            ERL_BLOCK_TIMER_MSG_TIME("[App] SurfMap.Update", surf_map_update_dt);
             // are_points: true, are_local: false
             return surf_map->Update(rotation_frame, translation_frame, frame_points, true, false);
         }
@@ -560,7 +560,7 @@ protected:
         if (!surf_map_updated) { return false; }
 
         {
-            const ERL_BLOCK_TIMER_MSG_TIME("sdf_map.Update", sdf_map_update_dt);
+            const ERL_BLOCK_TIMER_MSG_TIME("[App] SdfMap.Update", sdf_map_update_dt);
             const double time_budget_us = 1e6 / sdf_map_setting->update_hz;  // us
             sdf_map_updated = sdf_map->UpdateGpSdf(time_budget_us - surf_map_update_dt * 1000);
         }

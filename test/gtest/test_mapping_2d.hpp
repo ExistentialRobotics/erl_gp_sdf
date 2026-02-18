@@ -264,18 +264,18 @@ public:
             if (options->test_io) { TestIo(); }
 
             auto update_map = [this]() {
-                ERL_BLOCK_TIMER_MSG_TIME("UpdateMap", this->update_map_dt);
+                ERL_BLOCK_TIMER_MSG_TIME("[App] UpdateMap", this->update_map_dt);
                 return this->UpdateMap();
             };
 
             auto update_pred = [this]() {
-                ERL_BLOCK_TIMER_MSG_TIME("UpdatePrediction", this->update_pred_dt);
+                ERL_BLOCK_TIMER_MSG_TIME("[App] UpdatePrediction", this->update_pred_dt);
                 this->UpdatePrediction();
             };
 
             auto update_vis = [this]() {
                 if (!options->visualize) { return; }
-                ERL_BLOCK_TIMER_MSG_TIME("UpdateVisualization", this->update_vis_dt);
+                ERL_BLOCK_TIMER_MSG_TIME("[App] UpdateVisualization", this->update_vis_dt);
                 this->UpdateVisualization();
             };
 
@@ -571,7 +571,7 @@ protected:
 
     void
     LoadData() {
-        const ERL_BLOCK_TIMER_MSG("data loading");
+        const ERL_BLOCK_TIMER_MSG("[App] Data Loading");
         switch (dataset_type) {
             case DataSetType::GazeboRoom2D:
                 LoadDataFromGazeboRoom2D();
@@ -625,7 +625,7 @@ protected:
 
     void
     WriteSdfMappingBin() {
-        const ERL_BLOCK_TIMER_MSG("WriteMappingBin");
+        const ERL_BLOCK_TIMER_MSG("[App] WriteMappingBin");
         std::string bin_file = GetBinFileName();
         using namespace erl::common::serialization;
         ERL_ASSERTM(
@@ -636,7 +636,7 @@ protected:
 
     void
     ReadMappingBin(MappingType &mapping_read, std::string bin_file = "") {
-        const ERL_BLOCK_TIMER_MSG("ReadMappingBin");
+        const ERL_BLOCK_TIMER_MSG("[App] ReadMappingBin");
         if (bin_file.empty()) { bin_file = GetBinFileName(); }
         using namespace erl::common::serialization;
         ERL_ASSERTM(
@@ -647,7 +647,6 @@ protected:
 
     void
     TestIo(MappingType &mapping_read) {
-        const ERL_BLOCK_TIMER_MSG("Test IO");
         WriteSdfMappingBin();
         ReadMappingBin(mapping_read);
         ERL_ASSERT(*mapping == mapping_read);

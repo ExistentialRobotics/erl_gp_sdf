@@ -115,9 +115,8 @@ namespace erl::gp_sdf {
         double m_train_gp_time_us_ = 10;        // time spent for training GPs
 
         // temporary data for parallelism and test
-        std::vector<std::vector<std::array<long, Dim>>> m_neighbor_offsets_;
-        // KdTreePtr m_kdtree_surf_data_ = nullptr;  // for loading surface data
-        // std::vector<std::vector<std::size_t>> m_surf_data_indices_;
+        KdTreePtr m_kdtree_surf_data_ = nullptr;  // for loading surface data
+        std::vector<std::vector<std::size_t>> m_surf_data_indices_;
         std::vector<std::vector<std::pair<Dtype, std::size_t>>> m_surf_data_dist_indices_;
         std::vector<std::size_t> m_gp_load_data_cnt_;         // counts of GPs that load data
         KeySet m_clusters_to_collect_data_;                   // stores clusters to collect data
@@ -244,9 +243,6 @@ namespace erl::gp_sdf {
          */
         void
         RunLoadDataQueue(double time_budget_us, bool ignore_budget);
-
-        void
-        PrepareNeighborClusterOffsets();
 
         // Load surface data to the GPs in m_gps_to_load_data_
         void

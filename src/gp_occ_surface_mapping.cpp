@@ -267,10 +267,18 @@ namespace erl::gp_sdf {
     GpOccSurfaceMapping<Dtype, Dim>::GetClusterSize() const {
         return m_tree_->GetNodeSize(m_setting_->cluster_depth);
     }
- template<typename Dtype, int Dim>
+
+    template<typename Dtype, int Dim>
     long
     GpOccSurfaceMapping<Dtype, Dim>::GetClusterKeySize() const {
         return 1L << (m_setting_->tree->tree_depth - m_setting_->cluster_depth);
+    }
+
+    template<typename Dtype, int Dim>
+    bool
+    GpOccSurfaceMapping<Dtype, Dim>::HasCluster(const Key &key) const {
+        const TreeNode *node = m_tree_->Search(key, m_setting_->cluster_depth);
+        return node != nullptr && m_tree_->IsNodeOccupied(node);
     }
 
     template<typename Dtype, int Dim>
@@ -731,7 +739,6 @@ namespace erl::gp_sdf {
         ERL_DEBUG_ASSERT(
             m_setting_->surface_resolution <= 0,
             "UpdateMapPoints0() should only be called when the surface resolution is <= 0");
-        ERL_BLOCK_TIMER();
 
         if (!m_sensor_gp_->IsTrained()) { return; }
         if (this->m_surf_data_manager_.GetBuffer().empty()) { return; }
@@ -940,7 +947,6 @@ namespace erl::gp_sdf {
 
         if (max_num_points <= 0) {
             // no limits
-            ERL_BLOCK_TIMER_MSG("Collecting surface data to update in AABB (no limit)");
             for (auto it = m_tree_->BeginLeafInAabb(observed_area), end = m_tree_->EndLeafInAabb();
                  it != end;
                  ++it) {
@@ -954,7 +960,6 @@ namespace erl::gp_sdf {
             // limited number of points
             // collect points from the hit voxels first.
             // add more points if there is space left.
-            ERL_BLOCK_TIMER_MSG("Collecting surface data to update in AABB");
 
             std::vector<std::pair<Key, Dtype>> hit_keys;
             hit_keys.resize(sensor_frame->GetNumHitRays());
@@ -1006,10 +1011,6 @@ namespace erl::gp_sdf {
 
         // update the surface data in the nodes
         {
-            ERL_BLOCK_TIMER_MSG(
-                fmt::format(
-                    "Computing update of surface data in AABB: {} entries",
-                    m_surf_in_aabb_.size()));
             std::sort(
                 m_surf_in_aabb_.begin(),
                 m_surf_in_aabb_.end(),
@@ -1029,7 +1030,6 @@ namespace erl::gp_sdf {
         }
 
         {
-            ERL_BLOCK_TIMER_MSG("Updating surface data in AABB");
             for (const auto &[index, updated, to_remove, new_index]: m_surf_in_aabb_) {
                 if (to_remove) {  // too bad, the surface data should be removed.
                     // remove the surface data from the buffer
@@ -1287,7 +1287,6 @@ namespace erl::gp_sdf {
     template<typename Dtype, int Dim>
     void
     GpOccSurfaceMapping<Dtype, Dim>::UpdateOccupancy() {
-        ERL_BLOCK_TIMER_MSG("UpdateOccupancy");
 
         const auto sensor_frame = m_sensor_gp_->GetSensorFrame();
         // In AddNewMeasurement(), only rays classified as hit are used. So, we use the same here to
@@ -1317,7 +1316,6 @@ namespace erl::gp_sdf {
         ERL_DEBUG_ASSERT(
             m_setting_->surface_resolution <= 0,
             "AddNewMeasurement0() should only be called when the surface resolution is <= 0");
-        ERL_BLOCK_TIMER();
 
         const auto sensor_frame = m_sensor_gp_->GetSensorFrame();
         const VectorD sensor_pos = sensor_frame->GetTranslationVector();
@@ -1383,7 +1381,6 @@ namespace erl::gp_sdf {
         ERL_DEBUG_ASSERT(
             m_setting_->surface_resolution > 0.0f,
             "AddNewMeasurement1() should only be called when the surface resolution is > 0");
-        ERL_BLOCK_TIMER_MSG("AddNewMeasurement1");
 
         const auto sensor_frame = m_sensor_gp_->GetSensorFrame();
         const long num_hit_rays = sensor_frame->GetNumHitRays();

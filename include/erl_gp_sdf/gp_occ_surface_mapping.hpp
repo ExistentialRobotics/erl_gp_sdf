@@ -268,6 +268,9 @@ namespace erl::gp_sdf {
         [[nodiscard]] long
         GetClusterKeySize() const override;
 
+        [[nodiscard]] bool
+        HasCluster(const Key &key) const override;
+
         [[nodiscard]] VectorD
         GetClusterCenter(const Key &key) const override;
 

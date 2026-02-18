@@ -401,7 +401,7 @@ public:
             visualizer->SetViewStatus(options->o3d_view_status_file);
         }
 
-        int wait_time_seconds = -1;
+        constexpr int wait_time_seconds = -1;
         if (options->load_mapping_bin) {
             ReadMappingBin(*mapping, options->mapping_bin_file);
             animation_ended = true;
@@ -449,6 +449,8 @@ public:
             const std::string filepath = options->output_dir / "extracted_mesh.ply";
             WriteMesh(vertices, faces, filepath);
         }
+
+        erl::common::BlockTimerRecords::PrintRecords();
     }
 
 protected:
@@ -749,7 +751,9 @@ protected:
             options->output_dir /= erl::common::Logging::GetTimeStamp();
             options->add_datetime_to_output_dir = false;  // to avoid adding multiple times
             if (std::filesystem::exists(latest_dir)) { std::filesystem::remove(latest_dir); }
-            std::filesystem::create_symlink(options->output_dir, latest_dir);
+            std::filesystem::create_symlink(
+                std::filesystem::absolute(options->output_dir),
+                latest_dir);
         }
         img_dir = options->output_dir / "images";
         std::filesystem::create_directories(img_dir);
@@ -1059,7 +1063,7 @@ protected:
 
     void
     LoadData() {
-        const ERL_BLOCK_TIMER_MSG("data loading");
+        const ERL_BLOCK_TIMER_MSG("[App] Data loading");
         switch (options->dataset_type) {
             case DataSetType::CowAndLady:
                 LoadDataFromCowAndLady();
@@ -1281,7 +1285,7 @@ protected:
 
     void
     UpdateVisualization() {
-        const ERL_BLOCK_TIMER_MSG("UpdateVisualization");
+        const ERL_BLOCK_TIMER_MSG("[App] Update visualization");
 
         VisualizeSensorMesh();
         VisualizeSensorData();
@@ -1315,6 +1319,8 @@ protected:
 
     virtual bool
     AnimationCallback(Open3dVisualizerWrapper *wrapper, open3d::visualization::Visualizer *vis) {
+        erl::common::BlockTimerRecords::PrintRecords();
+
         if (options->save_images) {
             vis->CaptureScreenImage(img_dir / fmt::format("{:04d}.png", frame_idx), false);
         }
@@ -1368,7 +1374,7 @@ protected:
 
         ERL_INFO("wp_idx: {}", wp_idx);
         {
-            const ERL_BLOCK_TIMER_MSG_TIME("gui_update", gui_dt);
+            const ERL_BLOCK_TIMER_MSG_TIME("[App] GUI update", gui_dt);
             LoadData();
             if (UpdateMap()) { UpdateFollowingMapPrediction(); }
             if (frame_idx % options->vis_stride == 0) { UpdateVisualization(); }
@@ -1403,7 +1409,7 @@ protected:
 
     void
     WriteMappingBin() {
-        const ERL_BLOCK_TIMER_MSG("WriteMappingBin");
+        const ERL_BLOCK_TIMER_MSG("[App] WriteMappingBin");
         std::string bin_file = GetBinFileName();
         using namespace erl::common::serialization;
         ERL_ASSERTM(
@@ -1414,7 +1420,7 @@ protected:
 
     void
     ReadMappingBin(MappingType &mapping_read, std::string bin_file = "") {
-        const ERL_BLOCK_TIMER_MSG("ReadMappingBin");
+        const ERL_BLOCK_TIMER_MSG("[App] ReadMappingBin");
         if (bin_file.empty()) { bin_file = GetBinFileName(); }
         using namespace erl::common::serialization;
         ERL_ASSERTM(
@@ -1425,7 +1431,7 @@ protected:
 
     void
     TestIo(MappingType &mapping_read) {
-        const ERL_BLOCK_TIMER_MSG("TestIo");
+        const ERL_BLOCK_TIMER_MSG("[App] TestIo");
         WriteMappingBin();
         ReadMappingBin(mapping_read);
         ERL_INFO("Verifying mapping read from file...");

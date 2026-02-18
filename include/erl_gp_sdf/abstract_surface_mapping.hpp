@@ -111,6 +111,9 @@ namespace erl::gp_sdf {
         [[nodiscard]] virtual long
         GetClusterKeySize() const = 0;
 
+        [[nodiscard]] virtual bool
+        HasCluster(const Key &key) const = 0;
+
         /**
          * Get the center of the cluster.
          * @param key the key of the cluster.
