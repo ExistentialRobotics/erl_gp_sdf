@@ -10,7 +10,12 @@ BindSurfaceDataImpl(const py::module &m, const char *name) {
     using VectorD = typename T::VectorD;
     py::class_<T>(m, name)
         .def(py::init<>())
-        .def(py::init<VectorD, VectorD, Dtype, Dtype>(), py::arg("position"), py::arg("normal"), py::arg("var_position"), py::arg("var_normal"))
+        .def(
+            py::init<VectorD, VectorD, Dtype, Dtype>(),
+            py::arg("position"),
+            py::arg("normal"),
+            py::arg("var_position"),
+            py::arg("var_normal"))
         .def_readwrite("position", &T::position)
         .def_readwrite("normal", &T::normal)
         .def_readwrite("var_position", &T::var_position)
@@ -26,7 +31,8 @@ BindSurfaceDataManagerImpl(const py::module &m, const char *name) {
     // using Base = DataBufferManager<Data>;
     using T = SurfaceDataManager<Dtype, Dim>;
 
-    auto data_buffer_manager = BindDataBufferManagerImpl<Data, std::vector<Data>>(m, (name + std::string("Base")).c_str());
+    auto data_buffer_manager =
+        BindDataBufferManagerImpl<Data, std::vector<Data>>(m, (name + std::string("Base")).c_str());
     py::class_<T, DataBufferManager<Data>>(m, name);
 }
 
