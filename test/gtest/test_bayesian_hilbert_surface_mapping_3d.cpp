@@ -260,7 +260,7 @@ struct TestBayesianHilbertSurfaceMapping3D
         drawer_setting->scaling = 1.0f / surf_map_setting->scaling;  // inverse scaling
         drawer_setting->area_min = map_min.template cast<double>();
         drawer_setting->area_max = map_max.template cast<double>();
-        drawer_setting->occupied_only = true;
+        drawer_setting->draw_occupied = true;
         const OctreeDrawer octree_drawer(drawer_setting, surf_map->GetTree());
         auto gt_mesh = geometries[0];
         geometries = octree_drawer.GetBlankGeometries();
