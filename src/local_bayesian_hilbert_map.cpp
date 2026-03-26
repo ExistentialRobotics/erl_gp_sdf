@@ -482,28 +482,25 @@ namespace erl::gp_sdf {
     LocalBayesianHilbertMap<Dtype, Dim>::Predict(
         const Eigen::Ref<const MatrixDX> &points,
         const bool logodd,
-        const bool compute_free_space,
         const bool compute_gradient,
         const bool gradient_with_sigmoid,
         const bool parallel,
         VectorX &prob_occupied,
-        Eigen::VectorXb &in_free_space,
         MatrixDX &gradient) const {
         bhm.Predict(
             points,
-            logodd,
+            /*logodd=*/true,
             setting->faster_prediction,
             compute_gradient,
             gradient_with_sigmoid,
             parallel,
             prob_occupied,
             gradient);
-        if (!compute_free_space) { return; }
-        if (logodd) {
-            in_free_space = prob_occupied.array() < surface_log_odds;
-        } else {
-            Dtype p = geometry::logodd::Probability(surface_log_odds);
-            in_free_space = prob_occupied.array() < p;
+        prob_occupied.array() -= surface_log_odds;  // convert to relative log-odds
+        if (!logodd) {
+            for (long i = 0; i < prob_occupied.size(); ++i) {
+                prob_occupied[i] = geometry::logodd::Probability(prob_occupied[i]);
+            }
         }
     }
 
@@ -512,27 +509,20 @@ namespace erl::gp_sdf {
     LocalBayesianHilbertMap<Dtype, Dim>::PredictAt(
         const VectorD &point,
         const bool logodd,
-        const bool compute_free_space,
         const bool compute_gradient,
         const bool gradient_with_sigmoid,
         Dtype &prob_occupied,
-        bool &in_free_space,
         VectorD &gradient) const {
         bhm.Predict(
             point,
-            logodd,
+            /*logodd=*/true,
             setting->faster_prediction,
             compute_gradient,
             gradient_with_sigmoid,
             prob_occupied,
             gradient);
-        if (!compute_free_space) { return; }
-        if (logodd) {
-            in_free_space = prob_occupied < surface_log_odds;
-        } else {
-            Dtype p = geometry::logodd::Probability(surface_log_odds);
-            in_free_space = prob_occupied < p;
-        }
+        prob_occupied -= surface_log_odds;  // convert to relative log-odds
+        if (!logodd) { prob_occupied = geometry::logodd::Probability(prob_occupied); }
     }
 
     template<typename Dtype, int Dim>

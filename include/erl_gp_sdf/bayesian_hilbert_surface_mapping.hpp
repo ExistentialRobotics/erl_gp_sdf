@@ -332,15 +332,12 @@ namespace erl::gp_sdf {
         EndSurfaceData();
 
         /**
-         *
          * @param points Matrix of points in the world frame. Each column is a point.
          * @param logodd If true, the output will be log-odds instead of probabilities.
-         * @param compute_free_space If true, compute if the points are in free space.
          * @param compute_gradient If true, the gradient will be computed.
          * @param gradient_with_sigmoid If true, compute the gradient of sigmoid(logodd).
          * @param parallel If true, the computation will be parallelized.
          * @param prob_occupied Output vector of occupancy probabilities or log-odds.
-         * @param in_free_space Output vector indicating if each point is in free space.
          * @param gradients Output matrix of gradients. If compute_gradient is false, this will not
          * be used.
          */
@@ -348,12 +345,10 @@ namespace erl::gp_sdf {
         Predict(
             const Eigen::Ref<const MatrixDX> &points,
             bool logodd,
-            bool compute_free_space,
             bool compute_gradient,
             bool gradient_with_sigmoid,
             bool parallel,
             VectorX &prob_occupied,
-            Eigen::VectorXb &in_free_space,
             MatrixDX &gradients) const;
 
         void
@@ -473,12 +468,10 @@ namespace erl::gp_sdf {
             long start,
             long end,
             bool logodd,
-            bool compute_free_space,
             bool compute_gradient,
             bool gradient_with_sigmoid,
             bool parallel,
             Dtype *prob_occupied_ptr,
-            bool *in_free_space_ptr,
             Dtype *gradient_ptr) const;
 
         void

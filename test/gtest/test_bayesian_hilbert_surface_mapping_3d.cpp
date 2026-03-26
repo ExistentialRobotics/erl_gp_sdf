@@ -72,17 +72,14 @@ struct TestBayesianHilbertSurfaceMapping3D
         // analyze the map after the animation ends
 
         VectorX log_odd_values;
-        Eigen::VectorXb in_free_space;
         Matrix3X gradients;
         GetPrediction(
             gt_surface_points,
             true /*logodd*/,
-            false /*compute_free_space*/,
             false /*compute_gradient*/,
             false /*gradient_with_sigmoid*/,
             true /*parallel*/,
             log_odd_values,
-            in_free_space,
             gradients);
         Dtype mean = log_odd_values.mean();
         Dtype squared_mean =
@@ -329,12 +326,10 @@ protected:
     GetPrediction(
         const Matrix3X &positions,
         const bool logodd,
-        const bool compute_free_space,
         const bool compute_gradient,
         const bool gradient_with_sigmoid,
         const bool parallel,
         VectorX &pred_logodds,
-        Eigen::VectorXb &pred_in_free_space,
         Matrix3X &pred_gradients) {
 
         const long batch_size = options->test_batch_size;
@@ -344,22 +339,18 @@ protected:
             surf_map->Predict(
                 positions,
                 logodd,
-                compute_free_space,
                 compute_gradient,
                 gradient_with_sigmoid,
                 parallel,
                 pred_logodds,
-                pred_in_free_space,
                 pred_gradients);
             return;
         }
 
         pred_logodds.resize(n);
-        if (compute_free_space) { pred_in_free_space.resize(n); }
         if (compute_gradient) { pred_gradients.resize(3, n); }
 
         VectorX pred_logodds_batch;
-        Eigen::VectorXb pred_in_free_space_batch;
         Matrix3X pred_gradients_batch;
 
         const long i_max = (n + batch_size - 1) / batch_size;
@@ -370,18 +361,13 @@ protected:
             surf_map->Predict(
                 positions.middleCols(i, m),
                 logodd,
-                compute_free_space,
                 compute_gradient,
                 gradient_with_sigmoid,
                 parallel,
                 pred_logodds_batch,
-                pred_in_free_space_batch,
                 pred_gradients_batch);
             // store results
             pred_logodds.segment(i, m) = pred_logodds_batch.head(m);
-            if (compute_free_space) {
-                pred_in_free_space.segment(i, m) = pred_in_free_space_batch.head(m);
-            }
             if (compute_gradient) {
                 pred_gradients.middleCols(i, m) = pred_gradients_batch.leftCols(m);
             }
@@ -398,13 +384,12 @@ protected:
             GetPrediction(
                 positions_test_whole_map,
                 false /*logodd*/,
-                true /*compute_free_space*/,
                 false /*compute_gradient*/,
                 false /*gradient_with_sigmoid*/,
                 true /*parallel*/,
                 prob_occupied_whole_map,
-                in_free_space_whole_map,
                 gradient_whole_map);
+            in_free_space_whole_map = (prob_occupied_whole_map.array() < 0.5f).template cast<bool>();
         }
         cv::Mat prob_occupied_img = ConvertVectorToImage<Dtype>(
             whole_map_xs,
@@ -458,13 +443,12 @@ protected:
             GetPrediction(
                 positions_test_follow,
                 false /*logodd*/,
-                true /*compute_free_space*/,
                 false /*compute_gradient*/,
                 false /*gradient_with_sigmoid*/,
                 true /*parallel*/,
                 prob_occupied_follow,
-                in_free_space_follow,
                 gradient_follow);
+            in_free_space_follow = (prob_occupied_follow.array() < 0.5f).template cast<bool>();
             test_success = true;
         }
 
@@ -523,19 +507,19 @@ protected:
         const ERL_BLOCK_TIMER_MSG("TestGrid");
 
         VectorX pred_logodds;
-        Eigen::VectorXb pred_in_free_space;
         Matrix3X pred_gradients;
 
         GetPrediction(
             grid_points,
             true /*logodd*/,
-            true /*compute_free_space*/,
             true /*compute_gradient*/,
             false /*gradient_with_sigmoid*/,
             true /*parallel*/,
             pred_logodds,
-            pred_in_free_space,
             pred_gradients);
+
+        // Compute in_free_space from log-odds for saving
+        Eigen::VectorXb pred_in_free_space = (pred_logodds.array() < 0).template cast<bool>();
 
         std::filesystem::path file = options->output_dir / "test_grid_points.bin";
         ERL_INFO("Saving test grid points to {}", file.string());

@@ -19,17 +19,14 @@ protected:
         this->img_scene.setTo(cv::Scalar(128, 128, 128, 255));
         this->quadtree_drawer->DrawLeaves(this->img_scene);
         Eigen::VectorX<Dtype> prob_occupied;
-        Eigen::VectorXb in_free_space;
         Eigen::Matrix2X<Dtype> gradients;
         this->surf_map->Predict(  //
             this->grid_points,
             false /*logodd*/,
-            false /*compute free space*/,
             false /*compute gradient*/,
             false /*gradient with sigmoid*/,
             true /*parallel*/,
             prob_occupied,
-            in_free_space,
             gradients);
         cv::Mat prob_occupied_img(
             this->grid_map_info->Shape(1),  // height(y)

@@ -119,12 +119,10 @@ protected:
         surf_map->Predict(  //
                 grid_points,
                 true /*logodd*/,
-                false /*compute_free_space*/,
                 true /*compute_gradient*/,
                 false /*gradient_with_sigmoid*/,
                 true /*parallel*/,
                 logodd_values,
-                in_free_space,
                 gradients);
         prob_occupied.resize(logodd_values.size());
         for (long j = 0; j < logodd_values.size(); ++j) {
@@ -336,19 +334,19 @@ protected:
         const ERL_BLOCK_TIMER_MSG("TestGrid");
 
         VectorX pred_logodds;
-        Eigen::VectorXb pred_in_free_space;
         Matrix2X pred_gradients;
 
         surf_map->Predict(
             grid_points,
             true /*logodd*/,
-            true /*compute_free_space*/,
             true /*compute_gradient*/,
             false /*gradient_with_sigmoid*/,
             true /*parallel*/,
             pred_logodds,
-            pred_in_free_space,
             pred_gradients);
+
+        // Compute in_free_space from log-odds for saving
+        Eigen::VectorXb pred_in_free_space = (pred_logodds.array() < 0).template cast<bool>();
 
         std::filesystem::path file = options->output_dir / "test_grid_points.bin";
         ERL_INFO("Saving test grid points to {}", file.string());

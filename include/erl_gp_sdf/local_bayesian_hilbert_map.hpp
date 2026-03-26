@@ -216,23 +216,19 @@ namespace erl::gp_sdf {
         Predict(
             const Eigen::Ref<const MatrixDX> &points,
             bool logodd,
-            bool compute_free_space,
             bool compute_gradient,
             bool gradient_with_sigmoid,
             bool parallel,
             VectorX &prob_occupied,
-            Eigen::VectorXb &in_free_space,
             MatrixDX &gradient) const;
 
         void
         PredictAt(
             const VectorD &point,
             bool logodd,
-            bool compute_free_space,
             bool compute_gradient,
             bool gradient_with_sigmoid,
             Dtype &prob_occupied,
-            bool &in_free_space,
             VectorD &gradient) const;
 
         void

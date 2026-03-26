@@ -317,12 +317,10 @@ namespace erl::gp_sdf {
     BayesianHilbertSurfaceMapping<Dtype, Dim>::Predict(
         const Eigen::Ref<const MatrixDX> &points,
         const bool logodd,
-        const bool compute_free_space,
         const bool compute_gradient,
         const bool gradient_with_sigmoid,
         const bool parallel,
         VectorX &prob_occupied,
-        Eigen::VectorXb &in_free_space,
         MatrixDX &gradients) const {
 
         MatrixDX points_s = points;
@@ -330,14 +328,9 @@ namespace erl::gp_sdf {
 
         const long num_points = points_s.cols();
         Dtype init_prob_occupied = m_setting_->unknown_log_odds;
-        const bool init_free_space = init_prob_occupied <= m_setting_->local_bhm->surface_log_odds;
         if (!logodd) { init_prob_occupied = geometry::logodd::Probability(init_prob_occupied); }
 
         if (prob_occupied.size() < num_points) { prob_occupied.resize(num_points); }
-        if (compute_free_space) {
-            if (in_free_space.size() < num_points) { in_free_space.resize(num_points); }
-            in_free_space.fill(init_free_space);
-        }
         if (compute_gradient) {
             if (gradients.cols() < num_points) { gradients.resize(Dim, num_points); }
             gradients.setZero();
@@ -354,12 +347,10 @@ namespace erl::gp_sdf {
                 0,
                 num_points,
                 logodd,
-                compute_free_space,
                 compute_gradient,
                 gradient_with_sigmoid,
                 parallel,  // let the thread decide
                 prob_occupied.data(),
-                in_free_space.data(),
                 gradients.data());
             return;
         }
@@ -382,12 +373,10 @@ namespace erl::gp_sdf {
                 start,
                 end,
                 logodd,
-                compute_free_space,
                 compute_gradient,
                 gradient_with_sigmoid,
                 false /*parallel*/,  // no need to run in parallel within the thread
                 prob_occupied.data(),
-                in_free_space.data(),
                 gradients.data());
             start = end;
         }
@@ -969,13 +958,12 @@ namespace erl::gp_sdf {
         Predict(
             positions,
             true /*logodd*/,
-            true /*compute_free_space*/,
             false /*compute_gradient*/,
             false /*gradient_with_sigmoid*/,
             true /*parallel*/,
             log_odds,
-            in_free_space,
             gradients);
+        for (long i = 0; i < positions.cols(); ++i) { in_free_space[i] = log_odds[i] < 0; }
         return true;
     }
 
@@ -1594,12 +1582,10 @@ namespace erl::gp_sdf {
         const long start,
         const long end,
         const bool logodd,
-        const bool compute_free_space,
         const bool compute_gradient,
         const bool gradient_with_sigmoid,
         const bool parallel,
         Dtype *prob_occupied_ptr,
-        bool *in_free_space_ptr,
         Dtype *gradient_ptr) const {
 
         ERL_DEBUG_ASSERT(points_ptr != nullptr, "points_ptr is nullptr.");
@@ -1610,7 +1596,6 @@ namespace erl::gp_sdf {
 
         points_ptr += start * Dim;
         prob_occupied_ptr += start;
-        if (compute_free_space) { in_free_space_ptr += start; }
         if (compute_gradient) { gradient_ptr += start * Dim; }
 
         const long num_points = end - start;
@@ -1624,12 +1609,10 @@ namespace erl::gp_sdf {
                knn,                                                    \
                half_test_size_sq,                                      \
                logodd,                                                 \
-               compute_free_space,                                     \
                compute_gradient,                                       \
                gradient_with_sigmoid,                                  \
                points_ptr,                                             \
                prob_occupied_ptr,                                      \
-               in_free_space_ptr,                                      \
                gradient_ptr)
         for (long i = 0; i < num_points; ++i) {
 
@@ -1651,9 +1634,6 @@ namespace erl::gp_sdf {
                     if (node == nullptr) { continue; }  // unknown
                     // get the occupancy from the tree
                     prob_occupied_ptr[i] = logodd ? node->GetLogOdds() : node->GetOccupancy();
-                    if (compute_free_space) {
-                        in_free_space_ptr[i] = !m_tree_->IsNodeOccupied(node);
-                    }
                     continue;
                 }
 
@@ -1661,11 +1641,9 @@ namespace erl::gp_sdf {
                 local_bhm->PredictAt(
                     point,
                     logodd,
-                    compute_free_space,
                     compute_gradient,
                     gradient_with_sigmoid,
                     prob_occupied_ptr[i],
-                    in_free_space_ptr[i],
                     grad);
                 if (compute_gradient) {
                     Dtype *grad_ptr = gradient_ptr + i * Dim;
@@ -1678,7 +1656,6 @@ namespace erl::gp_sdf {
             (void) m_bhm_kdtree_->RadiusSearch(point, m_half_bhm_test_size_, true, bhm_idx_dists);
             Dtype weight_sum = 0.0f;
             Dtype prob_sum = 0.0f;
-            Dtype in_free_space_sum = 0.0f;
             VectorD gradient_sum = VectorD::Zero();
             long cnt = 0;
             for (auto &idx_dist: bhm_idx_dists) {  // iterate over the neighbors
@@ -1689,22 +1666,13 @@ namespace erl::gp_sdf {
 
                 ++cnt;
                 Dtype prob;
-                bool in_free_space = false;
                 VectorD grad;
-                local_bhm->PredictAt(
-                    point,
-                    logodd,
-                    compute_free_space,
-                    compute_gradient,
-                    gradient_with_sigmoid,
-                    prob,
-                    in_free_space,
-                    grad);
+                local_bhm
+                    ->PredictAt(point, logodd, compute_gradient, gradient_with_sigmoid, prob, grad);
                 Dtype weight = (local_bhm->bhm.GetMapBoundary().center - point).cwiseAbs().prod();
                 weight = 1.0f / (weight + 1e-6f);
                 weight_sum += weight;
                 prob_sum += prob * weight;
-                if (compute_free_space) { in_free_space_sum += static_cast<Dtype>(in_free_space); }
                 if (compute_gradient) {
                     for (int dim = 0; dim < Dim; ++dim) { gradient_sum[dim] += grad[dim] * weight; }
                 }
@@ -1713,12 +1681,8 @@ namespace erl::gp_sdf {
                 if (node == nullptr) { continue; }  // unknown
                 // get the occupancy from the tree, gradient is not available
                 prob_occupied_ptr[i] = logodd ? node->GetLogOdds() : node->GetOccupancy();
-                if (compute_free_space) { in_free_space_ptr[i] = in_free_space_sum > 0.0f; }
             } else {
                 prob_occupied_ptr[i] = prob_sum / weight_sum;
-                if (compute_free_space) {
-                    in_free_space_ptr[i] = in_free_space_sum * 2.0f > weight_sum;
-                }
                 if (compute_gradient) {
                     Dtype *grad_ptr = gradient_ptr + i * Dim;
                     for (int dim = 0; dim < Dim; ++dim) {
@@ -1957,15 +1921,12 @@ namespace erl::gp_sdf {
         SurfData &surf_data,
         bool &to_remove) const {
         Dtype logodd;
-        bool in_free_space = false;
         local_bhm.PredictAt(
             surf_data.position,
             true /*logodd*/,
-            false /*compute_free_space*/,
             true /*compute_gradient*/,
             false /*gradient_with_sigmoid*/,
             logodd,
-            in_free_space,
             surf_data.normal);
         Dtype norm = surf_data.normal.norm();
         if (norm < 1e-6f) {
@@ -1990,16 +1951,13 @@ namespace erl::gp_sdf {
         const int max_num_adjusts = update_map_setting.max_adjust_tries;
         int num_adjusts = 0;
         Dtype logodd;
-        bool in_free_space = false;
         VectorD &gradient = surf_data.normal;  // reuse the normal as the gradient
         local_bhm.PredictAt(
             surf_data.position,
             true /*logodd*/,
-            false /*compute_free_space*/,
             true /*compute_gradient*/,
             false /*gradient_with_sigmoid*/,
             logodd,
-            in_free_space,
             gradient);
         Dtype norm = gradient.norm();
         if (norm < 1e-6f) {
@@ -2023,11 +1981,9 @@ namespace erl::gp_sdf {
             local_bhm.PredictAt(
                 surf_data.position,
                 true /*logodd*/,
-                false /*compute_free_space*/,
                 true /*compute_gradient*/,
                 false /*gradient_with_sigmoid*/,
                 logodd_new,
-                in_free_space,
                 gradient);
             norm = gradient.norm();
             if (norm < 1e-6f) {
