@@ -6,6 +6,8 @@
 #include "ray_selector_3d.hpp"
 
 #include "erl_geometry/bayesian_hilbert_map.hpp"
+#include "erl_geometry/colored_occupancy_octree.hpp"
+#include "erl_geometry/colored_occupancy_quadtree.hpp"
 #include "erl_geometry/kdtree_eigen_adaptor.hpp"
 #include "erl_geometry/marching_cubes.hpp"
 #include "erl_geometry/marching_squares.hpp"
@@ -18,7 +20,7 @@
 
 namespace erl::gp_sdf {
 
-    template<typename Dtype, int Dim>
+    template<typename Dtype, int Dim, bool Colored = false>
     class BayesianHilbertSurfaceMapping : public AbstractSurfaceMapping<Dtype, Dim> {
 
         static_assert(Dim == 2 || Dim == 3, "Dim must be 2 or 3.");
@@ -39,6 +41,7 @@ namespace erl::gp_sdf {
         using typename Super::Translation;
         using typename Super::VectorD;
         using typename Super::VectorX;
+        using ColorMatrix = Eigen::Matrix<uint8_t, 4, Eigen::Dynamic>;
         using GridShape = Eigen::Vector<long, Dim>;
         using GridIndex = Eigen::Vector<long, Dim + 1>;
         using SurfaceIndexMap = absl::flat_hash_map<GridIndex, std::size_t>;
@@ -53,13 +56,25 @@ namespace erl::gp_sdf {
             geometry::QuadtreeKeyVectorMap,
             geometry::OctreeKeyVectorMap>;
         using Tree = std::conditional_t<
-            Dim == 2,
-            geometry::OccupancyQuadtree<Dtype>,
-            geometry::OccupancyOctree<Dtype>>;
-        using TreeNode = std::conditional_t<  //
-            Dim == 2,
-            geometry::OccupancyQuadtreeNode,
-            geometry::OccupancyOctreeNode>;
+            Colored,
+            std::conditional_t<
+                Dim == 2,
+                geometry::ColoredOccupancyQuadtree<Dtype>,
+                geometry::ColoredOccupancyOctree<Dtype>>,
+            std::conditional_t<
+                Dim == 2,
+                geometry::OccupancyQuadtree<Dtype>,
+                geometry::OccupancyOctree<Dtype>>>;
+        using TreeNode = std::conditional_t<
+            Colored,
+            std::conditional_t<
+                Dim == 2,
+                geometry::ColoredOccupancyQuadtreeNode,
+                geometry::ColoredOccupancyOctreeNode>,
+            std::conditional_t<
+                Dim == 2,
+                geometry::OccupancyQuadtreeNode,
+                geometry::OccupancyOctreeNode>>;
         using RaySelector = std::conditional_t<  //
             Dim == 2,
             RaySelector2D<Dtype>,
@@ -307,8 +322,14 @@ namespace erl::gp_sdf {
         [[nodiscard]] std::shared_ptr<const Tree>
         GetTree() const;
 
+        [[nodiscard]] std::shared_ptr<Tree>
+        GetTree();
+
         [[nodiscard]] const KeyBhmMap &
         GetLocalBhms() const;
+
+        [[nodiscard]] bool
+        ColorEnabled() const;
 
         /**
          * @brief Update the Bayesian Hilbert map with a point cloud from sensor observation.
@@ -323,6 +344,24 @@ namespace erl::gp_sdf {
             const Eigen::Ref<const Rotation> &sensor_rotation,
             const Eigen::Ref<const VectorD> &sensor_origin,
             const Eigen::Ref<const MatrixDX> &points,
+            bool parallel);
+
+        /**
+         * @brief Update the Bayesian Hilbert map with a colored point cloud from sensor
+         * observation.
+         * @param sensor_rotation The rotation of the sensor.
+         * @param sensor_origin The origin of the sensor.
+         * @param points The point cloud in the world frame.
+         * @param colors 4xN RGBA color matrix corresponding to each point.
+         * @param parallel If true, the update will be parallelized.
+         * @return True if the update was successful, false otherwise.
+         */
+        bool
+        Update(
+            const Eigen::Ref<const Rotation> &sensor_rotation,
+            const Eigen::Ref<const VectorD> &sensor_origin,
+            const Eigen::Ref<const MatrixDX> &points,
+            const Eigen::Ref<const ColorMatrix> &colors,
             bool parallel);
 
         typename SurfDataManager::Iterator
@@ -357,6 +396,25 @@ namespace erl::gp_sdf {
             bool with_sigmoid,
             bool parallel,
             MatrixDX &gradient) const;
+
+        /**
+         * @brief Update the Bayesian Hilbert map with a colored scan from sensor observation.
+         * @param rotation The rotation of the sensor.
+         * @param translation The translation of the sensor.
+         * @param scan The scan data. Each column is a point or range measurement.
+         * @param colors 4xN RGBA color matrix corresponding to each point.
+         * @param are_points If true, the scan is a point cloud; otherwise, it is range data.
+         * @param are_local If true, the scan is in the sensor's local frame.
+         * @return True if the update was successful, false otherwise.
+         */
+        bool
+        Update(
+            const Eigen::Ref<const Rotation> &rotation,
+            const Eigen::Ref<const Translation> &translation,
+            const Eigen::Ref<const Ranges> &scan,
+            const Eigen::Ref<const ColorMatrix> &colors,
+            bool are_points,
+            bool are_local);
 
         // implement the methods required by AbstractSurfaceMapping
 
@@ -425,6 +483,22 @@ namespace erl::gp_sdf {
         GetMesh(Dtype resolution, std::vector<VectorD> &vertices, std::vector<Face> &faces)
             override;
 
+        using Color = typename Super::Color;
+
+        bool
+        GetMesh(
+            bool online,
+            std::vector<VectorD> &vertices,
+            std::vector<Face> &faces,
+            std::vector<Color> &vertex_colors) override;
+
+        bool
+        GetMesh(
+            Dtype resolution,
+            std::vector<VectorD> &vertices,
+            std::vector<Face> &faces,
+            std::vector<Color> &vertex_colors) override;
+
         [[nodiscard]] Aabb
         GetMapBoundary() const override;
 
@@ -444,6 +518,14 @@ namespace erl::gp_sdf {
         ResetMarchingResults();
 
     private:
+        bool
+        UpdateImpl(
+            const Eigen::Ref<const Rotation> &sensor_rotation,
+            const Eigen::Ref<const VectorD> &sensor_origin,
+            const Eigen::Ref<const MatrixDX> &points,
+            const uint8_t *colors_data,
+            bool parallel);
+
         void
         InitConstants();
 
@@ -510,8 +592,18 @@ namespace erl::gp_sdf {
     using BayesianHilbertSurfaceMapping2Dd = BayesianHilbertSurfaceMapping<double, 2>;
     using BayesianHilbertSurfaceMapping3Dd = BayesianHilbertSurfaceMapping<double, 3>;
 
+    // Colored variants
+    using ColoredBayesianHilbertSurfaceMapping2Df = BayesianHilbertSurfaceMapping<float, 2, true>;
+    using ColoredBayesianHilbertSurfaceMapping3Df = BayesianHilbertSurfaceMapping<float, 3, true>;
+    using ColoredBayesianHilbertSurfaceMapping2Dd = BayesianHilbertSurfaceMapping<double, 2, true>;
+    using ColoredBayesianHilbertSurfaceMapping3Dd = BayesianHilbertSurfaceMapping<double, 3, true>;
+
     extern template class BayesianHilbertSurfaceMapping<float, 2>;
     extern template class BayesianHilbertSurfaceMapping<float, 3>;
     extern template class BayesianHilbertSurfaceMapping<double, 2>;
     extern template class BayesianHilbertSurfaceMapping<double, 3>;
+    extern template class BayesianHilbertSurfaceMapping<float, 2, true>;
+    extern template class BayesianHilbertSurfaceMapping<float, 3, true>;
+    extern template class BayesianHilbertSurfaceMapping<double, 2, true>;
+    extern template class BayesianHilbertSurfaceMapping<double, 3, true>;
 }  // namespace erl::gp_sdf

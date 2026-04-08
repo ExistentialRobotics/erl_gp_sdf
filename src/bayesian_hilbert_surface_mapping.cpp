@@ -8,8 +8,8 @@
 
 namespace erl::gp_sdf {
 
-    template<typename Dtype, int Dim>
-    BayesianHilbertSurfaceMapping<Dtype, Dim>::BayesianHilbertSurfaceMapping(
+    template<typename Dtype, int Dim, bool Colored>
+    BayesianHilbertSurfaceMapping<Dtype, Dim, Colored>::BayesianHilbertSurfaceMapping(
         std::shared_ptr<Setting> setting)
         : m_setting_(NotNull(std::move(setting), true, "setting is nullptr")),
           m_tree_(std::make_shared<Tree>(m_setting_->tree)),
@@ -30,32 +30,72 @@ namespace erl::gp_sdf {
         }
     }
 
-    template<typename Dtype, int Dim>
-    std::shared_ptr<const typename BayesianHilbertSurfaceMapping<Dtype, Dim>::Setting>
-    BayesianHilbertSurfaceMapping<Dtype, Dim>::GetSetting() const {
+    template<typename Dtype, int Dim, bool Colored>
+    std::shared_ptr<const typename BayesianHilbertSurfaceMapping<Dtype, Dim, Colored>::Setting>
+    BayesianHilbertSurfaceMapping<Dtype, Dim, Colored>::GetSetting() const {
         return m_setting_;
     }
 
-    template<typename Dtype, int Dim>
-    std::shared_ptr<const typename BayesianHilbertSurfaceMapping<Dtype, Dim>::Tree>
-    BayesianHilbertSurfaceMapping<Dtype, Dim>::GetTree() const {
+    template<typename Dtype, int Dim, bool Colored>
+    std::shared_ptr<const typename BayesianHilbertSurfaceMapping<Dtype, Dim, Colored>::Tree>
+    BayesianHilbertSurfaceMapping<Dtype, Dim, Colored>::GetTree() const {
         return m_tree_;
     }
 
-    template<typename Dtype, int Dim>
+    template<typename Dtype, int Dim, bool Colored>
+    std::shared_ptr<typename BayesianHilbertSurfaceMapping<Dtype, Dim, Colored>::Tree>
+    BayesianHilbertSurfaceMapping<Dtype, Dim, Colored>::GetTree() {
+        return m_tree_;
+    }
+
+    template<typename Dtype, int Dim, bool Colored>
     const absl::flat_hash_map<
-        typename BayesianHilbertSurfaceMapping<Dtype, Dim>::Key,
-        std::shared_ptr<typename BayesianHilbertSurfaceMapping<Dtype, Dim>::LocalBhm>> &
-    BayesianHilbertSurfaceMapping<Dtype, Dim>::GetLocalBhms() const {
+        typename BayesianHilbertSurfaceMapping<Dtype, Dim, Colored>::Key,
+        std::shared_ptr<typename BayesianHilbertSurfaceMapping<Dtype, Dim, Colored>::LocalBhm>> &
+    BayesianHilbertSurfaceMapping<Dtype, Dim, Colored>::GetLocalBhms() const {
         return m_key_bhm_dict_;
     }
 
-    template<typename Dtype, int Dim>
+    template<typename Dtype, int Dim, bool Colored>
     bool
-    BayesianHilbertSurfaceMapping<Dtype, Dim>::Update(
+    BayesianHilbertSurfaceMapping<Dtype, Dim, Colored>::ColorEnabled() const {
+        return Colored;
+    }
+
+    template<typename Dtype, int Dim, bool Colored>
+    bool
+    BayesianHilbertSurfaceMapping<Dtype, Dim, Colored>::Update(
         const Eigen::Ref<const Rotation> &sensor_rotation,
         const Eigen::Ref<const VectorD> &sensor_origin,
         const Eigen::Ref<const MatrixDX> &points,
+        const bool parallel) {
+        return UpdateImpl(sensor_rotation, sensor_origin, points, nullptr, parallel);
+    }
+
+    template<typename Dtype, int Dim, bool Colored>
+    bool
+    BayesianHilbertSurfaceMapping<Dtype, Dim, Colored>::Update(
+        const Eigen::Ref<const Rotation> &sensor_rotation,
+        const Eigen::Ref<const VectorD> &sensor_origin,
+        const Eigen::Ref<const MatrixDX> &points,
+        const Eigen::Ref<const ColorMatrix> &colors,
+        const bool parallel) {
+        ERL_WARN_ONCE_COND(
+            !Colored,
+            "Updating with colors, but the mapping is not instantiated with Colored=true.");
+        ERL_ASSERTM(
+            colors.cols() == points.cols(),
+            "colors and points must have the same number of columns.");
+        return UpdateImpl(sensor_rotation, sensor_origin, points, colors.data(), parallel);
+    }
+
+    template<typename Dtype, int Dim, bool Colored>
+    bool
+    BayesianHilbertSurfaceMapping<Dtype, Dim, Colored>::UpdateImpl(
+        const Eigen::Ref<const Rotation> &sensor_rotation,
+        const Eigen::Ref<const VectorD> &sensor_origin,
+        const Eigen::Ref<const MatrixDX> &points,
+        const uint8_t *colors_data,
         const bool parallel) {
 
         auto lock = this->GetLockGuard();
@@ -68,6 +108,12 @@ namespace erl::gp_sdf {
             points_s.array() *= m_setting_->scaling;
         }
 
+        // Create a mutable color matrix only when filtering is needed and colors are provided.
+        // Otherwise, use an Eigen::Map over the raw pointer for zero-copy access.
+        ColorMatrix colors_filtered;
+        const uint8_t *colors_ptr = colors_data;
+        long colors_cols = points.cols();
+
         KeyVector &bhm_keys = m_clusters_to_update_;
         std::size_t num_hit_bhms = 0;
 
@@ -76,14 +122,25 @@ namespace erl::gp_sdf {
         auto max_num_bhm = static_cast<std::size_t>(update_map_setting.max_num_bhm);
 
         if (m_setting_->filter_points && points_s.cols() > 0) {
+            if (colors_data != nullptr) {
+                // Must copy colors to reorder alongside filtered points
+                colors_filtered = Eigen::Map<const ColorMatrix>(colors_data, 4, points.cols());
+            }
             long idx = 0;
             for (long i = 0; i < points_s.cols(); ++i) {
                 const Dtype z = points_s(2, i);
                 if (z < m_setting_->filter_points_min_z_world) { continue; }
                 if (z > m_setting_->filter_points_max_z_world) { continue; }
-                points_s.col(idx++) = points_s.col(i);
+                points_s.col(idx) = points_s.col(i);
+                if (colors_data != nullptr) { colors_filtered.col(idx) = colors_filtered.col(i); }
+                ++idx;
             }
             points_s.conservativeResize(Dim, idx);
+            if (colors_data != nullptr) {
+                colors_filtered.conservativeResize(4, idx);
+                colors_ptr = colors_filtered.data();
+                colors_cols = idx;
+            }
         }
 
         if (points_s.cols() == 0) {
@@ -115,15 +172,29 @@ namespace erl::gp_sdf {
             // where to place local Bayesian Hilbert maps.
             {
                 const ERL_BLOCK_TIMER_MSG("[BHM.Update] Tree update");
-                m_tree_->InsertPointCloud(
-                    points_s,
-                    sensor_origin_s,
-                    m_setting_->local_bhm->bhm->min_distance,
-                    m_setting_->local_bhm->bhm->max_distance,
-                    m_setting_->update_tree.with_count,
-                    m_setting_->update_tree.parallel,
-                    m_setting_->update_tree.lazy_eval,
-                    m_setting_->update_tree.discrete);
+                if (colors_ptr != nullptr) {
+                    Eigen::Map<const ColorMatrix> colors_map(colors_ptr, 4, colors_cols);
+                    m_tree_->InsertPointCloud(
+                        points_s,
+                        colors_map,
+                        sensor_origin_s,
+                        m_setting_->local_bhm->bhm->min_distance,
+                        m_setting_->local_bhm->bhm->max_distance,
+                        m_setting_->update_tree.with_count,
+                        m_setting_->update_tree.parallel,
+                        m_setting_->update_tree.lazy_eval,
+                        m_setting_->update_tree.discrete);
+                } else {
+                    m_tree_->InsertPointCloud(
+                        points_s,
+                        sensor_origin_s,
+                        m_setting_->local_bhm->bhm->min_distance,
+                        m_setting_->local_bhm->bhm->max_distance,
+                        m_setting_->update_tree.with_count,
+                        m_setting_->update_tree.parallel,
+                        m_setting_->update_tree.lazy_eval,
+                        m_setting_->update_tree.discrete);
+                }
                 if (m_setting_->update_tree.lazy_eval) {
                     m_tree_->UpdateInnerOccupancy();
                     m_tree_->Prune();
@@ -300,21 +371,21 @@ namespace erl::gp_sdf {
         return any_update;
     }
 
-    template<typename Dtype, int Dim>
-    typename BayesianHilbertSurfaceMapping<Dtype, Dim>::SurfDataManager::Iterator
-    BayesianHilbertSurfaceMapping<Dtype, Dim>::BeginSurfaceData() {
+    template<typename Dtype, int Dim, bool Colored>
+    typename BayesianHilbertSurfaceMapping<Dtype, Dim, Colored>::SurfDataManager::Iterator
+    BayesianHilbertSurfaceMapping<Dtype, Dim, Colored>::BeginSurfaceData() {
         return this->m_surf_data_manager_.begin();
     }
 
-    template<typename Dtype, int Dim>
-    typename BayesianHilbertSurfaceMapping<Dtype, Dim>::SurfDataManager::Iterator
-    BayesianHilbertSurfaceMapping<Dtype, Dim>::EndSurfaceData() {
+    template<typename Dtype, int Dim, bool Colored>
+    typename BayesianHilbertSurfaceMapping<Dtype, Dim, Colored>::SurfDataManager::Iterator
+    BayesianHilbertSurfaceMapping<Dtype, Dim, Colored>::EndSurfaceData() {
         return this->m_surf_data_manager_.end();
     }
 
-    template<typename Dtype, int Dim>
+    template<typename Dtype, int Dim, bool Colored>
     void
-    BayesianHilbertSurfaceMapping<Dtype, Dim>::Predict(
+    BayesianHilbertSurfaceMapping<Dtype, Dim, Colored>::Predict(
         const Eigen::Ref<const MatrixDX> &points,
         const bool logodd,
         const bool compute_gradient,
@@ -385,9 +456,9 @@ namespace erl::gp_sdf {
         threads.clear();
     }
 
-    template<typename Dtype, int Dim>
+    template<typename Dtype, int Dim, bool Colored>
     void
-    BayesianHilbertSurfaceMapping<Dtype, Dim>::PredictGradient(
+    BayesianHilbertSurfaceMapping<Dtype, Dim, Colored>::PredictGradient(
         const Eigen::Ref<const MatrixDX> &points,
         const bool with_sigmoid,
         const bool parallel,
@@ -444,9 +515,9 @@ namespace erl::gp_sdf {
         }
     }
 
-    template<typename Dtype, int Dim>
+    template<typename Dtype, int Dim, bool Colored>
     bool
-    BayesianHilbertSurfaceMapping<Dtype, Dim>::Update(
+    BayesianHilbertSurfaceMapping<Dtype, Dim, Colored>::Update(
         const Eigen::Ref<const Rotation> &rotation,
         const Eigen::Ref<const Translation> &translation,
         const Eigen::Ref<const Ranges> &scan,
@@ -469,52 +540,81 @@ namespace erl::gp_sdf {
         return Update(rotation, translation, points, true /*parallel*/);
     }
 
-    template<typename Dtype, int Dim>
+    template<typename Dtype, int Dim, bool Colored>
+    bool
+    BayesianHilbertSurfaceMapping<Dtype, Dim, Colored>::Update(
+        const Eigen::Ref<const Rotation> &rotation,
+        const Eigen::Ref<const Translation> &translation,
+        const Eigen::Ref<const Ranges> &scan,
+        const Eigen::Ref<const ColorMatrix> &colors,
+        const bool are_points,
+        const bool are_local) {
+
+        ERL_ASSERTM(are_points, "scan must be points, not range data.");
+        ERL_ASSERT_EQ(scan.rows(), Dim);
+        ERL_ASSERTM(
+            colors.cols() == scan.cols(),
+            "colors and scan must have the same number of columns.");
+
+        MatrixDX points;
+        if (are_local) {
+            points.resize(Dim, scan.cols());
+#pragma omp parallel for default(none) shared(scan, points, rotation, translation) schedule(static)
+            for (long i = 0; i < scan.cols(); ++i) {
+                points.col(i) = rotation * scan.col(i) + translation;
+            }
+        } else {
+            points = scan;
+        }
+        return Update(rotation, translation, points, colors, true /*parallel*/);
+    }
+
+    template<typename Dtype, int Dim, bool Colored>
     Dtype
-    BayesianHilbertSurfaceMapping<Dtype, Dim>::GetScaling() const {
+    BayesianHilbertSurfaceMapping<Dtype, Dim, Colored>::GetScaling() const {
         return m_setting_->scaling;
     }
 
-    template<typename Dtype, int Dim>
+    template<typename Dtype, int Dim, bool Colored>
     Dtype
-    BayesianHilbertSurfaceMapping<Dtype, Dim>::GetClusterSize() const {
+    BayesianHilbertSurfaceMapping<Dtype, Dim, Colored>::GetClusterSize() const {
         return m_tree_->GetNodeSize(m_setting_->bhm_depth);
     }
 
-    template<typename Dtype, int Dim>
+    template<typename Dtype, int Dim, bool Colored>
     long
-    BayesianHilbertSurfaceMapping<Dtype, Dim>::GetClusterKeySize() const {
+    BayesianHilbertSurfaceMapping<Dtype, Dim, Colored>::GetClusterKeySize() const {
         return 1L << (m_setting_->tree->tree_depth - m_setting_->bhm_depth);
     }
 
-    template<typename Dtype, int Dim>
+    template<typename Dtype, int Dim, bool Colored>
     bool
-    BayesianHilbertSurfaceMapping<Dtype, Dim>::HasCluster(const Key &key) const {
+    BayesianHilbertSurfaceMapping<Dtype, Dim, Colored>::HasCluster(const Key &key) const {
         auto it = m_key_bhm_dict_.find(key);
         return it != m_key_bhm_dict_.end() && it->second->active;
     }
 
-    template<typename Dtype, int Dim>
-    typename BayesianHilbertSurfaceMapping<Dtype, Dim>::VectorD
-    BayesianHilbertSurfaceMapping<Dtype, Dim>::GetClusterCenter(const Key &key) const {
+    template<typename Dtype, int Dim, bool Colored>
+    typename BayesianHilbertSurfaceMapping<Dtype, Dim, Colored>::VectorD
+    BayesianHilbertSurfaceMapping<Dtype, Dim, Colored>::GetClusterCenter(const Key &key) const {
         return m_tree_->KeyToCoord(key, m_setting_->bhm_depth);
     }
 
-    template<typename Dtype, int Dim>
-    const typename BayesianHilbertSurfaceMapping<Dtype, Dim>::KeySet &
-    BayesianHilbertSurfaceMapping<Dtype, Dim>::GetChangedClusters() const {
+    template<typename Dtype, int Dim, bool Colored>
+    const typename BayesianHilbertSurfaceMapping<Dtype, Dim, Colored>::KeySet &
+    BayesianHilbertSurfaceMapping<Dtype, Dim, Colored>::GetChangedClusters() const {
         return m_changed_clusters_;
     }
 
-    template<typename Dtype, int Dim>
+    template<typename Dtype, int Dim, bool Colored>
     void
-    BayesianHilbertSurfaceMapping<Dtype, Dim>::ClearChangedClusters() {
+    BayesianHilbertSurfaceMapping<Dtype, Dim, Colored>::ClearChangedClusters() {
         m_changed_clusters_.clear();
     }
 
-    template<typename Dtype, int Dim>
-    typename BayesianHilbertSurfaceMapping<Dtype, Dim>::KeySet
-    BayesianHilbertSurfaceMapping<Dtype, Dim>::GetAllClusters() const {
+    template<typename Dtype, int Dim, bool Colored>
+    typename BayesianHilbertSurfaceMapping<Dtype, Dim, Colored>::KeySet
+    BayesianHilbertSurfaceMapping<Dtype, Dim, Colored>::GetAllClusters() const {
         KeySet cluster_keys;
         cluster_keys.reserve(m_key_bhm_dict_.size());
         for (const auto &[key, local_bhm]: m_key_bhm_dict_) {
@@ -524,17 +624,17 @@ namespace erl::gp_sdf {
         return cluster_keys;
     }
 
-    template<typename Dtype, int Dim>
-    [[nodiscard]] typename BayesianHilbertSurfaceMapping<Dtype, Dim>::Key
-    BayesianHilbertSurfaceMapping<Dtype, Dim>::GetClusterKey(
+    template<typename Dtype, int Dim, bool Colored>
+    [[nodiscard]] typename BayesianHilbertSurfaceMapping<Dtype, Dim, Colored>::Key
+    BayesianHilbertSurfaceMapping<Dtype, Dim, Colored>::GetClusterKey(
         const Eigen::Ref<const VectorD> &pos) const {
         const VectorD pos_s = pos.array() * m_setting_->scaling;
         return m_tree_->CoordToKey(pos_s, m_setting_->bhm_depth);
     }
 
-    template<typename Dtype, int Dim>
+    template<typename Dtype, int Dim, bool Colored>
     void
-    BayesianHilbertSurfaceMapping<Dtype, Dim>::IterateClustersInAabb(
+    BayesianHilbertSurfaceMapping<Dtype, Dim, Colored>::IterateClustersInAabb(
         const Aabb &aabb,
         std::function<void(const Key &)> callback) const {
         const uint32_t cluster_depth = m_setting_->bhm_depth;
@@ -547,21 +647,21 @@ namespace erl::gp_sdf {
         }
     }
 
-    template<typename Dtype, int Dim>
+    template<typename Dtype, int Dim, bool Colored>
     const std::vector<std::size_t> &
-    BayesianHilbertSurfaceMapping<Dtype, Dim>::GetUnusedSurfaceDataIndices() const {
+    BayesianHilbertSurfaceMapping<Dtype, Dim, Colored>::GetUnusedSurfaceDataIndices() const {
         return this->m_surf_data_manager_.GetAvailableIndices();
     }
 
-    template<typename Dtype, int Dim>
-    const std::vector<typename BayesianHilbertSurfaceMapping<Dtype, Dim>::SurfData> &
-    BayesianHilbertSurfaceMapping<Dtype, Dim>::GetSurfaceDataBuffer() const {
+    template<typename Dtype, int Dim, bool Colored>
+    const std::vector<typename BayesianHilbertSurfaceMapping<Dtype, Dim, Colored>::SurfData> &
+    BayesianHilbertSurfaceMapping<Dtype, Dim, Colored>::GetSurfaceDataBuffer() const {
         return m_surf_data_manager_.GetBuffer();
     }
 
-    template<typename Dtype, int Dim>
+    template<typename Dtype, int Dim, bool Colored>
     std::size_t
-    BayesianHilbertSurfaceMapping<Dtype, Dim>::CollectSurfaceDataInAabb(
+    BayesianHilbertSurfaceMapping<Dtype, Dim, Colored>::CollectSurfaceDataInAabb(
         const Aabb &aabb,
         std::vector<std::pair<Dtype, std::size_t>> &surface_data_indices) const {
         const std::size_t initial_size = surface_data_indices.size();
@@ -586,9 +686,9 @@ namespace erl::gp_sdf {
         return surface_data_indices.size() - initial_size;
     }
 
-    template<typename Dtype, int Dim>
+    template<typename Dtype, int Dim, bool Colored>
     std::size_t
-    BayesianHilbertSurfaceMapping<Dtype, Dim>::CollectSurfaceDataFromCluster(
+    BayesianHilbertSurfaceMapping<Dtype, Dim, Colored>::CollectSurfaceDataFromCluster(
         const Key &key,
         std::vector<std::size_t> &surface_data_indices) const {
         const Key cluster_key = m_tree_->AdjustKeyToDepth(key, m_setting_->bhm_depth);
@@ -606,15 +706,15 @@ namespace erl::gp_sdf {
         return surface_data_indices.size() - initial_size;
     }
 
-    template<typename Dtype, int Dim>
+    template<typename Dtype, int Dim, bool Colored>
     void
-    BayesianHilbertSurfaceMapping<Dtype, Dim>::FlushSurfaceDataCache() {
+    BayesianHilbertSurfaceMapping<Dtype, Dim, Colored>::FlushSurfaceDataCache() {
         RunMarchingQueue(true);
     }
 
-    template<typename Dtype, int Dim>
+    template<typename Dtype, int Dim, bool Colored>
     bool
-    BayesianHilbertSurfaceMapping<Dtype, Dim>::GetMesh(
+    BayesianHilbertSurfaceMapping<Dtype, Dim, Colored>::GetMesh(
         const bool online,
         std::vector<VectorD> &vertices,
         std::vector<Face> &faces) {
@@ -709,9 +809,69 @@ namespace erl::gp_sdf {
         return true;
     }
 
-    template<typename Dtype, int Dim>
+    template<typename Dtype, int Dim, bool Colored>
     bool
-    BayesianHilbertSurfaceMapping<Dtype, Dim>::GetMesh(
+    BayesianHilbertSurfaceMapping<Dtype, Dim, Colored>::GetMesh(
+        const bool online,
+        std::vector<VectorD> &vertices,
+        std::vector<Face> &faces,
+        std::vector<Color> &vertex_colors) {
+        if (!GetMesh(online, vertices, faces)) { return false; }
+        if constexpr (Colored) {
+            const Dtype scaling = m_setting_->scaling;
+            vertex_colors.resize(vertices.size());
+            for (std::size_t i = 0; i < vertices.size(); ++i) {
+                VectorD scaled_pos = vertices[i];
+                for (int d = 0; d < Dim; ++d) { scaled_pos[d] *= scaling; }
+                if constexpr (Dim == 2) {
+                    const auto *node = m_tree_->Search(scaled_pos[0], scaled_pos[1]);
+                    vertex_colors[i] =
+                        (node != nullptr) ? node->GetColor() : Color{255, 255, 255, 255};
+                } else {
+                    const auto *node = m_tree_->Search(scaled_pos[0], scaled_pos[1], scaled_pos[2]);
+                    vertex_colors[i] =
+                        (node != nullptr) ? node->GetColor() : Color{255, 255, 255, 255};
+                }
+            }
+        } else {
+            vertex_colors.assign(vertices.size(), Color{255, 255, 255, 255});
+        }
+        return true;
+    }
+
+    template<typename Dtype, int Dim, bool Colored>
+    bool
+    BayesianHilbertSurfaceMapping<Dtype, Dim, Colored>::GetMesh(
+        const Dtype resolution,
+        std::vector<VectorD> &vertices,
+        std::vector<Face> &faces,
+        std::vector<Color> &vertex_colors) {
+        if (!GetMesh(resolution, vertices, faces)) { return false; }
+        if constexpr (Colored) {
+            const Dtype scaling = m_setting_->scaling;
+            vertex_colors.resize(vertices.size());
+            for (std::size_t i = 0; i < vertices.size(); ++i) {
+                VectorD scaled_pos = vertices[i];
+                for (int d = 0; d < Dim; ++d) { scaled_pos[d] *= scaling; }
+                if constexpr (Dim == 2) {
+                    const auto *node = m_tree_->Search(scaled_pos[0], scaled_pos[1]);
+                    vertex_colors[i] =
+                        (node != nullptr) ? node->GetColor() : Color{255, 255, 255, 255};
+                } else {
+                    const auto *node = m_tree_->Search(scaled_pos[0], scaled_pos[1], scaled_pos[2]);
+                    vertex_colors[i] =
+                        (node != nullptr) ? node->GetColor() : Color{255, 255, 255, 255};
+                }
+            }
+        } else {
+            vertex_colors.assign(vertices.size(), Color{255, 255, 255, 255});
+        }
+        return true;
+    }
+
+    template<typename Dtype, int Dim, bool Colored>
+    bool
+    BayesianHilbertSurfaceMapping<Dtype, Dim, Colored>::GetMesh(
         Dtype resolution,
         std::vector<VectorD> &vertices,
         std::vector<Face> &faces) {
@@ -934,18 +1094,18 @@ namespace erl::gp_sdf {
         return true;
     }
 
-    template<typename Dtype, int Dim>
-    typename BayesianHilbertSurfaceMapping<Dtype, Dim>::Aabb
-    BayesianHilbertSurfaceMapping<Dtype, Dim>::GetMapBoundary() const {
+    template<typename Dtype, int Dim, bool Colored>
+    typename BayesianHilbertSurfaceMapping<Dtype, Dim, Colored>::Aabb
+    BayesianHilbertSurfaceMapping<Dtype, Dim, Colored>::GetMapBoundary() const {
         VectorD min;
         VectorD max;
         m_tree_->GetMetricMinMax(min, max);
         return Aabb(min, max);
     }
 
-    template<typename Dtype, int Dim>
+    template<typename Dtype, int Dim, bool Colored>
     bool
-    BayesianHilbertSurfaceMapping<Dtype, Dim>::IsInFreeSpace(
+    BayesianHilbertSurfaceMapping<Dtype, Dim, Colored>::IsInFreeSpace(
         const MatrixDX &positions,
         Eigen::VectorXb &in_free_space) const {
         if (positions.cols() == 0) {
@@ -967,9 +1127,9 @@ namespace erl::gp_sdf {
         return true;
     }
 
-    template<typename Dtype, int Dim>
+    template<typename Dtype, int Dim, bool Colored>
     bool
-    BayesianHilbertSurfaceMapping<Dtype, Dim>::operator==(const Super &other) const {
+    BayesianHilbertSurfaceMapping<Dtype, Dim, Colored>::operator==(const Super &other) const {
         const auto *other_ptr = dynamic_cast<const BayesianHilbertSurfaceMapping *>(&other);
         if (other_ptr == nullptr) { return false; }
         if (m_setting_ == nullptr && other_ptr->m_setting_ != nullptr) { return false; }
@@ -1010,9 +1170,9 @@ namespace erl::gp_sdf {
         return true;
     }
 
-    template<typename Dtype, int Dim>
+    template<typename Dtype, int Dim, bool Colored>
     bool
-    BayesianHilbertSurfaceMapping<Dtype, Dim>::Write(std::ostream &stream) const {
+    BayesianHilbertSurfaceMapping<Dtype, Dim, Colored>::Write(std::ostream &stream) const {
         using namespace common;
         using namespace common::serialization;
         static const TokenWriteFunctionPairs<BayesianHilbertSurfaceMapping> pairs = {
@@ -1118,9 +1278,9 @@ namespace erl::gp_sdf {
         return WriteTokens(stream, this, pairs);
     }
 
-    template<typename Dtype, int Dim>
+    template<typename Dtype, int Dim, bool Colored>
     bool
-    BayesianHilbertSurfaceMapping<Dtype, Dim>::Read(std::istream &stream) {
+    BayesianHilbertSurfaceMapping<Dtype, Dim, Colored>::Read(std::istream &stream) {
         using namespace common;
         using namespace common::serialization;
         m_bhm_kdtree_needs_update_ = true;
@@ -1272,9 +1432,9 @@ namespace erl::gp_sdf {
         return ReadTokens(stream, this, pairs);
     }
 
-    template<typename Dtype, int Dim>
+    template<typename Dtype, int Dim, bool Colored>
     void
-    BayesianHilbertSurfaceMapping<Dtype, Dim>::ResetMarchingResults() {
+    BayesianHilbertSurfaceMapping<Dtype, Dim, Colored>::ResetMarchingResults() {
         m_marching_queue_.clear();
         m_marching_queue_keys_.clear();
 
@@ -1290,9 +1450,9 @@ namespace erl::gp_sdf {
         }
     }
 
-    template<typename Dtype, int Dim>
+    template<typename Dtype, int Dim, bool Colored>
     void
-    BayesianHilbertSurfaceMapping<Dtype, Dim>::InitConstants() {
+    BayesianHilbertSurfaceMapping<Dtype, Dim, Colored>::InitConstants() {
         const int hinged_grid_size = m_setting_->hinged_grid_size;
         m_block_size_ = hinged_grid_size - 2 * m_setting_->bhm_overlap_sync;
         if (m_setting_->sync_method == "copy") {
@@ -1323,9 +1483,9 @@ namespace erl::gp_sdf {
         for (int dim = 0; dim < Dim; ++dim) { m_surf_point_capacity_ *= surface_grid_size; }
     }
 
-    template<typename Dtype, int Dim>
+    template<typename Dtype, int Dim, bool Colored>
     void
-    BayesianHilbertSurfaceMapping<Dtype, Dim>::GenerateHingedPoints() {
+    BayesianHilbertSurfaceMapping<Dtype, Dim, Colored>::GenerateHingedPoints() {
         const Eigen::Vector<int, Dim> grid_shape =
             Eigen::Vector<int, Dim>::Constant(m_setting_->hinged_grid_size);
         const Eigen::Vector<Dtype, Dim> grid_half_size =
@@ -1339,9 +1499,9 @@ namespace erl::gp_sdf {
             grid_resolution);
     }
 
-    template<typename Dtype, int Dim>
+    template<typename Dtype, int Dim, bool Colored>
     void
-    BayesianHilbertSurfaceMapping<Dtype, Dim>::GenerateWeightAddress() {
+    BayesianHilbertSurfaceMapping<Dtype, Dim, Colored>::GenerateWeightAddress() {
         if (!m_setting_->weight_sync) { return; }
 
         const int hinged_grid_size = m_setting_->hinged_grid_size;
@@ -1494,9 +1654,9 @@ namespace erl::gp_sdf {
         m_hinged_points_ = std::move(ordered_hinged_points);
     }
 
-    template<typename Dtype, int Dim>
-    std::shared_ptr<typename BayesianHilbertSurfaceMapping<Dtype, Dim>::LocalBhm>
-    BayesianHilbertSurfaceMapping<Dtype, Dim>::CreateBhm(const Key &key) {
+    template<typename Dtype, int Dim, bool Colored>
+    std::shared_ptr<typename BayesianHilbertSurfaceMapping<Dtype, Dim, Colored>::LocalBhm>
+    BayesianHilbertSurfaceMapping<Dtype, Dim, Colored>::CreateBhm(const Key &key) {
         auto it0 = m_key_bhm_dict_.find(key);
         if (it0 != m_key_bhm_dict_.end()) { return it0->second; }  // already exist
 
@@ -1515,9 +1675,9 @@ namespace erl::gp_sdf {
         return local_bhm;
     }
 
-    template<typename Dtype, int Dim>
+    template<typename Dtype, int Dim, bool Colored>
     void
-    BayesianHilbertSurfaceMapping<Dtype, Dim>::SyncBhmWeights(const Key &key) {
+    BayesianHilbertSurfaceMapping<Dtype, Dim, Colored>::SyncBhmWeights(const Key &key) {
         const std::shared_ptr<LocalBhm> local_bhm = m_key_bhm_dict_.at(key);
         if (local_bhm == nullptr) { return; }
         auto &bhm = local_bhm->bhm;
@@ -1561,9 +1721,9 @@ namespace erl::gp_sdf {
         }
     }
 
-    template<typename Dtype, int Dim>
+    template<typename Dtype, int Dim, bool Colored>
     void
-    BayesianHilbertSurfaceMapping<Dtype, Dim>::BuildBhmKdtree() const {
+    BayesianHilbertSurfaceMapping<Dtype, Dim, Colored>::BuildBhmKdtree() const {
         if (!m_bhm_kdtree_needs_update_ || m_key_bhm_vec_.empty()) { return; }
         const ERL_BLOCK_TIMER_MSG("[BHM.Predict] Build BHM kdtree");
         MatrixDX bhm_positions(Dim, m_key_bhm_vec_.size());
@@ -1575,9 +1735,9 @@ namespace erl::gp_sdf {
         m_bhm_kdtree_needs_update_ = false;
     }
 
-    template<typename Dtype, int Dim>
+    template<typename Dtype, int Dim, bool Colored>
     void
-    BayesianHilbertSurfaceMapping<Dtype, Dim>::PredictThread(
+    BayesianHilbertSurfaceMapping<Dtype, Dim, Colored>::PredictThread(
         const Dtype *points_ptr,
         const long start,
         const long end,
@@ -1693,9 +1853,9 @@ namespace erl::gp_sdf {
         }
     }
 
-    template<typename Dtype, int Dim>
+    template<typename Dtype, int Dim, bool Colored>
     void
-    BayesianHilbertSurfaceMapping<Dtype, Dim>::UpdateMapPoints(
+    BayesianHilbertSurfaceMapping<Dtype, Dim, Colored>::UpdateMapPoints(
         const VectorD &sensor_origin,
         const Eigen::Ref<const MatrixDX> &points) {
 
@@ -1713,9 +1873,9 @@ namespace erl::gp_sdf {
         }
     }
 
-    template<typename Dtype, int Dim>
+    template<typename Dtype, int Dim, bool Colored>
     void
-    BayesianHilbertSurfaceMapping<Dtype, Dim>::UpdateMapPoints1(
+    BayesianHilbertSurfaceMapping<Dtype, Dim, Colored>::UpdateMapPoints1(
         const VectorD &sensor_origin,
         const Eigen::Ref<const MatrixDX> &points) {
 
@@ -1881,9 +2041,9 @@ namespace erl::gp_sdf {
         UpdateSurfaceManager1();
     }
 
-    template<typename Dtype, int Dim>
+    template<typename Dtype, int Dim, bool Colored>
     void
-    BayesianHilbertSurfaceMapping<Dtype, Dim>::UpdateSurfaceManager1() {
+    BayesianHilbertSurfaceMapping<Dtype, Dim, Colored>::UpdateSurfaceManager1() {
         // sequential:
         // update the local Bayesian Hilbert maps with the new points
         for (auto &[key, new_points, existing_points]: m_hit_points_) {
@@ -1914,9 +2074,9 @@ namespace erl::gp_sdf {
         }
     }
 
-    template<typename Dtype, int Dim>
+    template<typename Dtype, int Dim, bool Colored>
     void
-    BayesianHilbertSurfaceMapping<Dtype, Dim>::InitMapPoint1(
+    BayesianHilbertSurfaceMapping<Dtype, Dim, Colored>::InitMapPoint1(
         LocalBhm &local_bhm,
         SurfData &surf_data,
         bool &to_remove) const {
@@ -1940,9 +2100,9 @@ namespace erl::gp_sdf {
         surf_data.var_normal = surf_data.var_position;  // use the same variance for normal
     }
 
-    template<typename Dtype, int Dim>
+    template<typename Dtype, int Dim, bool Colored>
     void
-    BayesianHilbertSurfaceMapping<Dtype, Dim>::UpdateMapPoint1(
+    BayesianHilbertSurfaceMapping<Dtype, Dim, Colored>::UpdateMapPoint1(
         LocalBhm &local_bhm,
         SurfData &surf_data,
         bool &to_remove) const {
@@ -2021,9 +2181,9 @@ namespace erl::gp_sdf {
         surf_data.var_normal = surf_data.var_position;  // use the same variance for normal
     }
 
-    template<typename Dtype, int Dim>
+    template<typename Dtype, int Dim, bool Colored>
     void
-    BayesianHilbertSurfaceMapping<Dtype, Dim>::UpdateMapPoints2() {
+    BayesianHilbertSurfaceMapping<Dtype, Dim, Colored>::UpdateMapPoints2() {
 
         if (m_changed_clusters_.empty()) { return; }
 
@@ -2080,10 +2240,11 @@ namespace erl::gp_sdf {
         UpdateSurfaceManager2();
     }
 
-    template<typename Dtype, int Dim>
+    template<typename Dtype, int Dim, bool Colored>
     void
-    BayesianHilbertSurfaceMapping<Dtype, Dim>::MarchingBhm(const Key &key, LocalBhm &local_bhm)
-        const {
+    BayesianHilbertSurfaceMapping<Dtype, Dim, Colored>::MarchingBhm(
+        const Key &key,
+        LocalBhm &local_bhm) const {
 
         const Dtype var_scale = m_setting_->update_map.var_scale;
         const Dtype var_max = m_setting_->update_map.var_max;
@@ -2257,9 +2418,9 @@ namespace erl::gp_sdf {
         }
     }
 
-    template<typename Dtype, int Dim>
+    template<typename Dtype, int Dim, bool Colored>
     void
-    BayesianHilbertSurfaceMapping<Dtype, Dim>::UpdateSurfaceManager2() {
+    BayesianHilbertSurfaceMapping<Dtype, Dim, Colored>::UpdateSurfaceManager2() {
         for (auto &[key, local_bhm_ptr]: m_bhms_to_marching_) {
             LocalBhm &local_bhm = *local_bhm_ptr;
             auto &query_results = local_bhm.surf_data_cache;
@@ -2289,9 +2450,9 @@ namespace erl::gp_sdf {
         }
     }
 
-    template<typename Dtype, int Dim>
+    template<typename Dtype, int Dim, bool Colored>
     void
-    BayesianHilbertSurfaceMapping<Dtype, Dim>::RunMarchingQueue(const bool run_all) {
+    BayesianHilbertSurfaceMapping<Dtype, Dim, Colored>::RunMarchingQueue(const bool run_all) {
         const ERL_BLOCK_TIMER_MSG("[BHM] Run marching queue");
 
         // 1. collect local BHMs
@@ -2320,9 +2481,9 @@ namespace erl::gp_sdf {
         UpdateSurfaceManager2();
     }
 
-    template<typename Dtype, int Dim>
-    typename BayesianHilbertSurfaceMapping<Dtype, Dim>::VectorD
-    BayesianHilbertSurfaceMapping<Dtype, Dim>::GetUniqueVertex(
+    template<typename Dtype, int Dim, bool Colored>
+    typename BayesianHilbertSurfaceMapping<Dtype, Dim, Colored>::VectorD
+    BayesianHilbertSurfaceMapping<Dtype, Dim, Colored>::GetUniqueVertex(
         Key key,
         GridIndex edge_idx,
         int buffer_idx) const {
@@ -2360,4 +2521,8 @@ namespace erl::gp_sdf {
     template class BayesianHilbertSurfaceMapping<float, 3>;
     template class BayesianHilbertSurfaceMapping<double, 2>;
     template class BayesianHilbertSurfaceMapping<double, 3>;
+    template class BayesianHilbertSurfaceMapping<float, 2, true>;
+    template class BayesianHilbertSurfaceMapping<float, 3, true>;
+    template class BayesianHilbertSurfaceMapping<double, 2, true>;
+    template class BayesianHilbertSurfaceMapping<double, 3, true>;
 }  // namespace erl::gp_sdf

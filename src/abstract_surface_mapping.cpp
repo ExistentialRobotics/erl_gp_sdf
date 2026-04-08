@@ -37,6 +37,30 @@ namespace erl::gp_sdf {
         throw NotImplemented(__PRETTY_FUNCTION__);
     }
 
+    template<typename Dtype, int Dim>
+    bool
+    AbstractSurfaceMapping<Dtype, Dim>::GetMesh(
+        const bool online,
+        std::vector<VectorD> &vertices,
+        std::vector<Face> &faces,
+        std::vector<Color> &vertex_colors) {
+        const bool result = GetMesh(online, vertices, faces);
+        vertex_colors.assign(vertices.size(), Color{255, 255, 255, 255});
+        return result;
+    }
+
+    template<typename Dtype, int Dim>
+    bool
+    AbstractSurfaceMapping<Dtype, Dim>::GetMesh(
+        const Dtype resolution,
+        std::vector<VectorD> &vertices,
+        std::vector<Face> &faces,
+        std::vector<Color> &vertex_colors) {
+        const bool result = GetMesh(resolution, vertices, faces);
+        vertex_colors.assign(vertices.size(), Color{255, 255, 255, 255});
+        return result;
+    }
+
     template class AbstractSurfaceMapping<float, 2>;
     template class AbstractSurfaceMapping<double, 2>;
     template class AbstractSurfaceMapping<float, 3>;

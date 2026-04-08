@@ -36,6 +36,7 @@ namespace erl::gp_sdf {
         using VectorD = Eigen::Vector<Dtype, Dim>;
         using MatrixDX = Eigen::Matrix<Dtype, Dim, Eigen::Dynamic>;
         using Face = Eigen::Vector<int, Dim>;
+        using Color = std::array<uint8_t, 4>;
 
     protected:
         mutable std::mutex m_mutex_;           // mutex for thread safety
@@ -211,6 +212,33 @@ namespace erl::gp_sdf {
          */
         virtual bool
         GetMesh(Dtype resolution, std::vector<VectorD> &vertices, std::vector<Face> &faces);
+
+        /**
+         * Get the mesh with per-vertex colors.
+         * Default implementation calls GetMesh without colors and fills white.
+         * @param online If true, generate the mesh faster but with lower quality.
+         * @param vertices vector to store the vertices of the mesh.
+         * @param faces vector to store the faces of the mesh.
+         * @param vertex_colors vector to store RGBA colors per vertex.
+         * @return true if the mesh is successfully generated.
+         */
+        virtual bool
+        GetMesh(
+            bool online,
+            std::vector<VectorD> &vertices,
+            std::vector<Face> &faces,
+            std::vector<Color> &vertex_colors);
+
+        /**
+         * Get the mesh with per-vertex colors at a given resolution.
+         * Default implementation calls GetMesh without colors and fills white.
+         */
+        virtual bool
+        GetMesh(
+            Dtype resolution,
+            std::vector<VectorD> &vertices,
+            std::vector<Face> &faces,
+            std::vector<Color> &vertex_colors);
 
         /**
          * Get the boundary of the map.

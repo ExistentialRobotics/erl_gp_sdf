@@ -58,6 +58,15 @@ namespace erl::gp_sdf {
         REGISTER(BayesianHilbertSurfaceMapping3Df);
         REGISTER(BayesianHilbertSurfaceMapping3Dd);
 
+        REGISTER(ColoredBayesianHilbertSurfaceMapping2Df::Setting);
+        REGISTER(ColoredBayesianHilbertSurfaceMapping2Dd::Setting);
+        REGISTER(ColoredBayesianHilbertSurfaceMapping2Df);
+        REGISTER(ColoredBayesianHilbertSurfaceMapping2Dd);
+        REGISTER(ColoredBayesianHilbertSurfaceMapping3Df::Setting);
+        REGISTER(ColoredBayesianHilbertSurfaceMapping3Dd::Setting);
+        REGISTER(ColoredBayesianHilbertSurfaceMapping3Df);
+        REGISTER(ColoredBayesianHilbertSurfaceMapping3Dd);
+
         // using BayesianHilbertSdfMapping2Df =
         //     GpSdfMapping<float, 2, BayesianHilbertSurfaceMapping2Df>;
         // using BayesianHilbertSdfMapping2Dd =
