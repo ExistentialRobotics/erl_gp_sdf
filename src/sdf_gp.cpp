@@ -716,7 +716,7 @@ namespace erl::gp_sdf {
                 std::exp(-(d - edf_pred) * softmin_temperature));
             s_sum += s[k];
 
-            mat_v.col(k) = v / d;
+            mat_v.col(k) = v / (d + 1.0e-6f);  // normalized direction to the training sample
         }
         const Dtype inv_s_sum = 1.0f / s_sum;
         const Dtype sz = s.dot(z) * inv_s_sum;
@@ -738,13 +738,19 @@ namespace erl::gp_sdf {
         if (compute_cov_grad) {
             const SqMat identity = SqMat::Identity();
             const double g_norm = g.norm();
+            if (g_norm < 1.0e-6) {
+                ERL_DEBUG(
+                    "Gradient norm < 1.0e-6. Aborting gradient variance and covariance estimation "
+                    "to avoid numerical instability.");
+                return;
+            }
             const VectorD g_normalized = g / g_norm;
             const SqMat grad_norm =
                 (1.0f / g_norm) * (identity - g_normalized * g_normalized.transpose());
             for (long j = 0; j < num_samples; ++j) {
                 const Dtype a = softmin_temperature * l[j];
                 const Dtype b = softmin_temperature * s[j];
-                const Dtype c = l[j] / z[j];
+                const Dtype c = l[j] / (z[j] + 1.0e-6f);
                 const auto vj = mat_v.col(j);
                 const VectorD v = (a + b + c) * vj - a * f - b * g;
                 SqMat grad_j = vj * v.transpose();

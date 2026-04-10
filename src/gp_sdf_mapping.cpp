@@ -872,11 +872,13 @@ namespace erl::gp_sdf {
     template<typename Dtype, int Dim>
     void
     GpSdfMapping<Dtype, Dim>::InitMultiThreading() {
-        m_surf_data_indices_.resize(m_setting_->num_threads);
-        m_surf_data_dist_indices_.resize(m_setting_->num_threads);
-        m_gp_load_data_cnt_.resize(m_setting_->num_threads);
-        m_key_sets_.resize(m_setting_->num_threads);
-        m_key_vectors_.resize(m_setting_->num_threads);
+        const auto num_omp_threads = static_cast<std::size_t>(omp_get_max_threads());
+        const std::size_t num_threads = std::max<std::size_t>(m_setting_->num_threads, num_omp_threads);
+        m_surf_data_indices_.resize(num_threads);
+        m_surf_data_dist_indices_.resize(num_threads);
+        m_gp_load_data_cnt_.resize(num_threads);
+        m_key_sets_.resize(num_threads);
+        m_key_vectors_.resize(num_threads);
         for (auto &indices: m_surf_data_indices_) { indices.reserve(512); }
         for (auto &indices: m_surf_data_dist_indices_) { indices.reserve(512); }
     }
@@ -1336,7 +1338,7 @@ namespace erl::gp_sdf {
         ERL_TRACY_SET_THREAD_NAME(fmt::format("{}:{}", __PRETTY_FUNCTION__, thread_idx).c_str());
         (void) thread_idx;
 
-        for (uint32_t i = start_idx; i < end_idx; ++i) {
+        for (std::size_t i = start_idx; i < end_idx; ++i) {
             auto &gp = CHECKED_AT(m_gps_to_train_, i).second;
             if (!gp->active) { continue; }
             gp->Train();

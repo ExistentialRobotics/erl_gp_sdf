@@ -217,6 +217,10 @@ namespace erl::gp_sdf {
                 for (long j = 0; j < x_dim; ++j) {
                     if (std::abs(grad[j]) > max_abs_comp) { max_abs_comp = std::abs(grad[j]); }
                 }
+                if (max_abs_comp == 0.0f) {
+                    valid_gradients[index] = false;  // invalid gradient
+                    continue;                        // skip further computation
+                }
                 for (long j = 0; j < x_dim; ++j) {
                     grad[j] /= max_abs_comp;  // normalize to avoid zero division
                     if (!std::isfinite(grad[j])) {
@@ -274,6 +278,7 @@ namespace erl::gp_sdf {
             for (long j = 0; j < x_dim; ++j) {
                 if (std::abs(grad[j]) > max_abs_comp) { max_abs_comp = std::abs(grad[j]); }
             }
+            if (max_abs_comp == 0.0f) { return false; }  // invalid gradient
             for (long j = 0; j < x_dim; ++j) {
                 grad[j] /= max_abs_comp;                        // normalize to avoid zero division
                 if (!std::isfinite(grad[j])) { return false; }  // invalid gradient
