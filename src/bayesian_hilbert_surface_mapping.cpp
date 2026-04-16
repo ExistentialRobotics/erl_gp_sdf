@@ -318,10 +318,13 @@ namespace erl::gp_sdf {
                     }
                 }
                 if (!local_bhm->active) {
-                    for (const auto &[grid_index, surf_index]: local_bhm->surface_indices) {
-                        m_surf_data_manager_.RemoveEntry(surf_index);
+                    if (!local_bhm->surface_indices.empty()) {
+                        for (const auto &[grid_index, surf_index]: local_bhm->surface_indices) {
+                            m_surf_data_manager_.RemoveEntry(surf_index);
+                        }
+                        local_bhm->surface_indices.clear();
+                        ++local_bhm->surface_update_timestamp;
                     }
-                    local_bhm->surface_indices.clear();
                 }
             }
         }
@@ -2071,6 +2074,7 @@ namespace erl::gp_sdf {
                 }
                 local_bhm.surface_indices.erase(existing_point.grid_idx);
             }
+            ++local_bhm.surface_update_timestamp;
         }
     }
 
@@ -2447,6 +2451,7 @@ namespace erl::gp_sdf {
             }
             local_bhm.surface_indices.swap(new_surface_indices);
             query_results.clear();  // clear the cache to save memory
+            ++local_bhm.surface_update_timestamp;
         }
     }
 

@@ -148,6 +148,7 @@ namespace erl::gp_sdf {
         SurfaceDataMap surf_data_cache;      // temporary cache
         Dtype surface_log_odds = 0.0f;       // log-odds value for surface points
         uint64_t log_odds_count = 1;         // number of log-odds samples
+        std::size_t surface_update_timestamp = 0;  // incremented when surface data changes
 
         LocalBayesianHilbertMap(
             std::size_t id_,
