@@ -55,7 +55,8 @@ namespace erl::gp_sdf {
                 const int cols = MakeOdd(
                     static_cast<int>(
                         std::ceil((bb.max()[1] - bb.min()[1]) / m_internal_resolution_)));
-                m_global_height_map_ = Eigen::MatrixX<Dtype>::Constant(rows, cols, kSentinel);
+                m_global_height_map_max_ = Eigen::MatrixX<Dtype>::Constant(rows, cols, kSentinel);
+                m_global_height_map_min_ = Eigen::MatrixX<Dtype>::Constant(rows, cols, kObstacle);
                 m_global_origin_x_ = bb.min()[0];
                 m_global_origin_y_ = bb.min()[1];
             } else {
@@ -99,13 +100,15 @@ namespace erl::gp_sdf {
     HeightMapProjector<Dtype, Colored>::GetHeightMap(
         Eigen::MatrixX<Dtype> &height_data,
         GridMapInfo &grid_info) const {
-        height_data = m_global_height_map_;
+        // Return the max map for visualization — it carries both kSentinel (unknown)
+        // and kObstacle markers, which matches the existing external contract.
+        height_data = m_global_height_map_max_;
         // Build grid info for the internal map: GridMapInfo(origin, resolution, shape).
         const Eigen::Vector2<Dtype> origin(m_global_origin_x_, m_global_origin_y_);
         const Eigen::Vector2<Dtype> res(m_internal_resolution_, m_internal_resolution_);
         const Eigen::Vector2i shape(
-            static_cast<int>(m_global_height_map_.rows()),
-            static_cast<int>(m_global_height_map_.cols()));
+            static_cast<int>(m_global_height_map_max_.rows()),
+            static_cast<int>(m_global_height_map_max_.cols()));
         grid_info = GridMapInfo(origin, res, shape);
     }
 
@@ -209,10 +212,14 @@ namespace erl::gp_sdf {
             patch.rows = patch_size;
             patch.cols = patch_size;
 
-            // Initialize local height map with sentinel.
-            patch.height_map = Eigen::MatrixX<Dtype>::Constant(patch_size, patch_size, kSentinel);
+            // Initialize local max map with kSentinel (unknown neutral under cwiseMax)
+            // and local min map with kObstacle (neutral under cwiseMin).
+            patch.height_map_max =
+                Eigen::MatrixX<Dtype>::Constant(patch_size, patch_size, kSentinel);
+            patch.height_map_min =
+                Eigen::MatrixX<Dtype>::Constant(patch_size, patch_size, kObstacle);
 
-            if (td.faces.empty()) { continue; }  // pruned BHM — patch stays sentinel
+            if (td.faces.empty()) { continue; }  // pruned BHM — patches stay at init
 
             // Compute the metric origin of this patch.
             const Dtype origin_x =
@@ -253,7 +260,8 @@ namespace erl::gp_sdf {
                         resolution,
                         patch_size,
                         patch_size,
-                        patch.height_map);
+                        patch.height_map_max,
+                        patch.height_map_min);
                 } else {
                     // internal_res == surface_res: write fill_z to the centroid cell.
                     const Dtype cx = (v0[0] + v1[0] + v2[0]) / static_cast<Dtype>(3);
@@ -261,8 +269,10 @@ namespace erl::gp_sdf {
                     const int row = static_cast<int>(std::floor((cx - origin_x) / resolution));
                     const int col = static_cast<int>(std::floor((cy - origin_y) / resolution));
                     if (row >= 0 && row < patch_size && col >= 0 && col < patch_size) {
-                        Dtype &cell = patch.height_map(row, col);
-                        if (fill_z > cell) { cell = fill_z; }
+                        Dtype &cell_max = patch.height_map_max(row, col);
+                        Dtype &cell_min = patch.height_map_min(row, col);
+                        if (fill_z > cell_max) { cell_max = fill_z; }
+                        if (fill_z < cell_min) { cell_min = fill_z; }
                     }
                 }
             }
@@ -279,9 +289,9 @@ namespace erl::gp_sdf {
 
         // Find the bounds needed.
         long min_row = 0;
-        long max_row = m_global_height_map_.rows() - 1;
+        long max_row = m_global_height_map_max_.rows() - 1;
         long min_col = 0;
-        long max_col = m_global_height_map_.cols() - 1;
+        long max_col = m_global_height_map_max_.cols() - 1;
 
         for (const auto &p: patches) {
             const long pr = p.global_row_offset;
@@ -295,27 +305,35 @@ namespace erl::gp_sdf {
         const long new_rows = MakeOdd(max_row - min_row + 1);
         const long new_cols = MakeOdd(max_col - min_col + 1);
 
-        if (new_rows <= m_global_height_map_.rows() && new_cols <= m_global_height_map_.cols() &&
-            min_row >= 0 && min_col >= 0) {
+        if (new_rows <= m_global_height_map_max_.rows() &&
+            new_cols <= m_global_height_map_max_.cols() && min_row >= 0 && min_col >= 0) {
             return;  // No growth needed.
         }
 
-        // Allocate new map.
-        Eigen::MatrixX<Dtype> new_map =
+        // Allocate new maps with their respective init values.
+        Eigen::MatrixX<Dtype> new_max =
             Eigen::MatrixX<Dtype>::Constant(new_rows, new_cols, kSentinel);
+        Eigen::MatrixX<Dtype> new_min =
+            Eigen::MatrixX<Dtype>::Constant(new_rows, new_cols, kObstacle);
 
-        // Copy old data into the new map at the correct offset.
-        if (m_global_height_map_.size() > 0) {
+        // Copy old data into the new maps at the correct offset.
+        if (m_global_height_map_max_.size() > 0) {
             const long row_shift = -min_row;
             const long col_shift = -min_col;
-            new_map.block(
+            new_max.block(
                 row_shift,
                 col_shift,
-                m_global_height_map_.rows(),
-                m_global_height_map_.cols()) = m_global_height_map_;
+                m_global_height_map_max_.rows(),
+                m_global_height_map_max_.cols()) = m_global_height_map_max_;
+            new_min.block(
+                row_shift,
+                col_shift,
+                m_global_height_map_min_.rows(),
+                m_global_height_map_min_.cols()) = m_global_height_map_min_;
         }
 
-        m_global_height_map_ = std::move(new_map);
+        m_global_height_map_max_ = std::move(new_max);
+        m_global_height_map_min_ = std::move(new_min);
         m_global_origin_x_ += static_cast<Dtype>(min_row) * m_internal_resolution_;
         m_global_origin_y_ += static_cast<Dtype>(min_col) * m_internal_resolution_;
 
@@ -331,8 +349,8 @@ namespace erl::gp_sdf {
     template<typename Dtype, bool Colored>
     void
     HeightMapProjector<Dtype, Colored>::MergePatches(const std::vector<LocalPatch> &patches) {
-        const long map_rows = m_global_height_map_.rows();
-        const long map_cols = m_global_height_map_.cols();
+        const long map_rows = m_global_height_map_max_.rows();
+        const long map_cols = m_global_height_map_max_.cols();
 
         // Track patch regions (by global offset) already reset this merge, so stacked
         // BHMs projecting to the same 2D patch only reset once before accumulating.
@@ -342,17 +360,23 @@ namespace erl::gp_sdf {
         for (const auto &p: patches) {
             // Patch offsets are already in global map cell coordinates
             // (adjusted by GrowGlobalMap if the map was expanded).
+            const bool first_reset =
+                reset_regions.emplace(p.global_row_offset, p.global_col_offset).second;
 
             // Fast path: patch fits entirely within the global map (no clamping needed).
             if (p.global_row_offset >= 0 && p.global_col_offset >= 0 &&
                 p.global_row_offset + p.rows <= map_rows &&
                 p.global_col_offset + p.cols <= map_cols) {
-                auto dst = m_global_height_map_
-                               .block(p.global_row_offset, p.global_col_offset, p.rows, p.cols);
-                if (reset_regions.emplace(p.global_row_offset, p.global_col_offset).second) {
-                    dst.setConstant(kSentinel);
+                auto dst_max = m_global_height_map_max_
+                                   .block(p.global_row_offset, p.global_col_offset, p.rows, p.cols);
+                auto dst_min = m_global_height_map_min_
+                                   .block(p.global_row_offset, p.global_col_offset, p.rows, p.cols);
+                if (first_reset) {
+                    dst_max.setConstant(kSentinel);
+                    dst_min.setConstant(kObstacle);
                 }
-                dst = dst.cwiseMax(p.height_map);
+                dst_max = dst_max.cwiseMax(p.height_map_max);
+                dst_min = dst_min.cwiseMin(p.height_map_min);
                 continue;
             }
 
@@ -364,11 +388,18 @@ namespace erl::gp_sdf {
 
             if (r0 >= r1 || c0 >= c1) { continue; }
 
-            auto dst = m_global_height_map_.block(r0, c0, r1 - r0, c1 - c0);
-            if (reset_regions.emplace(p.global_row_offset, p.global_col_offset).second) {
-                dst.setConstant(kSentinel);
+            auto dst_max = m_global_height_map_max_.block(r0, c0, r1 - r0, c1 - c0);
+            auto dst_min = m_global_height_map_min_.block(r0, c0, r1 - r0, c1 - c0);
+            if (first_reset) {
+                dst_max.setConstant(kSentinel);
+                dst_min.setConstant(kObstacle);
             }
-            dst = dst.cwiseMax(p.height_map.block(
+            dst_max = dst_max.cwiseMax(p.height_map_max.block(
+                r0 - p.global_row_offset,
+                c0 - p.global_col_offset,
+                r1 - r0,
+                c1 - c0));
+            dst_min = dst_min.cwiseMin(p.height_map_min.block(
                 r0 - p.global_row_offset,
                 c0 - p.global_col_offset,
                 r1 - r0,
@@ -379,26 +410,38 @@ namespace erl::gp_sdf {
     template<typename Dtype, bool Colored>
     void
     HeightMapProjector<Dtype, Colored>::BuildOccupancyGrid() {
-        const int rows = m_global_height_map_.rows();
-        const int cols = m_global_height_map_.cols();
+        const int rows = m_global_height_map_max_.rows();
+        const int cols = m_global_height_map_max_.cols();
         if (rows == 0 || cols == 0) { return; }
 
         // Determine output resolution and dimensions.
         Dtype output_resolution = m_setting_->target_resolution;
         int out_rows = rows;
         int out_cols = cols;
-        Eigen::MatrixX<Dtype> output_height;
+        Eigen::MatrixX<Dtype> out_max;
+        Eigen::MatrixX<Dtype> out_min;
 
         if (output_resolution > m_internal_resolution_ * static_cast<Dtype>(1.01)) {
-            // Downsample: block-max.
+            // Downsample: block-max for the max map, block-min for the min map.
             const int block = std::max(
                 1,
                 static_cast<int>(std::round(output_resolution / m_internal_resolution_)));
             output_resolution = m_internal_resolution_ * static_cast<Dtype>(block);
             out_rows = MakeOdd((rows + block - 1) / block);
             out_cols = MakeOdd((cols + block - 1) / block);
-            output_height = Eigen::MatrixX<Dtype>::Constant(out_rows, out_cols, kSentinel);
+            out_max = Eigen::MatrixX<Dtype>::Constant(out_rows, out_cols, kSentinel);
+            out_min = Eigen::MatrixX<Dtype>::Constant(out_rows, out_cols, kObstacle);
 
+#pragma omp parallel for schedule(static) default(none) \
+    shared(out_max,                                     \
+               out_min,                                 \
+               m_global_height_map_max_,                \
+               m_global_height_map_min_,                \
+               block,                                   \
+               rows,                                    \
+               cols,                                    \
+               out_rows,                                \
+               out_cols)
             for (int c = 0; c < out_cols; ++c) {
                 for (int r = 0; r < out_rows; ++r) {
                     const int sr = r * block;
@@ -406,41 +449,61 @@ namespace erl::gp_sdf {
                     const int er = std::min(sr + block, rows);
                     const int ec = std::min(sc + block, cols);
                     Dtype max_z = kSentinel;
+                    Dtype min_z = kObstacle;
                     for (int cc = sc; cc < ec; ++cc) {
                         for (int rr = sr; rr < er; ++rr) {
-                            const Dtype z = m_global_height_map_(rr, cc);
-                            if (z > max_z) { max_z = z; }
+                            const Dtype z_hi = m_global_height_map_max_(rr, cc);
+                            const Dtype z_lo = m_global_height_map_min_(rr, cc);
+                            if (z_hi > max_z) { max_z = z_hi; }
+                            if (z_lo < min_z) { min_z = z_lo; }
                         }
                     }
-                    output_height(r, c) = max_z;
+                    out_max(r, c) = max_z;
+                    out_min(r, c) = min_z;
                 }
             }
         } else {
             output_resolution = m_internal_resolution_;
-            output_height = m_global_height_map_;
+            out_max = m_global_height_map_max_;
+            out_min = m_global_height_map_min_;
         }
 
-        // Build occupancy from height map.
+        // effective_z rule applied on the fly:
+        //   max_z == kSentinel            -> kSentinel (unknown)
+        //   max_z == kObstacle            -> kObstacle (obstacle: wall or overhang)
+        //   max_z - min_z > robot_height  -> min_z (two ground layers, use floor)
+        //   else                          -> max_z (single ground band, conservative)
+        const Dtype robot_height = m_setting_->robot_height;
         const Dtype max_step = m_setting_->max_step_height;
         m_occupancy_data_.resize(out_rows * out_cols);
 
+        auto effective_z = [&](int r, int c) -> Dtype {
+            const Dtype hi = out_max(r, c);
+            const Dtype lo = out_min(r, c);
+            if (hi <= kSentinel + static_cast<Dtype>(1)) { return kSentinel; }
+            if (hi >= kObstacle - static_cast<Dtype>(1)) { return kObstacle; }
+            if ((hi - lo) > robot_height) { return lo; }
+            return hi;
+        };
+
+#pragma omp parallel for schedule(static) default(none) \
+    shared(out_max, out_min, m_occupancy_data_, effective_z, max_step, out_rows, out_cols)
         for (int c = 0; c < out_cols; ++c) {
             for (int r = 0; r < out_rows; ++r) {
-                const Dtype z = output_height(r, c);
+                const Dtype z = effective_z(r, c);
                 int8_t &cell = m_occupancy_data_[r * out_cols + c];
 
                 if (z <= kSentinel + static_cast<Dtype>(1)) {
                     cell = -1;  // unknown
                     continue;
                 }
-
-                // Hard obstacle marker from a non-ground-like triangle.
                 if (z >= kObstacle - static_cast<Dtype>(1)) {
-                    cell = 100;
+                    cell = 100;  // hard obstacle (cases 3 & 4)
                     continue;
                 }
 
-                // Check step height against 4-neighbors (skip unknown and obstacle neighbors).
+                // Step-height check on effective_z; skip unknown and obstacle neighbors
+                // so walls do not inflate onto adjacent ground.
                 bool obstacle = false;
                 const int dr[] = {-1, 1, 0, 0};
                 const int dc[] = {0, 0, -1, 1};
@@ -448,12 +511,8 @@ namespace erl::gp_sdf {
                     const int nr = r + dr[d];
                     const int nc = c + dc[d];
                     if (nr < 0 || nr >= out_rows || nc < 0 || nc >= out_cols) { continue; }
-                    const Dtype nz = output_height(nr, nc);
-                    // Avoid treating unknown or obstacle neighbors as free space that can be
-                    // stepped onto
+                    const Dtype nz = effective_z(nr, nc);
                     if (nz <= kSentinel + static_cast<Dtype>(1)) { continue; }
-                    // Skip obstacle neighbors in step check since they are already marked as
-                    // occupied regardless of height difference
                     if (nz >= kObstacle - static_cast<Dtype>(1)) { continue; }
                     if (std::abs(z - nz) > max_step) {
                         obstacle = true;
@@ -555,7 +614,8 @@ namespace erl::gp_sdf {
         const Dtype resolution,
         const int rows,
         const int cols,
-        Eigen::MatrixX<Dtype> &height_map) {
+        Eigen::MatrixX<Dtype> &height_map_max,
+        Eigen::MatrixX<Dtype> &height_map_min) {
 
         // Bounding box in grid coordinates.
         const Dtype min_x = std::min({v0[0], v1[0], v2[0]});
@@ -590,8 +650,10 @@ namespace erl::gp_sdf {
                     const Dtype d2 = e2x * (py - v2[1]) - e2y * (px - v2[0]);
 
                     if ((d0 >= 0 && d1 >= 0 && d2 >= 0) || (d0 <= 0 && d1 <= 0 && d2 <= 0)) {
-                        Dtype &cell = height_map(r, c);
-                        if (fill_z > cell) { cell = fill_z; }
+                        Dtype &cell_max = height_map_max(r, c);
+                        Dtype &cell_min = height_map_min(r, c);
+                        if (fill_z > cell_max) { cell_max = fill_z; }
+                        if (fill_z < cell_min) { cell_min = fill_z; }
                     }
                 }
             }
@@ -647,8 +709,10 @@ namespace erl::gp_sdf {
                     std::min(r1, static_cast<int>(std::floor((x_edge2 - origin_x) * inv_res)));
 
                 for (int r = rl; r <= rr; ++r) {
-                    Dtype &cell = height_map(r, c);
-                    if (fill_z > cell) { cell = fill_z; }
+                    Dtype &cell_max = height_map_max(r, c);
+                    Dtype &cell_min = height_map_min(r, c);
+                    if (fill_z > cell_max) { cell_max = fill_z; }
+                    if (fill_z < cell_min) { cell_min = fill_z; }
                 }
             }
         }

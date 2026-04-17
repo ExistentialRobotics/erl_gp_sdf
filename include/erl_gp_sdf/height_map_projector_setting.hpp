@@ -9,6 +9,9 @@ namespace erl::gp_sdf {
     struct HeightMapProjectorSetting : common::Yamlable<HeightMapProjectorSetting<Dtype>> {
         /// Desired output grid resolution for Nav2.
         Dtype target_resolution = 0.1f;
+        /// Robot height. If (max_z - min_z) exceeds this in a ground-only cell, the
+        /// upper ground layer is treated as overhead and min_z is used as the floor.
+        Dtype robot_height = 0.4f;
         /// Maximum traversable step height between neighboring cells.
         Dtype max_step_height = 0.15f;
         /// Minimum Z relative to sensor position for ground band.
@@ -27,6 +30,7 @@ namespace erl::gp_sdf {
         ERL_REFLECT_SCHEMA(
             HeightMapProjectorSetting,
             ERL_REFLECT_MEMBER(HeightMapProjectorSetting, target_resolution),
+            ERL_REFLECT_MEMBER(HeightMapProjectorSetting, robot_height),
             ERL_REFLECT_MEMBER(HeightMapProjectorSetting, max_step_height),
             ERL_REFLECT_MEMBER(HeightMapProjectorSetting, ground_z_min),
             ERL_REFLECT_MEMBER(HeightMapProjectorSetting, ground_z_max),

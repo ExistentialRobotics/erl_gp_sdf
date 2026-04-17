@@ -48,7 +48,8 @@ namespace erl::gp_sdf {
             int global_col_offset = 0;
             int rows = 0;
             int cols = 0;
-            Eigen::MatrixX<Dtype> height_map;
+            Eigen::MatrixX<Dtype> height_map_max;
+            Eigen::MatrixX<Dtype> height_map_min;
         };
 
         static constexpr Dtype kSentinel = -std::numeric_limits<Dtype>::max();
@@ -67,8 +68,14 @@ namespace erl::gp_sdf {
         int m_patch_size_ = 0;  // number of internal cells per BHM patch (per axis)
         bool m_initialized_ = false;
 
-        // persistent global height map
-        Eigen::MatrixX<Dtype> m_global_height_map_;
+        // persistent global height maps (parallel shape).
+        // m_global_height_map_max_: init kSentinel, cwiseMax accumulation. Non-ground
+        //   triangles stamp kObstacle; the "unknown" and "obstacle" signals both live
+        //   here.
+        // m_global_height_map_min_: init kObstacle, cwiseMin accumulation. Used only
+        //   to recover the floor when max signals ground (case 2 of the rule).
+        Eigen::MatrixX<Dtype> m_global_height_map_max_;
+        Eigen::MatrixX<Dtype> m_global_height_map_min_;
         Dtype m_global_origin_x_ = 0;  // metric X of the global map origin (min corner)
         Dtype m_global_origin_y_ = 0;  // metric Y of the global map origin (min corner)
 
@@ -148,8 +155,9 @@ namespace erl::gp_sdf {
             int &row_offset,
             int &col_offset) const;
 
-        /// Rasterize a single triangle onto a local height map patch, writing
-        /// `fill_z` (max-accumulated) into every covered cell.
+        /// Rasterize a single triangle onto a local height map patch. For every
+        /// covered cell, updates the max patch via `cwiseMax(fill_z)` and the min
+        /// patch via `cwiseMin(fill_z)`, keeping both views consistent.
         static void
         RasterizeTriangle(
             const VectorD &v0,
@@ -161,7 +169,8 @@ namespace erl::gp_sdf {
             Dtype resolution,
             int rows,
             int cols,
-            Eigen::MatrixX<Dtype> &height_map);
+            Eigen::MatrixX<Dtype> &height_map_max,
+            Eigen::MatrixX<Dtype> &height_map_min);
     };
 
     using HeightMapProjectorF = HeightMapProjector<float>;
