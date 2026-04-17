@@ -21,6 +21,12 @@ namespace erl::gp_sdf {
 
     template<typename Dtype, int Dim>
     bool
+    AbstractSurfaceMapping<Dtype, Dim>::EverUpdated() const {
+        return m_ever_updated_;
+    }
+
+    template<typename Dtype, int Dim>
+    bool
     AbstractSurfaceMapping<Dtype, Dim>::GetMesh(
         const bool /*online*/,
         std::vector<VectorD> & /*vertices*/,

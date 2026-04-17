@@ -40,7 +40,9 @@ namespace erl::gp_sdf {
             std::vector<Face> faces;        // face vertex indices (local to this BHM)
         };
 
-        /// Local height map patch for a single BHM.
+        /// Local height map patch for a single BHM. Carries both max (cwiseMax
+        /// accumulated) and min (cwiseMin accumulated) views of the projected
+        /// triangle heights, used jointly to decide occupancy.
         struct LocalPatch {
             int global_row_offset = 0;
             int global_col_offset = 0;
@@ -50,6 +52,10 @@ namespace erl::gp_sdf {
         };
 
         static constexpr Dtype kSentinel = -std::numeric_limits<Dtype>::max();
+        /// Marker for cells covered by a non-ground-like (nz < min_nz) triangle.
+        /// Treated as a hard obstacle by BuildOccupancyGrid without going through
+        /// the step-height check.
+        static constexpr Dtype kObstacle = std::numeric_limits<Dtype>::max();
 
     private:
         // settings
@@ -142,13 +148,14 @@ namespace erl::gp_sdf {
             int &row_offset,
             int &col_offset) const;
 
-        /// Rasterize a single triangle onto a local height map patch.
+        /// Rasterize a single triangle onto a local height map patch, writing
+        /// `fill_z` (max-accumulated) into every covered cell.
         static void
         RasterizeTriangle(
             const VectorD &v0,
             const VectorD &v1,
             const VectorD &v2,
-            Dtype min_normal_z,
+            Dtype fill_z,
             Dtype origin_x,
             Dtype origin_y,
             Dtype resolution,

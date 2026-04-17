@@ -873,7 +873,8 @@ namespace erl::gp_sdf {
     void
     GpSdfMapping<Dtype, Dim>::InitMultiThreading() {
         const auto num_omp_threads = static_cast<std::size_t>(omp_get_max_threads());
-        const std::size_t num_threads = std::max<std::size_t>(m_setting_->num_threads, num_omp_threads);
+        const std::size_t num_threads =
+            std::max<std::size_t>(m_setting_->num_threads, num_omp_threads);
         m_surf_data_indices_.resize(num_threads);
         m_surf_data_dist_indices_.resize(num_threads);
         m_gp_load_data_cnt_.resize(num_threads);
@@ -964,7 +965,8 @@ namespace erl::gp_sdf {
         const auto lock = GetLockGuard();  // CRITICAL SECTION: access m_gp_map_
         (void) lock;
 
-        const VectorD sensor_pos = m_surface_mapping_->GetLastSensorPosition();
+        const VectorD sensor_pos =
+            m_surface_mapping_->GetLastSensorPosition() * m_surface_mapping_->GetScaling();
         KeyVector &keys = m_key_vectors_[0];
         keys.clear();
         for (const auto &cluster_key: m_clusters_to_load_data_) {

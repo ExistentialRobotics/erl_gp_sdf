@@ -1,5 +1,9 @@
 #include "erl_gp_sdf/height_map_projector.hpp"
 
+#include "erl_common/block_timer.hpp"
+
+#include <absl/container/flat_hash_set.h>
+
 #include <cmath>
 
 namespace erl::gp_sdf {
@@ -20,6 +24,10 @@ namespace erl::gp_sdf {
     template<typename Dtype, bool Colored>
     void
     HeightMapProjector<Dtype, Colored>::Update(SurfaceMapping &mapping) {
+        if (!mapping.EverUpdated()) { return; }  // No data to process yet.
+
+        ERL_BLOCK_TIMER_MSG("[HeightMapProjector] Update");
+
         // Initialize derived constants on first call.
         if (!m_initialized_) {
             const auto &map_setting = mapping.GetSetting();
@@ -226,14 +234,20 @@ namespace erl::gp_sdf {
                 const Dtype norm = normal.norm();
                 if (norm < static_cast<Dtype>(1e-8)) { continue; }
                 const Dtype nz = std::abs(normal[2]) / norm;
-                if (nz < min_nz) { continue; }  // not ground-like
+
+                // Ground-like triangles contribute their mean Z; non-ground-like
+                // (walls, vertical structure) stamp the obstacle marker so the
+                // footprint is reported as a hard obstacle regardless of step check.
+                const bool is_ground = (nz >= min_nz);
+                const Dtype fill_z =
+                    is_ground ? (v0[2] + v1[2] + v2[2]) / static_cast<Dtype>(3) : kObstacle;
 
                 if (needs_rasterization) {
                     RasterizeTriangle(
                         v0,
                         v1,
                         v2,
-                        min_nz,
+                        fill_z,
                         origin_x,
                         origin_y,
                         resolution,
@@ -241,16 +255,14 @@ namespace erl::gp_sdf {
                         patch_size,
                         patch.height_map);
                 } else {
-                    // internal_res == surface_res: just compute mean Z and write to one cell.
-                    const Dtype mean_z = (v0[2] + v1[2] + v2[2]) / static_cast<Dtype>(3);
-                    // Map triangle centroid to grid cell.
+                    // internal_res == surface_res: write fill_z to the centroid cell.
                     const Dtype cx = (v0[0] + v1[0] + v2[0]) / static_cast<Dtype>(3);
                     const Dtype cy = (v0[1] + v1[1] + v2[1]) / static_cast<Dtype>(3);
                     const int row = static_cast<int>(std::floor((cx - origin_x) / resolution));
                     const int col = static_cast<int>(std::floor((cy - origin_y) / resolution));
                     if (row >= 0 && row < patch_size && col >= 0 && col < patch_size) {
                         Dtype &cell = patch.height_map(row, col);
-                        if (mean_z > cell) { cell = mean_z; }
+                        if (fill_z > cell) { cell = fill_z; }
                     }
                 }
             }
@@ -322,6 +334,11 @@ namespace erl::gp_sdf {
         const long map_rows = m_global_height_map_.rows();
         const long map_cols = m_global_height_map_.cols();
 
+        // Track patch regions (by global offset) already reset this merge, so stacked
+        // BHMs projecting to the same 2D patch only reset once before accumulating.
+        absl::flat_hash_set<std::pair<int, int>> reset_regions;
+        reset_regions.reserve(patches.size());
+
         for (const auto &p: patches) {
             // Patch offsets are already in global map cell coordinates
             // (adjusted by GrowGlobalMap if the map was expanded).
@@ -330,8 +347,12 @@ namespace erl::gp_sdf {
             if (p.global_row_offset >= 0 && p.global_col_offset >= 0 &&
                 p.global_row_offset + p.rows <= map_rows &&
                 p.global_col_offset + p.cols <= map_cols) {
-                m_global_height_map_
-                    .block(p.global_row_offset, p.global_col_offset, p.rows, p.cols) = p.height_map;
+                auto dst = m_global_height_map_
+                               .block(p.global_row_offset, p.global_col_offset, p.rows, p.cols);
+                if (reset_regions.emplace(p.global_row_offset, p.global_col_offset).second) {
+                    dst.setConstant(kSentinel);
+                }
+                dst = dst.cwiseMax(p.height_map);
                 continue;
             }
 
@@ -343,11 +364,15 @@ namespace erl::gp_sdf {
 
             if (r0 >= r1 || c0 >= c1) { continue; }
 
-            m_global_height_map_.block(r0, c0, r1 - r0, c1 - c0) = p.height_map.block(
+            auto dst = m_global_height_map_.block(r0, c0, r1 - r0, c1 - c0);
+            if (reset_regions.emplace(p.global_row_offset, p.global_col_offset).second) {
+                dst.setConstant(kSentinel);
+            }
+            dst = dst.cwiseMax(p.height_map.block(
                 r0 - p.global_row_offset,
                 c0 - p.global_col_offset,
                 r1 - r0,
-                c1 - c0);
+                c1 - c0));
         }
     }
 
@@ -409,7 +434,13 @@ namespace erl::gp_sdf {
                     continue;
                 }
 
-                // Check step height against 4-neighbors.
+                // Hard obstacle marker from a non-ground-like triangle.
+                if (z >= kObstacle - static_cast<Dtype>(1)) {
+                    cell = 100;
+                    continue;
+                }
+
+                // Check step height against 4-neighbors (skip unknown and obstacle neighbors).
                 bool obstacle = false;
                 const int dr[] = {-1, 1, 0, 0};
                 const int dc[] = {0, 0, -1, 1};
@@ -418,7 +449,12 @@ namespace erl::gp_sdf {
                     const int nc = c + dc[d];
                     if (nr < 0 || nr >= out_rows || nc < 0 || nc >= out_cols) { continue; }
                     const Dtype nz = output_height(nr, nc);
+                    // Avoid treating unknown or obstacle neighbors as free space that can be
+                    // stepped onto
                     if (nz <= kSentinel + static_cast<Dtype>(1)) { continue; }
+                    // Skip obstacle neighbors in step check since they are already marked as
+                    // occupied regardless of height difference
+                    if (nz >= kObstacle - static_cast<Dtype>(1)) { continue; }
                     if (std::abs(z - nz) > max_step) {
                         obstacle = true;
                         break;
@@ -513,15 +549,13 @@ namespace erl::gp_sdf {
         const VectorD &v0,
         const VectorD &v1,
         const VectorD &v2,
-        const Dtype /*min_normal_z*/,
+        const Dtype fill_z,
         const Dtype origin_x,
         const Dtype origin_y,
         const Dtype resolution,
         const int rows,
         const int cols,
         Eigen::MatrixX<Dtype> &height_map) {
-
-        const Dtype mean_z = (v0[2] + v1[2] + v2[2]) / static_cast<Dtype>(3);
 
         // Bounding box in grid coordinates.
         const Dtype min_x = std::min({v0[0], v1[0], v2[0]});
@@ -557,7 +591,7 @@ namespace erl::gp_sdf {
 
                     if ((d0 >= 0 && d1 >= 0 && d2 >= 0) || (d0 <= 0 && d1 <= 0 && d2 <= 0)) {
                         Dtype &cell = height_map(r, c);
-                        if (mean_z > cell) { cell = mean_z; }
+                        if (fill_z > cell) { cell = fill_z; }
                     }
                 }
             }
@@ -614,7 +648,7 @@ namespace erl::gp_sdf {
 
                 for (int r = rl; r <= rr; ++r) {
                     Dtype &cell = height_map(r, c);
-                    if (mean_z > cell) { cell = mean_z; }
+                    if (fill_z > cell) { cell = fill_z; }
                 }
             }
         }

@@ -204,10 +204,13 @@ namespace erl::gp_sdf {
         const Eigen::Ref<const Ranges> &ranges) {
 
         m_changed_keys_.clear();
+        this->m_last_sensor_position_ = translation;
+        this->m_ever_updated_ = true;
+
         if (const Dtype s = m_setting_->scaling; s != 1.0f) {
             ERL_BLOCK_TIMER_MSG("Train sensor GP with scaling");
-            this->m_last_sensor_position_ = translation.array() * s;
-            if (!m_sensor_gp_->Train(rotation, this->m_last_sensor_position_, ranges.array() * s)) {
+            const Translation translation_s = translation.array() * s;
+            if (!m_sensor_gp_->Train(rotation, translation_s, ranges.array() * s)) {
                 ERL_WARN(
                     "Failed to train the sensor Gaussian process with scaling factor {}. Original "
                     "ranges min: {}, max: {}.",
@@ -218,7 +221,6 @@ namespace erl::gp_sdf {
             }
         } else {
             ERL_BLOCK_TIMER_MSG("Train sensor GP");
-            this->m_last_sensor_position_ = translation;
             if (!m_sensor_gp_->Train(rotation, translation, ranges)) {
                 ERL_WARN(
                     "Failed to train the sensor Gaussian process. Ranges min: {}, max: {}",

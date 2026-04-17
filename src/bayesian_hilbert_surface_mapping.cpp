@@ -101,6 +101,9 @@ namespace erl::gp_sdf {
         auto lock = this->GetLockGuard();
         (void) lock;
 
+        this->m_last_sensor_position_ = sensor_origin;
+        this->m_ever_updated_ = true;
+
         VectorD sensor_origin_s = sensor_origin;
         MatrixDX points_s = points;
         if (m_setting_->scaling != 1.0f) {
@@ -165,8 +168,6 @@ namespace erl::gp_sdf {
                 return false;
             }
         } else {
-            this->m_last_sensor_position_ = sensor_origin_s;
-
             // to update the occupancy tree first, the resolution of the tree should not be too high
             // so that we will not spend too much time on the tree update. the tree helps us find
             // where to place local Bayesian Hilbert maps.

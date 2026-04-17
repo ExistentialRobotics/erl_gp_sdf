@@ -42,6 +42,7 @@ namespace erl::gp_sdf {
         mutable std::mutex m_mutex_;           // mutex for thread safety
         SurfDataManager m_surf_data_manager_;  // manage the surface data buffer
         VectorD m_last_sensor_position_;       // last sensor position
+        bool m_ever_updated_ = false;          // true after the first successful Update
 
     public:
         AbstractSurfaceMapping() = default;
@@ -65,8 +66,19 @@ namespace erl::gp_sdf {
         [[nodiscard]] const SurfDataManager &
         GetSurfaceDataManager() const;
 
+        /**
+         * Get the last sensor position in the global frame. Note that the position is not scaled by
+         * the map scaling factor, so it is in the same unit as the input translation of the
+         * Update() method.
+         */
         [[nodiscard]] const VectorD &
         GetLastSensorPosition() const;
+
+        /**
+         * @return true if Update() has ever been called successfully on this mapping.
+         */
+        [[nodiscard]] bool
+        EverUpdated() const;
 
         /**
          * Update the surface mapping with the sensor observation.
