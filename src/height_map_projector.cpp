@@ -17,13 +17,13 @@ namespace erl::gp_sdf {
         }
     }  // namespace
 
-    template<typename Dtype, bool Colored>
-    HeightMapProjector<Dtype, Colored>::HeightMapProjector(std::shared_ptr<Setting> setting)
+    template<typename Dtype>
+    HeightMapProjector<Dtype>::HeightMapProjector(std::shared_ptr<Setting> setting)
         : m_setting_(std::move(setting)) {}
 
-    template<typename Dtype, bool Colored>
+    template<typename Dtype>
     void
-    HeightMapProjector<Dtype, Colored>::Update(SurfaceMapping &mapping) {
+    HeightMapProjector<Dtype>::Update(SurfaceMapping &mapping) {
         if (!mapping.EverUpdated()) { return; }  // No data to process yet.
 
         ERL_BLOCK_TIMER_MSG("[HeightMapProjector] Update");
@@ -86,18 +86,18 @@ namespace erl::gp_sdf {
         BuildOccupancyGrid();
     }
 
-    template<typename Dtype, bool Colored>
+    template<typename Dtype>
     void
-    HeightMapProjector<Dtype, Colored>::GetOccupancyGrid(
+    HeightMapProjector<Dtype>::GetOccupancyGrid(
         std::vector<int8_t> &occupancy_data,
         GridMapInfo &grid_info) const {
         occupancy_data = m_occupancy_data_;
         if (m_output_grid_info_) { grid_info = *m_output_grid_info_; }
     }
 
-    template<typename Dtype, bool Colored>
+    template<typename Dtype>
     void
-    HeightMapProjector<Dtype, Colored>::GetHeightMap(
+    HeightMapProjector<Dtype>::GetHeightMap(
         Eigen::MatrixX<Dtype> &height_data,
         GridMapInfo &grid_info) const {
         // Return the max map for visualization — it carries both kSentinel (unknown)
@@ -112,9 +112,9 @@ namespace erl::gp_sdf {
         grid_info = GridMapInfo(origin, res, shape);
     }
 
-    template<typename Dtype, bool Colored>
-    std::vector<typename HeightMapProjector<Dtype, Colored>::BhmTriangleData>
-    HeightMapProjector<Dtype, Colored>::CollectChangedBhms(SurfaceMapping &mapping) {
+    template<typename Dtype>
+    std::vector<typename HeightMapProjector<Dtype>::BhmTriangleData>
+    HeightMapProjector<Dtype>::CollectChangedBhms(SurfaceMapping &mapping) {
         auto lock = mapping.GetLockGuard();
 
         const Dtype sensor_z = mapping.GetLastSensorPosition()[2];
@@ -189,9 +189,9 @@ namespace erl::gp_sdf {
         return result;
     }
 
-    template<typename Dtype, bool Colored>
-    std::vector<typename HeightMapProjector<Dtype, Colored>::LocalPatch>
-    HeightMapProjector<Dtype, Colored>::ComputeLocalHeightMaps(
+    template<typename Dtype>
+    std::vector<typename HeightMapProjector<Dtype>::LocalPatch>
+    HeightMapProjector<Dtype>::ComputeLocalHeightMaps(
         const std::vector<BhmTriangleData> &triangle_data,
         const SurfaceMapping &mapping) {
 
@@ -281,9 +281,9 @@ namespace erl::gp_sdf {
         return patches;
     }
 
-    template<typename Dtype, bool Colored>
+    template<typename Dtype>
     void
-    HeightMapProjector<Dtype, Colored>::GrowGlobalMap(std::vector<LocalPatch> &patches) {
+    HeightMapProjector<Dtype>::GrowGlobalMap(std::vector<LocalPatch> &patches) {
 
         if (patches.empty()) { return; }
 
@@ -346,9 +346,9 @@ namespace erl::gp_sdf {
         }
     }
 
-    template<typename Dtype, bool Colored>
+    template<typename Dtype>
     void
-    HeightMapProjector<Dtype, Colored>::MergePatches(const std::vector<LocalPatch> &patches) {
+    HeightMapProjector<Dtype>::MergePatches(const std::vector<LocalPatch> &patches) {
         const long map_rows = m_global_height_map_max_.rows();
         const long map_cols = m_global_height_map_max_.cols();
 
@@ -407,9 +407,9 @@ namespace erl::gp_sdf {
         }
     }
 
-    template<typename Dtype, bool Colored>
+    template<typename Dtype>
     void
-    HeightMapProjector<Dtype, Colored>::BuildOccupancyGrid() {
+    HeightMapProjector<Dtype>::BuildOccupancyGrid() {
         const int rows = m_global_height_map_max_.rows();
         const int cols = m_global_height_map_max_.cols();
         if (rows == 0 || cols == 0) { return; }
@@ -531,9 +531,9 @@ namespace erl::gp_sdf {
         m_output_grid_info_ = std::make_unique<GridMapInfo>(origin, res, shape);
     }
 
-    template<typename Dtype, bool Colored>
+    template<typename Dtype>
     void
-    HeightMapProjector<Dtype, Colored>::UpdateNearGroundBhms(
+    HeightMapProjector<Dtype>::UpdateNearGroundBhms(
         const SurfaceMapping &mapping,
         const Dtype sensor_z) {
 
@@ -583,9 +583,9 @@ namespace erl::gp_sdf {
         m_near_ground_bhms_ = std::move(new_map);
     }
 
-    template<typename Dtype, bool Colored>
+    template<typename Dtype>
     void
-    HeightMapProjector<Dtype, Colored>::ComputePatchOffset(
+    HeightMapProjector<Dtype>::ComputePatchOffset(
         const Key &key,
         const SurfaceMapping &mapping,
         int &row_offset,
@@ -602,9 +602,9 @@ namespace erl::gp_sdf {
             std::round((patch_min_y - m_global_origin_y_) / m_internal_resolution_));
     }
 
-    template<typename Dtype, bool Colored>
+    template<typename Dtype>
     void
-    HeightMapProjector<Dtype, Colored>::RasterizeTriangle(
+    HeightMapProjector<Dtype>::RasterizeTriangle(
         const VectorD &v0,
         const VectorD &v1,
         const VectorD &v2,
@@ -723,7 +723,5 @@ namespace erl::gp_sdf {
     template struct HeightMapProjectorSetting<double>;
     template class HeightMapProjector<float>;
     template class HeightMapProjector<double>;
-    template class HeightMapProjector<float, true>;
-    template class HeightMapProjector<double, true>;
 
 }  // namespace erl::gp_sdf

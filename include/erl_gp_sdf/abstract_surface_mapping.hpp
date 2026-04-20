@@ -226,12 +226,12 @@ namespace erl::gp_sdf {
         GetMesh(Dtype resolution, std::vector<VectorD> &vertices, std::vector<Face> &faces);
 
         /**
-         * Get the mesh with per-vertex colors.
+         * Get the mesh with per-face colors.
          * Default implementation calls GetMesh without colors and fills white.
          * @param online If true, generate the mesh faster but with lower quality.
          * @param vertices vector to store the vertices of the mesh.
          * @param faces vector to store the faces of the mesh.
-         * @param vertex_colors vector to store RGBA colors per vertex.
+         * @param face_colors vector to store RGBA colors per face (length == faces.size()).
          * @return true if the mesh is successfully generated.
          */
         virtual bool
@@ -239,10 +239,10 @@ namespace erl::gp_sdf {
             bool online,
             std::vector<VectorD> &vertices,
             std::vector<Face> &faces,
-            std::vector<Color> &vertex_colors);
+            std::vector<Color> &face_colors);
 
         /**
-         * Get the mesh with per-vertex colors at a given resolution.
+         * Get the mesh with per-face colors at a given resolution.
          * Default implementation calls GetMesh without colors and fills white.
          */
         virtual bool
@@ -250,7 +250,7 @@ namespace erl::gp_sdf {
             Dtype resolution,
             std::vector<VectorD> &vertices,
             std::vector<Face> &faces,
-            std::vector<Color> &vertex_colors);
+            std::vector<Color> &face_colors);
 
         /**
          * Get the boundary of the map.

@@ -23,10 +23,10 @@ namespace erl::gp_sdf {
      *   4. [UNLOCKED] Paste local height maps into global map (sequential).
      *   5. [UNLOCKED] Downsample if needed, build Nav2 occupancy.
      */
-    template<typename Dtype, bool Colored = false>
+    template<typename Dtype>
     class HeightMapProjector {
     public:
-        using SurfaceMapping = BayesianHilbertSurfaceMapping<Dtype, 3, Colored>;
+        using SurfaceMapping = BayesianHilbertSurfaceMapping<Dtype, 3>;
         using Key = geometry::OctreeKey;
         using Face = Eigen::Vector3i;
         using VectorD = Eigen::Vector3<Dtype>;
@@ -175,12 +175,8 @@ namespace erl::gp_sdf {
 
     using HeightMapProjectorF = HeightMapProjector<float>;
     using HeightMapProjectorD = HeightMapProjector<double>;
-    using ColoredHeightMapProjectorF = HeightMapProjector<float, true>;
-    using ColoredHeightMapProjectorD = HeightMapProjector<double, true>;
 
     extern template class HeightMapProjector<float>;
     extern template class HeightMapProjector<double>;
-    extern template class HeightMapProjector<float, true>;
-    extern template class HeightMapProjector<double, true>;
 
 }  // namespace erl::gp_sdf

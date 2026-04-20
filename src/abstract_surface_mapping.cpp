@@ -49,9 +49,9 @@ namespace erl::gp_sdf {
         const bool online,
         std::vector<VectorD> &vertices,
         std::vector<Face> &faces,
-        std::vector<Color> &vertex_colors) {
+        std::vector<Color> &face_colors) {
         const bool result = GetMesh(online, vertices, faces);
-        vertex_colors.assign(vertices.size(), Color{255, 255, 255, 255});
+        face_colors.assign(faces.size(), Color{255, 255, 255, 255});
         return result;
     }
 
@@ -61,9 +61,9 @@ namespace erl::gp_sdf {
         const Dtype resolution,
         std::vector<VectorD> &vertices,
         std::vector<Face> &faces,
-        std::vector<Color> &vertex_colors) {
+        std::vector<Color> &face_colors) {
         const bool result = GetMesh(resolution, vertices, faces);
-        vertex_colors.assign(vertices.size(), Color{255, 255, 255, 255});
+        face_colors.assign(faces.size(), Color{255, 255, 255, 255});
         return result;
     }
 

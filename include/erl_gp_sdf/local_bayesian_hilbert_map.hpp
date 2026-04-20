@@ -107,7 +107,9 @@ namespace erl::gp_sdf {
             bool good = false;
             bool neighbors_added = false;
             int surf_config = 0;
-            std::vector<GridIndex> edges{};
+            std::array<uint8_t, 4> color = {255, 255, 255, 255};  // RGBA, runtime color
+            uint32_t color_count = 0;                             // number of samples folded in
+            std::vector<GridIndex> edges{};                       // local grid index of edges
             std::vector<Face> faces{};
 
             [[nodiscard]] bool
@@ -212,6 +214,19 @@ namespace erl::gp_sdf {
             const Eigen::Ref<const VectorD> &point,
             bool check_bounds,
             GridIndex &grid_coords) const;
+
+        /**
+         * @brief Paint the surface voxel containing the given point.
+         * @param point Point in the world frame (already scaled).
+         * @param color RGBA color to paint.
+         * @param overwrite If true, replace the voxel color; otherwise fold via cumulative mean.
+         * @return True if a surface voxel existed and was painted, false otherwise.
+         */
+        bool
+        PaintVoxel(
+            const Eigen::Ref<const VectorD> &point,
+            const std::array<uint8_t, 4> &color,
+            bool overwrite);
 
         void
         Predict(

@@ -11,7 +11,8 @@ namespace erl::gp_sdf {
     template<typename Dtype, int Dim>
     bool
     LocalBayesianHilbertMap<Dtype, Dim>::Voxel::operator==(const Voxel &other) const {
-        return surf_config == other.surf_config && edges == other.edges && faces == other.faces;
+        return surf_config == other.surf_config && color == other.color &&
+               color_count == other.color_count && edges == other.edges && faces == other.faces;
     }
 
     template<typename Dtype, int Dim>
@@ -26,6 +27,8 @@ namespace erl::gp_sdf {
         stream.write(reinterpret_cast<const char *>(&good), sizeof(good));
         stream.write(reinterpret_cast<const char *>(&neighbors_added), sizeof(neighbors_added));
         stream.write(reinterpret_cast<const char *>(&surf_config), sizeof(surf_config));
+        stream.write(reinterpret_cast<const char *>(color.data()), color.size());
+        stream.write(reinterpret_cast<const char *>(&color_count), sizeof(color_count));
         // write edges
         const std::size_t n_edges = edges.size();
         stream.write(reinterpret_cast<const char *>(&n_edges), sizeof(n_edges));
@@ -51,6 +54,8 @@ namespace erl::gp_sdf {
         stream.read(reinterpret_cast<char *>(&good), sizeof(good));
         stream.read(reinterpret_cast<char *>(&neighbors_added), sizeof(neighbors_added));
         stream.read(reinterpret_cast<char *>(&surf_config), sizeof(surf_config));
+        stream.read(reinterpret_cast<char *>(color.data()), color.size());
+        stream.read(reinterpret_cast<char *>(&color_count), sizeof(color_count));
         // read edges
         std::size_t n_edges = 0;
         stream.read(reinterpret_cast<char *>(&n_edges), sizeof(n_edges));
@@ -474,6 +479,39 @@ namespace erl::gp_sdf {
             }
         }
 
+        return true;
+    }
+
+    template<typename Dtype, int Dim>
+    bool
+    LocalBayesianHilbertMap<Dtype, Dim>::PaintVoxel(
+        const Eigen::Ref<const VectorD> &point,
+        const std::array<uint8_t, 4> &color,
+        const bool overwrite) {
+
+        GridIndex voxel_coords;
+        voxel_coords[Dim] = 0;  // edge coord, not used here
+        if (!GetGridCoords(point, true, voxel_coords)) { return false; }
+
+        auto iter = surf_voxels.find(voxel_coords);
+        if (iter == surf_voxels.end()) { return false; }
+        Voxel &v = iter->second;
+
+        if (overwrite || v.color_count == 0) {
+            v.color = color;
+            v.color_count = 1;
+        } else {
+            const auto n = static_cast<uint64_t>(v.color_count);
+            for (int c = 0; c < 4; ++c) {
+                v.color[c] = static_cast<uint8_t>(
+                    (static_cast<uint64_t>(v.color[c]) * n + static_cast<uint64_t>(color[c])) /
+                    (n + 1));
+            }
+            if (v.color_count != UINT32_MAX) { ++v.color_count; }
+        }
+
+        // Currently, we do not consider color changes as surface update.
+        // ++surface_update_timestamp;
         return true;
     }
 
