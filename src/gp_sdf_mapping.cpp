@@ -738,6 +738,9 @@ namespace erl::gp_sdf {
     template<typename Dtype, int Dim>
     bool
     GpSdfMapping<Dtype, Dim>::Read(std::istream &stream) {
+        const auto lock = GetLockGuard();
+        (void) lock;
+
         using namespace common;
         using namespace common::serialization;
         static const TokenReadFunctionPairs<GpSdfMapping> token_function_pairs = {
@@ -865,6 +868,7 @@ namespace erl::gp_sdf {
         // No need to compare the following temporary data:
         // m_clusters_to_train_, m_candidate_gps_, m_kdtree_candidate_gps_, m_map_boundary_,
         // m_query_to_gps_, m_in_free_space_, m_test_buffer and m_query_used_gps_.
+        if (m_load_surf_data_time_us_ != other.m_load_surf_data_time_us_) { return false; }
         if (m_train_gp_time_us_ != other.m_train_gp_time_us_) { return false; }
         return true;
     }

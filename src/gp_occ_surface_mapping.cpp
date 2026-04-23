@@ -487,6 +487,8 @@ namespace erl::gp_sdf {
         if (m_pos_perturb_ != other_ptr->m_pos_perturb_) { return false; }
         if (m_surface_resolution_inv_ != other_ptr->m_surface_resolution_inv_) { return false; }
         if (m_changed_keys_ != other_ptr->m_changed_keys_) { return false; }
+        if (this->m_last_sensor_position_ != other_ptr->m_last_sensor_position_) { return false; }
+        if (this->m_ever_updated_ != other_ptr->m_ever_updated_) { return false; }
         return true;
     }
 
@@ -596,6 +598,19 @@ namespace erl::gp_sdf {
                                 sizeof(typename Key::KeyType));
                         }
                     }
+                    return s.good();
+                },
+            },
+            {
+                "last_sensor_position",
+                [](const GpOccSurfaceMapping *gp, std::ostream &s) {
+                    return SaveEigenMatrixToBinaryStream(s, gp->m_last_sensor_position_) && s.good();
+                },
+            },
+            {
+                "ever_updated",
+                [](const GpOccSurfaceMapping *gp, std::ostream &s) {
+                    s.write(reinterpret_cast<const char *>(&gp->m_ever_updated_), sizeof(bool));
                     return s.good();
                 },
             },
@@ -720,6 +735,19 @@ namespace erl::gp_sdf {
                         }
                         gp->m_changed_keys_.insert(key);
                     }
+                    return s.good();
+                },
+            },
+            {
+                "last_sensor_position",
+                [](GpOccSurfaceMapping *gp, std::istream &s) {
+                    return LoadEigenMatrixFromBinaryStream(s, gp->m_last_sensor_position_) && s.good();
+                },
+            },
+            {
+                "ever_updated",
+                [](GpOccSurfaceMapping *gp, std::istream &s) {
+                    s.read(reinterpret_cast<char *>(&gp->m_ever_updated_), sizeof(bool));
                     return s.good();
                 },
             },

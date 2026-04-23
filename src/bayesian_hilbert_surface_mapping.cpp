@@ -4,6 +4,9 @@
 #include "erl_common/block_timer.hpp"
 #include "erl_geometry/bayesian_hilbert_map_torch.hpp"
 
+#include <absl/container/flat_hash_set.h>
+
+#include <limits>
 #include <utility>
 
 namespace erl::gp_sdf {
@@ -180,9 +183,29 @@ namespace erl::gp_sdf {
                 const ERL_BLOCK_TIMER_MSG("[BHM.Update] find BHMs to build/update");
                 // only the occupied node will trigger building the corresponding local BHM
                 for (const auto &[key, hit_indices]: end_point_maps) {
+                    if (hit_indices.empty()) { continue; }
                     if (const TreeNode *node = m_tree_->Search(key);
-                        node != nullptr && m_tree_->IsNodeOccupied(node)) {
-                        m_changed_clusters_.insert(m_tree_->AdjustKeyToDepth(key, bhm_depth));
+                        node == nullptr || m_tree_->IsNodeOccupied(node)) {
+                        continue;
+                    }
+                    const Key bhm_key = m_tree_->AdjustKeyToDepth(key, bhm_depth);
+                    m_changed_clusters_.insert(bhm_key);
+                    if (!m_setting_->update_map.include_neighbor_bhm) { continue; }
+                    // also add neighboring bhm keys if their local bhm exists
+                    const typename Key::KeyType key_offset =
+                        1 << (m_tree_->GetTreeDepth() - bhm_depth);
+                    for (int i = 0; i < Dim; ++i) {
+                        Key neighbor_key = bhm_key;
+                        neighbor_key[i] += key_offset;
+                        auto it = m_key_bhm_dict_.find(neighbor_key);
+                        if (it != m_key_bhm_dict_.end() && it->second->active) {
+                            m_changed_clusters_.insert(neighbor_key);
+                        }
+                        neighbor_key[i] = bhm_key[i] - key_offset;
+                        it = m_key_bhm_dict_.find(neighbor_key);
+                        if (it != m_key_bhm_dict_.end() && it->second->active) {
+                            m_changed_clusters_.insert(neighbor_key);
+                        }
                     }
                 }
             }
@@ -345,6 +368,9 @@ namespace erl::gp_sdf {
         VectorX &prob_occupied,
         MatrixDX &gradients) const {
 
+        auto lock = this->GetLockGuard();
+        (void) lock;
+
         MatrixDX points_s = points;
         if (m_setting_->scaling != 1.0f) { points_s.array() *= m_setting_->scaling; }
 
@@ -499,6 +525,11 @@ namespace erl::gp_sdf {
         const bool overwrite,
         const bool parallel) {
 
+        auto lock = this->GetLockGuard();
+        (void) lock;
+
+        ERL_BLOCK_TIMER_MSG("[BHM] Paint voxels (pcd)");
+
         const long n_points = points.cols();
         if (n_points == 0) { return 0; }
         if (colors.cols() != n_points) {
@@ -532,8 +563,8 @@ namespace erl::gp_sdf {
         for (auto &kv: buckets) { bucket_vec.emplace_back(kv.first, std::move(kv.second)); }
 
         std::size_t painted = 0;
-#pragma omp parallel for if (parallel) schedule(dynamic) reduction(+ : painted) default(none) \
-    shared(bucket_vec, points, colors, scaling, overwrite)
+    #pragma omp parallel for if (parallel) schedule(dynamic) reduction(+ : painted) default(none) \
+        shared(bucket_vec, points, colors, scaling, overwrite)
         for (std::size_t b = 0; b < bucket_vec.size(); ++b) {
             LocalBhm &local_bhm = *m_key_bhm_dict_.at(bucket_vec[b].first);
             const auto &idxs = bucket_vec[b].second;
@@ -554,6 +585,225 @@ namespace erl::gp_sdf {
         // for (const auto &[bhm_key, _]: bucket_vec) { m_changed_clusters_.insert(bhm_key); }
 
         return painted;
+    }
+
+    template<typename Dtype, int Dim>
+    std::size_t
+    BayesianHilbertSurfaceMapping<Dtype, Dim>::PaintVoxels(
+        const cv::Mat &image,
+        const Eigen::Ref<const Matrix3> &rotation_world_cam,
+        const Eigen::Ref<const VectorD> &translation_world_cam,
+        const Eigen::Ref<const Matrix3> &intrinsics,
+        const bool overwrite,
+        const bool parallel) {
+
+        auto lock = this->GetLockGuard();
+        (void) lock;
+
+        ERL_BLOCK_TIMER_MSG("[BHM] Paint voxels (image)");
+
+        if constexpr (Dim != 3) {
+            (void) image;
+            (void) rotation_world_cam;
+            (void) translation_world_cam;
+            (void) intrinsics;
+            (void) overwrite;
+            (void) parallel;
+            ERL_WARN_ONCE("PaintVoxels(image) only supports 3D BHMs; returning 0.");
+            return 0;
+        } else {  // NOLINT
+            if (image.empty() || image.cols <= 0 || image.rows <= 0) { return 0; }
+            if (image.type() != CV_8UC4) {
+                ERL_WARN("PaintVoxels(image): image must be CV_8UC4 (BGRA).");
+                return 0;
+            }
+            const int image_width = image.cols;
+            const int image_height = image.rows;
+            if (m_key_bhm_dict_.empty()) { return 0; }
+
+            const Dtype scaling = m_setting_->scaling;
+            const Dtype inv_scaling = Dtype(1) / scaling;
+
+            // world <- cam is provided; we need cam <- world for projection.
+            const Matrix3 rotation_cam_world = rotation_world_cam.transpose();
+            const VectorD translation_cam_world = -rotation_cam_world * translation_world_cam;
+
+            const Dtype fx = intrinsics(0, 0);
+            const Dtype fy = intrinsics(1, 1);
+            const Dtype cx = intrinsics(0, 2);
+            const Dtype cy = intrinsics(1, 2);
+
+            // ---- Step 1: pick local BHMs whose tracked AABB is visible in the camera frustum.
+            std::vector<LocalBhm *> candidates;
+            candidates.reserve(m_key_bhm_dict_.size());
+            // Pick active BHMs with non-empty surface voxels as candidates for visibility check.
+            for (auto &[bhm_key, bhm_ptr]: m_key_bhm_dict_) {
+                if (bhm_ptr->active && !bhm_ptr->surf_voxels.empty()) {
+                    candidates.push_back(bhm_ptr.get());
+                }
+            }
+            // Visible if any of the 8 corners of the AABB is in front of the camera and projects to
+            // a pixel inside the image, or the camera center is inside the AABB. We do not need
+            // precise visibility check here because even if some BHMs are falsely considered
+            // visible, it will not cause big problem other than some extra computation.
+    #pragma omp parallel for if (parallel) schedule(dynamic) default(none) \
+        shared(candidates,                                                 \
+                   rotation_cam_world,                                     \
+                   translation_cam_world,                                  \
+                   translation_world_cam,                                  \
+                   fx,                                                     \
+                   fy,                                                     \
+                   cx,                                                     \
+                   cy,                                                     \
+                   inv_scaling,                                            \
+                   image_width,                                            \
+                   image_height)
+            for (std::size_t i = 0; i < candidates.size(); ++i) {
+                LocalBhm *bhm_ptr = candidates[i];
+                const auto &aabb_s = bhm_ptr->tracked_surface_boundary;  // scaled frame
+                const VectorD min_w = aabb_s.min() * inv_scaling;
+                const VectorD max_w = aabb_s.max() * inv_scaling;
+
+                bool visible = false;
+                for (int ci = 0; ci < 8 && !visible; ++ci) {
+                    VectorD corner;
+                    corner[0] = (ci & 1) ? max_w[0] : min_w[0];
+                    corner[1] = (ci & 2) ? max_w[1] : min_w[1];
+                    corner[2] = (ci & 4) ? max_w[2] : min_w[2];
+                    const VectorD p_c = rotation_cam_world * corner + translation_cam_world;
+                    if (p_c[2] <= Dtype(0)) { continue; }
+                    const Dtype u = fx * p_c[0] / p_c[2] + cx;
+                    const Dtype v = fy * p_c[1] / p_c[2] + cy;
+                    if (u >= Dtype(0) && u < static_cast<Dtype>(image_width) &&  //
+                        v >= Dtype(0) && v < static_cast<Dtype>(image_height)) {
+                        visible = true;
+                    }
+                }
+                if (!visible) {
+                    const VectorD &cp = translation_world_cam;
+                    if (cp[0] >= min_w[0] && cp[0] <= max_w[0] &&  //
+                        cp[1] >= min_w[1] && cp[1] <= max_w[1] &&  //
+                        cp[2] >= min_w[2] && cp[2] <= max_w[2]) {
+                        visible = true;
+                    }
+                }
+                if (!visible) { candidates[i] = nullptr; }
+            }
+
+            std::size_t n_visible = 0;
+            for (std::size_t i = 0; i < candidates.size(); ++i) {
+                if (candidates[i] != nullptr) { candidates[n_visible++] = candidates[i]; }
+            }
+            candidates.resize(n_visible);
+            auto &visible_bhms = candidates;
+            if (visible_bhms.empty()) { return 0; }
+
+            // ---- Step 2:
+            // collect every surface voxel in visible BHMs, with camera-frame depth and projected
+            // pixel coordinate. A voxel's address is a raw pointer into the owning BHM's
+            // surf_voxels map. These pointers stay valid through Steps 3-4 because we never
+            // insert/erase voxels in this function.
+            using Voxel = typename LocalBhm::Voxel;
+
+            struct VoxelProjection {
+                Voxel *voxel = nullptr;
+                Dtype depth = Dtype(0);
+                int u = 0;
+                int v = 0;
+            };
+
+            std::vector<std::vector<VoxelProjection>> per_bhm_projections(visible_bhms.size());
+    #pragma omp parallel for if (parallel) schedule(dynamic) default(none) \
+        shared(visible_bhms,                                               \
+                   per_bhm_projections,                                    \
+                   rotation_cam_world,                                     \
+                   translation_cam_world,                                  \
+                   fx,                                                     \
+                   fy,                                                     \
+                   cx,                                                     \
+                   cy,                                                     \
+                   inv_scaling,                                            \
+                   image_width,                                            \
+                   image_height)
+            for (std::size_t b = 0; b < visible_bhms.size(); ++b) {
+                LocalBhm *bhm_ptr = visible_bhms[b];
+                auto &out = per_bhm_projections[b];
+                out.reserve(bhm_ptr->surf_voxels.size());
+
+                const auto &map_min = bhm_ptr->tracked_surface_boundary.min();
+                const auto &res = bhm_ptr->tracked_surface_resolution;
+
+                for (auto &[grid_idx, voxel]: bhm_ptr->surf_voxels) {
+                    // voxel center in scaled world coords
+                    VectorD p_s;
+                    for (int d = 0; d < Dim; ++d) {
+                        p_s[d] = common::GridToMeter<Dtype, long>(grid_idx[d], map_min[d], res[d]);
+                    }
+                    // unscale to world, then transform to camera frame
+                    const VectorD p_w = p_s * inv_scaling;
+                    const VectorD p_c = rotation_cam_world * p_w + translation_cam_world;
+                    if (p_c[2] <= Dtype(0)) { continue; }
+                    const Dtype u_f = fx * p_c[0] / p_c[2] + cx;
+                    const Dtype v_f = fy * p_c[1] / p_c[2] + cy;
+                    const int u_i = static_cast<int>(std::floor(u_f));
+                    const int v_i = static_cast<int>(std::floor(v_f));
+                    if (u_i < 0 || u_i >= image_width || v_i < 0 || v_i >= image_height) {
+                        continue;
+                    }
+                    out.push_back(VoxelProjection{&voxel, p_c[2], u_i, v_i});
+                }
+            }
+
+            // ---- Step 3: z-buffer - for each pixel, keep the closest voxel.
+            const long n_pixels = static_cast<long>(image_width) * static_cast<long>(image_height);
+            std::vector<Dtype> z_buffer(n_pixels, std::numeric_limits<Dtype>::infinity());
+            std::vector<const VoxelProjection *> winner(n_pixels, nullptr);
+            for (const auto &bhm_projs: per_bhm_projections) {
+                for (const auto &vp: bhm_projs) {
+                    const long pix = static_cast<long>(vp.v) * static_cast<long>(image_width) +
+                                     static_cast<long>(vp.u);
+                    if (vp.depth < z_buffer[pix]) {
+                        z_buffer[pix] = vp.depth;
+                        winner[pix] = &vp;
+                    }
+                }
+            }
+
+            // ---- Step 4: paint each winning voxel with its pixel's color.
+            // Each voxel projects to exactly one pixel, so no two winners share a voxel
+            // and the loop is safe to parallelize. The running-mean branch handles
+            // color_count accumulated from prior PaintVoxels calls.
+            std::size_t painted = 0;
+    #pragma omp parallel for if (parallel) schedule(dynamic) default(none) \
+        shared(winner, image, n_pixels, image_width, overwrite) reduction(+ : painted)
+            for (long pix = 0; pix < n_pixels; ++pix) {
+                const VoxelProjection *vp = winner[pix];
+                if (vp == nullptr) { continue; }
+
+                const int v_i = static_cast<int>(pix / image_width);
+                const int u_i = static_cast<int>(pix % image_width);
+                const cv::Vec4b &bgra = image.at<cv::Vec4b>(v_i, u_i);
+                const std::array<uint8_t, 4> col = {bgra[2], bgra[1], bgra[0], bgra[3]};
+
+                Voxel &voxel = *vp->voxel;
+                if (overwrite || voxel.color_count == 0) {
+                    voxel.color = col;
+                    voxel.color_count = 1;
+                } else {
+                    const auto n = static_cast<uint64_t>(voxel.color_count);
+                    for (int c = 0; c < 4; ++c) {
+                        voxel.color[c] = static_cast<uint8_t>(
+                            (static_cast<uint64_t>(voxel.color[c]) * n +
+                             static_cast<uint64_t>(col[c])) /
+                            (n + 1));
+                    }
+                    if (voxel.color_count != UINT32_MAX) { ++voxel.color_count; }
+                }
+                ++painted;
+            }
+
+            return painted;
+        }
     }
 
     template<typename Dtype, int Dim>
@@ -705,6 +955,10 @@ namespace erl::gp_sdf {
         const bool online,
         std::vector<VectorD> &vertices,
         std::vector<Face> &faces) {
+
+        auto lock = this->GetLockGuard();
+        (void) lock;
+
         if (m_setting_->update_map.method != 2) {
             ERL_WARN(
                 "GetMesh is only supported when update_map.method == 2 (i.e., using marching "
@@ -803,6 +1057,10 @@ namespace erl::gp_sdf {
         std::vector<VectorD> &vertices,
         std::vector<Face> &faces,
         std::vector<Color> &face_colors) {
+
+        auto lock = this->GetLockGuard();
+        (void) lock;
+
         if (m_setting_->update_map.method != 2) {
             ERL_WARN(
                 "GetMesh is only supported when update_map.method == 2 (i.e., using marching "
@@ -930,6 +1188,10 @@ namespace erl::gp_sdf {
         Dtype resolution,
         std::vector<VectorD> &vertices,
         std::vector<Face> &faces) {
+
+        auto lock = this->GetLockGuard();
+        (void) lock;
+
         if (m_setting_->update_map.method != 2) {
             ERL_WARN(
                 "GetMesh is only supported when update_map.method == 2 (i.e., using marching "
@@ -1222,6 +1484,8 @@ namespace erl::gp_sdf {
         if (m_changed_clusters_ != other_ptr->m_changed_clusters_) { return false; }
         if (m_clusters_to_update_ != other_ptr->m_clusters_to_update_) { return false; }
         if (m_updated_flags_ != other_ptr->m_updated_flags_) { return false; }
+        if (this->m_last_sensor_position_ != other_ptr->m_last_sensor_position_) { return false; }
+        if (this->m_ever_updated_ != other_ptr->m_ever_updated_) { return false; }
         return true;
     }
 
@@ -1329,6 +1593,19 @@ namespace erl::gp_sdf {
                 },
             },
             // m_marching_queue_ can be reconstructed from m_marching_queue_keys_.
+            {
+                "last_sensor_position",
+                [](const BayesianHilbertSurfaceMapping *self, std::ostream &s) {
+                    return SaveEigenMatrixToBinaryStream(s, self->m_last_sensor_position_) && s.good();
+                },
+            },
+            {
+                "ever_updated",
+                [](const BayesianHilbertSurfaceMapping *self, std::ostream &s) {
+                    s.write(reinterpret_cast<const char *>(&self->m_ever_updated_), sizeof(bool));
+                    return s.good();
+                },
+            },
         };
         return WriteTokens(stream, this, pairs);
     }
@@ -1483,6 +1760,19 @@ namespace erl::gp_sdf {
             // m_bhm_to_sync_ and m_bhm_to_sync_vector_ are temporary.
             // m_block_size_, m_sync_method_ and other frequently used intermediate values are set
             // when m_setting_ is loaded.
+            {
+                "last_sensor_position",
+                [](BayesianHilbertSurfaceMapping *self, std::istream &s) {
+                    return LoadEigenMatrixFromBinaryStream(s, self->m_last_sensor_position_) && s.good();
+                },
+            },
+            {
+                "ever_updated",
+                [](BayesianHilbertSurfaceMapping *self, std::istream &s) {
+                    s.read(reinterpret_cast<char *>(&self->m_ever_updated_), sizeof(bool));
+                    return s.good();
+                },
+            },
         };
         return ReadTokens(stream, this, pairs);
     }

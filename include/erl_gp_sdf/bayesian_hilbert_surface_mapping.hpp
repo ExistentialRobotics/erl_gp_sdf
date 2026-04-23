@@ -15,6 +15,7 @@
 #include "erl_geometry/quadtree_key.hpp"
 
 #include <boost/heap/d_ary_heap.hpp>
+#include <opencv2/core.hpp>
 
 namespace erl::gp_sdf {
 
@@ -39,6 +40,7 @@ namespace erl::gp_sdf {
         using typename Super::Translation;
         using typename Super::VectorD;
         using typename Super::VectorX;
+        using Matrix3 = Eigen::Matrix<Dtype, 3, 3>;
         using ColorMatrix = Eigen::Matrix<uint8_t, 4, Eigen::Dynamic>;
         using GridShape = Eigen::Vector<long, Dim>;
         using GridIndex = Eigen::Vector<long, Dim + 1>;
@@ -377,6 +379,33 @@ namespace erl::gp_sdf {
         PaintVoxels(
             const Eigen::Ref<const MatrixDX> &points,
             const Eigen::Ref<const ColorMatrix> &colors,
+            bool overwrite,
+            bool parallel);
+
+        /**
+         * @brief Paint existing surface voxels from an RGB image (only meaningful for Dim == 3).
+         *
+         * Steps:
+         *   1. Pick local BHMs whose tracked surface AABB intersects the camera frustum.
+         *   2. Collect every surface voxel in those BHMs with its camera-frame depth.
+         *   3. Pick the closest voxel for each image pixel (z-buffer projection).
+         *   4. Update the voxel color from the pixel it claimed (overwrite or running mean).
+         *
+         * @param image        BGRA (CV_8UC4) image.
+         * @param rotation_world_cam     Rotation that maps camera-frame vectors to world frame.
+         * @param translation_world_cam  Camera origin in the world frame (unscaled).
+         * @param intrinsics   3x3 pinhole camera intrinsics K.
+         * @param overwrite    If true, overwrite each voxel's color; otherwise fold via cumulative
+         *                     mean.
+         * @param parallel     If true, parallelise the per-BHM voxel collection stage.
+         * @return Number of voxels successfully painted.
+         */
+        std::size_t
+        PaintVoxels(
+            const cv::Mat &image,
+            const Eigen::Ref<const Matrix3> &rotation_world_cam,
+            const Eigen::Ref<const VectorD> &translation_world_cam,
+            const Eigen::Ref<const Matrix3> &intrinsics,
             bool overwrite,
             bool parallel);
 

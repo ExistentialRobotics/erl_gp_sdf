@@ -9,6 +9,8 @@
 #include "erl_geometry/octree_key.hpp"
 #include "erl_geometry/quadtree_key.hpp"
 
+#include <mutex>
+
 namespace erl::gp_sdf {
 
     template<typename Dtype, int Dim>
