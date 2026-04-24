@@ -290,10 +290,7 @@ namespace erl::gp_sdf {
              (hybrid_sign_methods.first == SignMethod::kExternal ||
               hybrid_sign_methods.second == SignMethod::kExternal))) {
             const ERL_BLOCK_TIMER_MSG("[GpSdf.Test] Get sign from surface mapping");
-            // collect the sign from the surface mapping, which is not thread-safe
-            // CRITICAL SECTION: access m_surface_mapping_
-            const auto surface_mapping_lock = m_surface_mapping_->GetLockGuard();
-            (void) surface_mapping_lock;
+            // IsInFreeSpace -> Predict acquires the surface mapping lock internally
             surf_mapping_sign = m_surface_mapping_->IsInFreeSpace(positions_in, m_in_free_space_);
             ERL_WARN_COND(!surf_mapping_sign, "Failed to get sign from the surface mapping.");
         }

@@ -445,6 +445,8 @@ namespace erl::gp_sdf {
             ERL_WARN("update_occupancy is false, cannot check if positions are in free space.");
             return false;
         }
+        const auto lock = this->GetLockGuard();
+        (void) lock;
         const long num_positions = positions.cols();
         if (in_free_space.size() < num_positions) { in_free_space.resize(num_positions); }
         const Dtype s = m_setting_->scaling;
