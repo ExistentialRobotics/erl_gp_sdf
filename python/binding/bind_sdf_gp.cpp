@@ -70,8 +70,9 @@ BindSdfGpImpl(const py::module &m, const char *name) {
                            compute_gradient_variance,
                            compute_covariance,
                            use_gp_covariance)
-                           ? py::make_tuple(f, var, covariance)
-                           : py::make_tuple(py::none(), py::none(), py::none());
+                           ? static_cast<py::tuple>(py::make_tuple(f, var, covariance))
+                           : static_cast<py::tuple>(
+                                 py::make_tuple(py::none(), py::none(), py::none()));
             });
 }
 
