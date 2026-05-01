@@ -40,13 +40,15 @@ update_tree:
     discrete: true
 update_map:
     method: 2
-    surface_max_abs_logodd: 2
-    surface_bad_abs_logodd: 200
-    surface_step_size: 0.001
+    surface_max_abs_logodd: 2      # used by method 1
+    surface_bad_abs_logodd: 200    # used by method 1
+    surface_step_size: 0.001       # used by method 1
     include_neighbor_bhm: true
-    max_num_points: 50000
+    max_num_points: 50000          # used by method 1
     max_update_dist: -1
-    max_adjust_tries: 1
+    max_adjust_tries: 1            # used by method 1
+    max_num_bhm: 1500              # used by method 2
+    max_num_voxels: 8000           # used by method 2
     var_scale: 500
     var_max: 1.5
 filter_points: false
@@ -56,8 +58,8 @@ scaling: 1.0
 bhm_depth: 15
 weight_sync: true
 sync_method: "copy" # copy, mean, or bayesian
-bhm_overlap: 0.3
-bhm_overlap_sync: 1
+bhm_overlap: 0.3        # used when weight_sync is false
+bhm_overlap_sync: 1     # used when weight_sync is true
 build_bhm_on_hit: true
 unknown_log_odds: 100.0 # unknown space log-odds
 test_knn: 1

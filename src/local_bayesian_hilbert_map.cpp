@@ -493,9 +493,10 @@ namespace erl::gp_sdf {
         voxel_coords[Dim] = 0;  // edge coord, not used here
         if (!GetGridCoords(point, true, voxel_coords)) { return false; }
 
-        auto iter = surf_voxels.find(voxel_coords);
-        if (iter == surf_voxels.end()) { return false; }
-        Voxel &v = iter->second;
+        // auto iter = surf_voxels.find(voxel_coords);
+        // if (iter == surf_voxels.end()) { return false; }
+        // Voxel &v = iter->second;
+        Voxel &v = surf_voxels[voxel_coords];  // create voxel if not exist
 
         if (overwrite || v.color_count == 0) {
             v.color = color;
