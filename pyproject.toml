@@ -10,7 +10,7 @@ build_type = "Release"
 
 [project]
 name = "erl_gp_sdf"
-version = "0.3.0"
+version = "0.4.0"
 description = "Python package for erl_gp_sdf"
 authors = [
     { name = "Zhirui Dai", email = "daizhirui@hotmail.com" }
