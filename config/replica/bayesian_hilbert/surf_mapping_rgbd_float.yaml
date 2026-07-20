@@ -40,7 +40,9 @@ update_map:
     method: 2
     max_num_bhm: 1500
     max_num_voxels: 10000
+    var_scale: 500000
+    var_max: 0.1
 bhm_depth: 7
 scaling: 1.0
 hinged_grid_size: 7 # 7 # 9
-bhm_test_margin: 0.025
+bhm_test_margin: 0.03

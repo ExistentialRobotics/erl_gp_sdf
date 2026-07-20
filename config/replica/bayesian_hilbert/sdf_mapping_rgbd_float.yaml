@@ -6,6 +6,7 @@ test_query:
 update_hz: 10
 min_num_gps_to_update: 256
 gp_sdf_area_scale: 4  # should not be too small
+max_valid_gradient_var: 0.01
 sdf_gp:
     sign_method: "external"
     edf_gp:

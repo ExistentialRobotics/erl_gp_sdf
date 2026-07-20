@@ -41,6 +41,21 @@ update_map:
     max_update_dist: 3.5
     max_num_bhm: 1500
     max_num_voxels: 20000
+    # Variance calibration (vs the common defaults var_scale=500, var_max=1.5).
+    # The method-2 surface-point variance is var_position = var_max * x_pos /
+    # (x_pos + var_max) with x_pos = var_scale * diff^2 / norm_sq
+    # (bayesian_hilbert_surface_mapping.cpp ~L2806). Because diff is tiny
+    # (~surface residual) and norm_sq is large (sharp RBF field, scale 0.013),
+    # var_scale must be ~1e6 for a sane SDF variance — the common default 500 is
+    # ~2000x too small under this equation, giving E[z^2]~1e5 (wildly overconfident).
+    # Tuned against the cow_and_lady GT SDF:
+    #   var_scale=6e6  -> cow_only E[z^2]=1.03, Cov@95%=95.0%, ECE=0.031 (calibrated)
+    #   var_max=0.3    -> caps sigma_position at ~sqrt(0.3)=0.55, below the ~0.6 max
+    #                     |SDF error|, so reported sigma stays physical (no 20 m tails).
+    # The scene grid then sits at E[z^2]~2.8 (irreducible far-field heavy tail) but is
+    # bulk-calibrated (ECE 0.058, Cov 84%); SDF/mesh accuracy is unchanged.
+    var_scale: 6000000
+    var_max: 0.3
 bhm_depth: 7
 scaling: 1.0
 hinged_grid_size: 7

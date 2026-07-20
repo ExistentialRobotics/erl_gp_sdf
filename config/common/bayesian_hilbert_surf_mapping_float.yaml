@@ -49,8 +49,13 @@ update_map:
     max_adjust_tries: 1            # used by method 1
     max_num_bhm: 1500              # used by method 2
     max_num_voxels: 8000           # used by method 2
-    var_scale: 500
-    var_max: 1.5
+    boundary_margin: 0.0           # used by method 2
+    # Method-2 surface-point variance: var_position = var_max * x / (x + var_max),
+    # x = var_scale * diff^2 / |grad|^2. |grad|^2 grows ~1/kernel_scale^2, so the tuned
+    # datasets roughly satisfy var_scale * kernel_scale^2 ~ 550 (=> ~1e6 at a typical
+    # sharp kernel_scale ~0.02).
+    var_scale: 1000000
+    var_max: 0.2
 filter_points: false
 filter_points_min_z_world: -10000.0
 filter_points_max_z_world: 10000.0

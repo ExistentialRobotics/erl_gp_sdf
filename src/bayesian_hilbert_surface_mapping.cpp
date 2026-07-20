@@ -96,6 +96,7 @@ namespace erl::gp_sdf {
         const uint32_t bhm_depth = m_setting_->bhm_depth;
         const typename Setting::UpdateMap &update_map_setting = m_setting_->update_map;
         auto max_num_bhm = static_cast<std::size_t>(update_map_setting.max_num_bhm);
+        const Dtype boundary_margin = update_map_setting.boundary_margin;
 
         if (m_setting_->filter_points && points_s.cols() > 0) {
             long idx = 0;
@@ -154,6 +155,55 @@ namespace erl::gp_sdf {
             // find the local Bayesian Hilbert maps to build or update
             m_changed_clusters_.clear();
             const auto &end_point_maps = m_tree_->GetEndPointMaps();
+            const typename Key::KeyType key_offset = 1 << (m_tree_->GetTreeDepth() - bhm_depth);
+            const Dtype margin_threshold =
+                (static_cast<Dtype>(0.5) - boundary_margin) * m_tree_->GetNodeSize(bhm_depth);
+            auto add_neighbor_bhm = [&](const Key &bhm_key,
+                                        const std::vector<long> &hit_indices,
+                                        const MatrixDX &points_s) {
+                if (!m_setting_->update_map.include_neighbor_bhm) { return; }
+
+                // Find if any hit point is near the boundary of the local BHM, if so, we need
+                // to create the neighboring local BHM (if it does not exist) to avoid the
+                // surface being cut off by the boundary of the local BHM.
+                if (boundary_margin > 0) {
+                    const VectorD bhm_center = m_tree_->KeyToCoord(bhm_key, bhm_depth);
+                    // a point farther than this from the cell center (along an axis) lies
+                    // within the boundary margin of that face: (0.5 - margin) * cell_size
+
+                    for (const long idx: hit_indices) {
+                        const VectorD &point = points_s.col(idx);
+                        for (int i = 0; i < Dim; ++i) {
+                            const Dtype offset = point[i] - bhm_center[i];
+                            if (offset > margin_threshold) {  // near the +i face
+                                Key neighbor_key = bhm_key;
+                                neighbor_key[i] += key_offset;
+                                m_changed_clusters_.insert(neighbor_key);
+                            } else if (offset < -margin_threshold) {  // near the -i face
+                                Key neighbor_key = bhm_key;
+                                neighbor_key[i] = bhm_key[i] - key_offset;
+                                m_changed_clusters_.insert(neighbor_key);
+                            }
+                        }
+                    }
+                }
+
+                // also add neighboring bhm keys if their local bhm exists
+                for (int i = 0; i < Dim; ++i) {
+                    Key neighbor_key = bhm_key;
+                    neighbor_key[i] += key_offset;
+                    auto it = m_key_bhm_dict_.find(neighbor_key);
+                    if (it != m_key_bhm_dict_.end() && it->second->active) {
+                        m_changed_clusters_.insert(neighbor_key);
+                    }
+                    neighbor_key[i] = bhm_key[i] - key_offset;
+                    it = m_key_bhm_dict_.find(neighbor_key);
+                    if (it != m_key_bhm_dict_.end() && it->second->active) {
+                        m_changed_clusters_.insert(neighbor_key);
+                    }
+                }
+            };
+
             if (m_setting_->build_bhm_on_hit) {
                 const ERL_BLOCK_TIMER_MSG("[BHM.Update] Find BHMs to build/update");
                 // any hit point will trigger building the corresponding local Bayesian Hilbert map
@@ -161,23 +211,7 @@ namespace erl::gp_sdf {
                     if (hit_indices.empty()) { continue; }
                     const Key bhm_key = m_tree_->AdjustKeyToDepth(key, bhm_depth);
                     m_changed_clusters_.insert(bhm_key);
-                    if (!m_setting_->update_map.include_neighbor_bhm) { continue; }
-                    // also add neighboring bhm keys if their local bhm exists
-                    const typename Key::KeyType key_offset =
-                        1 << (m_tree_->GetTreeDepth() - bhm_depth);
-                    for (int i = 0; i < Dim; ++i) {
-                        Key neighbor_key = bhm_key;
-                        neighbor_key[i] += key_offset;
-                        auto it = m_key_bhm_dict_.find(neighbor_key);
-                        if (it != m_key_bhm_dict_.end() && it->second->active) {
-                            m_changed_clusters_.insert(neighbor_key);
-                        }
-                        neighbor_key[i] = bhm_key[i] - key_offset;
-                        it = m_key_bhm_dict_.find(neighbor_key);
-                        if (it != m_key_bhm_dict_.end() && it->second->active) {
-                            m_changed_clusters_.insert(neighbor_key);
-                        }
-                    }
+                    add_neighbor_bhm(bhm_key, hit_indices, points_s);
                 }
             } else {
                 const ERL_BLOCK_TIMER_MSG("[BHM.Update] find BHMs to build/update");
@@ -190,23 +224,7 @@ namespace erl::gp_sdf {
                     }
                     const Key bhm_key = m_tree_->AdjustKeyToDepth(key, bhm_depth);
                     m_changed_clusters_.insert(bhm_key);
-                    if (!m_setting_->update_map.include_neighbor_bhm) { continue; }
-                    // also add neighboring bhm keys if their local bhm exists
-                    const typename Key::KeyType key_offset =
-                        1 << (m_tree_->GetTreeDepth() - bhm_depth);
-                    for (int i = 0; i < Dim; ++i) {
-                        Key neighbor_key = bhm_key;
-                        neighbor_key[i] += key_offset;
-                        auto it = m_key_bhm_dict_.find(neighbor_key);
-                        if (it != m_key_bhm_dict_.end() && it->second->active) {
-                            m_changed_clusters_.insert(neighbor_key);
-                        }
-                        neighbor_key[i] = bhm_key[i] - key_offset;
-                        it = m_key_bhm_dict_.find(neighbor_key);
-                        if (it != m_key_bhm_dict_.end() && it->second->active) {
-                            m_changed_clusters_.insert(neighbor_key);
-                        }
-                    }
+                    add_neighbor_bhm(bhm_key, hit_indices, points_s);
                 }
             }
 
@@ -563,8 +581,8 @@ namespace erl::gp_sdf {
         for (auto &kv: buckets) { bucket_vec.emplace_back(kv.first, std::move(kv.second)); }
 
         std::size_t painted = 0;
-    #pragma omp parallel for if (parallel) schedule(dynamic) reduction(+ : painted) default(none) \
-        shared(bucket_vec, points, colors, scaling, overwrite)
+#pragma omp parallel for if (parallel) schedule(dynamic) reduction(+ : painted) default(none) \
+    shared(bucket_vec, points, colors, scaling, overwrite)
         for (std::size_t b = 0; b < bucket_vec.size(); ++b) {
             LocalBhm &local_bhm = *m_key_bhm_dict_.at(bucket_vec[b].first);
             const auto &idxs = bucket_vec[b].second;
@@ -646,18 +664,18 @@ namespace erl::gp_sdf {
             // a pixel inside the image, or the camera center is inside the AABB. We do not need
             // precise visibility check here because even if some BHMs are falsely considered
             // visible, it will not cause big problem other than some extra computation.
-    #pragma omp parallel for if (parallel) schedule(dynamic) default(none) \
-        shared(candidates,                                                 \
-                   rotation_cam_world,                                     \
-                   translation_cam_world,                                  \
-                   translation_world_cam,                                  \
-                   fx,                                                     \
-                   fy,                                                     \
-                   cx,                                                     \
-                   cy,                                                     \
-                   inv_scaling,                                            \
-                   image_width,                                            \
-                   image_height)
+#pragma omp parallel for if (parallel) schedule(dynamic) default(none) \
+    shared(candidates,                                                 \
+               rotation_cam_world,                                     \
+               translation_cam_world,                                  \
+               translation_world_cam,                                  \
+               fx,                                                     \
+               fy,                                                     \
+               cx,                                                     \
+               cy,                                                     \
+               inv_scaling,                                            \
+               image_width,                                            \
+               image_height)
             for (std::size_t i = 0; i < candidates.size(); ++i) {
                 LocalBhm *bhm_ptr = candidates[i];
                 const auto &aabb_s = bhm_ptr->tracked_surface_boundary;  // scaled frame
@@ -713,18 +731,18 @@ namespace erl::gp_sdf {
             };
 
             std::vector<std::vector<VoxelProjection>> per_bhm_projections(visible_bhms.size());
-    #pragma omp parallel for if (parallel) schedule(dynamic) default(none) \
-        shared(visible_bhms,                                               \
-                   per_bhm_projections,                                    \
-                   rotation_cam_world,                                     \
-                   translation_cam_world,                                  \
-                   fx,                                                     \
-                   fy,                                                     \
-                   cx,                                                     \
-                   cy,                                                     \
-                   inv_scaling,                                            \
-                   image_width,                                            \
-                   image_height)
+#pragma omp parallel for if (parallel) schedule(dynamic) default(none) \
+    shared(visible_bhms,                                               \
+               per_bhm_projections,                                    \
+               rotation_cam_world,                                     \
+               translation_cam_world,                                  \
+               fx,                                                     \
+               fy,                                                     \
+               cx,                                                     \
+               cy,                                                     \
+               inv_scaling,                                            \
+               image_width,                                            \
+               image_height)
             for (std::size_t b = 0; b < visible_bhms.size(); ++b) {
                 LocalBhm *bhm_ptr = visible_bhms[b];
                 auto &out = per_bhm_projections[b];
@@ -774,8 +792,8 @@ namespace erl::gp_sdf {
             // and the loop is safe to parallelize. The running-mean branch handles
             // color_count accumulated from prior PaintVoxels calls.
             std::size_t painted = 0;
-    #pragma omp parallel for if (parallel) schedule(dynamic) default(none) \
-        shared(winner, image, n_pixels, image_width, overwrite) reduction(+ : painted)
+#pragma omp parallel for if (parallel) schedule(dynamic) default(none) \
+    shared(winner, image, n_pixels, image_width, overwrite) reduction(+ : painted)
             for (long pix = 0; pix < n_pixels; ++pix) {
                 const VoxelProjection *vp = winner[pix];
                 if (vp == nullptr) { continue; }
@@ -1596,7 +1614,8 @@ namespace erl::gp_sdf {
             {
                 "last_sensor_position",
                 [](const BayesianHilbertSurfaceMapping *self, std::ostream &s) {
-                    return SaveEigenMatrixToBinaryStream(s, self->m_last_sensor_position_) && s.good();
+                    return SaveEigenMatrixToBinaryStream(s, self->m_last_sensor_position_) &&
+                           s.good();
                 },
             },
             {
@@ -1763,7 +1782,8 @@ namespace erl::gp_sdf {
             {
                 "last_sensor_position",
                 [](BayesianHilbertSurfaceMapping *self, std::istream &s) {
-                    return LoadEigenMatrixFromBinaryStream(s, self->m_last_sensor_position_) && s.good();
+                    return LoadEigenMatrixFromBinaryStream(s, self->m_last_sensor_position_) &&
+                           s.good();
                 },
             },
             {

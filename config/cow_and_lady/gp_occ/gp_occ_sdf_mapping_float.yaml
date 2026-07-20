@@ -1,4 +1,4 @@
-__base__: ../common/sdf_mapping_float.yaml
+__base__: ../../common/sdf_mapping_float.yaml
 test_query:
     search_area_half_size: 5
     num_neighbor_gps: 8

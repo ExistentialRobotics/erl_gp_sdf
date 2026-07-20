@@ -1,4 +1,4 @@
-__base__: ../common/gp_occ_surf_mapping_float.yaml
+__base__: ../../common/gp_occ_surf_mapping_float.yaml
 sensor_gp:
     row_group_size: 8
     row_overlap_size: 4

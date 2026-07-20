@@ -106,6 +106,12 @@ namespace erl::gp_sdf {
                 Dtype surface_step_size = 0.01f;
                 // whether to update neighboring BHMs of the current local BHM
                 bool include_neighbor_bhm = true;
+                // when > 0, a hit point that falls within this fraction of a local BHM's cell size
+                // from one of its faces triggers creating the neighboring BHM across that face, so a
+                // surface lying near the cell boundary is not cut off. Expressed as a fraction of the
+                // cell size in [0, 0.5] (e.g. 0.1 = 10%); 0 disables it. Only takes effect together
+                // with include_neighbor_bhm.
+                Dtype boundary_margin = 0.0f;
                 // maximum distance from sensor position for updating local BHMs
                 Dtype max_update_dist = 1000.0f;
                 // maximum number of local Bayesian Hilbert maps to update in one iteration
@@ -128,6 +134,7 @@ namespace erl::gp_sdf {
                     ERL_REFLECT_MEMBER(UpdateMap, surface_bad_abs_logodd),
                     ERL_REFLECT_MEMBER(UpdateMap, surface_step_size),
                     ERL_REFLECT_MEMBER(UpdateMap, include_neighbor_bhm),
+                    ERL_REFLECT_MEMBER(UpdateMap, boundary_margin),
                     ERL_REFLECT_MEMBER(UpdateMap, max_update_dist),
                     ERL_REFLECT_MEMBER(UpdateMap, max_num_bhm),
                     ERL_REFLECT_MEMBER(UpdateMap, max_num_points),

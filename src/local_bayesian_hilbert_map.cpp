@@ -6,6 +6,8 @@
 
 #include <absl/container/flat_hash_set.h>
 
+#include <cmath>
+
 namespace erl::gp_sdf {
 
     template<typename Dtype, int Dim>
@@ -300,13 +302,18 @@ namespace erl::gp_sdf {
             // add hit points to the hit point buffer
             for (const auto &index: hit_indices) {
                 const VectorD point = points.col(index);
-                if (auto_surface_log_odds) { hit_point_buffer.emplace_back(point); }
-                if (!update_surface_voxels) { continue; }
                 GridIndex voxel_coords;
                 voxel_coords[Dim] = 0;  // edge coord, not used here
 
                 // check if the point is within the tracked surface boundary
-                if (!GetGridCoords(point, true, voxel_coords)) { continue; }
+                const bool in_bbox = GetGridCoords(point, true, voxel_coords);
+
+                // Only in-bbox hits estimate the surface level. hit_indices come from the enlarged
+                // sampling area (sampling_area_scale) and mostly belong to neighboring cells with a
+                // lower field; including them biases surface_log_odds far below this cell's own
+                // surface, so no marching voxel ever straddles it.
+                if (auto_surface_log_odds && in_bbox) { hit_point_buffer.emplace_back(point); }
+                if (!update_surface_voxels || !in_bbox) { continue; }
 
                 // if new voxel, mark as updated
                 auto [iter, inserted] = surf_voxels.try_emplace(voxel_coords, Voxel{});
@@ -371,15 +378,22 @@ namespace erl::gp_sdf {
             if (log_odd < valid_surf_log_odds_min || log_odd > valid_surf_log_odds_max) {
                 continue;  // skip outliers
             }
-            // surface_log_odds += log_odd;
-            // ++log_odds_count;
             new_surface_log_odds += log_odd;
             ++n_valid_count;
         }
         if (n_valid_count == 0) { return updated; }  // failed to get new surface log-odds
         new_surface_log_odds /= static_cast<Dtype>(n_valid_count);  // average log-odds
         const Dtype t = setting->surface_log_odds_lr;               // learning rate
-        surface_log_odds = t * new_surface_log_odds + (1 - t) * surface_log_odds;
+        if (log_odds_count == 0 && std::isinf(surface_log_odds)) {
+            // First valid estimate for a cell whose config sets surface_log_odds to +/-inf: seed
+            // the level directly from the observed field instead of EMA-ing from the sentinel.
+            // Otherwise the init value drags the EMA for many updates, so briefly-observed cells
+            // freeze far below their field level and produce no surface. Later updates EMA from the
+            // seed. (log_odds_count starts at 0 and marks "not yet seeded".)
+            surface_log_odds = new_surface_log_odds;
+        } else {
+            surface_log_odds = t * new_surface_log_odds + (1 - t) * surface_log_odds;
+        }
         log_odds_count += n_valid_count;  // update sample count (just for record)
         // surface_log_odds /= static_cast<Dtype>(n_hit_points);
         // surface_log_odds /= static_cast<Dtype>(log_odds_count);
@@ -406,6 +420,8 @@ namespace erl::gp_sdf {
         if (surface_log_odds < setting->surface_log_odds_min ||
             surface_log_odds > setting->surface_log_odds_max) {
             active = false;
+            surface_log_odds = setting->surface_log_odds;  // reset to default
+            log_odds_count = 0;                            // reset count
         }
 
         return updated;
@@ -424,7 +440,9 @@ namespace erl::gp_sdf {
 
         if (collect_rays_only && setting->auto_surface_log_odds) {
             for (const auto &index: hit_indices) {
-                hit_point_buffer.emplace_back(points.col(index));
+                // only in-bbox hits estimate the surface level (see UpdateSurface for why)
+                const VectorD point = points.col(index);
+                if (tracked_surface_boundary.contains(point)) { hit_point_buffer.emplace_back(point); }
             }
             if (setting->hit_point_buffer_size > 0) {
                 // move hit points to the ring buffer.

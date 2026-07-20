@@ -8,6 +8,8 @@ test_query:
     compute_gradient_variance: false # whether to compute gradient variance
     compute_covariance: false # whether to compute covariance
     use_gp_covariance: false
+    softmin_based: false # whether to use softmin-based prediction
+    nearest_neighbor_based: false # whether to use nearest-neighbor-based prediction (no var/cov)
     retrain_outdated: true # whether to retrain the trained but outdated GPs
     max_num_retrain_gps: 500 # max number of retrained GPs before a test query
     use_global_buffer: true # whether to use the global buffer for test queries
@@ -24,6 +26,7 @@ sensor_noise: 0.001
 gp_sdf_area_scale: 8 # should be large enough
 max_valid_gradient_var: 0.1
 invalid_position_var: 2.0
+overwrite_position_var: -1.0  # no overwrite if negative; otherwise, overwrite all position variances with this value (for ablation)
 sdf_gp:
     sign_method: "external" # "sign_gp", "normal_gp", "external", "hybrid", "none"
     hybrid_sign_methods: [ "sign_gp", "external" ]

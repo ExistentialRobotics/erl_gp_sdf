@@ -71,7 +71,8 @@ struct OptionsForTestMapping2D : public erl::common::Yamlable<OptionsForTestMapp
     long seq_stride = 1;
     long vis_stride = 1;
     long num_final_iterations = -1;
-    Dtype map_resolution = 0.025;
+    Dtype map_resolution = 0.05;
+    long map_padding = 5;
     Dtype surf_normal_scale = 0.35;
 
     Dtype test_res_grid = 0.025;
@@ -109,6 +110,7 @@ struct OptionsForTestMapping2D : public erl::common::Yamlable<OptionsForTestMapp
         ERL_REFLECT_MEMBER(OptionsForTestMapping2D, vis_stride),
         ERL_REFLECT_MEMBER(OptionsForTestMapping2D, num_final_iterations),
         ERL_REFLECT_MEMBER(OptionsForTestMapping2D, map_resolution),
+        ERL_REFLECT_MEMBER(OptionsForTestMapping2D, map_padding),
         ERL_REFLECT_MEMBER(OptionsForTestMapping2D, surf_normal_scale),
         ERL_REFLECT_MEMBER(OptionsForTestMapping2D, test_res_grid),
         ERL_REFLECT_MEMBER(OptionsForTestMapping2D, test_grid_def),
@@ -178,7 +180,6 @@ struct TestMapping2D {
 
     // dataset
 
-    DataSetType dataset_type = DataSetType::GazeboRoom2D;
     std::shared_ptr<GazeboRoom2D::TrainDataLoader> gazebo_room_2d = nullptr;
     std::shared_ptr<HouseExpoMap> house_expo_map = nullptr;
     std::vector<std::vector<Dtype>> house_expo_traj;
@@ -370,16 +371,21 @@ public:
             WriteMesh(vertices, faces, filepath);
         }
 
-        if (options->interactive) {
-            Interactive();
-        } else {
-            if (options->visualize && options->hold) {
-                std::cout << "Press any key to exit." << std::endl;
-                cv::waitKey(0);
-            } else {
-                constexpr double wait_time = 10.0;
-                cv::waitKey(wait_time * 1000);  // wait for 10 seconds
-            }
+        // Interactive() self-guards on options->interactive and blocks until the user
+        // quits (ESC/q) for tests that implement it (e.g. the SDF mapping test); it is a
+        // no-op for tests without an interactive mode (e.g. the surface mapping test).
+        // Run it first, then honor --hold independently so that --hold true always keeps
+        // the windows open -- even alongside --interactive, and even for tests whose
+        // Interactive() is a no-op. --hold needs --visualize (there is no window
+        // otherwise).
+        if (options->interactive) { Interactive(); }
+
+        if (options->visualize && options->hold) {
+            std::cout << "Press any key to exit." << std::endl;
+            cv::waitKey(0);
+        } else if (options->visualize && !options->interactive) {
+            constexpr double wait_time = 10.0;
+            cv::waitKey(wait_time * 1000);  // wait for 10 seconds
         }
     }
 
@@ -479,7 +485,7 @@ protected:
 
     void
     PrepareDataset() {
-        switch (dataset_type) {
+        switch (options->dataset_type) {
             case DataSetType::GazeboRoom2D:
                 PrepareGazeboRoom2D();
                 break;
@@ -522,7 +528,7 @@ protected:
         tree_drawer_setting->area_max = map_max.template cast<float>();
         tree_drawer_setting->resolution = options->map_resolution;
         tree_drawer_setting->scaling = scaling;
-        tree_drawer_setting->padding = 1;
+        tree_drawer_setting->padding = options->map_padding;
         tree_drawer_setting->border_color = cv::Scalar(255, 0, 0, 255);
 
         quadtree_drawer = std::make_shared<QuadtreeDrawer>(tree_drawer_setting, quadtree);
@@ -572,7 +578,7 @@ protected:
     void
     LoadData() {
         const ERL_BLOCK_TIMER_MSG("[App] Data Loading");
-        switch (dataset_type) {
+        switch (options->dataset_type) {
             case DataSetType::GazeboRoom2D:
                 LoadDataFromGazeboRoom2D();
                 break;

@@ -9,7 +9,10 @@
 [![ROS2](https://img.shields.io/badge/ROS2-humble-blue)](https://docs.ros.org/)
 [![ROS2](https://img.shields.io/badge/ROS2-jazzy-blue)](https://docs.ros.org/)
 
-![](test/gtest/assets/test_gp_sdf_mapping_cow_and_lady.png)
+<p align="center">
+  <img src="assets/demo_cow_and_lady.png" alt="Cow and Lady SDF mapping demo" width="49%" />
+  <img src="assets/demo_ros_newer_college.png" alt="Newer College ROS demo" width="49%" />
+</p>
 
 **A C++ library for Gaussian Process regression on Signed Distance Fields.**
 
@@ -34,7 +37,7 @@
 
 ```shell
 mkdir -p <your_workspace>/src && \
-vcs import --input https://raw.githubusercontent.com/ExistentialRobotics/erl_gp_sdf/refs/head/main/erl_gp_sdf.repos <your_workspace>/src
+vcs import --input https://raw.githubusercontent.com/ExistentialRobotics/erl_gp_sdf/refs/heads/main/erl_gp_sdf.repos <your_workspace>/src
 ```
 
 ### Dependencies
@@ -125,35 +128,15 @@ done
 #### C++
 
 - [Gallery](test/gtest/README.md)
-- [Gaussian Process based surface mapping 2D / 3D](test/gtest/test_gp_occ_surface_mapping.cpp)
-- [Gaussian Process based SDF mapping 2D](test/gtest/test_gp_sdf_mapping_2d.cpp)
-- [Gaussian Process based SDF mapping 3D](test/gtest/test_gp_sdf_mapping_3d.cpp)
+- [Surface mapping (Bayesian Hilbert Map) 2D](test/gtest/test_bayesian_hilbert_surface_mapping_2d.cpp) / [3D](test/gtest/test_bayesian_hilbert_surface_mapping_3d.cpp)
+- [SDF mapping 2D](test/gtest/test_bayesian_hilbert_gp_sdf_mapping_2d.cpp)
+- [SDF mapping 3D](test/gtest/test_bayesian_hilbert_gp_sdf_mapping_3d.cpp)
 
 #### Python
 
 - [Gallery](test/pytest/README.md)
-- [Gaussian Process based SDF mapping 3D](test/pytest/test_gp_sdf_mapping_3d.py)
-
-<!-- TODO: update links to the new location -->
-<!-- # Pretrained GP-SDF Models
-
-- [3D GP-SDF Model](https://drive.google.com/file/d/1K69JHQLg7LuNNc5ZhkY8-frIqXQisSpP/view?usp=sharing)
-  trained on [Cow And Lady](https://projects.asl.ethz.ch/datasets/doku.php?id=iros2017), which can
-  be loaded using the implementation
-  from [erl_geometry](https://github.com/ExistentialRobotics/erl_geometry/blob/main/include/erl_geometry/cow_and_lady.hpp).
-- [3D GP-SDF Model](https://drive.google.com/file/d/1fraha9Fm00-3uKDujFBdsTSOJ4ZXsjdp/view?usp=sharing)
-  trained on [Replica Hotel](data/replica-hotel-0.ply) with 640x480 simulated depth camera.
-- [3D GP-SDF Model](https://drive.google.com/file/d/106SZjY4xzPJWYWYkD4LjINdxmUadlABV/view?usp=sharing)
-  trained on [Replica Hotel](data/replica-hotel-0.ply) with simulated 3D
-  LiDAR ([Velodyne Puck](https://www.amtechs.co.jp/product/VLP-16-Puck.pdf)).
-- [3D GP-SDF Model](https://drive.google.com/file/d/135hlITMUeMNLi42VgdIteQmb2YK2m1y5/view?usp=sharing)
-  trained on [Replica Hotel](data/replica-hotel-0.ply) with simulated 3D 360 LiDAR.
-- [2D GP-SDF Model](https://drive.google.com/file/d/1ET0JUxA8fpUzYNkZXLheApPk3vqrPdiL/view?usp=sharing)
-  trained on [UCSD-FAH-2D](data/ucsd_fah_2d.dat).
-- [2D GP-SDF Model](https://drive.google.com/file/d/1JEZcFxGaI2ctoL_tiyqtAK-ARvFpHsFg/view?usp=sharing)
-  trained on [Gazebo Room 2D](data/gazebo_train.dat) with simulated 2D LiDAR.
-- [2D GP-SDF Model](https://drive.google.com/file/d/1hwmpCe2c8NZ6K9RAcrWyFfP1RMW9dr9l/view?usp=sharing)
-  trained on [House Expo LiDAR 2D](data/house_expo_room_1451.json) with simulated 2D LiDAR. -->
+- [SDF mapping 2D](test/pytest/test_gp_sdf_mapping_2d.py)
+- [SDF mapping 3D](test/pytest/test_gp_sdf_mapping_3d.py)
 
 ### 🚪 [With ROS](https://github.com/ExistentialRobotics/erl_gp_sdf_ros)
 
@@ -161,5 +144,8 @@ done
 
 ## Acknowledgements
 
-We gratefully acknowledge support from the [ARL DCIST CRA](https://www.dcist-cra.org/) and the Ministry of Trade, Industry and Energy (MOTIE), Korea, under the Strategic Technology
-Development Program, supervised by the Korea Institute for Advancement of Technology (KIAT) [Grant No. P0026052].
+This work was supported by [ARL DCIST CRA](https://www.dcist-cra.org/) W911NF-17-2-0181, NSF FRR CAREER 2045945, the
+Ministry of Trade, Industry, and Energy (MOTIE), Korea, under the Strategic Technology Development Program supervised by
+the Korea Institute for Advancement of Technology (KIAT) [Grant No. P0026052], and the Korea Institute of Planning and
+Evaluation for Technology in Food, Agriculture, Forestry (IPET) through the Smart Farm Innovation Technology Development
+Program, funded by the Ministry of Agriculture, Food and Rural Affairs (MAFRA) (RS-2025-02219411).

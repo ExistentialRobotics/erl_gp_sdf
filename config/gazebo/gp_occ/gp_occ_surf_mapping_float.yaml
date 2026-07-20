@@ -1,4 +1,4 @@
-__base__: ../common/gp_occ_surf_mapping_float.yaml
+__base__: ../../common/gp_occ_surf_mapping_float.yaml
 sensor_gp:
     partition_on_hit_rays: false
     symmetric_partitions: true

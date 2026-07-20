@@ -43,6 +43,5 @@ sdf_gp:
             scale_mix: 1
             weights: [ ]
         log_lambda: 10
-        duplicate_epsilon: 0.001
         max_num_samples: 192   # max dataset size
         no_gradient_observation: true

@@ -1,4 +1,4 @@
-__base__: ../common/sdf_mapping_float.yaml
+__base__: ../../common/sdf_mapping_float.yaml
 test_query:
     max_test_valid_distance_var: 1
     search_area_half_size: 4

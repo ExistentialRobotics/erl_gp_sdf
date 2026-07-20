@@ -564,7 +564,7 @@ protected:
     PrepareNewerCollege() {
         // dataset
         newer_college = std::make_shared<NewerCollege>(options->newer_college_dir);
-        max_wp_idx = erl::geometry::NewerCollege::Size();
+        max_wp_idx = newer_college->Size();
         is_lidar = true;
         raw_data_is_points = true;
         raw_data_is_row_major = true;

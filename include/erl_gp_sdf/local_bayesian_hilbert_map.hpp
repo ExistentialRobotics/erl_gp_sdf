@@ -149,7 +149,7 @@ namespace erl::gp_sdf {
         bool active = false;                 // whether the local BHM is active
         SurfaceDataMap surf_data_cache;      // temporary cache
         Dtype surface_log_odds = 0.0f;       // log-odds value for surface points
-        uint64_t log_odds_count = 1;         // number of log-odds samples
+        uint64_t log_odds_count = 0;         // 0 = surface level not yet seeded
         std::size_t surface_update_timestamp = 0;  // incremented when surface data changes
 
         LocalBayesianHilbertMap(

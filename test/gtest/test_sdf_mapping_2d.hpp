@@ -196,11 +196,15 @@ struct Options : public erl::common::Yamlable<Options<Dtype>, OptionsForTestMapp
 
     std::string surf_map_config_file;
     std::string sdf_map_config_file;
+    long plplot_width = 1280;
+    long plplot_height = 480;
 
     ERL_REFLECT_SCHEMA(
         Options,
         ERL_REFLECT_MEMBER(Options, surf_map_config_file),
-        ERL_REFLECT_MEMBER(Options, sdf_map_config_file));
+        ERL_REFLECT_MEMBER(Options, sdf_map_config_file),
+        ERL_REFLECT_MEMBER(Options, plplot_width),
+        ERL_REFLECT_MEMBER(Options, plplot_height));
 
     bool
     PostDeserialization() override {
@@ -217,13 +221,16 @@ struct Options : public erl::common::Yamlable<Options<Dtype>, OptionsForTestMapp
 
 template<typename Dtype, typename SurfMapType>
 struct TestSdfMapping2D : public TestMapping2D<Dtype, erl::gp_sdf::GpSdfMapping<Dtype, 2>> {
+    using OptionType = Options<Dtype>;
+private:
+    std::shared_ptr<OptionType> options = nullptr;
+
+public:
     using Super = TestMapping2D<Dtype, erl::gp_sdf::GpSdfMapping<Dtype, 2>>;
     using SurfMap = SurfMapType;
     using SdfMap = erl::gp_sdf::GpSdfMapping<Dtype, 2>;
     using SurfMapSetting = typename SurfMap::Setting;
     using SdfMapSetting = typename SdfMap::Setting;
-    using OptionType = Options<Dtype>;
-
     using PlplotFig = erl::common::PlplotFig;
 
     using Matrix3 = Eigen::Matrix3<Dtype>;
@@ -308,18 +315,16 @@ struct TestSdfMapping2D : public TestMapping2D<Dtype, erl::gp_sdf::GpSdfMapping<
     double sdf_map_update_dt = 0;
     double surf_map_update_fps = 0;
     double sdf_map_update_fps = 0;
-    // Eigen::VectorXl gp_indices;
-    // absl::flat_hash_map<uint64_t, long> gp_index_map;
-
-private:
-    std::shared_ptr<OptionType> options = nullptr;
 
 public:
     TestSdfMapping2D(
         const int argc,
         char *argv[],
         std::shared_ptr<OptionType> options = std::make_shared<OptionType>())
-        : Super(argc, argv, options), options(options) {}
+        : Super(argc, argv, options),
+          options(options),
+          fig_sdf(options->plplot_width, options->plplot_height, true),
+          fig_grad(options->plplot_width, options->plplot_height, true) {}
 
 protected:
     // initialization
@@ -763,13 +768,15 @@ protected:
 
     void
     UpdateCanvas() {
+        const int fig_col_width = fig_sdf.Width();
+        const int fig_col_height = fig_sdf.Height() + fig_grad.Height();
         cv::Mat tmp(
-            std::max(img_scene.rows, 960),
-            img_scene.cols + 1280,
+            std::max(img_scene.rows, fig_col_height),
+            img_scene.cols + fig_col_width,
             CV_8UC4,
             cv::Scalar(255, 255, 255, 255));
         if (img_scene.rows == tmp.rows) {
-            const int offset = (tmp.rows - fig_sdf.Height() * 2) / 2;
+            const int offset = (tmp.rows - fig_col_height) / 2;
             img_scene.copyTo(tmp(cv::Rect(0, 0, img_scene.cols, img_scene.rows)));
             fig_sdf.ToCvMat().copyTo(
                 tmp(cv::Rect(img_scene.cols, offset, fig_sdf.Width(), fig_sdf.Height())));
