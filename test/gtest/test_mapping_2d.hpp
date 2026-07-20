@@ -280,6 +280,11 @@ public:
                 this->UpdateVisualization();
             };
 
+            // Tracks whether the HighGUI window has ever actually appeared. Some OpenCV builds
+            // (e.g. Homebrew's macOS package, or any headless run) never create a queryable
+            // window, so cv::getWindowProperty always returns -1. Without this guard the
+            // window-closed check below would fire on the very first frame and abort the loop.
+            bool window_ever_shown = false;
             for (; wp_idx < max_wp_idx; wp_idx += options->seq_stride) {
                 ERL_INFO("wp_idx: {}", wp_idx);
                 LoadData();
@@ -313,8 +318,16 @@ public:
                     if (key == 27) { break; }  // ESC
                     if (key == 'q') { break; }
 
-                    // check if the window is closed
-                    if (cv::getWindowProperty(window_name, cv::WND_PROP_AUTOSIZE) == -1) { break; }
+                    // Break only if a window that was previously shown is now gone (user
+                    // closed it). A persistent -1 means this build never opens a window, so
+                    // we must not treat it as "closed" and abort the whole sequence.
+                    const bool window_exists =
+                        cv::getWindowProperty(window_name, cv::WND_PROP_AUTOSIZE) != -1;
+                    if (window_exists) {
+                        window_ever_shown = true;
+                    } else if (window_ever_shown) {
+                        break;
+                    }
                 }
             }
 

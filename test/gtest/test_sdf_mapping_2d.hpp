@@ -222,6 +222,7 @@ struct Options : public erl::common::Yamlable<Options<Dtype>, OptionsForTestMapp
 template<typename Dtype, typename SurfMapType>
 struct TestSdfMapping2D : public TestMapping2D<Dtype, erl::gp_sdf::GpSdfMapping<Dtype, 2>> {
     using OptionType = Options<Dtype>;
+
 private:
     std::shared_ptr<OptionType> options = nullptr;
 
@@ -916,7 +917,15 @@ protected:
             data.window_name,
             OpenCvMouseCallback<Dtype, SurfMap, SdfMap, QuadtreeDrawer>,
             &data);
-        while (cv::waitKey(0) != 27 && cv::waitKey(0) != 'q') {}  // wait for ESC/q key
+        while (true) {
+            const int key = cv::waitKey(0);          // read the key ONCE per iteration
+            if (key == 27 || key == 'q') { break; }  // ESC or q quits
+            // key == -1 means no window can receive events (headless build / no GUI backend);
+            // without this we would busy-loop forever. Also break if the window was closed.
+            if (key == -1 || cv::getWindowProperty(data.window_name, cv::WND_PROP_AUTOSIZE) == -1) {
+                break;
+            }
+        }
     }
 
     std::string
