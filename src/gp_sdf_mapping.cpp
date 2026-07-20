@@ -1014,7 +1014,11 @@ namespace erl::gp_sdf {
         const double time_budget_us,
         const bool ignore_budget) {
 
-        if (m_load_data_queue_.empty()) {
+        // New GPs that load data immediately are staged in m_key_vectors_[0], not the queue. If the
+        // queue is empty but such new GPs exist, we must still process them below.
+        const bool has_immediate_new_gps =
+            m_setting_->new_gp_load_data_immediately && !m_key_vectors_[0].empty();
+        if (m_load_data_queue_.empty() && !has_immediate_new_gps) {
             ERL_INFO("Load data queue is empty.");
             return;
         }
