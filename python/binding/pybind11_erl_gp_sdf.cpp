@@ -1,4 +1,5 @@
 #include "erl_common/pybind11.hpp"
+#include "erl_common/pybind11_yaml.hpp"
 
 void
 BindSurfaceDataManager(const py::module &m);
@@ -27,6 +28,7 @@ BindGpSdfMapping(const py::module &m);
 PYBIND11_MODULE(PYBIND_MODULE_NAME, m) {
     m.doc() = "Python 3 Interface of erl_gp_sdf";
 
+    BindYamlableBase(m);
     BindSurfaceDataManager(m);
     BindLogEdfGaussianProcess(m);
     BindSdfGpSetting(m);
